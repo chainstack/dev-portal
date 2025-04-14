@@ -1,0 +1,130 @@
+---
+title: "Chainlink: Estimating the Price of a Call"
+---
+
+TLDR:
+* A script in JavaScript using the [Chainlink functions toolkit library](https://www.npmjs.com/package/@chainlink/functions-toolkit) to estimate the call cost before making the actual smart contract call to the DON network and getting frustrated when it fails.
+
+<Check>
+### Get you own node endpoint today
+
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+  You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Overview
+
+[Chainlink functions](https://chain.link/functions) is no small feat in Web3 and it's part more than one onboarding guides for developers getting seriously into in the industry. After all, deploying a simple ERC20 token is no longer enough. AI agents do it all the time.
+
+Chainlink has a very good functions tutorial: [Chainlink Functions Getting Started](https://docs.chain.link/chainlink-functions/getting-started).
+
+It's designed to be very easy and informative. It explains every step and there are videos to follow along too.
+
+One thing, however, is a number of onboarding developers fail at the sending the actual request. A lot of the times it fails.
+
+This extremely specific article fixes that. Why? Because people get confused at this step, there's no logging or explanation, in their confusion, they don't know whether it's an RPC endpoint or something else. And it involves quite a bit of digging to get understand what actually is going on.
+
+Since I was involved in the troubleshooting (or basically had to troubleshoot), I'm putting out this quick script to public in case someone else finds it useful.
+
+The scripts prints what the network *thinks* the call needs to cost to be fulfilled and not fail. I put the word *thinks* here in italics because it's not what the actual computation ends up costing, but it's what preventing the call from going through and you the messages like:
+
+* The request will most likely fail. Do you want to continue?
+
+  * `sendRequest` failed
+  * `sendRequest` execution reverted
+
+It can be very frustrating if you are following a tutorial to a ***t*** and still can't through for reasons you can't understand.
+
+## Details
+
+It costs $LINK to fulfill the requests on the Chainlink Oracle network, but the examples you are doing are on Sepolia where the dynamic Oracle call price due to it being the testnet infrastructure can fluctuate wildly.
+
+While the example in the tutorial might show that having 2 links on your funded subscription account is more that enough, more often than not the actual price estimate can be otherworldly like 16 $LINK or even hundreds of LINK.
+
+And not having enough $LINK on your subscription account is what actually makes the call fail without explaining it to you. Not that the actual fulfillment price will still be something reasonable within the $LINK decimals range (not even one Link). But the amount of $LINK on you subscription account will make your transaction revert and fail.
+
+## Call estimation script
+
+Make sure you have the [Chainlink functions toolkit library](https://www.npmjs.com/package/@chainlink/functions-toolkit) installed.
+
+So here's the script:
+
+Note it's for Sepolia. You'll need other values for different networks, but you can find them easily in the Chainlink documentation that's generally has always been pretty well maintained: [Chainlink Functions: Supported Networks](https://docs.chain.link/chainlink-functions/supported-networks) .
+
+Also you can change `subscriptionId` to your subscription, but for the default Chainlink tutorial it doesn't really matter.
+
+And provide and an actual endpoint for the query to go through here `CHAINSTACK_SEPOLIA_RPC`.
+
+<CodeGroup>
+  ```node estimateCall.js
+  import { SubscriptionManager } from '@chainlink/functions-toolkit'
+  import { ethers } from 'ethers'
+
+  async function estimateRequestCost() {
+    try {
+      const provider = new ethers.providers.JsonRpcProvider('CHAINSTACK_SEPOLIA_RPC')
+      const signer = ethers.Wallet.createRandom().connect(provider)
+
+      const subscriptionManager = new SubscriptionManager({
+        signer,
+        linkTokenAddress: '0x779877A7B0D9E8603169DdbD7836e478b4624789', // Sepolia LINK address
+        functionsRouterAddress: '0xb83E47C2bC239B3bf370bc41e1459A34b41238D0', // Sepolia Router address
+      })
+
+      await subscriptionManager.initialize()
+
+      const estimatedCostInJuels = await subscriptionManager.estimateFunctionsRequestCost({
+        subscriptionId: 4062,
+        callbackGasLimit: 300000,
+        gasPriceWei: BigInt(20000000000), // 20 gwei
+        donId: 'fun-ethereum-sepolia-1'
+      })
+
+      const estimatedCostInLink = ethers.utils.formatEther(estimatedCostInJuels.toString())
+
+      console.log(`Estimated cost: ${estimatedCostInLink} LINK`)
+    } catch (error) {
+      console.error('Error:', error)
+    }
+  }
+
+  estimateRequestCost()
+  ```
+</CodeGroup>
+
+For example, at the time posting this article:
+
+<CodeGroup>
+  ```shell Shell
+  % node estimateCost.js
+  Estimated cost: 14.358219259338930318 LINK
+  ```
+</CodeGroup>
+
+Which would mean I'd need to have 14+ $LINK on my subscription account for the [sendRequest](https://docs.chain.link/chainlink-functions/getting-started#run-the-example) to be successful.
+
+## Conclusion
+
+Cost estimation is a crucial step in working with Chainlink Functions. This script helps you understand the $LINK token costs associated with your Functions requests before deployment, allowing for better resource planning and optimization.
+
+It may be flaky on Sepolia, but it's still a must-have survival skill for prod. Happy learning!
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

@@ -1,0 +1,285 @@
+---
+title: "Solana: Analyzing Adjacent Transactions for Priority Fees"
+---
+
+**TLDR**
+* This Python script inspects the fee usage in blocks adjacent to your own target transaction on Solana, focusing on the same on-chain program.
+* It decodes compute budget instructions (priority fees) to show both your transaction’s fee and those of other transactions in nearby blocks.
+* By comparing priority fees, you can tune your own transaction fees to optimize speed or cost, and troubleshoot performance.
+* Useful for pump.fun or any scenario where outbidding other participants at the block level is crucial.
+
+## Main article
+
+This guide shows you how to analyze transaction priority fees for transactions adjacent to your target transaction on Solana. This is particularly useful when developing trading strategies or troubleshooting transaction execution on programs like pump.fun.
+
+What the script in this tutorial does is look for transactions adjacent to the one you specify (usually your own) and checks all other transactions involving the same program and prints the priority fees in the same block and the adjacent blocks to easily see how your particular transaction stacks up and how you can tune it to win more races.
+
+## Prerequisites
+
+<Check>
+### Get you own node endpoint today
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+  You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+* Python 3.7+
+* Packages: `pip install solana base58`
+
+## Understanding Solana fees
+
+The recommended reading list:
+
+* [How to use Priority Fees to unlock faster transactions](/docs/solana-how-to-priority-fees-faster-transactions)
+* [Estimate Priority Fees with getRecentPrioritizationFees](/docs/solana-estimate-priority-fees-getrecentprioritizationfees)
+* [Solana Trader nodes](/docs/solana-trader-nodes)
+* Or the official Solan docs: [Fees on Solana](https://solana.com/docs/core/fees).
+
+## Implementation
+
+If you end up in this specific scenario as outlined in the beginning of the article, here's things that you need to have to get the results:
+
+* A program address that you are interacting with to get the races simply won or tactically won (like trying to get your transaction execution at a certain place in the race instead of trying to be first), or simply how much on an edge you need to be the first. Which you can also do with [How to use Priority Fees to unlock faster transactions](/docs/solana-how-to-priority-fees-faster-transactions) and [Estimate Priority Fees with getRecentPrioritizationFees](/docs/solana-estimate-priority-fees-getrecentprioritizationfees) as mentioned.
+* A transaction signature — this can be the signature of your transaction of a transaction of an account that you get through your own [humint](https://en.wikipedia.org/wiki/Human_intelligence_\(intelligence_gathering\)) ways.
+
+The script itself:
+
+<CodeGroup>
+  ```python Python
+  from solana.rpc.api import Client
+  from solana.rpc.commitment import Commitment
+  from solana.transaction import Signature
+  import base58
+  import json
+  from typing import List, Optional, Tuple
+
+  PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
+  COMPUTE_BUDGET_ID = "ComputeBudget111111111111111111111111111111"
+
+  def get_transaction_slot(client: Client, signature_str: str) -> Optional[int]:
+      try:
+          signature_bytes = base58.b58decode(signature_str)
+          signature = Signature(signature_bytes)
+
+          response = client.get_transaction(
+              signature,
+              max_supported_transaction_version=0
+          )
+          if hasattr(response, 'value') and response.value:
+              return response.value.slot
+          return None
+      except Exception as e:
+          print(f"Error getting transaction slot: {e}")
+          return None
+
+  def calculate_transaction_fees(tx) -> Tuple[float, float]:
+
+      total_fee_lamports = tx.meta.fee
+      total_fee_sol = total_fee_lamports / 1_000_000_000
+
+      cu_price_micro_lamports = None
+      cu_limit = None
+
+
+      for ix in tx.transaction.message.instructions:
+          program_id = tx.transaction.message.account_keys[ix.program_id_index]
+          if str(program_id) == COMPUTE_BUDGET_ID:
+              data = base58.b58decode(ix.data)
+              if len(data) >= 9 and data[0] == 3:
+                  cu_price_micro_lamports = int.from_bytes(data[1:9], 'little')
+              elif len(data) >= 4 and data[0] == 2:
+                  cu_limit = int.from_bytes(data[1:4], 'little')
+
+
+      if cu_price_micro_lamports is not None and cu_limit is not None:
+          priority_fee_lamports = (cu_price_micro_lamports * cu_limit) // 1_000_000
+          priority_fee_sol = priority_fee_lamports / 1_000_000_000
+      else:
+          priority_fee_sol = 0
+
+      return total_fee_sol, priority_fee_sol
+
+  def get_block_transactions(client: Client, slot: int, target_signature: str) -> List[tuple]:
+      try:
+          response = client.get_block(slot, max_supported_transaction_version=0)
+          if not response.value:
+              return []
+
+          transactions = []
+          for tx in response.value.transactions:
+
+              if any(str(account) == PROGRAM_ID for account in tx.transaction.message.account_keys):
+                  signature = str(tx.transaction.signatures[0])
+                  total_fee, priority_fee = calculate_transaction_fees(tx)
+
+                  writable_accounts = []
+                  for idx, account in enumerate(tx.transaction.message.account_keys):
+
+                      if idx < tx.transaction.message.header.num_required_signatures:
+                          writable_accounts.append(str(account))
+
+
+                  compute_units = tx.meta.compute_units_consumed if hasattr(tx.meta, 'compute_units_consumed') else None
+
+                  tx_info = {
+                      'signature': signature,
+                      'total_fee': total_fee,
+                      'priority_fee': priority_fee,
+                      'block': slot,
+                      'writable_accounts': writable_accounts,
+                      'compute_units': compute_units
+                  }
+
+                  if signature == target_signature:
+                      transactions.insert(0, tx_info)
+                  else:
+                      transactions.append(tx_info)
+
+          return transactions
+      except Exception as e:
+          print(f"Error getting block transactions for slot {slot}: {e}")
+          return []
+
+  def analyze_slots(rpc_url: str, signature: str, slots_back: int, slots_forward: int):
+      client = Client(rpc_url)
+      current_slot = get_transaction_slot(client, signature)
+      if not current_slot:
+          print("Could not find transaction slot")
+          return
+
+      print(f"\nAnalyzing slots {current_slot-slots_back} to {current_slot+slots_forward}")
+      print("=" * 80)
+
+      for slot in range(current_slot - slots_back, current_slot + slots_forward + 1):
+          transactions = get_block_transactions(client, slot, signature)
+
+          print(f"\nSlot {slot}:")
+          print("-" * 40)
+
+          if transactions:
+              target_tx = None
+              other_txs = []
+
+              for tx in transactions:
+                  if tx['signature'] == signature:
+                      target_tx = tx
+                  else:
+                      other_txs.append(tx)
+
+
+              other_txs.sort(key=lambda x: x['priority_fee'], reverse=True)
+
+              if target_tx:
+                  print("\n" + "⭐️" * 40)
+                  print("🎯 TARGET TRANSACTION FOUND 🎯")
+                  print("⭐️" * 40)
+                  print(f"\nSignature: {target_tx['signature']}")
+                  print(f"Block: {target_tx['block']}")
+                  print(f"{'Total fee:':<15} {target_tx['total_fee']:>12.8f} SOL")
+                  print(f"{'Priority fee:':<15} {target_tx['priority_fee']:>12.8f} SOL")
+                  print(f"{'Base fee:':<15} {(target_tx['total_fee'] - target_tx['priority_fee']):>12.8f} SOL")
+                  print(f"Compute Units: {target_tx['compute_units']}")
+                  print("\nWritable Accounts:")
+                  for account in target_tx['writable_accounts']:
+                      print(f"  {account}")
+                  print("⭐️" * 40 + "\n")
+
+              if other_txs:
+                  print(f"Other transactions in slot {slot} (sorted by priority fee):")
+                  print("-" * 40)
+
+                  for tx in other_txs:
+                      print(f"\nSignature: {tx['signature']}")
+                      print(f"Block: {tx['block']}")
+                      print(f"Fee: {tx['total_fee']:.8f} SOL (Priority: {tx['priority_fee']:.8f} SOL)")
+                      print(f"Compute Units: {tx['compute_units']}")
+                      print("Writable Accounts:")
+                      for account in tx['writable_accounts']:
+                          print(f"  {account}")
+                      print("-" * 40)
+          else:
+              print("No relevant transactions")
+
+  def main():
+      RPC_URL = "CHAINSTACK_NODE_RPC"
+      SIGNATURE = "TRANSACTION_SIGNATURE"
+      SLOTS_BACK = 1  # Number of slots to check back
+      SLOTS_FORWARD = 1  # Number of slots to check forward
+
+      analyze_slots(RPC_URL, SIGNATURE, SLOTS_BACK, SLOTS_FORWARD)
+
+  if __name__ == "__main__":
+      main()
+  ```
+</CodeGroup>
+
+In the script:
+
+* PROGRAM\_ID — set to the [pump.fun executable](https://solscan.io/account/6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P). Set it to any executable on-chain program you interact with.
+* COMPUTE\_BUDGET\_ID — set to the [Solana system program](https://solscan.io/account/ComputeBudget111111111111111111111111111111) responsible for compute units and fees. We use in the script to find and decode the priority fees.
+* RPC\_URL — tour Chainstack [Solana node endpoint](https://console.chainstack.com/).
+* SIGNATURE — the transactions signature (hash) around which you want to analyze similar transactions.
+* SLOTS\_BACK — number of slots to travel back from the slot where you transaction landed (was included in the block).
+* SLOTS\_FORWARD — number of slot to travel forward to see who used what fees after you transaction landed.
+
+To use the script, just run `python check_adjacent.py` or whatever you name it.
+
+Example output:
+
+<CodeGroup>
+  ```shell Shell
+  Slot 309220412:
+  ----------------------------------------
+
+  ⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️
+  🎯 TARGET TRANSACTION FOUND 🎯
+  ⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️
+
+  Signature: 3Bd4wJ3pZrPYbhnHpUbZFXfunD2A1dciNx8umhhTEg4KLYmP1nERNbKEbHP9j6K8CcJgdekRi3PhUqVjdsHcsMSA
+  Block: 309220412
+  Total fee:        0.00200500 SOL
+  Priority fee:     0.00200000 SOL
+  Base fee:         0.00000500 SOL
+  Compute Units: 57900
+
+  Writable Accounts:
+    8SDfmRCMwn4qNvBpnvMTX7hunGHXWEJ5odhazNVcFyBw
+  ⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️⭐️
+
+  Other transactions in slot 309220412 (sorted by priority fee):
+  ----------------------------------------
+  ```
+</CodeGroup>
+
+## Use cases
+
+This tool is particularly useful for:
+
+* Analyzing competitor trading strategies
+* Optimizing your own priority fees
+* Troubleshooting failed transactions
+* Understanding market competition in specific slots
+* Developing automated trading systems
+
+## Conclusion
+
+Understanding transaction priority fees and their impact on execution is crucial for successful trading on Solana. This tool helps you analyze the competitive landscape and optimize your trading strategy by providing insights into how other traders are setting their priority fees.
+
+For more Solana development tools and guides, see [Mastering Solana](/docs/solana-development).
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

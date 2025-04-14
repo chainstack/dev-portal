@@ -1,0 +1,284 @@
+---
+title: "Solana Account Retrieval Methods: getAccountInfo vs getMultipleAccounts"
+---
+
+**TLDR**
+* `getAccountInfo` is straightforward and optimal when querying a single Solana account.
+* `getMultipleAccounts` retrieves multiple accounts in one request, reducing network overhead and improving scalability.
+* Both methods support various encoding options (`base58`, `base64`, `base64+zstd`, `jsonParsed`) to handle different data sizes and formats.
+* In bulk data scenarios like decentralized finance and game leaderboards, `getMultipleAccounts` is a clear winner for efficiency.
+
+## Main article
+
+In the dynamic world of Solana blockchain development, efficient data retrieval is key. **`getAccountInfo`** and **`getMultipleAccounts`** are two methods that cater to this need, each with unique strengths and use cases.
+
+**`getAccountInfo`**, a fundamental method in the Solana ecosystem, is tailored for simplicity and precision. It's the go-to choice for obtaining information about a specific account using just the account's public key. This method shines in its straightforward approach, making it ideal for scenarios where details about individual accounts are the focus.
+
+Contrastingly, **`getMultipleAccounts`** steps in as a method for bulk data retrieval. Designed to handle the demands of batch processing, this method efficiently retrieves data for multiple accounts in a single request while it can still handle requests about a single account. This dual capability, combined with its time-efficient processing, positions `getMultipleAccounts` as a highly efficient tool, especially when dealing with complex, data-intensive tasks.
+
+Understanding these two methods' nuanced differences and optimal applications is crucial for Solana developers looking to optimize their performance and data-handling capabilities.
+
+## Get a Solana RPC endpoint
+
+Before getting started, it's essential to have access to a Solana node. Chainstack offers a convenient and efficient way to deploy and manage Solana nodes. Follow these detailed steps to sign up on Chainstack, deploy your node, and access your endpoint credentials:
+<Steps>
+  <Step>
+    [Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+  </Step>
+  <Step>
+    [Deploy a node](/docs/manage-your-networks#join-a-public-network).
+  </Step>
+  <Step>
+    [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+  </Step>
+</Steps>
+
+## Using `getAccountInfo`
+
+The **`getAccountInfo`** method is a fundamental feature of the Solana blockchain, designed for retrieving detailed information about a single account. This method is particularly valuable for scenarios where focused, individual account data is required, such as in account management tools or when tracking specific account activities.
+
+**Method Structure:**
+
+* **Endpoint**: It targets the `getAccountInfo` endpoint in the Solana JSON RPC API.
+
+* **Parameters**:
+
+  * **Account Public Key**: The account's public key for which information is requested.
+
+  * **Encoding Options**: Similar to `getMultipleAccounts`, it offers encoding options like `base58`, `base64`, `base64+zstd`, and `jsonParsed`. The choice of encoding affects how the account data is presented:
+
+    * `base58`: Suitable for smaller account data, this encoding is slower but widely used for simplicity.
+    * `base64`: Ideal for larger account data, providing base64 encoded data of any size.
+    * `base64+zstd`: Efficient for large account data, compressing with Zstandard before encoding.
+    * `jsonParsed`: Offers a more human-readable JSON format, especially useful when dealing with accounts associated with well-known programs.
+
+**cURL Example**:
+
+To retrieve account information using`curl`, the command would be structured as follows:
+
+<CodeGroup>
+  ```bash Bash
+  curl YOUR_CHAINSTACK_ENDPOINT -X POST -H "Content-Type: application/json" -d '
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "getAccountInfo",
+      "params": [
+        "Hr5GK3f5WqqLsr4TJ7cgVCnDaM5gY8QrD2GTPZ7K3Kpz",
+        {
+          "encoding": "base58"
+        }
+      ]
+    }
+  '
+  ```
+</CodeGroup>
+
+**Response Structure**:
+
+The method responds with a JSON object, which includes:
+
+* **`jsonrpc`**: Denoting the version of the JSON RPC used.
+
+* **`result`**: The main body of the response.
+
+  * **`context`**: Provides contextual information like the `slot` number.
+
+  * **`value`**: An object containing detailed information about the account, such as:
+
+    * **`lamports`**: The number of Lamports contained in the account.
+    * **`owner`**: The public key of the program to which this account is assigned, in base-58 encoding.
+    * **`data`**: The account's data is provided in the encoding format specified in the request.
+    * **`executable`**: Indicates if the account contains a program.
+    * **`rentEpoch`**: Specifies the rent epoch for the account.
+    * **`space`**: The size of the account's data in bytes.
+
+The **`getAccountInfo`** method is a crucial tool for developers needing detailed, singular account insights on the Solana blockchain, offering a straightforward approach to accessing specific account data.
+
+## Using `getMultipleAccounts`
+
+The **`getMultipleAccounts`** method is a robust feature of the Solana blockchain, allowing for efficient data retrieval from multiple accounts in a single network request. This method is particularly useful for applications that simultaneously process or display various accounts' information.
+
+**Method Structure:**
+
+* **Endpoint**: The method targets the `getMultipleAccounts` endpoint in the Solana JSON RPC API.
+
+* **Parameters**:
+
+  * **Account Public Keys**: An array of public keys representing the accounts whose information you want to retrieve.
+
+  * **Encoding Options**: The format in which account data should be returned. Choices include `base58`, `base64`, `base64+zstd`, and `jsonParsed`. Each encoding serves different purposes:
+
+    * `base58`: A traditional encoding, but slower and limited to account data sizes of less than 129 bytes.
+    * `base64`: Returns base64 encoded data for account data of any size.
+    * `base64+zstd`: Compresses the account data using Zstandard compression before encoding it in base64. This is efficient for large data sizes.
+    * `jsonParsed`: Tries to return account data in a more human-readable JSON format, leveraging program-specific parsers.
+
+**cURL Example**:
+
+Here's how you can use `curl` to call this method:
+
+<CodeGroup>
+  ```bash Bash
+  curl --location 'CHAINSTACK_SOLANA_RPC' \
+  --header 'Content-Type: application/json' \
+  --data '
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "getMultipleAccounts",
+      "params": [
+        [
+          "Hr5GK3f5WqqLsr4TJ7cgVCnDaM5gY8QrD2GTPZ7K3Kpz",
+          "EAaijviraKWCWsVZtiZ5thhXoyoB5RP3HH1ZiLeLDcuv"
+        ],
+        {
+          "encoding": "base58"
+        }
+      ]
+    }
+  '
+  ```
+</CodeGroup>
+
+**Response Structure**:
+
+The response from this method is a JSON object, which includes:
+
+* **`jsonrpc`**: The JSON RPC version (usually "2.0").
+
+* **`result`**: Contains the actual response data.
+
+  * **`context`**: Provides context like the `slot` number.
+
+  * **`value`**: An array of account information objects or `null` if an account doesn't exist. Each object includes:
+
+    * **`lamports`**: The number of lamports in the account.
+    * **`owner`**: The public key of the program this account is associated with, in base-58 encoding.
+    * **`data`**: The account data, either as a base64 encoded string or a JSON object, depending on the requested encoding.
+    * **`executable`**: A boolean indicating if the account contains a program.
+    * **`rentEpoch`**: The epoch when the account will next owe rent.
+    * **`space`**: The data size of the account in bytes.
+
+With **`getMultipleAccounts`**, developers can significantly streamline their data retrieval processes, particularly in applications where multiple account datasets are frequently accessed or monitored.
+
+## Running `getMultipleAccounts` Method in JavaScript and Python
+
+To use the `getMultipleAccounts `in JavaScript or Python, you must first set up your environment with the necessary libraries. Below are the instructions and code snippets for both languages.
+
+### Prerequisites
+
+Ensure you have Node.js installed for JavaScript and Python 3 for Python; you will also need a Solana Chainstack RPC endpoint.
+
+<Info>
+  Learn how to setup Node.js projects by reading **[Web3 node.js: From zero to a full-fledged project](/docs/web3-nodejs-from-zero-to-a-full-fledged-project)**
+</Info>
+
+### JavaScript Setup and Usage
+
+1. **Install the Solana Web3.js Library**: The Solana Web3.js library provides the necessary tools to interact with the Solana blockchain. To install it, use `npm`:
+
+   ```
+   npm install @solana/web3.js
+   ```
+
+2. **JavaScript Code**:
+
+   <CodeGroup>
+     ```javascript Javascript
+     const { Connection, PublicKey } = require('@solana/web3.js');
+
+     async function fetchMultipleAccountsInfo() {
+         // Initialize connection to the Solana endpoint
+         const connection = new Connection('YOUR_CHAINSTACK_ENDPOINT');
+
+         // Array of public keys for multiple accounts
+         const accountPublicKeys = [
+             new PublicKey('Hr5GK3f5WqqLsr4TJ7cgVCnDaM5gY8QrD2GTPZ7K3Kpz'),
+             new PublicKey('EAaijviraKWCWsVZtiZ5thhXoyoB5RP3HH1ZiLeLDcuv'),
+             // Add more account public keys as needed
+         ];
+
+         // Fetch information for multiple accounts
+         const multipleAccountsInfo = await connection.getMultipleAccountsInfo(accountPublicKeys);
+
+         // Process and display multiple accounts information
+         console.log(multipleAccountsInfo);
+     }
+
+     fetchMultipleAccountsInfo().catch(error => {
+         console.error('Error fetching multiple accounts info:', error);
+     });
+     ```
+   </CodeGroup>
+
+   This code initializes a connection to the Solana blockchain, fetches information for multiple accounts, and logs the results. Replace `'YOUR_CHAINSTACK_ENDPOINT'` with your actual endpoint.
+
+### Python Setup and Usage
+
+1. **Install the Solana Py Library**: The Solana Py library is a Python interface for Solana's JSON RPC API. Install it using pip:
+
+   ```
+   pip install solana cachetools
+   ```
+
+2. **Python Code**:
+
+   <CodeGroup>
+     ```python Python
+     from solana.rpc.api import Client
+     from solders.pubkey import Pubkey
+
+     # Initialize connection to the Solana cluster
+     solana_client = Client("YOUR_CHAINSTACK_ENDPOINT")
+
+     # Array of public keys for multiple accounts
+     public_keys = [
+         Pubkey.from_string("Hr5GK3f5WqqLsr4TJ7cgVCnDaM5gY8QrD2GTPZ7K3Kpz"),
+         Pubkey.from_string("EAaijviraKWCWsVZtiZ5thhXoyoB5RP3HH1ZiLeLDcuv"),
+         # Convert additional public keys to PublicKey objects as needed
+     ]
+
+     # Fetch information for multiple accounts
+     multiple_accounts_info = solana_client.get_multiple_accounts(public_keys)
+
+     # Process and display multiple accounts' information
+     print(multiple_accounts_info)
+     ```
+   </CodeGroup>
+
+   This Python snippet performs actions similar to the JavaScript code. Update `'YOUR_CHAINSTACK_ENDPOINT'` and the public keys with the correct values.
+
+   <Info>
+     `solders` is a high-performance Python toolkit for Solana, written in Rust. This library provides a robust set of solutions for working with core SDK functionalities such as keypairs, public keys (pubkeys), signing, and serializing transactions.
+   </Info>
+
+## Advantages of `getMultipleAccounts` over `getAccountInfo` in Solana applications
+
+In the dynamic environment of blockchain technology, particularly on the Solana network, efficiently managing data retrieval is crucial. The `getMultipleAccounts` method offers significant advantages over the traditional `getAccountInfo` method, especially in scenarios requiring bulk data processing.
+
+1. **Reduced Network Overhead**: By allowing the retrieval of information from multiple accounts in a single network request, `getMultipleAccounts` substantially reduces the network overhead. This is particularly advantageous in decentralized applications (DApps) where frequent data synchronization is essential, such as real-time asset tracking systems or decentralized finance (DeFi) platforms.
+2. **Optimized Batch Processing**: Developers managing applications that require concurrent monitoring or updating of numerous accounts find `getMultipleAccounts` invaluable. For instance, fetching the states of multiple player accounts at once for leaderboard updates in a blockchain-based gaming platform becomes far more efficient.
+3. **Enhanced Scalability**: As applications grow to handle hundreds or thousands of accounts, `getMultipleAccounts` facilitates scalability. This is evident in large-scale wallet services or exchange platforms, where bulk account data retrieval is routine.
+4. **Improved Developer Experience**: This method simplifies implementing code that interacts with multiple accounts, streamlining the development process. This benefit shines in complex applications like analytics tools or portfolio trackers, where developers must regularly aggregate and process data from many accounts.
+
+## Conclusion
+
+In Solana blockchain development, the choice between **`getAccountInfo`** and **`getMultipleAccounts`** transcends mere technical preference; it's a strategic decision that aligns with the specific demands of your application. While **`getAccountInfo`** excels in scenarios requiring detailed insights into individual accounts, **`getMultipleAccounts`** emerges as a powerful ally for applications dealing with bulk data operations, offering a blend of efficiency and scalability.
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

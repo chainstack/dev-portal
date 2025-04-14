@@ -1,0 +1,2411 @@
+---
+title: "How to Mint a Generative Music NFT with Chainstack IPFS Storage and Soundraw"
+---
+**TLDR**
+
+* Leverage a multi-layer generation script to create, merge, and store music, icons, text, and shapes as NFTs.
+* Use Soundraw to generate unique audio clips, then merge them with dynamic images and pinned metadata via Chainstack IPFS.
+* Finally, mint your NFTs by loading metadata from IPFS, estimating gas, and signing transactions to deploy them on-chain.
+* This approach showcases a full end-to-end pipeline for producing generative music NFTs, from creation to minting.
+
+## Main article
+
+This tutorial builds upon the foundations outlined in the [How to mint a music NFT: Dropping fire tunes with Chainstack IPFS Storage](/docs/how-to-mint-music-nft-with-chainstack-ipfs-storage) and the [How to create generative NFTs: Making abstract art with code](https://chainstack.com/procedurally-generated-nfts/) tutorials. It is strongly recommended that you have completed the tutorials before you proceed, or at the very least have the [music NFT tutorial repo](https://github.com/chainstacklabs/music-nft-minter-tutorial-repo) cloned, so you can use the code base as a starting point.
+
+## Step 1: Process dependencies and initialize parameters
+
+Much like the other scripts from the [How to mint a music NFT: Dropping fire tunes with Chainstack IPFS Storage](/docs/how-to-mint-music-nft-with-chainstack-ipfs-storage) tutorial, you will need Hardhat with the web3.js plugin installed, Axios to submit HTTP requests, as well as Dotenv to store and access your DApp secrets.
+
+<CodeGroup>
+  ```shell Shell
+  npm i @nomiclabs/hardhat-web3 axios dotenv
+  ```
+</CodeGroup>
+
+Apart from these, however, you will also need an array of different libraries that you will use to make various transformations, generations, and requests. These are:
+
+* **Random words** — generate a set of random words based on the desired number of words.
+* **Text-to-image** — render a given string to an image and export it as an image file.
+* **Jdenticon** — generate a random icon based on size and seed, then export it as an image file.
+* **Canvas** — generate 2D graphics via the HTML `<canvas>` element.
+* **Image data URI** — decode and encode data URI images.
+* **Merge images** — merge several images into a single image as its layers.
+
+<CodeGroup>
+  ```shell Shell
+  npm i random-words@1.3.0 text-to-image jdenticon canvas image-data-uri merge-images
+  ```
+</CodeGroup>
+
+<Info>
+  Make sure to install the `1.3.0` version of the `random-words` library, as `2.0.0` introduces an array of changes that make it less accessible in a node.js workflow.
+</Info>
+
+Once you’re done installing the packages, create a new `generate.js` file in your `./scripts` directory, and process all dependencies like so:
+
+<CodeGroup>
+  ```javascript generate.js
+  // Process dependencies
+  require('dotenv').config();
+  require("@nomiclabs/hardhat-web3");
+
+  const fs = require('fs');
+  const fsPromises = fs.promises;
+  const path = require('path');
+  const https = require('https');
+  const randomWords = require('random-words'); // 1.3.0
+  const textToImage = require('text-to-image');
+  const jdenticon = require('jdenticon');
+  const { Canvas, Image } = require('canvas');
+  const ImageDataURI = require('image-data-uri');
+  const mergeImages = require('merge-images');
+  const FormData = require('form-data');
+  const axios = require('axios');
+  ```
+</CodeGroup>
+
+### Setting up your environment
+
+You will also need access to the [Soundraw API](https://soundraw.io/), in order to make audio file generations. Soundraw is an AI-powered platform that allows you to create unique, royalty-free music tailored to your needs. You can generate unlimited songs by simply selecting the mood, genre, and length of the track, and the AI will create the music.
+
+The platform enables you to customize the audio files you generate to fit specific requirements, for instance, adjusting the length of an intro or the position of a chorus. You can use the generated music freely without worrying about copyright strikes, making it perfect for YouTube videos, social media, commercials, podcasts, games, apps, and even NFTs.
+
+Once you have access to the Soundraw API and an API token, hop on to your `.env` file and add it to the list like so:
+
+<CodeGroup>
+  ```jsx .env
+  # development
+  SEPOLIA="https://your-sepolia-node-endpoint-here.com"
+  MAINNET="https://your-ethereum-mainnet-node-endpoint-here.com"
+  CHAINSTACK="Bearer your.ChainstackAPIkeyHere"
+  PRIVATE_KEY="1337y0urWalletPrivateKeyHere1337"
+  WALLET="0xY0urWalletAddressHere1337"
+  SEPOLIA_CONTRACT="0xY0urSepoliaNFTSmartContractAddressHere"
+  MAINNET_CONTRACT="Y0urEthereumMainnetNFTSmartContractAddressHere"
+  BUCKET_ID="BUCK-1337-8008-1337"
+  FOLDER_ID="FOLD-1337-8008-1337"
+  ETHERSCAN="Y0URETHERSCANAPIKEYHERE"
+  SOUNDRAW="Y0urSoundrawAPIKeyHEre=="
+  ```
+</CodeGroup>
+
+Then, return to your `generate.js` file and load the required environment variables after the dependency list:
+
+<CodeGroup>
+  ```jsx generate.js
+  // Load environment variables
+  const address = process.env.WALLET;
+  const soundraw = process.env.SOUNDRAW;
+  ```
+</CodeGroup>
+
+### Initializing generation parameters
+
+Next, create a list of variables that will cover all generation parameters. You will need such for storing a random hex, the generation id, the combined random hex output with your wallet address, converted to number string, the digital root of the number string, the generated random word output, the font and background colors hex values, the generated shape parameters, in terms of number of sides, size, center X and Y positions, stroke, and fill hex color values. Here’s how:
+
+<CodeGroup>
+  ```javascript generate.js
+  // Initialize generation parameters
+  let randomHex;
+  let randomStr;
+  let wordNrs;
+  let digiRoot;
+  let wordsOut = '';
+  let colorHex = '#';
+  let bgColorHex = '#';
+  let shapeSides = '';
+  let shapeSize = '';
+  let shapeCtrX = '';
+  let shapeCtrY = '';
+  let shapeStroke = '#';
+  let shapeFill = '#';
+  let idHex = '';
+  ```
+</CodeGroup>
+
+Furthermore, you will also need to do the same to initialize the Soundraw API parameters—mood, genre, theme, length, file format, tempo, and energy levels but this time as constants since you won’t be changing these at any point during the tutorial. For this tutorial, you can exclude the `Muted` energy level, as it creates an empty audio segment, which won’t be necessary for the use case, as well as a sample length of 77 seconds and a default file format of `mp3`.
+
+<CodeGroup>
+  ```javascript generate.js
+  // Soundraw parameters
+  const moods = ["Angry", "Busy & Frantic", "Dark", "Dreamy", "Elegant", "Epic", "Euphoric", "Fear", "Funny & Weird", "Glamorous", "Happy", "Heavy & Ponderous", "Hopeful", "Laid back", "Mysterious", "Peaceful", "Restless", "Romantic", "Running", "Sad", "Scary", "Sentimental", "Sexy", "Smooth", "Suspense"];
+  const genres = ["Acoustic", "Hip Hop", "Beats", "Funk", "Pop", "Drum n Bass", "Trap", "Tokyo night pop", "Rock", "Latin", "House", "Tropical House", "Ambient", "Orchestra", "Electro & Dance", "Electronica", "Techno & Trance"];
+  const themes = ["Ads & Trailers", "Broadcasting", "Cinematic", "Corporate", "Comedy", "Cooking", "Documentary", "Drama", "Fashion & Beauty", "Gaming", "Holiday season", "Horror & Thriller", "Motivational & Inspiring", "Nature", "Photography", "Sports & Action", "Technology", "Travel", "Tutorials", "Vlogs", "Wedding & Romance", "Workout & Wellness"];
+  const length = 77
+  const fileFormat = "mp3";
+  const tempo = ["low", "normal", "high"];
+  const energyLevels = ["Low", "Medium", "High", "Very High"];
+  ```
+</CodeGroup>
+
+With that taken care of, your `generate.js` file in the `/scripts/` directory should look like this:
+
+<CodeGroup>
+  ```jsx generate.js
+  // Process dependencies
+  require('dotenv').config();
+  require("@nomiclabs/hardhat-web3");
+
+  const fs = require('fs');
+  const fsPromises = fs.promises;
+  const path = require('path');
+  const https = require('https');
+  const randomWords = require('random-words'); // 1.3.0
+  const textToImage = require('text-to-image');
+  const jdenticon = require('jdenticon');
+  const { Canvas, Image } = require('canvas');
+  const ImageDataURI = require('image-data-uri');
+  const mergeImages = require('merge-images');
+  const axios = require('axios');
+
+  // Load environment variables
+  const address = process.env.WALLET;
+  const soundraw = process.env.SOUNDRAW;
+
+  // Initialize generation parameters
+  let randomHex;
+  let randomStr;
+  let wordNrs;
+  let digiRoot;
+  let wordsOut = '';
+  let colorHex = '#';
+  let bgColorHex = '#';
+  let shapeSides = '';
+  let shapeSize = '';
+  let shapeCtrX = '';
+  let shapeCtrY = '';
+  let shapeStroke = '#';
+  let shapeFill = '#';
+  let idHex = '';
+
+  // Soundraw parameters
+  const moods = ["Angry", "Busy & Frantic", "Dark", "Dreamy", "Elegant", "Epic", "Euphoric", "Fear", "Funny & Weird", "Glamorous", "Happy", "Heavy & Ponderous", "Hopeful", "Laid back", "Mysterious", "Peaceful", "Restless", "Romantic", "Running", "Sad", "Scary", "Sentimental", "Sexy", "Smooth", "Suspense"];
+  const genres = ["Acoustic", "Hip Hop", "Beats", "Funk", "Pop", "Drum n Bass", "Trap", "Tokyo night pop", "Rock", "Latin", "House", "Tropical House", "Ambient", "Orchestra", "Electro & Dance", "Electronica", "Techno & Trance"];
+  const themes = ["Ads & Trailers", "Broadcasting", "Cinematic", "Corporate", "Comedy", "Cooking", "Documentary", "Drama", "Fashion & Beauty", "Gaming", "Holiday season", "Horror & Thriller", "Motivational & Inspiring", "Nature", "Photography", "Sports & Action", "Technology", "Travel", "Tutorials", "Vlogs", "Wedding & Romance", "Workout & Wellness"];
+  const length = 77
+  const fileFormat = "mp3";
+  const tempo = ["low", "normal", "high"];
+  const energyLevels = ["Low", "Medium", "High", "Very High"];
+  ```
+</CodeGroup>
+
+## Step 2: Set up the generative process
+
+Once you've prepared the dependencies and set up the generation parameters, the next step is to create a seed. A seed is typically a random set of characters in a string that is used to feed various generation algorithms or libraries, but it can technically take any form. You can create a seed to kickstart your generative process by using the `randomHex()` method in the `utils` section of web3.js.
+
+So, go ahead and create a new `generator` asynchronous function as a constant and set the `randomHex` variable’s value to the `randomHex()` method with `20` as its first and only parameter. This will generate a random hex string with 20 bytes in length, starting with `0x` But this `0x` is hardly needed, so at the end of the method call add `.concat(address.slice(2))` to trim the excess:
+
+<CodeGroup>
+  ```jsx generate.js
+  const generator = async() => {
+
+      // Random generator layer 0: Seed preparations
+      console.log('\nSeed generation started...\n');
+
+      // Generate random hex with 20 bytes for symbols (same as wallet addresses)
+      randomHex = web3.utils.randomHex(20).concat(address.slice(2));
+      console.log('Random hex generated: ' + randomHex + '\n');
+  }
+  ```
+</CodeGroup>
+
+Next, it’s time to create and store a basic ID for each of your generations. You can do this by taking the `randomHex` seed value you just generated, then using the first and last three characters of the hex string to form the IDs:
+
+<CodeGroup>
+  ```jsx generate.js
+  // Generate ids for filenames to organize easier
+      idHex = randomHex.slice(2, 5).concat(randomHex.slice(79, 82))
+      console.log('Used hex to generate ID: ' + idHex + '\n');
+  ```
+</CodeGroup>
+
+In similar fashion, you can generate hex color values to feed the image generators further in your code. Let’s use a higher degree of randomization here by creating a loop that will run six times to form each of the six characters in a hex color value. You can use the same loop for both font and background colors:
+
+<CodeGroup>
+  ```jsx generate.js
+  // Generate random hex color value by picking random characters from the generated hex string
+      for (var i = 0; i < 6; i++) {
+          colorHex = colorHex.concat(randomHex.slice(2).charAt(Math.floor(Math.random() * randomHex.slice(2).length)));
+          bgColorHex = bgColorHex.concat(randomHex.slice(2).charAt(Math.floor(Math.random() * randomHex.slice(2).length)));
+      }
+      console.log('Used hex to generate text color: ' + colorHex + ' & background color: ' + bgColorHex + '\n');
+  ```
+</CodeGroup>
+
+Once you’re done with the loop, you can go ahead and convert the random hex seed to a number string, so you can use it in another form to feed some of the generator libraries. To do this, use the web3.js `hexToNumberString()` method like so:
+
+<CodeGroup>
+  ```jsx generate.js
+  // Generate new string by combining the random hex output with wallet address and converting it to number string
+      wordNrs = web3.utils.hexToNumberString(randomHex);
+      console.log('Transformed hex into number string: ' + wordNrs + '\n');
+  ```
+</CodeGroup>
+
+This number string gives you an opportunity to use it for the Soundraw API audio generation for which you will need to create a loop. But before you start with the loop, make sure you have referenced a set of temporary variables that will be needed for it.
+
+The first of these is the `categories` array, which is simply a collection of all Soundraw parameter categories, namely `moods`, `genres`, `themes`, and `tempo`. The same applies to `categoryNames`. Then, there is also the `numberOfTimeframes`, which indicates the number of segments you want to have in a generated audio for which you can set individual `energy_levels`. Last, initialize as object a `requestPayload` variable, which you will use to store the contents of your Soundraw API requests.
+
+<CodeGroup>
+  ```jsx generate.js
+  // Select Soundraw parameters based on the wordNrs number string
+      let categories = [moods, genres, themes, tempo];
+      let categoryNames = ['Mood', 'Genre', 'Theme', 'Tempo'];
+      let numberOfTimeframes = 3;
+
+      let requestPayload = {};
+  ```
+</CodeGroup>
+
+### Creating the audio generation layer
+
+Once ready, proceed by creating the loop that will be running four consecutive times. Inside it creates a new temporary array `randomIndices` and initializes it as empty. Then, creates another `for` loop that will iterate three times.
+
+Within it, set the `randomIndices[index]` value to the integer (`parseInt()`) sum of `0` and a random character (number) from the `wordNrs` string using the `charAt()` method. As parameter use `Math.floor()` to round the output down to the nearest whole number, since array indices are integers. When it comes to`Math.floor()`, add the `Math.random()` method as a parameter, which generates a random floating-point number between 0 and 1 and multiplies this by the length of the `wordNrs` string.
+
+Next, sum the values of the `randomIndices`array with `reduce((a, b) => a + b, 0)`and check if the resulting `randomIndex` value is greater or equal to the length of the given category, or less than `0`. If it is, rerun the loop calculations once more with a fresh start from `0` to match the lowest possible values and check again, resulting in `randomIndex` being set to `0` in case of discrepancy again.
+
+This will give you a valid index, based on the `wordNrs` seed that can match the entire possible range of each of the `categories` , in turn picking a value for it.
+
+Apply this random index to a new temporary `categorySelected` variable by setting its value to `categories[i][randomIndex]` . After that, create an `if-else` statement, where if `categoryNames[i]` is different from `'Tempo'` the `requestPayload[categoryNames[i]` value converted `toLowerCase()` is equal to the `categorySelected` variable you set just now.
+
+Then, for the `else` segment of your statement, set the value of the `requestPayload.tempo` once again to `categorySelected`. By doing this, you will select a value for each of the parameter `categories` from its valid array values, while minding the formatting of each without breaking anything.
+
+<CodeGroup>
+  ```jsx generate.js
+  // Create a loop to generate a random index for the current category
+      for (let i = 0; i < 4; i++) {
+
+          // Create an array that will hold the randomIndex value for each iteration of the following loop
+          let randomIndices = []
+
+          // Iterate loop three times to reach all possible options with double-digit values
+          for (let index = 0; index < 3; index++) {
+              randomIndices[index] = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+          }
+
+          // Sum the results from each iteration abd make sure they match the category length
+          let randomIndex = randomIndices.reduce((a, b) => a + b, 0);
+          if (randomIndex >= categories[i].length) {
+              randomIndex = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+              if (randomIndex >= categories[i].length || randomIndex < 0) {
+                  randomIndex = 0
+              }
+          } else if (randomIndex < 0) {
+              randomIndex = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+              if (randomIndex >= categories[i].length || randomIndex < 0) {
+                  randomIndex = 0
+              }
+          }
+
+          let categorySelected = categories[i][randomIndex];
+
+          if (categoryNames[i] !== 'Tempo') {
+              requestPayload[categoryNames[i].toLowerCase()] = categorySelected;
+          } else {
+              requestPayload.tempo = categorySelected;
+          }
+      }
+  ```
+</CodeGroup>
+
+Next comes a rather tricky part—how do you set a different energy level for the three timeframes that will define your audio generation. To do that, create an empty `energyLevelsArray` array to store the objects that define the timestamps times for each energy level and another one called `lengths` which will do so for the length of each timeframe.
+
+Then, create a `for` loop that will run as many times as the `numberOfTimeframes - 1` and inside it use the `Math.random()` method to generate a relative length of time, based on the total length for each energy level. You only need to create a number of divisions that is one less than the number of timeframes, as this will split the audio into segments equal to the number of timeframes.
+
+Once you’re ready with the loop, sort the `lengths` array in ascending order with the `sort()` method to make sure each energy level starts after the previous one ends.
+
+<CodeGroup>
+  ```jsx generate.js
+  // Create arrays for holding the energy level objects and their lengths
+      let energyLevelsArray = [];
+
+      let lengths = [];
+      for (let j = 0; j < numberOfTimeframes - 1; j++) {
+          lengths.push(Math.random());
+      }
+      lengths.sort();
+  ```
+</CodeGroup>
+
+Next, create a temporary variable named `previous` and set its value to 0. After that, start a new `for` loop. This time, the loop will adjust the random `lengths` you generated earlier to make sure they add up to the total length of the audio. You will use the `previous` variable to keep track of the cumulative sum of the `lengths` processed in the previous loop.
+
+Run the loop as many times as the `numberOfTimeframes` and in each iteration adjust the `j`th element of `lengths` array by multiplying it with the total `length` of the generated audio, as well as subtracting `previous` from it. By doing this, you will get a length time segment that takes into account the total length of your audio and the sum of those before it.
+
+Then, update the `previous` to be the `j`th element of `lengths` as the newly computed length for this iteration. In doing so, you will subtract it from the next length in the following iteration of the loop, so they add up accordingly. Last, round the `j`th element of the `lengths` array to a single decimal place as a floating-point number to match the Soundraw formatting requirements.
+
+<CodeGroup>
+  ```jsx generate.js
+  // Adjust the lengths so they are proportional and add up to the audio length accordingly
+      let previous = 0;
+      for (let j = 0; j < numberOfTimeframes; j++) {
+          lengths[j] = lengths[j] * length - previous;
+          previous = lengths[j];
+          lengths[j] = parseFloat(lengths[j].toFixed(1));
+      }
+  ```
+</CodeGroup>
+
+Once ready, create another temporary variable `currentTime` and initialize it once again as `0` to keep track of the current timestamp in the audio. Apart from that, create one final `for` loop, which will also run as many times as the `numberOfTimeframes`.
+
+Inside the loop create a temporary variable `energyStart` and store the starting timestamp for each timeframe, by setting it to the `currentTime` as a floating point rounded to one decimal place. Next, do the same for `energyEnd`, while setting to the sum of the `currentTime` and the length of the timeframe, once again rounded to one decimal place if this is not the last timeframe. If it is, set it to the total length of the piece with `j < numberOfTimeframes - 1 ? parseFloat((currentTime + lengths[j]).toFixed(1)) : length;`.
+
+After that, go ahead and update the `currentTime` to be the end of the current energy level, so you can start the next with the following iteration of the loop. Then, pick a random energy level from the `energyLevels` array by using the same logic you applied to `randomIndex` previously, just skip the extra triple loop you used there. Finish the loop off by pushing the `start`, `end`, and `energy` values accordingly.
+
+<CodeGroup>
+  ```jsx generate.js
+  let currentTime = 0;
+
+      // Generate different energy levels for different timeframes
+      for (let j = 0; j < numberOfTimeframes; j++) {
+          let energyStart = parseFloat(currentTime.toFixed(1));
+          let energyEnd = j < numberOfTimeframes - 1 ? parseFloat((currentTime + lengths[j]).toFixed(1)) : length;
+          currentTime = energyEnd;
+
+          // Apply the same logic as for randomIndex previously without the tripple iteration
+          let randomEnergyIndex
+              randomEnergyIndex = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+              if (randomEnergyIndex >= energyLevels.length) {
+                  randomEnergyIndex = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+                  if (randomEnergyIndex >= energyLevels.length || randomEnergyIndex < 0) {
+                      randomEnergyIndex = 0
+                  }
+              } else if (randomEnergyIndex < 0) {
+                  randomEnergyIndex = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+                  if (randomEnergyIndex >= energyLevels.length || randomEnergyIndex < 0) {
+                      randomEnergyIndex = 0
+                  }
+              }
+
+          let selectedEnergy = energyLevels[randomEnergyIndex];
+
+          energyLevelsArray.push({
+              start: energyStart,
+              end: energyEnd,
+              energy: selectedEnergy
+          });
+      }
+  ```
+</CodeGroup>
+
+Lastly, finalize the audio generation process, by updating the `requestPayload` with the new values and print the selected parameters in the console, making them also a part of the generated audio’s filename. You will then use this payload to submit an HTTP request to the Soundraw API to kickstart the audio generation on the server side and get the file in return.
+
+<CodeGroup>
+  ```jsx generate.js
+  // Update the request payload
+      requestPayload.energy_levels = energyLevelsArray;
+      requestPayload.length = length;
+      requestPayload.file_format = fileFormat;
+
+      // Print selected parameters and make them the audio filename
+      let filename = `${idHex} ${requestPayload.mood} ${requestPayload.genre} ${requestPayload.theme} ${requestPayload.tempo} [${length}s].mp3`;
+  ```
+</CodeGroup>
+
+As the final part of the audio generation process, you will need to send a `POST` request to the Soundraw API using `axios`. To do this, you must first prepare the request, by targeting the `compose` endpoint of the API as the `url`and `requestPayload` as the `data`. Make sure you’ve set the `Content-Type` header to `application/json` and the `Authorization` one to your Soundraw API key or `soundraw` in this case.
+
+<CodeGroup>
+  ```jsx generate.js
+  // Submit an axios request to the Soundraw API and fetch the audio file
+      console.log(`Attempting to submit request to Soundraw API with parameters ${JSON.stringify(requestPayload, null, 2)}\n`);
+      axios({
+          method: 'post',
+          url: 'https://soundraw.io/api/v2/musics/compose',
+          data: requestPayload,
+          headers: {
+              "Content-Type": "application/json",
+              "Authorization": soundraw
+          }
+      })
+  ```
+</CodeGroup>
+
+Now, let's move on to how to handle the response from the Soundraw API. Use the `then` method to specify what to do when the HTTP request is successful. In this case, the code first logs the response data, then uses the 'path' library to create a path for storing the audio file. The audio file is stored in a directory named `audio`. This directory is relative to the `src` directory, which resides in the same directory as the current script.
+
+<CodeGroup>
+  ```jsx generate.js
+  .then(async function (response) {
+              const audioFilePath = path.join('audio', filename);
+              console.log(`Soundraw request successful. Response: ${JSON.stringify(response.data)}`);
+              const formattedAudioFilePath = './src/' + audioFilePath.replace(/\\/g, "/"); // replace backslashes with forward slashes
+  ```
+</CodeGroup>
+
+Next, create a writable stream with `fs.createWriteStream` and download the MP3 file from the URL provided in the response. Pipe the response to the file stream, effectively downloading the file.
+
+<Info>
+  Exporting files to directories that do not exist yet may cause errors because of FS/OS permissions. Try creating them manually if you encounter such issue.
+</Info>
+
+After the file finishes downloading, attempt to update the local metadata with a custom function named `updateLocalMetadata`. If an error occurs during this process, log it to the console.
+
+<CodeGroup>
+  ```jsx generate.js
+  const file = fs.createWriteStream(path.join(__dirname, '../src', audioFilePath));
+              const request = https.get(response.data.mp3_url, function (response) {
+                  response.pipe(file).on('finish', async function () {
+                      // Call the function to update the JSON file
+                      try {
+                          console.log(`\nSoundraw audio saved to: ${formattedAudioFilePath}`);
+                          await updateLocalMetadata(idHex, mergePath, formattedAudioFilePath, wordsOut, colorHex, digiRoot, requestPayload, length);
+                      } catch (err) {
+                          console.error(err);
+                      }
+                  });
+              });
+  ```
+</CodeGroup>
+
+Lastly, handle errors that may occur during the file write or HTTP request process. Both `request` and `file` objects are event emitters, emitting `error` events when something goes wrong. Listen for these events and, when they happen, log the error to the console and close the file stream. In case the axios request throws any error, catch it and log it to the console using the `catch` method.
+
+<CodeGroup>
+  ```jsx generate.js
+  request.on('error', (err) => {
+                  console.error(`Request error: ${err}`);
+                  file.end();
+              });
+              file.on('error', (err) => {
+                  console.error(`File error: ${err}`);
+                  file.end();
+              });
+          })
+          .catch(function (error) {
+              console.log(error);
+          });
+  ```
+</CodeGroup>
+
+This is a robust method of making an API request, handling the response, and properly taking care of any errors that might occur during the workflow. Here’s how the entire audio generation process looks, with the `axios` set up included:
+
+<CodeGroup>
+  ```jsx generate.js
+  // Soundraw parameters
+  const moods = ["Angry", "Busy & Frantic", "Dark", "Dreamy", "Elegant", "Epic", "Euphoric", "Fear", "Funny & Weird", "Glamorous", "Happy", "Heavy & Ponderous", "Hopeful", "Laid back", "Mysterious", "Peaceful", "Restless", "Romantic", "Running", "Sad", "Scary", "Sentimental", "Sexy", "Smooth", "Suspense"];
+  const genres = ["Acoustic", "Hip Hop", "Beats", "Funk", "Pop", "Drum n Bass", "Trap", "Tokyo night pop", "Rock", "Latin", "House", "Tropical House", "Ambient", "Orchestra", "Electro & Dance", "Electronica", "Techno & Trance"];
+  const themes = ["Ads & Trailers", "Broadcasting", "Cinematic", "Corporate", "Comedy", "Cooking", "Documentary", "Drama", "Fashion & Beauty", "Gaming", "Holiday season", "Horror & Thriller", "Motivational & Inspiring", "Nature", "Photography", "Sports & Action", "Technology", "Travel", "Tutorials", "Vlogs", "Wedding & Romance", "Workout & Wellness"];
+  const length = 77
+  const fileFormat = "mp3";
+  const tempo = ["low", "normal", "high"];
+  const energyLevels = ["Low", "Medium", "High", "Very High"];
+
+  const generator = async() => {
+
+      // Random generator layer 0: Seed preparations
+      console.log('\nSeed generation started...\n');
+
+      // Generate random hex with 20 bytes for symbols (same as wallet addresses)
+      randomHex = web3.utils.randomHex(20).concat(address.slice(2));
+      console.log('Random hex generated: ' + randomHex + '\n');
+
+      // Generate ids for filenames to organize easier
+      idHex = randomHex.slice(2, 5).concat(randomHex.slice(79, 82))
+      console.log('Used hex to generate ID: ' + idHex + '\n');
+
+      // Generate random hex color value by picking random characters from the generated hex string
+      for (var i = 0; i < 6; i++) {
+          colorHex = colorHex.concat(randomHex.slice(2).charAt(Math.floor(Math.random() * randomHex.slice(2).length)));
+          bgColorHex = bgColorHex.concat(randomHex.slice(2).charAt(Math.floor(Math.random() * randomHex.slice(2).length)));
+      }
+      console.log('Used hex to generate text color: ' + colorHex + ' & background color: ' + bgColorHex + '\n');
+
+      // Generate new string by combining the random hex output with wallet address and converting it to number string
+      wordNrs = web3.utils.hexToNumberString(randomHex);
+      console.log('Transformed hex into number string: ' + wordNrs + '\n');
+
+      // Select Soundraw parameters based on the wordNrs number string
+      let categories = [moods, genres, themes, tempo];
+      let categoryNames = ['Mood', 'Genre', 'Theme', 'Tempo'];
+      let numberOfTimeframes = 3;
+
+      let requestPayload = {};
+
+      // Create a loop to generate a random index for the current category
+      for (let i = 0; i < 4; i++) {
+
+          // Create an array that will hold the randomIndex value for each iteration of the following loop
+          let randomIndices = []
+
+          // Iterate loop three times to reach all possible options with double-digit values
+          for (let index = 0; index < 3; index++) {
+              randomIndices[index] = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+          }
+
+          // Sum the results from each iteration abd make sure they match the category length
+          let randomIndex = randomIndices.reduce((a, b) => a + b, 0);
+          if (randomIndex >= categories[i].length) {
+              randomIndex = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+              if (randomIndex >= categories[i].length || randomIndex < 0) {
+                  randomIndex = 0
+              }
+          } else if (randomIndex < 0) {
+              randomIndex = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+              if (randomIndex >= categories[i].length || randomIndex < 0) {
+                  randomIndex = 0
+              }
+          }
+
+          let categorySelected = categories[i][randomIndex];
+
+          if (categoryNames[i] !== 'Tempo') {
+              requestPayload[categoryNames[i].toLowerCase()] = categorySelected;
+          } else {
+              requestPayload.tempo = categorySelected;
+          }
+      }
+
+      // Create arrays for holding the energy level objects and their lengths
+      let energyLevelsArray = [];
+
+      let lengths = [];
+      for (let j = 0; j < numberOfTimeframes - 1; j++) {
+          lengths.push(Math.random());
+      }
+      lengths.sort();
+
+      // Adjust the lengths so they are proportional and add up to the audio length accordingly
+      let previous = 0;
+      for (let j = 0; j < numberOfTimeframes; j++) {
+          lengths[j] = lengths[j] * length - previous;
+          previous = lengths[j];
+          lengths[j] = parseFloat(lengths[j].toFixed(1));
+      }
+
+      let currentTime = 0;
+
+      // Generate different energy levels for different timeframes
+      for (let j = 0; j < numberOfTimeframes; j++) {
+          let energyStart = parseFloat(currentTime.toFixed(1));
+          let energyEnd = j < numberOfTimeframes - 1 ? parseFloat((currentTime + lengths[j]).toFixed(1)) : length;
+          currentTime = energyEnd;
+
+          // Apply the same logic as for randomIndex previously without the tripple iteration
+          let randomEnergyIndex
+              randomEnergyIndex = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+              if (randomEnergyIndex >= energyLevels.length) {
+                  randomEnergyIndex = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+                  if (randomEnergyIndex >= energyLevels.length || randomEnergyIndex < 0) {
+                      randomEnergyIndex = 0
+                  }
+              } else if (randomEnergyIndex < 0) {
+                  randomEnergyIndex = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+                  if (randomEnergyIndex >= energyLevels.length || randomEnergyIndex < 0) {
+                      randomEnergyIndex = 0
+                  }
+              }
+
+          let selectedEnergy = energyLevels[randomEnergyIndex];
+
+          energyLevelsArray.push({
+              start: energyStart,
+              end: energyEnd,
+              energy: selectedEnergy
+          });
+      }
+
+      // Update the request payload
+      requestPayload.energy_levels = energyLevelsArray;
+      requestPayload.length = length;
+      requestPayload.file_format = fileFormat;
+
+      // Print selected parameters and make them the audio filename
+      let filename = `${idHex} ${requestPayload.mood} ${requestPayload.genre} ${requestPayload.theme} ${requestPayload.tempo} [${length}s].mp3`;
+
+      // Submit an axios request to the Soundraw API and fetch the audio file
+      console.log(`Attempting to submit request to Soundraw API with parameters ${JSON.stringify(requestPayload, null, 2)}\n`);
+      axios({
+          method: 'post',
+          url: 'https://soundraw.io/api/v2/musics/compose',
+          data: requestPayload,
+          headers: {
+              "Content-Type": "application/json",
+              "Authorization": soundraw
+          }
+      })
+          .then(async function (response) {
+              const audioFilePath = path.join('audio', filename);
+              console.log(`Soundraw request successful. Response: ${JSON.stringify(response.data)}`);
+              const formattedAudioFilePath = './src/' + audioFilePath.replace(/\\/g, "/"); // replace backslashes with forward slashes
+              const file = fs.createWriteStream(path.join(__dirname, '../src', audioFilePath));
+              const request = https.get(response.data.mp3_url, function (response) {
+                  response.pipe(file).on('finish', async function () {
+                      // Call the function to update the JSON file
+                      try {
+                          console.log(`\nSoundraw audio saved to: ${formattedAudioFilePath}`);
+                          await updateLocalMetadata(idHex, mergePath, formattedAudioFilePath, wordsOut, colorHex, digiRoot, requestPayload, length);
+                      } catch (err) {
+                          console.error(err);
+                      }
+                  });
+              });
+              request.on('error', (err) => {
+                  console.error(`Request error: ${err}`);
+                  file.end();
+              });
+              file.on('error', (err) => {
+                  console.error(`File error: ${err}`);
+                  file.end();
+              });
+          })
+          .catch(function (error) {
+              console.log(error);
+          });
+  ```
+</CodeGroup>
+
+### Setting up the image generation layers
+
+Once you’re ready setting up the audio generation layer, it’s time to move forward with the image one. To do that, you will first need to start doing some calculations for the shape layer.
+
+First, set the number of sides for the polygon shape. Extract a random character from the `wordNrs` string, convert it to an integer, and add 1. Note that `Math.random()` generates a random float from 0 to 1, and multiplying it by the length of the string helps in picking a random index from the string. `Math.floor()` ensures that the value is a whole number, to use as an index.
+
+Next, generate the stroke and fill colors for the shape. Combine different parts of the `colorHex` and `bgColorHex` to ensure a wide variation. Use the `slice` function to extract parts of the strings.
+
+<CodeGroup>
+  ```jsx generate.js
+  // Begin calculations for random shape layer generation parameters
+
+      // Randomize shape parameters but ensure they are never zero
+
+      // Find out the number of sides the shape has by picking a random number from the number string
+      shapeSides = parseInt(1 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)));
+      console.log('Used number string to determine polygon shape sides count: ' + shapeSides + '\n');
+
+      // Combine the first three digits of one of the two hex color values picked earlier with the last three of the other for greater variation
+      shapeStroke = shapeStroke.concat(colorHex.slice(4, 7).concat(bgColorHex.slice(1, 4)));
+      shapeFill = shapeFill.concat(bgColorHex.slice(4, 7).concat(colorHex.slice(1, 4)));
+      console.log('Used text & background colors to generate new border: ' + shapeStroke + ' & fill: ' + shapeFill + '\n');
+  ```
+</CodeGroup>
+
+Then, run a loop twice to generate the size and center coordinates of the shape. For each property, randomly pick a digit from `wordNrs` and add it to the current property value. Multiply the result by Pi and add or subtract a constant. Use `Math.abs()` to avoid negative results.
+
+<CodeGroup>
+  ```jsx generate.js
+  // Loop following calculations twice to generate double or higher digit values for the shape
+      for (var i = 0; i < 2; i++) {
+
+          // Avoid negative results by converting result to absolute value
+
+          // Pick a random digit from the number string earlier, add the current shapeSize value, serve as float, multiply by Pi and add 10 for sizes between ~50 and ~150 for greater balance
+          shapeSize = Math.abs(10 + Math.PI * parseFloat(shapeSize + parseInt(wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))));
+
+          // Same as above except you substract 100 instead of adding 10. This will make the shape roll around the middle
+          shapeCtrX = Math.abs(Math.PI * parseFloat(shapeCtrX + parseInt(wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))) - 100);
+          shapeCtrY = Math.abs(Math.PI * parseFloat(shapeCtrY + parseInt(wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))) - 100);
+      }
+
+      console.log('Used number string to determine polygon shape size: ' + shapeSize + ' X-axis center value: ' + shapeCtrX + ' & Y-axis center value: ' + shapeCtrY + '\n');
+  ```
+</CodeGroup>
+
+After these calculations, define a `digitalRoot` function to reduce `wordNrs` to a single digit. This function works by converting `input` to a string and summing all its digits. If the result is a single digit, return it, otherwise, call the function recursively.
+
+<CodeGroup>
+  ```jsx generate.js
+  // Reduce number string to single digit with the digital root formula
+      function digitalRoot(input) {
+          var nrStr = input.toString(),
+              i,
+              result = 0;
+
+          if (nrStr.length === 1) {
+              return +nrStr;
+          }
+          for (i = 0; i < nrStr.length; i++) {
+              result += +nrStr[i];
+          }
+          return digitalRoot(result);
+      }
+  ```
+</CodeGroup>
+
+Next, call your `digitalRoot()` function with the `wordNrs` as its only parameter to print the digital root result. Then, go ahead and check if the `result` is odd or even by returning the remainder of that number divided by two. If the number is even, the function will return `0`, because the remainder of an even number divided by two is always zero, and if it is odd, it will return `1`.
+
+<CodeGroup>
+  ```jsx generate.js
+  // Print digital root result
+      digiRoot = digitalRoot(wordNrs);
+      console.log('Calculated digital root of number string: ' + digiRoot + '\n');
+
+      // Check if result is odd or even
+      function NrChk(nr) {
+          return nr % 2;
+      }
+
+      console.log('Checking if digital root is odd or even: ' + NrChk(digiRoot) + '\n');
+
+      if (NrChk(digiRoot) > 0) {
+          console.log('Generating 3 random words - digital root is odd\n');
+      } else {
+          console.log('Generating 2 random words - digital root is even\n');
+      }
+  ```
+</CodeGroup>
+
+Once you are ready, it is time to move forward with the first generation process within the image layer—the text. Set the value of the `randomStr` variable you defined earlier to the `randomWords()` generator with the `boolean` result of the odd/even check function as its solo parameter. Then, add `2` to it the result, as this is the easiest way to generate `2` words for even and `3` words for odd (even 0 + 2 base = 2; odd 1 + 2 base = 3).
+
+Don’t forget to split the `randomStr` according to `' ,'` as you will be left with an unformatted comma-separated word list instead. Follow it up by creating a `for` loop that will capitalize the word set and join them as a single string to obtain the `wordsOut` variable’s value.
+
+<CodeGroup>
+  ```jsx generate.js
+  // Random generator layer 1: Text
+
+      // Generate set of random words - 2 for even 3 for odd. Since result will always be 0 or 1 easiest and fastest way is to just add 2. Replace "," with space for natural appeal
+      randomStr = (randomWords(NrChk(digiRoot) + 2).toString()).split(',');
+      console.log('Random words generated are: ' + randomStr + '\n');
+
+      // Capitalize word set and join them as single string
+      for (var i = 0; i < randomStr.length; i++) {
+          randomStr[i] = (randomStr[i].charAt(0)).toUpperCase() + randomStr[i].slice(1);
+      }
+      wordsOut = randomStr.join(' ');
+
+      console.log('Capitalizing random words string: ' + wordsOut + '\n');
+  ```
+</CodeGroup>
+
+After that, proceed by generating an image from the `wordsOut` word list, using `textToImage`'s `generate()` method, paired with the `idHex` string as its first parameter. As its second, create an object, adding a wide range of options, including `debug: true` as this is the only way you can render it to a file. Make sure you’re also creating a new temporary `textPath` variable to store the file name and location information.
+
+You can play around as much as you like with the other options here, just don’t forget to set the values for the `bgColor` and `textColor` keys to the `bgColorHex` and `colorHex` variables you defined and calculated earlier. For this tutorial, use `maxWidth` set to `330`, `textAlign` to `center`, and `verticalAlign` to `top` as this will put the text at the top of the image centered, creating a bar-like element which is a typical place for placing such information.
+
+<CodeGroup>
+  ```jsx generate.js
+  // Generate image from the random words, while using the library's debug mode to render to file
+      var textPath = './src/texts/' + idHex + ' ' + wordsOut + ' ' + colorHex + ' [Text Layer].png';
+      console.log('Exporting random words string as image to: ' + textPath + '\n');
+      const dataUri = await textToImage.generate(idHex + ' ' + wordsOut, {
+          debug: true,
+          debugFilename: textPath,
+          maxWidth: 330,
+          customHeight: 33,
+          fontSize: 18,
+          fontFamily: 'Arial',
+          lineHeight: 22,
+          margin: 5,
+          bgColor: bgColorHex,
+          textColor: colorHex,
+          textAlign: 'center',
+          verticalAlign: 'top',
+      });
+  ```
+</CodeGroup>
+
+Now, let's proceed to the second random generator layer—the Icon. First, set the icon parameters, which include `iconSize` and `iconSeed`. The seed is set to `wordsOut`, meaning that the generated icon will be uniquely based on the random words string. After setting these parameters, use the `jdenticon.toPng()` function to generate the icon and assign it to `iconExport`.
+
+So, go ahead and set the `iconSize` to `350` and `iconSeed` to `wordsOut`, so you can use the two to three random words output as the basis for the generation. Then, call the `toPng()` method of the `jdenticon` package with those two parameters.
+
+Remember to set the `iconPath` with the location you want it exported to and the appropriate file name convention. Lastly, write the generated file to the location you have selected by calling the `fs.writeFileSync` method.
+
+<CodeGroup>
+  ```jsx generate.js
+  // Random generator layer 2: Icon
+
+      // Set icon parameters
+      var iconSize = 350;
+      var iconSeed = wordsOut;
+
+      // Export icon to png
+      const iconExport = jdenticon.toPng(iconSeed, iconSize);
+      var iconPath = './src/icons/' + idHex + ' ' + wordsOut + ' ' + colorHex + ' [Icon Layer].png';
+
+      console.log('Using random words string as seed to generate icon at: ' + iconPath + '\n');
+
+      fs.writeFileSync(iconPath, iconExport);
+  ```
+</CodeGroup>
+
+With that behind you, move on by creating the final third layer of the image—the shape. To do that, create a new `shapeCanvas` constant, setting its value to a `new Canvas()` with `350, 350` as its parameter. Then, create another one for `shapeContext` and place `shapeCanvas.getContext('2d');` as its value. This will allow you to start drawing a path on the canvas, meaning you can call the `beginPath()` method from the `shapeContext`.
+
+<CodeGroup>
+  ```jsx generate.js
+  // Random generator Layer 3: Shape
+
+      // Create new canvas object and set the context to 2d
+      const shapeCanvas = new Canvas(350, 350);
+      const shapeContext = shapeCanvas.getContext('2d');
+
+      // Start drawing path on canvas
+      console.log('Using polygon settings to draw path points & paint shape...\n');
+      shapeContext.beginPath();
+  ```
+</CodeGroup>
+
+Afterwards, start moving the `shapeContext` path to four randomly generated points, in order to draw a path. And considering the example formula used to pick these points for the tutorial was defined without too much in-depth evaluation prior, feel free to play around with it to achieve more interesting points for the polygon shape.
+
+Just do remember to connect the path points, based on the number of sides you picked for the shape earlier, using a `for` loop, iterating as many times as the number of sides. To do that, use the `lineTo()` method of the `shapeContext` with the sum of the `shapeCtrX` value and the `shapeSize` one, multiplied by the cosine of the loop `index` multiplied by `2` and `Pi`, divided by the sides.
+
+<CodeGroup>
+  ```jsx generate.js
+  // Pick four incomprehensively generated points for the drawing path. Feel free to play around with the formula until you get desireable results
+      shapeContext.moveTo(shapeCtrX + shapeSize * (Math.floor(Math.random() * 100 * Math.cos(shapeSides))), shapeCtrY + shapeSize * (Math.floor(Math.random() * 10 * Math.sin(shapeSides * shapeSize))), shapeCtrX + shapeSize * (Math.floor(Math.random() * 1000 * Math.tan(shapeCtrY * shapeSides))), shapeCtrY + shapeSize * (Math.floor(Math.random() * (1 / Math.tan(shapeCtrX * shapeSides)))));
+
+      // Connect the path points according to randomly picked number of sides for the polygon
+      for (var i = 1; i <= shapeSides; i++) {
+          shapeContext.lineTo(shapeCtrX + shapeSize * Math.cos(i * 2 * Math.PI / shapeSides), shapeCtrY + shapeSize * Math.sin(i * 2 * Math.PI / shapeSides));
+      }
+  ```
+</CodeGroup>
+
+Then, proceed by closing the drawing path, thus completing the polygon. Follow up by applying the `shapeStroke` and `shapeFill` values you defined earlier as the `strokeStyle` and `fillStyle` . Last, record the shape’s `dataURI` to an image buffer, so you can export it to an image file. Make sure you’re also setting the `shapePath` with the appropriate location and file name, before you write it to file using the `fs.writeFileSync()` method.
+
+<CodeGroup>
+  ```jsx jsx
+  // Close drawing path to complete the drawn object then proceed with applying border width and color, as well as fill color
+      shapeContext.closePath();
+      shapeContext.strokeStyle = shapeStroke;
+      shapeContext.fillStyle = shapeFill;
+      shapeContext.fill();
+      shapeContext.lineWidth = shapeSides;
+      shapeContext.stroke();
+
+      // Record shape data URI to image buffer then render to preferred path
+      const shapeBuffer = shapeCanvas.toBuffer("image/png");
+      var shapePath = './src/shapes/' + shapeSides + ' ' + shapeStroke + '.png';
+      console.log('Exporting polygon shape as image to: ' + shapePath + '\n');
+      fs.writeFileSync(shapePath, shapeBuffer);
+  ```
+</CodeGroup>
+
+Here’s how your image generation layer part of the script should look like if you’ve done everything accordingly:
+
+<CodeGroup>
+  ```jsx generate.js
+  // Begin calculations for random shape layer generation parameters
+
+      // Randomize shape parameters but ensure they are never zero
+
+      // Find out the number of sides the shape has by picking a random number from the number string
+      shapeSides = parseInt(1 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)));
+      console.log('Used number string to determine polygon shape sides count: ' + shapeSides + '\n');
+
+      // Combine the first three digits of one of the two hex color values picked earlier with the last three of the other for greater variation
+      shapeStroke = shapeStroke.concat(colorHex.slice(4, 7).concat(bgColorHex.slice(1, 4)));
+      shapeFill = shapeFill.concat(bgColorHex.slice(4, 7).concat(colorHex.slice(1, 4)));
+      console.log('Used text & background colors to generate new border: ' + shapeStroke + ' & fill: ' + shapeFill + '\n');
+
+      // Loop following calculations twice to generate double or higher digit values for the shape
+      for (var i = 0; i < 2; i++) {
+
+          // Avoid negative results by converting result to absolute value
+
+          // Pick a random digit from the number string earlier, add the current shapeSize value, serve as float, multiply by Pi and add 10 for sizes between ~50 and ~150 for greater balance
+          shapeSize = Math.abs(10 + Math.PI * parseFloat(shapeSize + parseInt(wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))));
+
+          // Same as above except you substract 100 instead of adding 10. This will make the shape roll around the middle
+          shapeCtrX = Math.abs(Math.PI * parseFloat(shapeCtrX + parseInt(wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))) - 100);
+          shapeCtrY = Math.abs(Math.PI * parseFloat(shapeCtrY + parseInt(wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))) - 100);
+      }
+
+      console.log('Used number string to determine polygon shape size: ' + shapeSize + ' X-axis center value: ' + shapeCtrX + ' & Y-axis center value: ' + shapeCtrY + '\n');
+
+      // Reduce number string to single digit with the digital root formula
+      function digitalRoot(input) {
+          var nrStr = input.toString(),
+              i,
+              result = 0;
+
+          if (nrStr.length === 1) {
+              return +nrStr;
+          }
+          for (i = 0; i < nrStr.length; i++) {
+              result += +nrStr[i];
+          }
+          return digitalRoot(result);
+      }
+
+      // Print digital root result
+      digiRoot = digitalRoot(wordNrs);
+      console.log('Calculated digital root of number string: ' + digiRoot + '\n');
+
+      // Check if result is odd or even
+      function NrChk(nr) {
+          return nr % 2;
+      }
+
+      console.log('Checking if digital root is odd or even: ' + NrChk(digiRoot) + '\n');
+
+      if (NrChk(digiRoot) > 0) {
+          console.log('Generating 3 random words - digital root is odd\n');
+      } else {
+          console.log('Generating 2 random words - digital root is even\n');
+      }
+
+      // Random generator layer 1: Text
+
+      // Generate set of random words - 2 for even 3 for odd. Since result will always be 0 or 1 easiest and fastest way is to just add 2. Replace "," with space for natural appeal
+      randomStr = (randomWords(NrChk(digiRoot) + 2).toString()).split(',');
+      console.log('Random words generated are: ' + randomStr + '\n');
+
+      // Capitalize word set and join them as single string
+      for (var i = 0; i < randomStr.length; i++) {
+          randomStr[i] = (randomStr[i].charAt(0)).toUpperCase() + randomStr[i].slice(1);
+      }
+      wordsOut = randomStr.join(' ');
+      console.log('Capitalizing random words string: ' + wordsOut + '\n');
+
+      // Generate image from the random words, while using the library's debug mode to render to file
+
+      // Exporting images to folders that do not exist yet may cause errors because of FS/OS permissions. Try creating them manually if you encounter such issue.
+      var textPath = './src/texts/' + idHex + ' ' + wordsOut + ' ' + colorHex + ' [Text Layer].png';
+      console.log('Exporting random words string as image to: ' + textPath + '\n');
+      const dataUri = await textToImage.generate(idHex + ' ' + wordsOut, {
+          debug: true,
+          debugFilename: textPath,
+          maxWidth: 330,
+          customHeight: 33,
+          fontSize: 18,
+          fontFamily: 'Arial',
+          lineHeight: 22,
+          margin: 5,
+          bgColor: bgColorHex,
+          textColor: colorHex,
+          textAlign: 'center',
+          verticalAlign: 'top',
+      });
+
+      // Random generator layer 2: Icon
+
+      // Set icon parameters
+      var iconSize = 350;
+      var iconSeed = wordsOut;
+
+      // Export icon to png
+      const iconExport = jdenticon.toPng(iconSeed, iconSize);
+      var iconPath = './src/icons/' + idHex + ' ' + wordsOut + ' ' + colorHex + ' [Icon Layer].png';
+
+      console.log('Using random words string as seed to generate icon at: ' + iconPath + '\n');
+
+      fs.writeFileSync(iconPath, iconExport);
+
+      // Random generator Layer 3: Shape
+
+      // Create new canvas object and set the context to 2d
+      const shapeCanvas = new Canvas(350, 350);
+      const shapeContext = shapeCanvas.getContext('2d');
+
+      // Start drawing path on canvas
+      console.log('Using polygon settings to draw path points & paint shape...\n');
+      shapeContext.beginPath();
+
+      // Pick four incomprehensively generated points for the drawing path. Feel free to play around with the formula until you get desireable results
+      shapeContext.moveTo(shapeCtrX + shapeSize * (Math.floor(Math.random() * 100 * Math.cos(shapeSides))), shapeCtrY + shapeSize * (Math.floor(Math.random() * 10 * Math.sin(shapeSides * shapeSize))), shapeCtrX + shapeSize * (Math.floor(Math.random() * 1000 * Math.tan(shapeCtrY * shapeSides))), shapeCtrY + shapeSize * (Math.floor(Math.random() * (1 / Math.tan(shapeCtrX * shapeSides)))));
+
+      // Connect the path points according to randomly picked number of sides for the polygon
+      for (var i = 1; i <= shapeSides; i++) {
+          shapeContext.lineTo(shapeCtrX + shapeSize * Math.cos(i * 2 * Math.PI / shapeSides), shapeCtrY + shapeSize * Math.sin(i * 2 * Math.PI / shapeSides));
+      }
+
+      // Close drawing path to complete the drawn object then proceed with applying border width and color, as well as fill color
+      shapeContext.closePath();
+      shapeContext.strokeStyle = shapeStroke;
+      shapeContext.fillStyle = shapeFill;
+      shapeContext.fill();
+      shapeContext.lineWidth = shapeSides;
+      shapeContext.stroke();
+
+      // Record shape data URI to image buffer then render to preferred path
+      const shapeBuffer = shapeCanvas.toBuffer("image/png");
+      var shapePath = './src/shapes/' + shapeSides + ' ' + shapeStroke + '.png';
+      console.log('Exporting polygon shape as image to: ' + shapePath + '\n');
+      fs.writeFileSync(shapePath, shapeBuffer);
+  ```
+</CodeGroup>
+
+### Merge layers and record local metadata to JSON
+
+With all three parts of the image layer ready, you can finalize its generation by merging the text, icon, and shape renders into one. To accomplish this, you can use the `mergeImages` library with the `shapePath`, `iconPath`, and `textPath` you defined earlier as parameters in this order. Don’t forget to create a `mergePath` variable with the appropriate location and file name for the output.
+
+Then, add an additional object parameter to `mergeImages`, where the `Canvas` and `Image` keys have the same values. Finish off the merger, by including a `.then` function with the `response`as its parameter, where you use the `ImageDataURI.outputFile()` method with the `response` parameter once again, as well as the `mergePath` variable you just defined.
+
+<CodeGroup>
+  ```jsx generate.js
+  // Merge existing layers by combining them in image buffer as data URI then output to file
+      var mergePath = './src/merged/' + idHex + ' ' + wordsOut + ' ' + colorHex + ' [Merged].png';
+      console.log('Merging all layers & exporting image to: ' + mergePath + '\n');
+      mergeImages([shapePath, iconPath, textPath], {
+          Canvas: Canvas,
+          Image: Image
+      }).then(function(response) {
+          ImageDataURI.outputFile(response, mergePath)
+      });
+  ```
+</CodeGroup>
+
+Once ready, go ahead and create a new asynchronous `updateLocalMetadata()` function, which you referenced during the audio layer generation process. Its aim is to write to JSON the metadata information you will then use to pin your media files to Chainstack IPFS and set your NFT metadata with.
+
+The `updateLocalMetadata()` function takes a long list of parameters, namely `idHex`, `coverPath`, `audioPath`, `wordsOut`, `colorHex`, `digiRoot`, `requestPayload`, and `length`. As its first order of business, create a new `filePath` constant, where you set the appropriate location and file name for the JSON file you will be writing.
+
+Then, inside a `try` block, read the `filePath` and check if the file exists. If it does, you will be parsing its contents as an object, so you can update it accordingly. But if it doesn’t you get to write everything directly. Set the `idHex` value as the key of the object property and its value to another object with `name`, `description`, `cover`, and `audio` as its keys.
+
+For the `name` key, go ahead and use the `idHex` and `wordsOut` values, so you get a title like `idHex: wordsOut`, ultimately resulting in something like `133337: Test Value West`. In turn, as`description`, you can use something along the lines of `A generative music NFT created with metadata seeds. Words: wordsOut, Color: colorHex, Digital Root: digiRoot, Mood: mood, Genre: genre, Theme: theme, Tempo: tempo, Length: length`.
+
+By doing this, you will be able to fully highlight as many generation parameters as possible to paint a good picture of your NFT’s generative process and define its possible traits. Lastly, for `cover`, as well as `audio` just apply the correct path for each. Once you’ve set up the object, stringify it and write it back to the file located at `filePath`.
+
+<CodeGroup>
+  ```jsx generate.js
+  // Create a JSON with the locations of each generated set of media metadata
+      const updateLocalMetadata = async (idHex, coverPath, audioPath, wordsOut, colorHex, digiRoot, requestPayload, length) => {
+
+          console.log(`\nAttempting to create JSON with local metadata details...`);
+
+          const filePath = path.join(__dirname, '../src/output/local-metadata.json');
+
+          try {
+              const data = await fsPromises.readFile(filePath, 'utf8');
+
+              // If the file exists, parse its content, add the new object, and write it back to the file
+              const json = data ? JSON.parse(data) : {};
+              json[idHex] = {
+                  name: `${idHex}: ${wordsOut}`,
+                  description: `A generative music NFT created with metadata seeds. Words: ${wordsOut}, Color: ${colorHex}, Digital Root: ${digiRoot}, Mood: ${requestPayload.mood}, Genre: ${requestPayload.genre}, Theme: ${requestPayload.theme}, Tempo: ${requestPayload.tempo}, Length: [${length}s]`,
+                  cover: coverPath,
+                  audio: audioPath
+              };
+              await fsPromises.writeFile(filePath, JSON.stringify(json, null, 2), 'utf8');
+
+              console.log(`\nLocal metadata JSON created at ${filePath}...\n`);
+
+          } catch (err) {
+              if (err.code === 'ENOENT') {
+
+                  // If the file doesn't exist, initialize it as an empty object
+                  await fsPromises.writeFile(filePath, JSON.stringify({
+                      [idHex]: {
+                          name: `${idHex}: ${wordsOut}`,
+                          description: `A generative music NFT created with metadata seeds. Words: ${wordsOut}, Color: ${colorHex}, Digital Root: ${digiRoot}, Mood: ${requestPayload.mood}, Genre: ${requestPayload.genre}, Theme: ${requestPayload.theme}, Tempo: ${requestPayload.tempo}, Length: [${length}s]`,
+                          cover: coverPath,
+                          audio: audioPath
+                      }
+                  }, null, 2), 'utf8');
+
+                  console.log(`\nLocal metadata JSON created at ${filePath}...\n`);
+
+              } else {
+                  throw err;
+              }
+          }
+      };
+  };
+  ```
+</CodeGroup>
+
+That being said, the generation process is now complete, which means you get to put a definitive end to your `generate.js` script. Let’s recap with the entirety of the script to avoid something going AWOL somewhere along the way:
+
+<CodeGroup>
+  ```jsx generate.js
+  // Process dependencies
+  require('dotenv').config();
+  require("@nomiclabs/hardhat-web3");
+
+  const fs = require('fs');
+  const fsPromises = fs.promises;
+  const path = require('path');
+  const https = require('https');
+  const randomWords = require('random-words'); // 1.3.0
+  const textToImage = require('text-to-image');
+  const jdenticon = require('jdenticon');
+  const { Canvas, Image } = require('canvas');
+  const ImageDataURI = require('image-data-uri');
+  const mergeImages = require('merge-images');
+  const axios = require('axios');
+
+  // Load environment variables
+  const address = process.env.WALLET;
+  const soundraw = process.env.SOUNDRAW;
+
+  // Initialize generation parameters
+  let randomHex;
+  let randomStr;
+  let wordNrs;
+  let digiRoot;
+  let wordsOut = '';
+  let colorHex = '#';
+  let bgColorHex = '#';
+  let shapeSides = '';
+  let shapeSize = '';
+  let shapeCtrX = '';
+  let shapeCtrY = '';
+  let shapeStroke = '#';
+  let shapeFill = '#';
+  let idHex = '';
+
+  // Soundraw parameters
+  const moods = ["Angry", "Busy & Frantic", "Dark", "Dreamy", "Elegant", "Epic", "Euphoric", "Fear", "Funny & Weird", "Glamorous", "Happy", "Heavy & Ponderous", "Hopeful", "Laid back", "Mysterious", "Peaceful", "Restless", "Romantic", "Running", "Sad", "Scary", "Sentimental", "Sexy", "Smooth", "Suspense"];
+  const genres = ["Acoustic", "Hip Hop", "Beats", "Funk", "Pop", "Drum n Bass", "Trap", "Tokyo night pop", "Rock", "Latin", "House", "Tropical House", "Ambient", "Orchestra", "Electro & Dance", "Electronica", "Techno & Trance"];
+  const themes = ["Ads & Trailers", "Broadcasting", "Cinematic", "Corporate", "Comedy", "Cooking", "Documentary", "Drama", "Fashion & Beauty", "Gaming", "Holiday season", "Horror & Thriller", "Motivational & Inspiring", "Nature", "Photography", "Sports & Action", "Technology", "Travel", "Tutorials", "Vlogs", "Wedding & Romance", "Workout & Wellness"];
+  const length = 77
+  const fileFormat = "mp3";
+  const tempo = ["low", "normal", "high"];
+  const energyLevels = ["Low", "Medium", "High", "Very High"];
+
+  const generator = async() => {
+      // Random generator layer 0: Seed preparations
+      console.log('\nSeed generation started...\n');
+
+      // Generate random hex with 20 bytes for symbols (same as wallet addresses)
+      randomHex = web3.utils.randomHex(20).concat(address.slice(2));
+      console.log('Random hex generated: ' + randomHex + '\n');
+
+      // Generate ids for filenames to organize easier
+      idHex = randomHex.slice(2, 5).concat(randomHex.slice(79, 82))
+      console.log('Used hex to generate ID: ' + idHex + '\n');
+
+      // Generate random hex color value by picking random characters from the generated hex string
+      for (var i = 0; i < 6; i++) {
+          colorHex = colorHex.concat(randomHex.slice(2).charAt(Math.floor(Math.random() * randomHex.slice(2).length)));
+          bgColorHex = bgColorHex.concat(randomHex.slice(2).charAt(Math.floor(Math.random() * randomHex.slice(2).length)));
+      }
+      console.log('Used hex to generate text color: ' + colorHex + ' & background color: ' + bgColorHex + '\n');
+
+      // Generate new string by combining the random hex output with wallet address and converting it to number string
+      wordNrs = web3.utils.hexToNumberString(randomHex);
+      console.log('Transformed hex into number string: ' + wordNrs + '\n');
+
+      // Select Soundraw parameters based on the wordNrs number string
+      let categories = [moods, genres, themes, tempo];
+      let categoryNames = ['Mood', 'Genre', 'Theme', 'Tempo'];
+      let numberOfTimeframes = 3;
+
+      let requestPayload = {};
+
+      // Create a loop to generate a random index for the current category
+      for (let i = 0; i < 4; i++) {
+
+          // Create an array that will hold the randomIndex value for each iteration of the following loop
+          let randomIndices = []
+
+          // Iterate loop three times to reach all possible options with double-digit values
+          for (let index = 0; index < 3; index++) {
+              randomIndices[index] = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+          }
+
+          // Sum the results from each iteration abd make sure they match the category length
+          let randomIndex = randomIndices.reduce((a, b) => a + b, 0);
+          if (randomIndex >= categories[i].length) {
+              randomIndex = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+              if (randomIndex >= categories[i].length || randomIndex < 0) {
+                  randomIndex = 0
+              }
+          } else if (randomIndex < 0) {
+              randomIndex = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+              if (randomIndex >= categories[i].length || randomIndex < 0) {
+                  randomIndex = 0
+              }
+          }
+
+          let categorySelected = categories[i][randomIndex];
+
+          if (categoryNames[i] !== 'Tempo') {
+              requestPayload[categoryNames[i].toLowerCase()] = categorySelected;
+          } else {
+              requestPayload.tempo = categorySelected;
+          }
+      }
+
+      // Create arrays for holding the energy level objects and their lengths
+      let energyLevelsArray = [];
+
+      let lengths = [];
+      for (let j = 0; j < numberOfTimeframes - 1; j++) {
+          lengths.push(Math.random());
+      }
+      lengths.sort();
+
+      // Adjust the lengths so they are proportional and add up to the audio length accordingly
+      let previous = 0;
+      for (let j = 0; j < numberOfTimeframes; j++) {
+          lengths[j] = lengths[j] * length - previous;
+          previous = lengths[j];
+          lengths[j] = parseFloat(lengths[j].toFixed(1));
+      }
+
+      let currentTime = 0;
+
+      // Generate different energy levels for different timeframes
+      for (let j = 0; j < numberOfTimeframes; j++) {
+          let energyStart = parseFloat(currentTime.toFixed(1));
+          let energyEnd = j < numberOfTimeframes - 1 ? parseFloat((currentTime + lengths[j]).toFixed(1)) : length;
+          currentTime = energyEnd;
+
+          // Apply the same logic as for randomIndex previously without the tripple iteration
+          let randomEnergyIndex
+              randomEnergyIndex = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+              if (randomEnergyIndex >= energyLevels.length) {
+                  randomEnergyIndex = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+                  if (randomEnergyIndex >= energyLevels.length || randomEnergyIndex < 0) {
+                      randomEnergyIndex = 0
+                  }
+              } else if (randomEnergyIndex < 0) {
+                  randomEnergyIndex = parseInt(0 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))
+                  if (randomEnergyIndex >= energyLevels.length || randomEnergyIndex < 0) {
+                      randomEnergyIndex = 0
+                  }
+              }
+
+          let selectedEnergy = energyLevels[randomEnergyIndex];
+
+          energyLevelsArray.push({
+              start: energyStart,
+              end: energyEnd,
+              energy: selectedEnergy
+          });
+      }
+
+      // Update the request payload
+      requestPayload.energy_levels = energyLevelsArray;
+      requestPayload.length = length;
+      requestPayload.file_format = fileFormat;
+
+      // Print selected parameters and make them the audio filename
+      let filename = `${idHex} ${requestPayload.mood} ${requestPayload.genre} ${requestPayload.theme} ${requestPayload.tempo} [${length}s].mp3`;
+
+      // Submit an axios request to the Soundraw API and fetch the audio file
+      console.log(`Attempting to submit request to Soundraw API with parameters ${JSON.stringify(requestPayload, null, 2)}\n`);
+      axios({
+          method: 'post',
+          url: 'https://soundraw.io/api/v2/musics/compose',
+          data: requestPayload,
+          headers: {
+              "Content-Type": "application/json",
+              "Authorization": soundraw
+          }
+      })
+          .then(async function (response) {
+              const audioFilePath = path.join('audio', filename);
+              console.log(`Soundraw request successful. Response: ${JSON.stringify(response.data)}`);
+              const formattedAudioFilePath = './src/' + audioFilePath.replace(/\\/g, "/"); // replace backslashes with forward slashes
+              const file = fs.createWriteStream(path.join(__dirname, '../src', audioFilePath));
+              const request = https.get(response.data.mp3_url, function (response) {
+                  response.pipe(file).on('finish', async function () {
+                      // Call the function to update the JSON file
+                      try {
+                          console.log(`\nSoundraw audio saved to: ${formattedAudioFilePath}`);
+                          await updateLocalMetadata(idHex, mergePath, formattedAudioFilePath, wordsOut, colorHex, digiRoot, requestPayload, length);
+                      } catch (err) {
+                          console.error(err);
+                      }
+                  });
+              });
+              request.on('error', (err) => {
+                  console.error(`Request error: ${err}`);
+                  file.end();
+              });
+              file.on('error', (err) => {
+                  console.error(`File error: ${err}`);
+                  file.end();
+              });
+          })
+          .catch(function (error) {
+              console.log(error);
+          });
+
+      // Begin calculations for random shape layer generation parameters
+
+      // Randomize shape parameters but ensure they are never zero
+
+      // Find out the number of sides the shape has by picking a random number from the number string
+      shapeSides = parseInt(1 + wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)));
+      console.log('Used number string to determine polygon shape sides count: ' + shapeSides + '\n');
+
+      // Combine the first three digits of one of the two hex color values picked earlier with the last three of the other for greater variation
+      shapeStroke = shapeStroke.concat(colorHex.slice(4, 7).concat(bgColorHex.slice(1, 4)));
+      shapeFill = shapeFill.concat(bgColorHex.slice(4, 7).concat(colorHex.slice(1, 4)));
+      console.log('Used text & background colors to generate new border: ' + shapeStroke + ' & fill: ' + shapeFill + '\n');
+
+      // Loop following calculations twice to generate double or higher digit values for the shape
+      for (var i = 0; i < 2; i++) {
+
+          // Avoid negative results by converting result to absolute value
+
+          // Pick a random digit from the number string earlier, add the current shapeSize value, serve as float, multiply by Pi and add 10 for sizes between ~50 and ~150 for greater balance
+          shapeSize = Math.abs(10 + Math.PI * parseFloat(shapeSize + parseInt(wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))));
+
+          // Same as above except you substract 100 instead of adding 10. This will make the shape roll around the middle
+          shapeCtrX = Math.abs(Math.PI * parseFloat(shapeCtrX + parseInt(wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))) - 100);
+          shapeCtrY = Math.abs(Math.PI * parseFloat(shapeCtrY + parseInt(wordNrs.charAt(Math.floor(Math.random() * wordNrs.length)))) - 100);
+      }
+
+      console.log('Used number string to determine polygon shape size: ' + shapeSize + ' X-axis center value: ' + shapeCtrX + ' & Y-axis center value: ' + shapeCtrY + '\n');
+
+      // Reduce number string to single digit with the digital root formula
+      function digitalRoot(input) {
+          var nrStr = input.toString(),
+              i,
+              result = 0;
+
+          if (nrStr.length === 1) {
+              return +nrStr;
+          }
+          for (i = 0; i < nrStr.length; i++) {
+              result += +nrStr[i];
+          }
+          return digitalRoot(result);
+      }
+
+      // Print digital root result
+      digiRoot = digitalRoot(wordNrs);
+      console.log('Calculated digital root of number string: ' + digiRoot + '\n');
+
+      // Check if result is odd or even
+      function NrChk(nr) {
+          return nr % 2;
+      }
+
+      console.log('Checking if digital root is odd or even: ' + NrChk(digiRoot) + '\n');
+
+      if (NrChk(digiRoot) > 0) {
+          console.log('Generating 3 random words - digital root is odd\n');
+      } else {
+          console.log('Generating 2 random words - digital root is even\n');
+      }
+
+      // Random generator layer 1: Text
+
+      // Generate set of random words - 2 for even 3 for odd. Since result will always be 0 or 1 easiest and fastest way is to just add 2. Replace "," with space for natural appeal
+      randomStr = (randomWords(NrChk(digiRoot) + 2).toString()).split(',');
+      console.log('Random words generated are: ' + randomStr + '\n');
+
+      // Capitalize word set and join them as single string
+      for (var i = 0; i < randomStr.length; i++) {
+          randomStr[i] = (randomStr[i].charAt(0)).toUpperCase() + randomStr[i].slice(1);
+      }
+      wordsOut = randomStr.join(' ');
+      console.log('Capitalizing random words string: ' + wordsOut + '\n');
+
+      // Generate image from the random words, while using the library's debug mode to render to file
+
+      // Exporting images to folders that do not exist yet may cause errors because of FS/OS permissions. Try creating them manually if you encounter such issue.
+      var textPath = './src/texts/' + idHex + ' ' + wordsOut + ' ' + colorHex + ' [Text Layer].png';
+      console.log('Exporting random words string as image to: ' + textPath + '\n');
+      const dataUri = await textToImage.generate(idHex + ' ' + wordsOut, {
+          debug: true,
+          debugFilename: textPath,
+          maxWidth: 330,
+          customHeight: 33,
+          fontSize: 18,
+          fontFamily: 'Arial',
+          lineHeight: 22,
+          margin: 5,
+          bgColor: bgColorHex,
+          textColor: colorHex,
+          textAlign: 'center',
+          verticalAlign: 'top',
+      });
+
+      // Random generator layer 2: Icon
+
+      // Set icon parameters
+      var iconSize = 350;
+      var iconSeed = wordsOut;
+
+      // Export icon to png
+      const iconExport = jdenticon.toPng(iconSeed, iconSize);
+      var iconPath = './src/icons/' + idHex + ' ' + wordsOut + ' ' + colorHex + ' [Icon Layer].png';
+
+      console.log('Using random words string as seed to generate icon at: ' + iconPath + '\n');
+
+      fs.writeFileSync(iconPath, iconExport);
+
+      // Random generator Layer 3: Shape
+
+      // Create new canvas object and set the context to 2d
+      const shapeCanvas = new Canvas(350, 350);
+      const shapeContext = shapeCanvas.getContext('2d');
+
+      // Start drawing path on canvas
+      console.log('Using polygon settings to draw path points & paint shape...\n');
+      shapeContext.beginPath();
+
+      // Pick four incomprehensively generated points for the drawing path. Feel free to play around with the formula until you get desireable results
+      shapeContext.moveTo(shapeCtrX + shapeSize * (Math.floor(Math.random() * 100 * Math.cos(shapeSides))), shapeCtrY + shapeSize * (Math.floor(Math.random() * 10 * Math.sin(shapeSides * shapeSize))), shapeCtrX + shapeSize * (Math.floor(Math.random() * 1000 * Math.tan(shapeCtrY * shapeSides))), shapeCtrY + shapeSize * (Math.floor(Math.random() * (1 / Math.tan(shapeCtrX * shapeSides)))));
+
+      // Connect the path points according to randomly picked number of sides for the polygon
+      for (var i = 1; i <= shapeSides; i++) {
+          shapeContext.lineTo(shapeCtrX + shapeSize * Math.cos(i * 2 * Math.PI / shapeSides), shapeCtrY + shapeSize * Math.sin(i * 2 * Math.PI / shapeSides));
+      }
+
+      // Close drawing path to complete the drawn object then proceed with applying border width and color, as well as fill color
+      shapeContext.closePath();
+      shapeContext.strokeStyle = shapeStroke;
+      shapeContext.fillStyle = shapeFill;
+      shapeContext.fill();
+      shapeContext.lineWidth = shapeSides;
+      shapeContext.stroke();
+
+      // Record shape data URI to image buffer then render to preferred path
+      const shapeBuffer = shapeCanvas.toBuffer("image/png");
+      var shapePath = './src/shapes/' + shapeSides + ' ' + shapeStroke + '.png';
+      console.log('Exporting polygon shape as image to: ' + shapePath + '\n');
+      fs.writeFileSync(shapePath, shapeBuffer);
+
+      // Merge existing layers by combining them in image buffer as data URI then output to file
+      var mergePath = './src/merged/' + idHex + ' ' + wordsOut + ' ' + colorHex + ' [Merged].png';
+      console.log('Merging all layers & exporting image to: ' + mergePath + '\n');
+      mergeImages([shapePath, iconPath, textPath], {
+          Canvas: Canvas,
+          Image: Image
+      }).then(function(response) {
+          ImageDataURI.outputFile(response, mergePath)
+      });
+
+      // Create a JSON with the locations of each generated set of media metadata
+      const updateLocalMetadata = async (idHex, coverPath, audioPath, wordsOut, colorHex, digiRoot, requestPayload, length) => {
+
+          console.log(`\nAttempting to create JSON with local metadata details...`);
+
+          const filePath = path.join(__dirname, '../src/local-metadata.json');
+
+          try {
+              const data = await fsPromises.readFile(filePath, 'utf8');
+
+              // If the file exists, parse its content, add the new object, and write it back to the file
+              const json = data ? JSON.parse(data) : {};
+              json[idHex] = {
+                  name: `${idHex}: ${wordsOut}`,
+                  description: `A generative music NFT created with metadata seeds. Words: ${wordsOut}, Color: ${colorHex}, Digital Root: ${digiRoot}, Mood: ${requestPayload.mood}, Genre: ${requestPayload.genre}, Theme: ${requestPayload.theme}, Tempo: ${requestPayload.tempo}, Length: [${length}s]`,
+                  cover: coverPath,
+                  audio: audioPath
+              };
+              await fsPromises.writeFile(filePath, JSON.stringify(json, null, 2), 'utf8');
+
+              console.log(`\nLocal metadata JSON created at ${filePath}`);
+
+          } catch (err) {
+              if (err.code === 'ENOENT') {
+
+                  // If the file doesn't exist, initialize it as an empty object
+                  await fsPromises.writeFile(filePath, JSON.stringify({
+                      [idHex]: {
+                          name: `${idHex}: ${wordsOut}`,
+                          description: `A generative music NFT created with metadata seeds. Words: ${wordsOut}, Color: ${colorHex}, Digital Root: ${digiRoot}, Mood: ${requestPayload.mood}, Genre: ${requestPayload.genre}, Theme: ${requestPayload.theme}, Tempo: ${requestPayload.tempo}, Length: [${length}s]`,
+                          cover: coverPath,
+                          audio: audioPath
+                      }
+                  }, null, 2), 'utf8');
+
+                  console.log(`\nLocal metadata JSON created at ${filePath}`);
+
+              } else {
+                  throw err;
+              }
+          }
+      };
+  };
+
+  // Don't forget to run the entire process!
+  generator();
+  ```
+</CodeGroup>
+
+## Step 3: Pinning to Chainstack IPFS and minting
+
+First things first, create a new `pin.js` script inside your `scripts/` directory, if you don’t have one already. If you do, you will be mostly updating your script throughout this step but if you don’t, rest easy for you will find detailed explanations of the process here too. So, go ahead and start by processing the necessary dependencies.
+
+<CodeGroup>
+  ```jsx pin.js
+  // Process dependencies
+  require('dotenv').config();
+  const fs = require('fs');
+  const fsPromises = require('fs').promises;
+  const path = require('path');
+  const axios = require('axios');
+  const FormData = require('form-data');
+  ```
+</CodeGroup>
+
+Next, create an asynchronous function, `generateContent`, to read and parse the`local-metadata.json` you generated in the previous script to a JSON object that contains the metadata of each media file to be pinned. Now, iterate over the `json` object.
+
+For each property in `json`, create an `element` object to store its value, as well as a new `content` array to hold the media file details. Create a set of four new constants `coverTitle`, `audioTitle`, `tokenTitle`, and `tokenDescr` to set the titles for the image and audio files, as well as to retrieve the name and description of the NFT from the stored `element` values.
+
+Push the image and audio files to the `content` array as streamable files with their respective titles. Next, push each `content` array set, along with the `tokenTitle` and `tokenDescr` to the `allContent` array. Then, return the `allContent` array, containing all the details of the media files waiting to be pinned.
+
+<CodeGroup>
+  ```jsx pin.js
+  // Define the media files to be pinned
+  async function generateContent() {
+    const data = await fsPromises.readFile(path.join(__dirname, '../src/output/local-metadata.json'), 'utf8');
+    const json = JSON.parse(data);
+
+    let allContent = [];
+
+    for (const key in json) {
+      if (json.hasOwnProperty(key)) {
+        const element = json[key];
+        const content = [];
+
+        const coverTitle = path.basename(element.cover);
+        const audioTitle = path.basename(element.audio);
+        const tokenTitle = element.name;
+        const tokenDescr = element.description;
+
+        content.push({
+          file: fs.createReadStream(path.join(__dirname, '..', element.cover)),
+          title: coverTitle
+        });
+
+        content.push({
+          file: fs.createReadStream(path.join(__dirname, '..', element.audio)),
+          title: audioTitle
+        });
+
+        allContent.push({
+          content: content,
+          tokenTitle: tokenTitle,
+          tokenDescr: tokenDescr
+        });
+      }
+    }
+
+    return allContent;
+  }
+  ```
+</CodeGroup>
+
+Having established the base data in `allContent`, move on to create another new function—`addFiles`, which you will be using to pin files using the Chainstack IPFS Storage API. This function loops through each file in the `source` array, sending an HTTP POST request to the Chainstack IPFS pinning service.
+
+The `source` parameter is the array of media files to pin, and the `single` parameter determines the endpoint to which the request is sent. If `single` is `true`, the request is sent to the endpoint for pinning single files, otherwise, it's sent to the endpoint for pinning multiple files.
+
+The function uses a `while` loop to attempt the pinning process multiple times if it fails. On each attempt, it logs the attempt number, error messages, and ID of the successfully pinned file.
+
+<CodeGroup>
+  ```jsx pin.js
+  // Define a function to pin files with Chainstack IPFS Storage
+  const addFiles = async (source, single = false) => {
+    const url = single ? "https://api.chainstack.com/v1/ipfs/pins/pinfile"
+      : "https://api.chainstack.com/v1/ipfs/pins/pinfiles";
+    const pubIDs = [];
+    const maxRetries = 7;
+    const retryTimeout = 22222;
+
+    for (let file of source) {
+      let retries = 0;
+
+      while (retries < maxRetries) {
+        try {
+          console.log(`Attempting to pin ${file.title} with Chainstack IPFS Storage... Attempt number: ${retries + 1}\n`);
+
+          const data = new FormData();
+          data.append('bucket_id', process.env.BUCKET_ID);
+          data.append('folder_id', process.env.FOLDER_ID);
+          data.append('file', file.file);
+          data.append('title', file.title);
+  ```
+</CodeGroup>
+
+Create a configuration object for the HTTP request. It includes the request method, URL, headers, and data. The headers contain the content type, authorization, and other headers required by the `FormData` instance.
+
+Execute the HTTP request using `axios` and store the response in the `response` variable. If the pinning is successful, get the public ID of the pinned file from `response.data.id` or `response.data[0].id`, depending on whether a single or multiple files were pinned. Add the ID to the `pubIDs` array.
+
+If the pinning process fails, catch the error and retry the pinning process after waiting for the timeout period. If the process still fails after the maximum number of retries, throw an error. Return the `pubIDs` array, which contains the IDs of the successfully pinned files.
+
+<CodeGroup>
+  ```jsx pin.js
+  const config = {
+            method: 'POST',
+            url: url,
+            headers: {
+              "Content-Type": 'multipart/form-data;',
+              "Authorization": process.env.CHAINSTACK,
+              ...data.getHeaders()
+            },
+            data: data
+          };
+
+          const response = await axios(config);
+
+          let id;
+          if (single) {
+            console.log(`Successfully pinned ${file.title} with Chainstack IPFS Storage using public ID: ${JSON.stringify(response.data.id)}\n`);
+            id = response.data.id;
+            id = Array.isArray(id) ? id : [id];
+          } else {
+            console.log(`Successfully pinned ${file.title} with Chainstack IPFS Storage using public ID: ${JSON.stringify(response.data[0].id)}\n`);
+            id = response.data[0].id;
+          }
+
+          pubIDs.push(id);
+
+          // If successful, break the loop
+          break;
+        } catch (error) {
+          console.error(`Error in addFiles: ${error.message}.. Attempting to retry...\n`);
+
+          // Retry after the timeout if unsuccessful
+          retries++;
+          console.log(`Retrying after error. Current retry count is: ${retries}`);
+          await new Promise((resolve) => setTimeout(resolve, retryTimeout));
+
+          // If max retries is reached and still failing, throw the error
+          if (retries === maxRetries) {
+            throw new Error(`Failed after ${maxRetries} attempts. ${error.message}`);
+          }
+        }
+      }
+    }
+
+    return pubIDs;
+  };
+  ```
+</CodeGroup>
+
+Continue by defining an asynchronous `findCIDs` function to retrieve the CID for each pinned file, which accepts two parameters: `fileID` and `single` flag, indicating if the `fileID` provided is single or not. If the `single` flag is true, remove any double quotes from the `fileID` and make sure it is an array. If it's not, convert it into one.
+
+Next, define constants `maxRetries` and `retryTimeout` to control how many times the function should attempt to find the CID before giving up, and how long it should wait between each attempt.
+
+If the `single` flag is false, make the function create two empty arrays, `cid` and `name`, and then run a loop over the `fileID` array. For each `fileID`, recursively call the `findCIDs` function with the `single` flag set to true, pushing the results into the `cid` and `name` arrays respectively.
+
+On the other hand, if the `single` flag is true, initiate a loop controlled by the `retries` counter and `maxRetries` constant. In each iteration, send a `GET` request to the Chainstack IPFS API and log the response. If a valid CID and filename are found, break out of the loop and return them.
+
+In case of any error during the HTTP request, log the error message, increment the `retries` counter, and wait for the `retryTimeout` duration before continuing the loop. Finally, return an array containing the found CIDs and filenames when the `single` flag is set to false, and a single pair of CID and filename when the `single` flag is set to true.
+
+<CodeGroup>
+  ```jsx pin.js
+  // Define a function to find CIDs for files pinned with Chainstack IPFS Storage
+  const findCIDs = async (fileID, single = false) => {
+    if (single) {
+      fileID = fileID.replace(/"/g, '');
+      fileID = Array.isArray(fileID) ? fileID : [fileID];
+
+    }
+
+    // Define the maximum retries and the timeout between retries
+    const maxRetries = 7;
+    const retryTimeout = 22222;
+
+    if (!single) {
+      let cid = [];
+      let name = [];
+
+      // Loop through all the pinned files
+      for (var i = 0; i < fileID.length; i++) {
+
+        // Get the CID and filename for the file
+        const result = await findCIDs(fileID[i], true);
+        cid.push(result[0]);
+        name.push(result[1]);
+      }
+
+      // Print the CIDs found and return the cid and name values
+      console.log(`All CIDs found: ${cid.join(', ')}\n`);
+      return [cid, name];
+    } else {
+      let cid;
+      let name;
+      let retries = 0;
+
+      // Set up the retry loop
+      while (retries < maxRetries) {
+        try {
+          console.log(`Attempting to find CID using public ID: ${fileID} with Chainstack IPFS Storage...\n`);
+
+          // Define the Axios configuration
+          const url = "https://api.chainstack.com/v1/ipfs/pins/" + fileID;
+          var config = {
+            method: 'GET',
+            url: url,
+            headers: {
+              "Content-Type": 'text/plain',
+              "Authorization": process.env.CHAINSTACK,
+              "Accept-Encoding": 'identity',
+            },
+            decompress: false
+          };
+
+          // Store the Axios response
+          const response = await axios(config);
+          console.log(`CID found: ${response.data.cid} Filename: ${response.data.title}\n`);
+
+          cid = response.data.cid;
+          name = response.data.title;
+
+          // Throw an error if the cid and name values are not valid
+          if (cid != null && cid !== 'error' && name != null && name !== 'error') {
+            break;
+          } else {
+
+            // Throw an error if the CID and filename are not valid
+            throw new Error('CID or name values are not valid.');
+          }
+        } catch (error) {
+          console.error(`Error in findCIDs: ${error.message}.. Attempting to retry...\n`);
+
+          // Retry after the timeout if unsuccessful
+          retries++;
+          await new Promise((resolve) => setTimeout(resolve, retryTimeout));
+        }
+      }
+      return [cid, name];
+    }
+  };
+  ```
+</CodeGroup>
+
+After the CIDs have been found, proceed to create an asynchronous `writeJSON` function, which will handle the creation of metadata for each NFT. As parameters, make sure it accepts the `pinCID`, `pinName`, `tokenTitle`, and `tokenDescr` you have defined earlier.
+
+For the first order of business for your `writeJSON` function, create two temporary variables—`audioIPFS` and `coverIPFS`. These will be used to store the full IPFS gateway URLs, so you can display the image and audio file in the metadata. Don’t forget to check if there is a valid `pinCID` and `pinName` to avoid erroneous data.
+
+Next, create a `for` loop with `pinName.length` being the determinant. Inside the loop, create an `if-else` statement, checking if a given `pinName` contains the `.mp3` file extension. Set the `audioIPFS` value to the gateway base URL, paired with the corresponding `pinCID` if it’s an MP3, or `coverIPFS` if it isn’t.
+
+Considering the audio files generated are MP3s, you can use this to differentiate between audio and image file in a simple manner. Then, write the properly formatted metadata you have collected using `fs.writeFileSync()`, and after checking everything was written correctly, return the temporary `jsonMeta` object.
+
+<CodeGroup>
+  ```jsx pin.js
+  // Define a function to write the metadata to a .json file
+  const writeJSON = async (pinCID, pinName, tokenTitle, tokenDescr) => {
+    let audioIPFS;
+    let coverIPFS;
+    if (pinCID && pinName) {
+      for (var i = 0; i < pinName.length; i++) {
+        if (pinName[i].includes('mp3')) {
+          audioIPFS = "https://ipfsgw.com/ipfs/" + pinCID[i];
+        } else {
+          coverIPFS = "https://ipfsgw.com/ipfs/" + pinCID[i];
+        }
+      }
+
+      // Write the metadata to the file ./src/NFTmetadata.json
+      fs.writeFileSync(`./src/jsons/${tokenTitle.replace(/:/g, '')}.json`, JSON.stringify({
+        "description": tokenDescr,
+        "external_url": "https://chainstack.com/nfts/",
+        "image": coverIPFS,
+        "animation_url": audioIPFS,
+        "name": tokenTitle
+      }));
+
+      let jsonMeta;
+      if (fs.existsSync(`./src/jsons/${tokenTitle.replace(/:/g, '')}.json`)) {
+        jsonMeta = {
+          file: fs.createReadStream(`./src/jsons/${tokenTitle.replace(/:/g, '')}.json`),
+          title: `${tokenTitle.replace(/:/g, '')}.json`
+        };
+      }
+      return jsonMeta;
+    }
+  };
+  ```
+</CodeGroup>
+
+Lastly, define the main asynchronous function `pinNFT` to run the entire process of pinning the NFT metadata. Within this function, wrap everything in a `try` block to handle any errors that might occur during execution. Call the `generateContent` function which should return an array containing all NFT data from a local metadata file and initialize an array `nftURLs` to store the URLs of the pinned metadata.
+
+Then, loop through each NFT in the `allNFTs` array. For each NFT, extract the `content`, `tokenTitle`, and `tokenDescr` fields. For each file in the `content`, call the `addFiles` function and wait for the retry time out. Afterwards, call the `findCIDs` function and add the returned CID and filename to the `pinCIDs` and `pinNames` arrays respectively.
+
+After all files for a particular NFT have been processed, call the `writeJSON` function passing `pinCIDs`, `pinNames`, `tokenTitle`, and `tokenDescr` as arguments. This function should return a JSON metadata file. Then, call the `addFiles` function again, this time for the JSON metadata file, and wait for the timeout before getting its CID using the `findCIDs` function.
+
+Finally, add the IPFS URL of the JSON metadata file to the `nftURLs` array. After looping through all of them, write the `nftURLs` array to a `metadataURLs.json`file in the `./src/output/` directory. Don't forget to call the `pinNFT` function to start the pinning process.
+
+<CodeGroup>
+  ```jsx pin.js
+  // Define the main function that executes all necessary functions to pin the NFT metadata
+  const pinNFT = async () => {
+    try {
+
+      // Generate the content from local metadata file
+      const allNFTs = await generateContent();
+
+      // Initialize array to store the pinned metadata urls
+      let nftURLs = [];
+
+      for (let nft of allNFTs) {
+        const { content, tokenTitle, tokenDescr } = nft;
+        let pinCIDs = [];
+        let pinNames = [];
+
+        // Ensure all files for this entry are pinned before moving on to the next
+        for (let file of content) {
+          const ids = await addFiles([file]);
+          await new Promise((resolve) => setTimeout(resolve, 22222));
+
+          const [pinCID, pinName] = await findCIDs(ids);
+          pinCIDs.push(pinCID[0]);
+          pinNames.push(pinName[0]);
+          await new Promise((resolve) => setTimeout(resolve, 22222));
+        }
+
+        const jsonMeta = await writeJSON(pinCIDs, pinNames, tokenTitle, tokenDescr);
+        await new Promise((resolve) => setTimeout(resolve, 22222));
+
+        const id = await addFiles([jsonMeta]);
+        await new Promise((resolve) => setTimeout(resolve, 22222));
+
+        const jsonCID = await findCIDs(id);
+        console.log(`NFT metadata for ${tokenTitle} successfully pinned with Chainstack IPFS Storage!\n`);
+
+        // Add the metadata URL to the nftURLs array
+        nftURLs.push(`https://ipfsgw.com/ipfs/${jsonCID[0]}`);
+      }
+
+      // Write the metadata URLs to JSON
+      console.log(`Writing metadata URL to ./src/output/metadataURLs.json...\n`);
+      fs.writeFileSync('./src/output/metadataURLs.json', JSON.stringify(nftURLs, null, 2));
+    } catch (error) {
+      console.error(`Error during NFT pinning: ${JSON.stringify(error)}`);
+    }
+  };
+
+  // Don't forget to run the main function!
+  pinNFT();
+  ```
+</CodeGroup>
+
+Once the script finishes running, the metadata for all NFTs will have been successfully pinned to Chainstack IPFS Storage, and their URLs will be saved in `metadataURLs.json`. Here’s the entire script to recap:
+
+<CodeGroup>
+  ```jsx pin.js
+  // Process dependencies
+  require('dotenv').config();
+  const fs = require('fs');
+  const fsPromises = require('fs').promises;
+  const path = require('path');
+  const axios = require('axios');
+  const FormData = require('form-data');
+
+  // Define the media files to be pinned
+  async function generateContent() {
+    const data = await fsPromises.readFile(path.join(__dirname, '../src/output/local-metadata.json'), 'utf8');
+    const json = JSON.parse(data);
+
+    let allContent = [];
+
+    for (const key in json) {
+      if (json.hasOwnProperty(key)) {
+        const element = json[key];
+        const content = [];
+
+        const coverTitle = path.basename(element.cover);
+        const audioTitle = path.basename(element.audio);
+        const tokenTitle = element.name;
+        const tokenDescr = element.description;
+
+        content.push({
+          file: fs.createReadStream(path.join(__dirname, '..', element.cover)),
+          title: coverTitle
+        });
+
+        content.push({
+          file: fs.createReadStream(path.join(__dirname, '..', element.audio)),
+          title: audioTitle
+        });
+
+        allContent.push({
+          content: content,
+          tokenTitle: tokenTitle,
+          tokenDescr: tokenDescr
+        });
+      }
+    }
+
+    return allContent;
+  }
+
+  // Define a function to pin files with Chainstack IPFS Storage
+  const addFiles = async (source, single = false) => {
+    const url = single ? "https://api.chainstack.com/v1/ipfs/pins/pinfile"
+      : "https://api.chainstack.com/v1/ipfs/pins/pinfiles";
+    const pubIDs = [];
+    const maxRetries = 7;
+    const retryTimeout = 22222;
+
+    for (let file of source) {
+      let retries = 0;
+
+      while (retries < maxRetries) {
+        try {
+          console.log(`Attempting to pin ${file.title} with Chainstack IPFS Storage... Attempt number: ${retries + 1}\n`);
+
+          const data = new FormData();
+          data.append('bucket_id', process.env.BUCKET_ID);
+          data.append('folder_id', process.env.FOLDER_ID);
+          data.append('file', file.file);
+          data.append('title', file.title);
+
+          const config = {
+            method: 'POST',
+            url: url,
+            headers: {
+              "Content-Type": 'multipart/form-data;',
+              "Authorization": process.env.CHAINSTACK,
+              ...data.getHeaders()
+            },
+            data: data
+          };
+
+          const response = await axios(config);
+
+          let id;
+          if (single) {
+            console.log(`Successfully pinned ${file.title} with Chainstack IPFS Storage using public ID: ${JSON.stringify(response.data.id)}\n`);
+            id = response.data.id;
+            id = Array.isArray(id) ? id : [id];
+          } else {
+            console.log(`Successfully pinned ${file.title} with Chainstack IPFS Storage using public ID: ${JSON.stringify(response.data[0].id)}\n`);
+            id = response.data[0].id;
+          }
+
+          pubIDs.push(id);
+
+          // If successful, break the loop
+          break;
+        } catch (error) {
+          console.error(`Error in addFiles: ${error.message}.. Attempting to retry...\n`);
+
+          // Retry after the timeout if unsuccessful
+          retries++;
+          console.log(`Retrying after error. Current retry count is: ${retries}`);
+          await new Promise((resolve) => setTimeout(resolve, retryTimeout));
+
+          // If max retries is reached and still failing, throw the error
+          if (retries === maxRetries) {
+            throw new Error(`Failed after ${maxRetries} attempts. ${error.message}`);
+          }
+        }
+      }
+    }
+
+    return pubIDs;
+  };
+
+  // Define a function to find CIDs for files pinned with Chainstack IPFS Storage
+  const findCIDs = async (fileID, single = false) => {
+    if (single) {
+      fileID = fileID.replace(/"/g, '');
+      fileID = Array.isArray(fileID) ? fileID : [fileID];
+
+    }
+
+    // Define the maximum retries and the timeout between retries
+    const maxRetries = 7;
+    const retryTimeout = 22222;
+
+    if (!single) {
+      let cid = [];
+      let name = [];
+
+      // Loop through all the pinned files
+      for (var i = 0; i < fileID.length; i++) {
+
+        // Get the CID and filename for the file
+        const result = await findCIDs(fileID[i], true);
+        cid.push(result[0]);
+        name.push(result[1]);
+      }
+
+      // Print the CIDs found and return the cid and name values
+      console.log(`All CIDs found: ${cid.join(', ')}\n`);
+      return [cid, name];
+    } else {
+      let cid;
+      let name;
+      let retries = 0;
+
+      // Set up the retry loop
+      while (retries < maxRetries) {
+        try {
+          console.log(`Attempting to find CID using public ID: ${fileID} with Chainstack IPFS Storage...\n`);
+
+          // Define the Axios configuration
+          const url = "https://api.chainstack.com/v1/ipfs/pins/" + fileID;
+          var config = {
+            method: 'GET',
+            url: url,
+            headers: {
+              "Content-Type": 'text/plain',
+              "Authorization": process.env.CHAINSTACK,
+              "Accept-Encoding": 'identity',
+            },
+            decompress: false
+          };
+
+          // Store the Axios response
+          const response = await axios(config);
+          console.log(`CID found: ${response.data.cid} Filename: ${response.data.title}\n`);
+
+          cid = response.data.cid;
+          name = response.data.title;
+
+          // Throw an error if the cid and name values are not valid
+          if (cid != null && cid !== 'error' && name != null && name !== 'error') {
+            break;
+          } else {
+
+            // Throw an error if the CID and filename are not valid
+            throw new Error('CID or name values are not valid.');
+          }
+        } catch (error) {
+          console.error(`Error in findCIDs: ${error.message}.. Attempting to retry...\n`);
+
+          // Retry after the timeout if unsuccessful
+          retries++;
+          await new Promise((resolve) => setTimeout(resolve, retryTimeout));
+        }
+      }
+      return [cid, name];
+    }
+  };
+
+  // Define a function to write the metadata to a .json file
+  const writeJSON = async (pinCID, pinName, tokenTitle, tokenDescr) => {
+    let audioIPFS;
+    let coverIPFS;
+    if (pinCID && pinName) {
+      for (var i = 0; i < pinName.length; i++) {
+        if (pinName[i].includes('mp3')) {
+          audioIPFS = "https://ipfsgw.com/ipfs/" + pinCID[i];
+        } else {
+          coverIPFS = "https://ipfsgw.com/ipfs/" + pinCID[i];
+        }
+      }
+
+      // Write the metadata to the file ./src/NFTmetadata.json
+      fs.writeFileSync(`./src/jsons/${tokenTitle.replace(/:/g, '')}.json`, JSON.stringify({
+        "description": tokenDescr,
+        "external_url": "https://chainstack.com/nfts/",
+        "image": coverIPFS,
+        "animation_url": audioIPFS,
+        "name": tokenTitle
+      }));
+
+      let jsonMeta;
+      if (fs.existsSync(`./src/jsons/${tokenTitle.replace(/:/g, '')}.json`)) {
+        jsonMeta = {
+          file: fs.createReadStream(`./src/jsons/${tokenTitle.replace(/:/g, '')}.json`),
+          title: `${tokenTitle.replace(/:/g, '')}.json`
+        };
+      }
+      return jsonMeta;
+    }
+  };
+
+  // Define the main function that executes all necessary functions to pin the NFT metadata
+  const pinNFT = async () => {
+    try {
+
+      // Generate the content from local metadata file
+      const allNFTs = await generateContent();
+
+      // Initialize array to store the pinned metadata urls
+      let nftURLs = [];
+
+      for (let nft of allNFTs) {
+        const { content, tokenTitle, tokenDescr } = nft;
+        let pinCIDs = [];
+        let pinNames = [];
+
+        // Ensure all files for this entry are pinned before moving on to the next
+        for (let file of content) {
+          const ids = await addFiles([file]);
+          await new Promise((resolve) => setTimeout(resolve, 22222));
+
+          const [pinCID, pinName] = await findCIDs(ids);
+          pinCIDs.push(pinCID[0]);
+          pinNames.push(pinName[0]);
+          await new Promise((resolve) => setTimeout(resolve, 22222));
+        }
+
+        const jsonMeta = await writeJSON(pinCIDs, pinNames, tokenTitle, tokenDescr);
+        await new Promise((resolve) => setTimeout(resolve, 22222));
+
+        const id = await addFiles([jsonMeta]);
+        await new Promise((resolve) => setTimeout(resolve, 22222));
+
+        const jsonCID = await findCIDs(id);
+        console.log(`NFT metadata for ${tokenTitle} successfully pinned with Chainstack IPFS Storage!\n`);
+
+        // Add the metadata URL to the nftURLs array
+        nftURLs.push(`https://ipfsgw.com/ipfs/${jsonCID[0]}`);
+      }
+
+      // Write the metadata URLs to JSON
+      console.log(`Writing metadata URL to ./src/output/metadataURLs.json...\n`);
+      fs.writeFileSync('./src/output/metadataURLs.json', JSON.stringify(nftURLs, null, 2));
+    } catch (error) {
+      console.error(`Error during NFT pinning: ${JSON.stringify(error)}`);
+    }
+  };
+
+  // Don't forget to run the main function!
+  pinNFT();
+  ```
+</CodeGroup>
+
+### Preparing your mints
+
+Now it’s time to move forward with the final script—`mint.js`, so go ahead and create it, if you don’t have it already. Start by processing your dependencies, in this case, `dotenv`, `hardhat-web3`, `fs`, and `path`, then initialize your wallet address and private key by loading them from your `.env` file.
+
+<CodeGroup>
+  ```jsx mint.js
+  // Process dependencies
+  require('dotenv').config();
+  require("@nomiclabs/hardhat-web3");
+  const fs = require('fs');
+  const path = require('path');
+
+  // Initialize your wallet address and private key
+  const address = process.env.WALLET;
+  const privKey = process.env.PRIVATE_KEY;
+  ```
+</CodeGroup>
+
+Next, create a new global`contractAdrs` variable to set the smart contract address for the selected network. If you're using the `sepolia` network, set it to `SEPOLIA_CONTRACT`, and for the Ethereum Mainnet, set it to `MAINNET_CONTRACT`.
+
+<CodeGroup>
+  ```jsx mint.js
+  // Initialize your deployed smart contract address for the selected network
+  let contractAdrs;
+  if (network.name == 'sepolia') {
+    const contractENV = process.env.SEPOLIA_CONTRACT
+    contractAdrs = contractENV;
+  } else if (network.name == 'sepolia') {
+    const contractENV = process.env.SEPOLIA_CONTRACT;
+    contractAdrs = contractENV;
+  } else {
+    const contractENV = process.env.MAINNET_CONTRACT;
+    contractAdrs = contractENV;
+  }
+  ```
+</CodeGroup>
+
+Then, create a new global `contractName` constant to store the name of your NFT contract, so it is easier to look up the appropriate Hardhat artifact. Read the artifact file and parse it as a JSON object to load the `ABI` you will be needing further down the script.
+
+Remember to load the `metadataURLs.json` file as the value of a new global `metadataUrls` constant and use the `web3.eth.Contract` method to create a new contract object. Set the interactions origin to your Ethereum wallet address to be able to call the methods in your smart contract.
+
+<CodeGroup>
+  ```jsx mint.js
+  // Replace 'MyFirstMusicNFT' with your contract's name.
+  const contractName = 'MyFirstMusicNFT';
+
+  // Find the compiled smart contract to get the ABI
+  const artifactPath = path.resolve(__dirname, `../artifacts/contracts/${contractName}.sol/${contractName}.json`);
+  const contractArtifact = JSON.parse(fs.readFileSync(artifactPath, 'utf-8'));
+  const contractABI = contractArtifact.abi;
+
+  // Load metadata URLs from file
+  const metadataUrls = require('../src/output/metadataURLs.json');
+
+  // Create a new contract object and set interactions origin to the owner address
+  const contractObj = new web3.eth.Contract(contractABI, contractAdrs, {
+    from: address,
+  });
+  ```
+</CodeGroup>
+
+Afterwards, define an asynchronous `startMint` function where all the magic of minting happens. Proceed by creating an empty `txUrls` array which will be used to store the URLs of all minting transactions, as well as a temporary `nonce` variable, whose value should be set to `await` the `getTransactionCount` method with your `address` as a parameter. This will prevent any errors caused by overlapping transactions.
+
+Following that, iterate over every URL in the `metadataUrls` array. For each of them, you're going to mint an NFT. Within the loop, estimate the gas required to mint each NFT first. Then, create a transaction for the minting process, which you then sign using your private key.
+
+Make sure you ask for your receipt too, once your transaction has been sent to the network successfully. Use the information from the receipt to generate a valid Etherscan URL for your transaction. Then, add the Etherscan URL to the `txUrls` array, and increment the nonce for the next transaction.
+
+Lastly, set a timeout after each NFT mint to allow for network propagation and write all transaction URLs to a `mintTXs.json` file in the `./src/output/` directory. Naturally, don’t forget to call the `startMint` function at the end too!
+
+<CodeGroup>
+  ```jsx mint.js
+  // Define the minting function
+  const startMint = async () => {
+    console.log(`\nAttempting to mint on ${network.name} to: ${address}...\n`);
+
+    // Create an array to store all transaction URLs
+    let txUrls = [];
+
+    // Get the current transaction count, which will serve as the initial nonce
+    let nonce = await web3.eth.getTransactionCount(address);
+
+    // Iterate over each metadata URL to mint NFT
+    for (const metadata of metadataUrls) {
+
+      // Estimate the gas costs needed to process the transaction
+      const gasCost = await contractObj.methods.safeMint(address, metadata).estimateGas((err, gas) => {
+        if (!err) console.log(`Estimated gas: ${gas} for metadata: ${metadata}\n`);
+        else console.error(`Error estimating gas: ${err} for metadata: ${metadata}\n`);
+      });
+
+      // Define the transaction details and sign it
+      const mintTX = await web3.eth.accounts.signTransaction(
+        {
+          from: address,
+          to: contractAdrs,
+          data: contractObj.methods.safeMint(address, metadata).encodeABI(),
+          gas: gasCost,
+          nonce: nonce,
+        },
+        privKey,
+      );
+
+      // Get transaction receipt
+      const createReceipt = await web3.eth.sendSignedTransaction(mintTX.rawTransaction);
+
+      // Provide appropriate network for Etherscan link
+      let etherscanUrl;
+      if (network.name !== 'mainnet') {
+        etherscanUrl = `https://${network.name}.etherscan.io/tx/${createReceipt.transactionHash}`;
+        console.log(`NFT successfully minted on ${network.name} with hash: ${createReceipt.transactionHash}\n\nView the transaction on Etherscan: ${etherscanUrl}\n`);
+      } else {
+        etherscanUrl = `https://etherscan.io/tx/${createReceipt.transactionHash}`;
+        console.log(`NFT successfully minted on ${network.name} with hash: ${createReceipt.transactionHash}\n\nView the transaction on Etherscan: ${etherscanUrl}\n`);
+      }
+
+      // Push the transaction URL to the array
+      txUrls.push(etherscanUrl);
+
+      // Increment the nonce for the next transaction
+      nonce++;
+
+      // Wait before the next mint
+      console.log(`Allowing time for network propagation...`);
+      await new Promise((resolve) => setTimeout(resolve, 22222));
+    }
+
+    // Write all the transaction URLs to the JSON file
+    console.log(`Writing transaction URLs to ./src/output/mintTXs.json...\n`);
+    fs.writeFileSync('./src/output/mintTXs.json', JSON.stringify(txUrls, null, 2));
+  };
+
+  // Don't forget to run the main function!
+  startMint();
+  ```
+</CodeGroup>
+
+And to put a definitive curtains call on our tutorial, let’s do one final recap with the full `mint.js` script. You can find all files involved in the making of this tutorial in the [full tutorial repo](https://github.com/chainstacklabs/generative-ai-music-nft-minter-tutorial-repo).
+
+<CodeGroup>
+  ```jsx mint.js
+  // Process dependencies
+  require('dotenv').config();
+  require("@nomiclabs/hardhat-web3");
+  const fs = require('fs');
+  const path = require('path');
+
+  // Initialize your wallet address and private key
+  const address = process.env.WALLET;
+  const privKey = process.env.PRIVATE_KEY;
+
+  // Initialize your deployed smart contract address for the selected network
+  let contractAdrs;
+  if (network.name == 'sepolia') {
+    const contractENV = process.env.SEPOLIA_CONTRACT
+    contractAdrs = contractENV;
+  } else if (network.name == 'sepolia') {
+    const contractENV = process.env.sepolia_CONTRACT;
+    contractAdrs = contractENV;
+  } else {
+    const contractENV = process.env.MAINNET_CONTRACT;
+    contractAdrs = contractENV;
+  }
+
+  // Replace 'MyFirstMusicNFT' with your contract's name.
+  const contractName = 'MyFirstMusicNFT';
+
+  // Find the compiled smart contract to get the ABI
+  const artifactPath = path.resolve(__dirname, `../artifacts/contracts/${contractName}.sol/${contractName}.json`);
+  const contractArtifact = JSON.parse(fs.readFileSync(artifactPath, 'utf-8'));
+  const contractABI = contractArtifact.abi;
+
+  // Load metadata URLs from file
+  const metadataUrls = require('../src/output/metadataURLs.json');
+
+  // Create a new contract object and set interactions origin to the owner address
+  const contractObj = new web3.eth.Contract(contractABI, contractAdrs, {
+    from: address,
+  });
+
+  // Define the minting function
+  const startMint = async () => {
+    console.log(`\nAttempting to mint on ${network.name} to: ${address}...\n`);
+
+    // Create an array to store all transaction URLs
+    let txUrls = [];
+
+    // Get the current transaction count, which will serve as the initial nonce
+    let nonce = await web3.eth.getTransactionCount(address);
+
+    // Iterate over each metadata URL to mint NFT
+    for (const metadata of metadataUrls) {
+
+      // Estimate the gas costs needed to process the transaction
+      const gasCost = await contractObj.methods.safeMint(address, metadata).estimateGas((err, gas) => {
+        if (!err) console.log(`Estimated gas: ${gas} for metadata: ${metadata}\n`);
+        else console.error(`Error estimating gas: ${err} for metadata: ${metadata}\n`);
+      });
+
+      // Define the transaction details and sign it
+      const mintTX = await web3.eth.accounts.signTransaction(
+        {
+          from: address,
+          to: contractAdrs,
+          data: contractObj.methods.safeMint(address, metadata).encodeABI(),
+          gas: gasCost,
+          nonce: nonce,
+        },
+        privKey,
+      );
+
+      // Get transaction receipt
+      const createReceipt = await web3.eth.sendSignedTransaction(mintTX.rawTransaction);
+
+      // Provide appropriate network for Etherscan link
+      let etherscanUrl;
+      if (network.name !== 'mainnet') {
+        etherscanUrl = `https://${network.name}.etherscan.io/tx/${createReceipt.transactionHash}`;
+        console.log(`NFT successfully minted on ${network.name} with hash: ${createReceipt.transactionHash}\n\nView the transaction on Etherscan: ${etherscanUrl}\n`);
+      } else {
+        etherscanUrl = `https://etherscan.io/tx/${createReceipt.transactionHash}`;
+        console.log(`NFT successfully minted on ${network.name} with hash: ${createReceipt.transactionHash}\n\nView the transaction on Etherscan: ${etherscanUrl}\n`);
+      }
+
+      // Push the transaction URL to the array
+      txUrls.push(etherscanUrl);
+
+      // Increment the nonce for the next transaction
+      nonce++;
+
+      // Wait before the next mint
+      console.log(`Allowing time for network propagation...`);
+      await new Promise((resolve) => setTimeout(resolve, 22222));
+    }
+
+    // Write all the transaction URLs to the JSON file
+    console.log(`Writing transaction URLs to ./src/output/mintTXs.json...\n`);
+    fs.writeFileSync('./src/output/mintTXs.json', JSON.stringify(txUrls, null, 2));
+  };
+
+  // Don't forget to run the main function!
+  startMint();
+  ```
+</CodeGroup>
+
+## Bringing it all together
+
+Congratulations on successfully traversing through the captivating world of minting generative music NFTs! You have now carved out a thorough process for creating, deploying, and managing your personal cache of digital music tokens.
+
+By harnessing the potency of blockchain technology, individuals like you—whether creators or collectors—can make the most of this novel channel for creative display, secure ownership, and economic gain.
+
+As you step forward on your journey with music NFTs, bear in mind that the scope for innovation is limitless. Fiddle with a variety of parameters and smart contract features to craft NFTs that not only encapsulate your distinct artistic flair but also provide valuable content for your patrons.
+
+Whether you are an established music maker or an up-and-coming artist, music NFTs provide the chance to unlock fresh opportunities and revamp the way you interact with and value the auditory arts.
+
+So don't hold back, embrace the adventure, and kickstart the process of minting your exclusive music NFTs. Broadcast your creations far and wide, and experience the revolutionizing impact of this frontier technology on the dynamic world of music.
+
+Ready to see the generation in action? Find a collection of generative music NFTs, minted in the process of the tutorial on Sepolia OpenSea.
+
+Here are some of the results:
+
+<CardGroup>
+  <Card title="2da240: Afternoon Passage Fence" href="https://testnets.opensea.io/assets/goerli/0xdbcd1d3a3f21a54322110d45038f60e9b102ca71/6" icon="angle-right" horizontal />
+  <Card title="432240: Strip How Taken" href="https://testnets.opensea.io/assets/goerli/0xdbcd1d3a3f21a54322110d45038f60e9b102ca71/5" icon="angle-right" horizontal />
+  <Card title="140240: Massage Cast Rear" href="https://testnets.opensea.io/assets/goerli/0xdbcd1d3a3f21a54322110d45038f60e9b102ca71/4" icon="angle-right" horizontal />
+</CardGroup>
+Onwards to a symphony of success, happy minting!
+
+### About the author
+
+<CardGroup>
+  <Card title="Petar Stoykov" img="https://pbs.twimg.com/profile_images/1565444249784565761/J6viLLoe_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/> Senior Copywriter @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> Writes on Ethereum, NFTs, and underlying technology
+
+    <Icon icon="laptop"  iconType="solid"/> I BUIDL tutorials insightful so your dev experience can be delightful.
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/petarsrepo)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/petarcopyrock)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/pstoykov/)
+  </Card>
+</CardGroup>

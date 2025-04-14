@@ -1,0 +1,190 @@
+---
+title: "Moonbeam: Monitoring the Conviction Voting Contract"
+---
+
+* Moonbeam is an EVM-compatible parachain on Polkadot, built with Substrate and featuring unique Solidity precompiles.
+* We focus on monitoring its conviction voting precompile, which implements a quadratic-like voting mechanism with a time-based conviction factor.
+* The tutorial demonstrates how to detect, decode, and extract data from conviction voting transactions in Python.
+* By invoking the contract’s functions (e.g., `votingFor`, `classLocksFor`), developers can retrieve voting states and locked GLMR details in real time.
+
+## Main article
+
+Moonbeam is an EVM-compatible network, however it's not a run-of-the-mill one. Instead, it's pretty interesting. Moonbeam is one the first parachains launched on Polkadot. See the Polkadot blog post from 2021: [Parachains are Live!](https://polkadot.network/blog/parachains-are-live-polkadot-launch-is-now-complete)
+
+Moonbeam (the nodes specifically) is built using the Substrate framework and the Polkadot SDK. Being EVM-compatible, it's a path for Ethereum developers to get familiar with the Polkadot ecosystem.
+
+Moonbeam has a few Solidity precompiles to ease the developer life and to cross-operate with Polkadot. Check them out in the Moonbeam docs: [Overview of the Precompiled Contracts on Moonbeam](https://docs.moonbeam.network/builders/pallets-precompiles/precompiles/overview/).
+
+The precompiled contract that we'll have a look at as part of this tutorial is the conviction voting one. See: [Conviction Voting Precompile Contract](https://docs.moonbeam.network/builders/pallets-precompiles/precompiles/conviction-voting/).
+
+The contract is pretty active in receiving transactions, so it's perfect for our demo. What we are going to do is monitor it for incoming transactions, extract the transaction data, and call the contract to retrieve the voting state based on the transactions data.
+
+We are going to do this in Python and with the Chainstack Moonbeam nodes.
+
+First, a few words on conviction voting and the Moonbeam contract.
+
+Conviction voting is a relatively novel iteration of a voting algorithm that's been out for a while and that's called [quadratic voting](https://en.wikipedia.org/wiki/Quadratic_voting).
+
+The short version of quadratic voting & conviction voting is:
+
+* Quadratic voting — not everyone is equal in voting and those with the most real currency or artificial currency (token) have the most power in voting.
+* Conviction voting — this one expands on quadratic voting and adds a decay of the support of a decision to be made through voting. Conviction voting calculates the conviction of each token holder for a proposal based on the tokens they stake, how long they support it, and how soon the holder switches to voting for another proposal, which starts the conviction decay.
+
+You can check the following resources for more details:
+
+* Moonbeam docs: [Governance](https://docs.moonbeam.network/learn/features/governance/)
+* [Moonbeam governance dapp](https://apps.moonbeam.network/moonbeam/open-gov)
+
+Let's implement a simple monitoring of the conviction voting contract in Python.
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/) to deploy a Moonbeam Mainnet node
+* [web3.py](https://web3py.readthedocs.io/)
+
+## Step-by-step
+
+### Get a Moonbeam node
+
+Log in to your [Chainstack account](https://console.chainstack.com/) and deploy a node.
+
+### Get the ABI
+
+To interact with the contract, you need the contract ABI.
+
+Since it's a precompile, it's not readily available on the [Moonbeam explorer](https://moonscan.io/address/0x0000000000000000000000000000000000000812). Let's generate one:
+
+<Steps>
+  <Step>
+  Go to [Remix IDE](https://remix.ethereum.org/).
+  </Step>
+  <Step>
+    Create the `ConvictionVoting.sol` file and paste the actual Solidity code from the Moonbeam GitHub repository: [ConvictionVoting.sol](https://github.com/moonbeam-foundation/moonbeam/blob/master/precompiles/conviction-voting/ConvictionVoting.sol).
+  </Step>
+  <Step>
+    In Remix IDE, click **Solidity Compiler** > **Compile**.
+  </Step>
+  <Step>
+    When compiled, hit **ABI**. This will copy the ABI of the contract.
+  </Step>
+</Steps>
+
+Save the ABI as a `ConvictionVoting.abi` file in the same directory where you are going to have the Python script.
+
+### Create the script
+
+Now that you have ABI, create the script.
+
+A few details on the implementation:
+
+* The precompile address of the conviction voting contract is `0x0000000000000000000000000000000000000812`.
+* You can provide the block number of when to start iterating through the blocks to watch for the voting transactions.
+* Once the script extracts a voting transaction, it uses the transaction data to call the two publicly readable functions in the contract `votingFor` and `classLocksFor` to retrieve the voting track ID, the index of poll, and the locked amount of the GLMR tokens. You can check what these are in the [Moonbeam voting dapp](https://apps.moonbeam.network/moonbeam/open-gov).
+
+<CodeGroup>
+  ```python Python
+  import json
+  from web3 import Web3
+
+  # Сonnect to the Moonbeam node
+  web3 = Web3(Web3.HTTPProvider('NODE_URL'))
+
+  # The address of the conviction voting contract
+  contract_address = '0x0000000000000000000000000000000000000812'
+
+  # Load the ABI from the file for both functions
+  with open('ConvictionVoting.abi', 'r') as abi_file:
+      abi = json.load(abi_file)
+
+  # Create the contract instance
+  contract = web3.eth.contract(address=contract_address, abi=abi)
+
+  # Specify the starting block number
+  start_block = BLOCK_NUMBER
+
+  # Get the latest block number
+  latest_block = web3.eth.block_number
+
+  # Filter transactions to the Conviction Voting contract
+  for block_number in range(start_block, latest_block + 1):
+      block = web3.eth.get_block(block_number, full_transactions=True)
+      for tx in block.transactions:
+          if tx.to and (tx.to.lower() == contract_address.lower()):
+              print(f"Transaction from account {tx['from']} in block {block_number}:")
+              print(f"  Transaction Hash: {tx.hash.hex()}")
+
+              # Decode the transaction input
+              if tx.input != '0x':
+                  func_obj, func_params = contract.decode_function_input(tx.input)
+                  print(f"  Function called: {func_obj.fn_name}")
+                  for name, value in func_params.items():
+                      print(f"    {name}: {value}")
+
+              # Call the classLocksFor function
+              class_locks = contract.functions.classLocksFor(tx['from']).call()
+              for lock in class_locks:
+                  track_id, amount = lock
+                  amount_in_glmr = web3.from_wei(amount, 'ether')
+                  print(f"  Track ID: {track_id}, Locked Amount: {amount_in_glmr} GLMR")
+
+                  # Call the votingFor function
+                  voting_info = contract.functions.votingFor(tx['from'], track_id).call()
+                  is_casting, is_delegating, casting_details, delegating_details = voting_info
+                  print("  Voting Information:")
+                  print(f"    Is Casting: {'Yes' if is_casting else 'No'}")
+                  print(f"    Is Delegating: {'Yes' if is_delegating else 'No'}")
+
+                  # Convert and print voteAmount in GLMR
+                  if is_casting:
+                      for vote in casting_details[0]:
+                          poll_index, vote_details = vote
+                          is_standard, is_split, is_split_abstain, standard_vote, split_vote, split_abstain_vote = vote_details
+                          if is_standard:
+                              aye, conviction = standard_vote[0]
+                              balance = standard_vote[1]
+                              balance_in_glmr = web3.from_wei(balance, 'ether')
+                              print(f"        Vote in Favor: {'Yes' if aye else 'No'}, Conviction Level: {conviction}")
+                              print(f"        Balance: {balance_in_glmr} GLMR")
+
+                  # Call the classLocksFor function
+                  class_locks = contract.functions.classLocksFor(tx['from']).call()
+                  for lock in class_locks:
+                      track_id, amount = lock
+                      print(f"  Track ID: {track_id}, Locked Amount: {amount_in_glmr}")
+
+                      # Call the votingFor function
+                      voting_info = contract.functions.votingFor(tx['from'], track_id).call()
+                      is_casting, is_delegating, casting_details, delegating_details = voting_info
+                      print("  Voting Information:")
+                      print(f"    Is Casting: {'Yes' if is_casting else 'No'}")
+                      print(f"    Is Delegating: {'Yes' if is_delegating else 'No'}")
+  ```
+</CodeGroup>
+
+where
+
+* `NODE_URL` — your Moonbeam node endpoint
+* `BLOCK_NUMBER` — the block number from which to start iterating over the blocks for the conviction voting transactions.
+
+## Conclusion
+
+This tutorial guided you through setting up the monitoring of the Moonbeam conviction voting system and how retrieve the data off the contract based on the decoded transactions.
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

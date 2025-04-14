@@ -1,0 +1,403 @@
+---
+title: "Implementing JWT Validation in Golang for Chainstack Marketplace Integration"
+---
+
+**TLDR**
+
+* Demonstrates how to validate JWTs in Golang using Ed25519 public keys in PEM format – required for Chainstack Marketplace apps.
+* Explains parsing of EdDSA-signed JWT headers/payload with required audience matching and expiration checks.
+* Walks through environment variable setup with `.env`, retrieving the public key, decoding the token, and returning the claims for a successful validation.
+* Ensures robust security by verifying the token’s legitimacy and ensuring it is intended specifically for your application.
+
+# Introduction
+
+This guide is designed for developers who are integrating applications into the Chainstack Marketplace using Golang. The tutorial offers practical insights into working with JWTs that you'll obtain from Chainstack's validation endpoint. Within the context of a Golang application, you'll learn how to validate these tokens using public keys in PEM format. Notably, Chainstack employs the EdDSA (Edwards-curve Digital Signature Algorithm) for cryptographic operations, and this guide will get into how to validate JWTs to grant access to your users securely.
+
+## What is JWT?
+
+JSON web token (JWT) is a compact, URL-safe means of representing claims between two parties. These claims are encoded as a JSON object and can be digitally signed or integrity-protected with a message authentication code (MAC) and/or encrypted.
+
+## Why validate JWT?
+
+Validating a JWT is crucial for ensuring its integrity and authenticity. Failure to do so can lead to security risks like unauthorized access and data breaches. In the Chainstack Marketplace, users will use their Chainstack API key to obtain a JWT that is valid for one hour and includes an "audience" claim, which specifies the intended recipient of the token.
+
+## What will you learn?
+
+This tutorial will guide you through the process of validating JWTs in a Golang application. We'll use the `golang-jwt/jwt` library for parsing and validating JWTs and the `golang.org/x/crypto/ed25519` library for cryptographic operations. By the end of this tutorial, you'll be able to:
+
+* Parse and decode Ed25519 public keys in PEM format.
+* Validate JWTs using Ed25519 public keys.
+* Verify the "audience" claim to ensure the JWT is intended for your application.
+
+Whether you're developing a new Golang application requiring JWT validation or integrating this feature into an existing project, this tutorial has you covered.
+
+## Prerequisites
+
+Before diving into the code, make sure you have the following installed:
+
+* Go 1.16 or higher
+* A text editor or IDE of your choice (e.g., Visual Studio Code)
+* Terminal or command prompt for running shell commands
+
+You should also have a basic understanding of:
+
+* Go programming language
+* JSON web tokens (JWT)
+* Public key infrastructure (PKI)
+
+## Setting up the project
+
+<Steps>
+  <Step>
+  Initialize a new Go project. Open your terminal and run the following command to create a new directory for your project and navigate into it:
+
+   <CodeGroup>
+     ```shell Shell
+     mkdir go-jwt-validation && cd go-jwt-validation
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+  Initialize Go module. Initialize a new Go module by running:
+
+   <CodeGroup>
+     ```shell Shell
+     go mod init jwt-validation
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+  Install required libraries. Install the necessary Go libraries by running:
+
+   <CodeGroup>
+     ```shell Shell
+     go get github.com/golang-jwt/jwt
+     go get golang.org/x/crypto/ed25519
+     go get github.com/joho/godotenv
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+  Create a `.env` file. Create a `.env` file in the root directory of your project and add the public key you received from Chainstack and other environment variables if needed.
+
+   <Info>
+    ### Ensure the public key is in the privacy-enhanced mail (PEM) format
+
+     PEM is a widely used encoding format for cryptographic objects such as keys and certificates. It is a base64 encoding of the binary distinguished encoding rules (DER) format with additional header and footer lines. In the code, the public key is stored in PEM format between the lines `-----BEGIN PUBLIC KEY-----` and `-----END PUBLIC KEY-----`.
+   </Info>
+
+   <CodeGroup>
+     ```shell Shell
+     JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----PUBLIC_KEY_HERE-----END PUBLIC KEY-----"
+     ```
+   </CodeGroup>
+  </Step>
+</Steps>
+
+### Why use a `.env` file?
+
+Using a `.env` file lets you separate your configuration variables from your code. This is beneficial for several reasons:
+
+* **Security** — sensitive information like keys should not be hard-coded into your application.
+* **Portability** — it's easier to manage and change configuration when it's separated from the code.
+* **Environment specificity** — you can have different `.env` files for different environments like development, testing, and production.
+
+## The Chainstack Marketplace authentication flow
+
+Before diving into the code, it's important to understand the authentication flow in the Chainstack Marketplace. The user who has purchased the integration with your application will authorize requests using their Chainstack API key. Note that this API key is not the JWT token you need to validate. To validate the API key, you must call the [Retrieve Application Token](/api-reference/chainstack-platform-api-retrieve-token) API.
+
+Here's an example API call to retrieve the validated JWT:
+
+<CodeGroup>
+  ```bash cURL
+  curl --location --request POST '<https://api.chainstack.com/v1/marketplace/applications/YOUR_APP_SLUG/token/>' \\
+  --header 'Authorization: Bearer CHAINSTACK_API_KEY'
+  ```
+</CodeGroup>
+
+This API call will return a validated JWT with a validity period of 60 minutes.
+
+## Claims in a Chainstack Marketplace JWT
+
+The JWT from Chainstack will contain several claims that provide information about the token and its intended usage. Below is a table detailing these claims:
+
+| Column | Data type | Description                                                                                         |
+| ------ | --------- | --------------------------------------------------------------------------------------------------- |
+| sub    | string    | Unique identifier of the Chainstack account that has installed the application.                     |
+| iss    | string    | The issuer of the token. In this case, it will be "chainstack".                                     |
+| exp    | number    | Expiration time of the token in UTC timestamp seconds. Calculated as current time + 1 hour.         |
+| nbf    | number    | The "not-before" time of the token in UTC timestamp seconds. Calculated as current time - 1 minute. |
+| iat    | number    | Issued-at time of the token in UTC timestamp seconds.                                               |
+| aud    | string    | The agreed slug of the application.                                                                 |
+| scope  | string\[] | One or more scopes that should be included in the token payload.                                    |
+
+The code we’ll show, for example, validates the JWT based on the timestamp and the expected audience.
+
+## The code
+
+Where you initialized the project, create a new file named `validation.go` and paste the following code:
+
+<CodeGroup>
+  ```go validation.go
+  package main
+
+  import (
+  	"crypto/x509"
+  	"encoding/pem"
+  	"fmt"
+  	"os"
+  	"strings" // Added this package for string manipulation
+  	"github.com/joho/godotenv"
+  	"github.com/golang-jwt/jwt"
+  	"golang.org/x/crypto/ed25519"
+  )
+
+  // loadEnvVars loads environment variables from .env file
+  func loadEnvVars() error {
+  	err := godotenv.Load()
+  	if err != nil {
+  		return fmt.Errorf("error loading .env file: %w", err)
+  	}
+  	return nil
+  }
+
+  // getPublicKey retrieves the public key from an environment variable
+  func getPublicKey() (ed25519.PublicKey, error) {
+  	publicPEM := os.Getenv("JWT_PUBLIC_KEY")
+  	if publicPEM == "" {
+  		return nil, fmt.Errorf("Environment variable for public key is not set")
+  	}
+
+  	// Convert single-line PEM to multi-line PEM if needed
+  	publicPEM = strings.Replace(publicPEM, "-----BEGIN PUBLIC KEY-----", "-----BEGIN PUBLIC KEY-----\n", 1)
+  	publicPEM = strings.Replace(publicPEM, "-----END PUBLIC KEY-----", "\n-----END PUBLIC KEY-----", 1)
+
+  	block, _ := pem.Decode([]byte(publicPEM))
+  	if block == nil {
+  		return nil, fmt.Errorf("Failed to parse PEM block containing the public key")
+  	}
+
+  	pubKey, err := x509.ParsePKIXPublicKey(block.Bytes)
+  	if err != nil {
+  		return nil, fmt.Errorf("Failed to parse public key: %w", err)
+  	}
+
+  	ed25519PubKey, ok := pubKey.(ed25519.PublicKey)
+  	if !ok {
+  		return nil, fmt.Errorf("Failed to convert public key to Ed25519 public key")
+  	}
+
+  	return ed25519PubKey, nil
+  }
+
+  // validateJWT validates the JWT token
+  func validateJWT(ed25519PubKey ed25519.PublicKey, jwtToken, expectedAudience string) error {
+  	token, err := jwt.Parse(jwtToken, func(token *jwt.Token) (interface{}, error) {
+  		return ed25519PubKey, nil
+  	})
+  	if err != nil {
+  		return fmt.Errorf("Failed to parse JWT token: %w", err)
+  	}
+
+  	// Print the JWT headers
+  	fmt.Println("JWT Headers:", token.Header)
+
+  	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+  		audience, audienceOk := claims["aud"].(string)
+  		if audienceOk && audience == expectedAudience {
+  			fmt.Println("Decoded Payload:", claims)
+  			fmt.Println("Signature is valid.")
+  			return nil
+  		} else {
+  			return fmt.Errorf("Invalid Token: Invalid audience")
+  		}
+  	} else {
+  		return fmt.Errorf("Invalid Token: Token is not valid")
+  	}
+  }
+
+  func main() {
+  	err := loadEnvVars()
+  	if err != nil {
+  		fmt.Printf("Error occurred: %v\n", err)
+  		return
+  	}
+
+  	ed25519PubKey, err := getPublicKey()
+  	if err != nil {
+  		fmt.Printf("Error occurred: %v\n", err)
+  		return
+  	}
+
+  	// Add the JWT to validate
+  	jwtToken := "JWT_TO_VALIDATE"
+  	expectedAudience := "YOUR_COOL_APP"
+
+  	err = validateJWT(ed25519PubKey, jwtToken, expectedAudience)
+  	if err != nil {
+  		fmt.Printf("Error occurred: %v\n", err)
+  		return
+  	}
+  }
+  ```
+</CodeGroup>
+
+## Understanding the code
+
+### Import statements
+
+The code starts by importing the necessary packages:
+
+<CodeGroup>
+  ```go validation.go
+  import (
+  	"crypto/x509"
+  	"encoding/pem"
+  	"fmt"
+  	"os"
+  	"strings"
+  	"github.com/joho/godotenv"
+  	"github.com/golang-jwt/jwt"
+  	"golang.org/x/crypto/ed25519"
+  )
+  ```
+</CodeGroup>
+
+* `crypto/x509` and `encoding/pem` — these are standard Go libraries used for parsing the PEM-encoded public key.
+* `fmt` — standard Go package for formatted I/O operations.
+* `os` — standard Go package for interacting with the operating system, used here for reading environment variables.
+* `strings` — standard Go package for string manipulation.
+* `github.com/joho/godotenv`— this library loads environment variables from a `.env` file.
+* `github.com/golang-jwt/jwt` — this library is used for parsing and validating JWTs.
+* `golang.org/x/crypto/ed25519` — this library provides the cryptographic operations for the Ed25519 algorithm.
+
+### Functions and their roles
+
+#### `loadEnvVars()`
+
+This function loads environment variables from a `.env` file into the program. It uses the `godotenv.Load()` method to read the `.env` file and populate the environment variables. If an error occurs, it returns an error wrapped with additional context.
+
+#### `getPublicKey()`
+
+This function retrieves the public key stored in the `.env` file as an environment variable. It performs several steps:
+
+<Steps>
+  <Step>
+  Reads the `JWT_PUBLIC_KEY` environment variable.
+  </Step>
+  <Step>
+  Checks if the variable is empty and returns an error if it is.
+  </Step>
+  <Step>
+  Converts the single-line PEM to multi-line PEM format if needed.
+  </Step>
+  <Step>
+  Decodes the PEM block to get the public key bytes.
+  </Step>
+  <Step>
+  Parses the public key bytes to get an `ed25519.PublicKey` object.
+  </Step>
+</Steps>
+
+<Info>
+  When validating the JWT, we are using the Ed25519 public key to validate a signature that was generated using the EdDSA algorithm with the Ed25519 parameters.
+</Info>
+
+#### `validateJWT()`
+
+This function validates the JWT token. It takes the Ed25519 public key, the JWT token string, and the expected audience as parameters. It performs the following steps:
+
+<Steps>
+  <Step>
+  Parse the JWT. Utilizes the `jwt.Parse` function from the `github.com/golang-jwt/jwt` library to parse the JWT. This function not only decodes the token but also validates it against a series of standard claims:
+
+   * `exp` — expiration time of the token. If the token is expired, the function will return an error.
+   * `nbf` — not-before time, indicating the earliest time the token is valid.
+   * `iat` — issued-at time, indicating when the token was created.
+
+   The function uses the provided Ed25519 public key for cryptographic validation of the token's signature.
+  </Step>
+  <Step>
+  Check audience. Explicitly checks the `aud` claim in the token to ensure it matches the expected audience. This is an additional validation layer on top of the default checks performed by `jwt.Parse`. This claim ensures the user is allowed to call your app specifically.
+  </Step>
+  <Step>
+  Output. If the token is valid, it prints the decoded payload and a validation success message. If the token is invalid for any reason (e.g., expired, wrong audience, etc.), an error message is returned.
+  </Step>
+</Steps>
+
+#### `main()`
+
+This is the entry point of the program. It orchestrates the other functions:
+
+1. Calls `loadEnvVars()` to load the environment variables.
+2. Calls `getPublicKey()` to retrieve the public key.
+3. Calls `validateJWT()` to validate the JWT.
+
+### How to run the code
+
+1. **Validate a JWT**. To validate a JWT, you'll need an authorized API key. Use the [appropriate endpoint](/api-reference/chainstack-platform-api-retrieve-token) to validate the API key and obtain a JWT. Note that in a production setting, you'll either need to require users to validate and send the JWT first or implement a flow in your app that validates the API key dynamically.
+
+2. **Add JWT and audience to the script**. Once you've validated the JWT, add it to the corresponding variable inside the `main` function, along with your expected audience.
+
+   <CodeGroup>
+     ```go go
+     jwtToken := "VALIDATED_JWT"
+     expectedAudience := "YOUR_EXPECTED_AUDIENCE"
+     ```
+   </CodeGroup>
+
+3. **Run the program directly**. Open your terminal, navigate to the directory containing `validation.go`, and run:
+
+   <CodeGroup>
+     ```shell Shell
+     go run validation.go
+     ```
+   </CodeGroup>
+
+   This will compile and run your code in one step. If everything is set up correctly, you should see the decoded payload and a validation success message.
+
+### Typical responses
+
+1. **Success**. If the JWT is valid and the audience matches, you'll see output similar to the following:
+
+   ```
+   JWT Headers: map[alg:EdDSA typ:JWT]
+   Decoded Payload: map[aud:EXPECTED_AUDIENCE exp:TIMESTAMP iat:TIMESTAMP iss:ISSUER nbf:TIMESTAMP scope:[com.APP.api.Paid] sub:SUBJECT]
+   Signature is valid.
+   ```
+
+   <Info>
+   ### The actual values will vary based on the JWT and your application
+   </Info>
+
+   At this point, you have a flow to validate JWTs and give access to users!
+
+2. **Failure**. If the JWT is expired, you'll see an error message like:
+
+   ```
+   Error occurred: Failed to parse JWT token: Token is expired
+   ```
+
+## Conclusion
+
+In this comprehensive guide, we've explored the essential steps for integrating applications into the Chainstack Marketplace using Golang. We got into the intricacies of JWT validation, a critical aspect of ensuring secure and authorized access to your application. From setting up your Go project and installing the necessary libraries to understanding the Chainstack Marketplace's authentication flow and claims, we've covered it all.
+
+We also explored using the Ed25519 public key in conjunction with the EdDSA algorithm for cryptographic validation. This is particularly important given Chainstack's use of the EdDSA algorithm for its JWTs. By following this guide, you should now be equipped with the knowledge and code snippets needed to validate JWTs effectively in your Golang applications.
+
+Remember, security is not just a feature but a necessity. Validating JWTs is a fundamental step in safeguarding your application and its users. So, go ahead and implement these best practices in your application to ensure it's as secure as it can be.
+
+### About the author
+
+<CardGroup>
+  <Card title="Davide Zambiasi" img="/images/docs/profile_images/1533079085001363457/1VvXp1m0_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on EVM, The Graph protocol, and Starknet
+
+    <Icon icon="laptop"  iconType="solid"/> Helping people understand Web3 and blockchain development
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/soos3d)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/web3Dav3)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/davide-zambiasi/)
+  </Card>
+</CardGroup>

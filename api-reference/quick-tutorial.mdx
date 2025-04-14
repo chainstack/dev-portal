@@ -1,0 +1,175 @@
+---
+title: "Quick Tutorial"
+description: "This tutorial will walk you through creating a consortium network through the Chainstack API."
+---
+
+## Overview
+
+To get from zero to a running consortium network through the Chainstack API, do the following:
+
+<Steps>
+<Step>
+Get your API key.
+</Step>
+<Step>
+Export your API variables.
+</Step>
+<Step>
+Create a project.
+</Step>
+<Step>
+Create a network.
+</Step>
+<Step>
+Add a node to the network.
+</Step>
+<Step>
+Get the node access and credentials.
+</Step>
+</Steps>
+
+## Step-by-step
+
+### Get your API key
+
+See [Create an API key](/api-reference/platform-api-getting-started#create-api-key).
+
+### Export your API variables
+
+To save time when interacting with the API, export your API variables:
+
+<CodeGroup>
+  ```sh Shell
+  export APIURL="https://api.chainstack.com/v1"
+  export APIKEY="YOUR_CHAINSTACK_API_KEY"
+  export HDR_AUTH="Authorization: Bearer $APIKEY"
+  export HDR_CT="Content-Type: application/json"
+  ```
+</CodeGroup>
+
+### Create a project
+
+<CodeGroup>
+  ```curl cURL
+  curl -X POST "$APIURL/projects/" --header "$HDR_AUTH" --header "$HDR_CT" --data '{"name":"YOUR_PROJECT_NAME","description":"YOUR_PROJECT_DESCRIPTION"}'
+  ```
+</CodeGroup>
+
+See also API reference: [Create Project](/api-reference/chainstack-platform-api-create-project).
+
+### Create a network
+
+You create a network with one peer node and service nodes.
+
+The service nodes are created automatically with no input from you.
+
+You must provide the node details for your peer node.
+
+<CodeGroup>
+  ```curl cURL
+  curl -X POST "$APIURL/networks/" --header "$HDR_AUTH" --header "$HDR_CT" --data '{"name":"NETWORK_NAME","project":"PROJECT_ID","protocol":"PROTOCOL","configuration":{"consensus":"CONSENSUS"},"nodes":[{"name":"NODE_NAME","type":"NODE_TYPE","role":"NODE_ROLE","provider":"CLOUD_PROVIDER","region":"LOCATION","configuration":{}}]}'
+  ```
+</CodeGroup>
+
+where
+
+* NETWORK\_NAME — any name you want to give to your network.
+
+* PROJECT\_ID — the ID of the project where the network will be deployed. You can get project IDs by running `curl -X GET "$APIURL/projects/" --header "$HDR_AUTH"`.
+
+* PROTOCOL — the protocol of the network you want to deploy:
+
+  * `corda` — Corda
+  * `fabric` — Hyperledger Fabric
+  * `quorum` — Quorum
+  * `multichain` — MultiChain
+
+* CONSENSUS — the consensus of the protocol you want to deploy:
+
+  * [Corda Single Notary](/docs/about-corda#consensus) — `single-notary`
+  * [Hyperledger Fabric Raft](/docs/about-hyperledger-fabric#consensus) — `raft`
+  * [Quorum Raft](/docs/about-quorum#raft) — `raft`
+  * [Quorum IBFT](/docs/about-quorum#ibft) — `ibft`
+  * [MultiChain round-robin](/docs/about-multichain#consensus) — `round-robin`.
+
+* NODE\_NAME — any name you want to give to your first peer node deployed as part of the network.
+
+* NODE\_TYPE — `dedicated` is the only available option for consortium networks.
+
+* NODE\_ROLE — use the `peer` value for the role since you are providing node details for your peer node.
+
+* CLOUD\_PROVIDER — choose the cloud provider for your node:
+
+  * `aws` — Amazon Web Services
+  * `azure` — Microsoft Azure
+  * `gcloud` — Google Cloud Platform
+
+* LOCATION — choose the location for your network:
+
+  * `ap-southeast-1` — Singapore. Available only for Amazon Web Services (`aws`).
+  * `us-east-1` — the United States, Northern Virginia. Available only for Amazon Web Services (`aws`).
+  * `us-west-2` — the United States, Oregon. Available only for Amazon Web Services (`aws`).
+  * `uksouth` — the United Kingdom, London. Available only for Microsoft Azure (`azure`).
+  * `asia-southeast1` — Singapore. Available only for Google Cloud Platform (`gcloud`).
+
+Example to create a Corda network on Google Cloud Platform in Singapore:
+
+<CodeGroup>
+  ```curl cURL
+  curl -X POST "$APIURL/networks/" --header "$HDR_AUTH" --header "$HDR_CT" --data '{"name":"NETWORK_NAME","project":"PR-123-456","protocol":"corda","configuration":{"consensus":"single-notary"},"nodes":[{"name":"My node name","type":"dedicated","role":"peer","provider":"gcloud","region":"asia-southeast1","configuration":{}}]}'
+  ```
+</CodeGroup>
+
+See also API reference: [Create Network](/api-reference/chainstack-platform-api-create-network).
+
+### Add a peer node to the network
+
+<CodeGroup>
+  ```curl cURL
+  curl -X POST "$APIURL/nodes/" --header "$HDR_AUTH" --header "$HDR_CT" --data '{"name":"NODE_NAME","network":"NETWORK_ID","type": "dedicated","role":"peer","provider":"CLOUD_PROVIDER","region":"LOCATION","configuration":{}}'
+  ```
+</CodeGroup>
+
+where
+
+* NODE\_NAME — any name you want to give to your node.
+
+* NETWORK\_ID — the ID of the network where the node will be deployed. You can get network IDs by running `curl -X GET "$APIURL/networks/" --header "$HDR_AUTH"`.
+
+* CLOUD\_PROVIDER — choose the cloud provider for your node:
+
+  * `aws` — Amazon Web Services
+  * `azure` — Microsoft Azure
+  * `gcloud` — Google Cloud Platform
+
+* LOCATION — choose the location for your network:
+
+  * `ap-southeast-1` — Singapore. Available only for Amazon Web Services (`aws`).
+  * `us-east-1` — the United States, Northern Virginia. Available only for Amazon Web Services (`aws`).
+  * `us-west-2` — the United States, Oregon. Available only for Amazon Web Services (`aws`).
+  * `uksouth` — the United Kingdom, London. Available only for Microsoft Azure (`azure`).
+  * `asia-southeast1` — Singapore. Available only for Google Cloud Platform (`gcloud`).
+
+Example to add a node on Microsoft Azure in London:
+
+<CodeGroup>
+  ```curl cURL
+  curl -X POST "$APIURL/nodes/" --header "$HDR_AUTH" --header "$HDR_CT" --data '{"name":"My node name","network":"NW-123-456-7","type": "dedicated","role":"peer","provider":"azure","region":"uksouth","configuration":{}}'
+  ```
+</CodeGroup>
+
+See also API reference: [Create Node](/api-reference/chainstack-platform-api-create-node).
+
+### Get the node access and credentials
+
+<CodeGroup>
+  ```curl cURL
+  curl -X GET "$APIURL/nodes/NODE_ID/" --header "$HDR_AUTH"
+  ```
+</CodeGroup>
+
+where NODE\_ID — the ID of the node. You can get node IDs by running `curl -X GET "$APIURL/nodes/" --header "$HDR_AUTH"`.
+
+See also API reference: [Retrieve Node](/api-reference/chainstack-platform-api-retrieve-node).
+
+You have created a consortium project, deployed a consortium network, added a node to the network, and retrived the node's access and credentials.

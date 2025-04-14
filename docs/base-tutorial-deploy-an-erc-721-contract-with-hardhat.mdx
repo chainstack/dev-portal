@@ -1,0 +1,293 @@
+---
+title: "Base: Deploy an ERC-721 Contract with Hardhat"
+---
+
+* You’ll bridge Sepolia ETH to the Base Sepolia Testnet, taking advantage of Base’s L2 benefits.
+* You’ll configure a Hardhat project and deploy an ERC-721 NFT contract to Base Testnet.
+* You’ll set environment variables for your Chainstack endpoint and private key.
+* You’ll verify and explore your contract on the Base Sepolia block explorer.
+
+## Main article
+
+Base is an Ethereum layer 2 (L2) solution built atop the Ethereum blockchain and incubated within Coinbase. As an L2 chain, Base provides enhanced security, stability, and scalability, instrumental for the efficient operation of decentralized applications. It supports the deployment of any Ethereum Virtual Machine (EVM) codebase, allowing for an efficient transition of users and assets from Ethereum layer 1 (L1), Coinbase, and other interoperable blockchains.
+
+Using Base's L2 solution substantially reduces the cost associated with operating within the EVM environment. Base provides early access to advanced Ethereum features such as account abstraction (ERC-4337), developer APIs for gasless transactions, and smart contract wallets, broadening the scope of possibilities for developers.
+
+Base's infrastructure is built on the open-source, MIT-licensed [OP Stack](https://stack.optimism.io/) in a collaborative effort with Optimism. This collaboration has positioned Base as the second Core Dev team working on the OP Stack, reinforcing its commitment to maintaining the OP Stack as a freely accessible public resource.
+
+As a product scaled by Coinbase, Base facilitates the integration of decentralized applications with Coinbase's extensive suite of products and distribution channels. This integration includes seamless interfacing with Coinbase, efficient fiat onramps, and access to a vast user base within the Coinbase ecosystem.
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/) to deploy a Base Testnet node
+* [node.js](https://nodejs.org/en) as the JavaScript framework
+
+## Dependencies
+
+* Hardhat: ^2.17.0
+* @nomicfoundation/hardhat-toolbox: ^3.0.0
+* dotenv: ^16.0.3
+
+## Overview
+
+In this tutorial, we will go over how to bridge funds between Ethereum Sepolia and the Base Sepolia testnets and deploy a smart contract to the Base Sepolia Testnet using Hardhat. Here is a brief overview of the tutorial:
+
+<Steps>
+  <Step>
+    With Chainstack, create a public chain project.
+  </Step>
+  <Step>
+    With Chainstack, join the Base Testnet.
+  </Step>
+  <Step>
+    With Chainstack, access your nodes' credentials.
+  </Step>
+  <Step>
+    Bridge funds between the Sepolia Testnet and the Base Testnet.
+  </Step>
+  <Step>
+    Create a Hardhat project using node.js.
+  </Step>
+  <Step>
+    Install the required dependencies.
+  </Step>
+  <Step>
+    Create a `.env` file to store the secrets.
+  </Step>
+  <Step>
+    Edit the Hardhat config file.
+  </Step>
+  <Step>
+    Write the smart contract.
+  </Step>
+  <Step>
+    Write and run the deployment script.
+  </Step>
+  <Step>
+    Deploy smart contracts to the Base Testnet.
+  </Step>
+</Steps>
+
+## Step-by-step
+
+### Create a public chain project
+
+See [Create a project](/docs/manage-your-project#create-a-project).
+
+### Join the Ethereum Sepolia Testnet and the Base Testnet
+
+See [Join a public network](/docs/manage-your-networks#join-a-public-network).
+
+### Get your Base Testnet node endpoint
+
+See [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+
+### Fund your wallet
+
+Before diving into the project, make sure to top up your wallet with Sepolia ether. You can use the Chainstack Sepolia faucet]\([https://faucet.chainstack.com](https://faucet.chainstack.com)).
+
+### Bridging Sepolia ETH to Base Testnet
+
+Using the [Base bridge](https://bridge.base.org/), we can easily move assets between Ethereum (L1) and Base (L2).
+
+To bridge assets between L1 and L2, the user has to lock up any amount of those assets in the original network using the Base bridge. An equivalent amount of wrapped tokens are then minted in the other chain.
+
+### Create a Hardhat project
+
+Create a new directory for your project, then run the following from a terminal:
+
+<CodeGroup>
+  ```shell Shell
+  npm init --y
+  ```
+</CodeGroup>
+
+This will create a new Node project.
+
+<Info>
+  Check out [Web3 node.js: From zero to a full-fledged project](/docs/web3-nodejs-from-zero-to-a-full-fledged-project) to learn more about creating a Node project.
+</Info>
+
+Then run the following to install Hardhat:
+
+<CodeGroup>
+  ```shell Shell
+  npm install --save-dev hardhat
+  ```
+</CodeGroup>
+
+When Hardhat is installed, initialize a Hardhat project:
+
+<CodeGroup>
+  ```shell Shell
+  npx hardhat
+  ```
+</CodeGroup>
+
+This will launch the Hardhat CLI, which will prompt you to configure a starter project. For this tutorial, create a JavaScript project and click **Yes** on all the prompts Hardhat offers.
+
+### Set up environment variables
+
+This project uses the [dotenv](https://github.com/motdotla/dotenv) package to use environment variables safely.
+
+Run the following command in your root directory to install the dotenv package:
+
+<CodeGroup>
+  ```shell Shell
+  npm install dotenv
+  ```
+</CodeGroup>
+
+In your project's root directory, create a new file and name it `.env`. Here, you will set up the environment variables for your Chainststack endpoint and your wallet's private key.
+
+<CodeGroup>
+  ```sh .env
+  CHAINSTACK_ENDPOINT="YOUR_CHAINSTACK_ENDPOINT"
+  PRIVATE_KEY="YOUR_WALLET_PRIVATE_KEY"
+  ```
+</CodeGroup>
+
+Save the file after you add your information.
+
+### Edit the Hardhat configuration file
+
+You will find a file named `hardhat.config.js` in the root directory. This file is used to configure various settings for your Hardhat projects, such as the network you want to deploy your contracts on, the compilers you want to use, and the plugins you want to enable.
+
+Delete the default code in the file and replace it with the following:
+
+<CodeGroup>
+  ```js hardhat.config.js
+  require("@nomicfoundation/hardhat-toolbox");
+  require('dotenv').config();
+
+  module.exports = {
+    solidity: "0.8.18",
+    defaultNetwork: "base_testnet",
+    networks: {
+      base_testnet: {
+          url: `${process.env.CHAINSTACK_ENDPOINT}`,
+          accounts: [process.env.YOUR_PRIVATE_KEY]
+      },
+  },
+
+  };
+  ```
+</CodeGroup>
+
+Let's break down what each part of the file does:
+
+* `require("@nomicfoundation/hardhat-toolbox");` imports the Hardhat Toolbox plugin, which provides several useful tools and utilities for Hardhat projects.
+* `require("dotenv").config();` loads environment variables from a `.env` file using the `dotenv` package.
+* `module.exports = { ... }` exports a JavaScript object containing the configuration for the Hardhat project.
+* `solidity: "0.8.18",` sets the Solidity compiler version to 0.8.18.
+* `networks: { ... }` defines the network configurations for the Hardhat project.
+* `defaultNetwork: { ... }` defines the default network that Hardhat will use.
+* `base_testnet: { ... }` defines the configuration for the `base` network.
+* `url: ${process.env.CHAINSTACK_ENDPOINT},` sets the RPC URL for the Base network.
+* `accounts: [process.env.YOUR_PRIVATE_KEY],` sets the accounts for the `base` network using the `PRIVATE_KEY` environment variable. This will allow the Hardhat project to deploy contracts and interact with the Base Testnet using the specified private key.
+
+### Develop an ERC-721 smart contract with OpenZeppelin
+
+Now it's time to make our NFT smart contract. You can use the example from here or the [OpenZeppelin Wizard](https://wizard.openzeppelin.com/#erc721) to create a new one.
+
+In the root directory, you will find a directory named `contracts`. Create a new file named `CBS.sol`, and paste the following code inside it:
+
+<CodeGroup>
+  ```sol CBS.sol
+  // SPDX-License-Identifier: MIT
+  pragma solidity ^0.8.18;
+
+  import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+  import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Burnable.sol";
+  import "@openzeppelin/contracts/access/Ownable.sol";
+  import "@openzeppelin/contracts/utils/Counters.sol";
+
+  contract ChainBase is ERC721, ERC721Burnable, Ownable {
+      using Counters for Counters.Counter;
+
+      Counters.Counter private _tokenIdCounter;
+
+      constructor() ERC721("ChainBase", "CBS") {}
+
+      function safeMint(address to) public onlyOwner {
+          uint256 tokenId = _tokenIdCounter.current();
+          _tokenIdCounter.increment();
+          _safeMint(to, tokenId);
+      }
+  }
+  ```
+</CodeGroup>
+
+This smart contract named `ChainBase`is an implementation of an ERC-721 token. ERC-721 is a standard for non-fungible tokens on the Ethereum blockchain, meaning each token has a unique value and is not interchangeable with any other token. ERC-721 tokens are often used for digital collectibles or assets.
+
+Then install the OpenZeppelin package in your project:
+
+<CodeGroup>
+  ```shell Shell
+  npm install @openzeppelin/contracts
+  ```
+</CodeGroup>
+
+### Create and run the deployment script
+
+In the `scripts` directory inside the root of your project, you will find a file named `deploy.js`. Replace its content with the following:
+
+<CodeGroup>
+  ```js deploy.js
+  const { ethers } = require("hardhat");
+
+  async function main() {
+    console.log("Deploying your contract, please Wait...");
+    const NFT = await ethers.deployContract("ChainBase");
+
+    await NFT.waitForDeployment();
+    console.log("NFT Contract deployed to:", NFT.target);
+  }
+  main()
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error(error);
+      process.exit(1);
+    });
+  ```
+</CodeGroup>
+
+This is a simple deploy script that deploys the `ChainBase` smart contract to the Base Sepolia Testnet, and returns the address of the newly deployed contract in the terminal. You can search for your contract on the [Base Sepolia explorer](https://base-sepolia.blockscout.com/).
+
+To run this script, execute the following command in the terminal:
+
+<CodeGroup>
+  ```shell Shell
+  npx hardhat run --network base_testnet scripts/deploy.js
+  ```
+</CodeGroup>
+
+You will get a similar response in the console:
+
+<CodeGroup>
+  ```shell Shell
+  $ npx hardhat run --network base_testnet scripts/deploy.js
+  Deploying your contract, please Wait...
+  NFT Contract deployed to: 0x2CfAf4441995344451F10054eE25d4df286768F7
+  ```
+</CodeGroup>
+
+## Conclusion
+
+This tutorial guided you through bridging funds between Ethereum Sepolia Testnet and Base Sepolia Testnet. We also deployed a smart contract to the Base Sepolia Testnet using Hardhat.
+
+### About the author
+
+<CardGroup>
+  <Card title="Davide Zambiasi" img="/images/docs/profile_images/1533079085001363457/1VvXp1m0_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on EVM, The Graph protocol, and Starknet
+
+    <Icon icon="laptop"  iconType="solid"/> Helping people understand Web3 and blockchain development
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/soos3d)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/web3Dav3)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/davide-zambiasi/)
+  </Card>
+</CardGroup>

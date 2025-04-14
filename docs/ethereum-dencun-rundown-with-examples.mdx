@@ -1,0 +1,196 @@
+---
+title: "Ethereum Dencun: Rundown with Examples"
+---
+
+**TLDR:**
+* Dencun brings several EIPs that streamline both execution and consensus layers, especially reducing costs for rollups (EIP-4844) and introducing transient storage for more efficient contract logic (EIP-1153).
+* Block data can now reference the beacon chain (EIP-4788) and handle data blobs separately for \~18 days (EIP-4844), which cuts down on rollup fees.
+* Consensus updates (EIPs 7044, 7045, 7514) simplify validator exits, extend attestation windows, and limit validator churn.
+* Other highlights include new EVM opcodes for memory copying (EIP-5656), restricting SELFDESTRUCT usage (EIP-6780), and offering a `BLOBBASEFEE` opcode (EIP-7516).
+
+## Main article
+
+The Dencun upgrade activates on the mainnet at [epoch 269568](https://beaconcha.in/epoch/269568), so here's a quick rundown on all the EIPs included in the hardfork.
+
+The EIPs here follow the same order as they are in the meta [EIP-7569: Hardfork Meta - Dencun](https://eips.ethereum.org/EIPS/eip-7569) — an EIP that lists all the EIPs of the hardfork & other hardfork details.
+
+## EIP-1153: Transient storage opcodes
+
+Execution layer. [EIP-1153 link](https://eips.ethereum.org/EIPS/eip-1153).
+
+This EIP adds a new type to storage: transient storage. With the EIP-1153 activation on the network, there are now three types of storage (previously two):
+
+* temporary memory storage — byte-level storage that persists data during a function execution and is then discarded
+* transient storage — data persists within one transaction (across all function executions) and is then discarded
+* permanent storage — data persists across transactions & blocks
+
+The transient storage opcodes are `TSTORE` and `TLOAD`.
+
+Having no transient storage contributed to extra gas consumption quirks in Ethereum; the most well known one being users charged extra for interacting with the contracts implementing OpenZeppelin's Reentrancy Guard.
+
+In practice, you will pay less on the execution level when interacting with the contracts that have functions that add no state change, like, again Reentrancy Guard.
+
+Check out [this nice deep dive into EIP-1153](https://medium.com/@organmo/demystifying-eip-1153-transient-storage-faeabbadd0d).
+
+## EIP-4788: Beacon block root in the EVM
+
+Execution layer. [EIP-4788 link](https://eips.ethereum.org/EIPS/eip-4788).
+
+EVM can now see the parent consensus layer (beacon chain) block root.
+
+Practically, running an [eth\_getBlockByNumber | Ethereum](/api-reference/ethereum_node_api/blocks_info/eth_getBlockByNumber) after Dencun adds `parentBeaconBlockRoot` in the block details:
+
+<CodeGroup>
+  ```javascript Javascript
+      "baseFeePerGas": "0x17357a9e30",
+      "blobGasUsed": "0x0",
+      "difficulty": "0x0",
+      "excessBlobGas": "0x4c80000",
+      "extraData": "0x34353131353565",
+      "gasLimit": "0x1c9c380",
+      "gasUsed": "0x9ee9e4",
+      "hash": "0x632c2cf1d7d980760507f679d5bd3f07f1e767f63e28b193cbb2efbc86c95e53",
+      "logsBloom": "0x42014...",
+      "miner": "0x0c06b6d4ec451987e8c0b772ffcf7f080c46447a",
+      "mixHash": "0xab9d05372e79c60cf348746f5772c9b28aad1164a1736611584b97080dca4999",
+      "nonce": "0x0000000000000000",
+      "number": "0x538e0e",
+      "parentBeaconBlockRoot": "0x877cfcbcc3624e070c89287db70841834b9284dc135d674921e11a4c8fc68784", // <-- HERE
+      "parentHash": "0x54ed6b5344a035b71cce3bd96ad84283fd2b56f63c76f8d3aab8e52974e7c6ba",
+      "receiptsRoot": "0x3378df8d38bead81edb3f081f1f63a77a32f6e1f872c275ed8907aef59d0ba02",
+      "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+      "size": "0xb7fd",
+      "stateRoot": "0xfece204505a4cd70af610900fb5d116c291407c55d24d066177738edcf4c6431",
+      "timestamp": "0x65f15304",
+      "totalDifficulty": "0x3c656d23029ab0"
+  ```
+</CodeGroup>
+
+## EIP-4844: Shard Blob Transactions
+
+Consensus layer. Execution layer. [EIP-4844 link](https://eips.ethereum.org/EIPS/eip-4844).
+
+This is your favorite one that's been covered multiple times by everyone, so here's a TLDR and a practical example.
+
+**TLDR**
+
+EIP-4844 makes rollup transactions cheaper because the EVM originally wasn't designed to execute the rollup batches and store them on the execution layer as part of a smart contract state. This is where the majority of your rollup transaction fees used to go to — to execute & store the data on the execution layer as part of the contract state.
+
+So EIP-4844 removes this "quirk" and implements as a sane version — rollup batches can now be submitted as a special transaction type as pure data not executable by the EVM and the data is stored on the consensus layer for roughly 18 days. These are called data blobs or "sidecars" attached to blocks. This makes submitting & keeping the rollup data on Ethereum much cheaper and consequently the rollup transaction fees cheaper.
+
+Let's now a have a practical walkthrough and get the data. (On Sepolia where the Dencun upgrade is already live).
+
+**Walkthrough with Arbitrum Sepolia**
+
+Check out the batches of transactions rolled up that Arbitrum is sending to Ethereum: [Rollup batches](https://sepolia.arbiscan.io/batches).
+
+Pick a batch. For example, [batch 90169](https://sepolia.arbiscan.io/batch/90169?isnitro=true). See that the batch's L1 block number is [5475939](https://sepolia.etherscan.io/block/5475939).
+
+Now let's do an [eth\_getBlockByNumber | Ethereum](/api-reference/ethereum_node_api/blocks_info/eth_getBlockByNumber) on block `5475939` to get the block's `parentBeaconBlockRoot` as discussed previously:
+
+<CodeGroup>
+  ```shell Shell
+  curl --request POST \
+       --url https://ethereum-sepolia.core.chainstack.com/1fc2ff7e068591f6b44db1a454232d3d \
+       --header 'accept: application/json' \
+       --header 'content-type: application/json' \
+       --data '
+  {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "eth_getBlockByNumber",
+    "params": [
+      "5475939",
+      false
+    ]
+  }
+  ' | jq -r '.result.parentBeaconBlockRoot'
+  ```
+</CodeGroup>
+
+Use the `parentBeaconBlockRoot` to identify that it's [slot 4548475](https://sepolia.beaconcha.in/slot/0xbb7ef08755c4f394fd2e2cb325ac2228aa933d8a581e8e19e26f31f610ab118b) on the consensus layer. Since it's parent, we need the next slot: [slot 4548476](https://sepolia.beaconcha.in/slot/4548476).
+
+Use the slot number in a [Retrieve blob sidecar](/api-reference/ethereum_beacon_chain_api/state/getBlobSidecarByRoot) call to the consensus layer:
+
+<CodeGroup>
+  ```shell Shell
+  curl -X 'GET' \
+    'https://ethereum-sepolia.core.chainstack.com/beacon/1fc2ff7e068591f6b44db1a454232d3d/eth/v1/beacon/blob_sidecars/4548476' \
+    -H 'accept: application/json'
+  ```
+</CodeGroup>
+
+The response is the rolled up batch 90169 of Arbitrum Sepolia transactions as referenced in block 5475939 as a blob.
+
+Note that the blob lives for about 18 days, so make sure you use your own values.
+
+For a detailed walkthrough and explanation, see [Blob transactions the hard way](/docs/blob-transactions-the-hard-way).
+
+## EIP-5656: MCOPY - Memory copying instruction
+
+Execution layer. [EIP-5656 link](https://eips.ethereum.org/EIPS/eip-5656).
+
+Basically a new EVM operation that's also efficient & saves gas costs: where the EVM used to do `MSTORE` & `MLOAD`, the same thing can now be done with `MCOPY`. This depends on the smart contract developer implementation however.
+
+## EIP-6780: SELFDESTRUCT only in same transaction
+
+Execution layer. [EIP-6780 link](https://eips.ethereum.org/EIPS/eip-6780).
+
+`SELFDESTRUCT`, originally introduced as an understandable house cleaning opcode for developers — to remove the no longer needed code from the Ethereum state, actually made metamorphic contracts possible through the use of `CREATE2` & `SELFDESTRUCT`. You can deploy a contract, destroy the code, and then deploy a different contract to the same address. [Example implementation](https://ethereum-blockchain-developer.com/110-upgrade-smart-contracts/12-metamorphosis-create2/).
+
+[Vitalik's thoughts on the issue](https://hackmd.io/@vbuterin/selfdestruct).
+
+This EIP makes the use of `SELFDESTRUCT` much more limited:
+
+* it can either be called with the full set of instructions (recovering funds to the target and deleting contract code) within the contract creation transaction
+* OR it's limited to only recovering the funds and NOT deleting the contract code
+
+## EIP-7044: Perpetually Valid Signed Voluntary Exits
+
+Consensus layer. [EIP-7044 link](https://eips.ethereum.org/EIPS/eip-7044).
+
+The EIP simplifies the process of exiting from staking positions for users doing non-custodial delegated staking.
+
+Before EIP-7044, users in non-custodial delegated staking arrangements depended on the process required a voluntary exit message to be signed by the validator's signing key, which is typically controlled by the validator operator. Pre-signed voluntary exits were valid only for the current and previous consensus layer fork versions, creating a dependency on the validator operator to process exit requests in a timely manner.
+
+After EIP-7044 activation, signed voluntary exit messages become perpetually valid, eliminating the need for them to be re-signed after future consensus layer upgrades. This change removes the uncertainty and reliance on validator operators for executing exit requests. Stakers now have more autonomy and assurance that they can exit their positions and access their funds at any time, without worrying about the validity of their pre-signed exit messages being affected by future network upgrades.
+
+## EIP-7045: Increase Max Attestation Inclusion Slot
+
+Consensus layer. [EIP-7045 link](https://eips.ethereum.org/EIPS/eip-7045).
+
+This EIP extends the timeframe within which validator attestations can be included in a block on the consensus layer. Previously, attestations had to be included within the window of 1 epoch (approximately 6.4 minutes, given that an epoch consists of 32 slots and each slot is 12 seconds). This was considered too narrow of a window.
+
+EIP-7045 expands the window from 1 epoch to 2 epochs.
+
+## EIP-7514: Add Max Epoch Churn Limit
+
+Consensus layer. [EIP-7514 link](https://eips.ethereum.org/EIPS/eip-7514).
+
+EIP-7514 adds a max epoch churn limit to regulate the number of validators that can join or leave the network within a given epoch. It caps the churn limit at 8 validators per epoch to prevents the state-size bloat and the potential strain on network resources as the number of active validators increases. The churn limit, before this EIP, was variable with a minimum value of four and increased as more validators joined, but with EIP-7514, it's now fixed, preventing the active validator set from growing too rapidly.
+
+## EIP-7516: BLOBBASEFEE opcode
+
+Execution layer. [EIP-7516 link](https://eips.ethereum.org/EIPS/eip-7516).
+
+Tightly related to EIP-4844 (see above), this is a simple opcode `BLOBBASEFEE` allows contracts to manage data costs dynamically, especially for rollups. `BLOBBASEFEE` only costs 2 gas to execute and provides the value of the blob base-fee directly from the block header.
+
+Track the [eth\_blobBaseFee](https://github.com/ethereum/go-ethereum/pull/29140) implementation in Go Ethereum.
+
+### About the author
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

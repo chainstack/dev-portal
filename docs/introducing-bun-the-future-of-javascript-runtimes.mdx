@@ -1,0 +1,380 @@
+---
+title: "Introducing Bun: The Future of JavaScript Runtimes"
+---
+
+**TLDR**
+* Bun is a fast, all-in-one JavaScript runtime with native server and hot reload features.
+* You can fetch Ethereum data using Bun’s built-in fetch API and a Chainstack node – no extra packages needed.
+* Quickly set up a server with Bun.serve() and handle requests to retrieve an address’s ETH balance.
+* Bun’s .env support, TypeScript/JSX readiness, and zero dependencies make it ideal for a streamlined dev workflow.
+
+## Main article
+
+JavaScript's landscape just got more exciting with Bun's debut. Hitting the scene with version 1.0, Bun is a speedy toolkit that simplifies running, building, testing, and debugging JavaScript and TypeScript projects. It's a fresh take on the cluttered world of JS tooling since node.js came around. If you're a dev seeking a snappier tool or a sleek node.js alternative, Bun's got you covered. With its wide file support, built-in web APIs, and impressive speed, Bun is set to shake up JavaScript runtimes. Dive in as we explore Bun and craft a DApp using its APIs, all without any extra dependencies.
+
+Dive into this guide, and we'll kickstart your journey with Bun. We're crafting a simple DApp using its APIs. And here's the kicker: we'll spin up a server to get blockchain data with zero dependencies.
+
+## Bun: A comprehensive JavaScript toolkit
+
+Before starting the project, let’s briefly review what makes Bun such an interesting tool.
+
+* All-in-one toolkit. Bun is a unified toolkit designed for running, building, testing, and debugging JavaScript and TypeScript applications, eliminating the need for multiple tools and dependencies.
+
+* Server capabilities:
+
+  * `Bun.serve()`. Easily spin up an HTTP or WebSocket server using familiar web-standard APIs like `Request` and `Response`.
+  * Performance. Bun can serve up to 4x more requests per second than node.js and 5x more messages per second than ws on node.js, as per Bun documentation.
+  * TLS configuration. Secure your server with built-in TLS options.
+
+* Native .env support. Bun natively reads `.env` files, removing the need for third-party packages like `dotenv` and `cross-env`.
+
+* Hot reloading:
+
+  * Built-in watch mode. Use `bun --hot` to enable hot reloading, which automatically reloads your application when files change.
+  * Efficient reloading. Unlike tools like `nodemon`, Bun reloads your code without terminating the old process, preserving HTTP and WebSocket connections and maintaining state.
+
+* Additional features:
+
+  * Native web APIs. Built-in support for web standard APIs available in browsers, such as `fetch`, `Request`, `Response`, `WebSocket`, and `ReadableStream`.
+  * TypeScript and JSX support. Run JavaScript, TypeScript, and JSX/TSX files directly without any dependencies.
+  * Module compatibility. Supports both CommonJS and ES modules without any configuration hassles.
+  * Plugins. Highly customizable with a plugin API inspired by `esbuild`, allowing for custom loading logic and support for additional file types.
+  * Optimized APIs. Bun offers highly optimized, standard-library APIs designed for speed and ease of use, outperforming many node.js counterparts.
+
+## Project overview: Ethereum balance checker with Bun
+
+At its core, the project aims to provide a creative example of how you can use the new Bun JavaScript runtime to work with DApps, highlighting the fact that you can make a functioning tool with zero extra dependencies.
+
+In this guide, we'll walk you through creating a DApp designed to fetch the balance of an Ethereum address. Leveraging Bun, we'll set up a server that awaits user requests containing an Ethereum address. The application will then use a Chainstack Ethereum RPC node to get the balance. The retrieved balance will then be decoded and presented to the user as a structured JSON object looking like the following:
+
+<CodeGroup>
+  ```Json JSON
+  {
+      "address": "0xae2Fc483527B8EF99EB5D9B44875F005ba1FaE13",
+      "balance": "162.140649034802429952",
+      "unit": "Ether"
+  }
+  ```
+</CodeGroup>
+
+## Prerequisites
+
+* Bun installed on your machine. Bun is available on [macOS, Linux, and Windows](https://bun.sh/docs/installation).
+
+* A Chainstack account to deploy an Ethereum node.
+
+<Steps>
+  <Step>
+    [Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+  </Step>
+  <Step>
+    [Deploy a node](/docs/manage-your-networks#join-a-public-network).
+  </Step>
+  <Step>
+    [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+  </Step>
+</Steps>
+## Getting started with the project
+
+Once you've installed Bun and secured an Ethereum endpoint from Chainstack, it's time to set up your project. Create a new directory and initiate it with the following:
+
+<CodeGroup>
+  ```shell Shell
+  bun init
+  ```
+</CodeGroup>
+
+This process is straightforward, especially if you're familiar with `npm init`. Here's how I configured mine:
+
+<CodeGroup>
+  ```shell Shell
+  package name (address_check):
+  entry point (index.ts): server.js
+
+  Your package.json is now created in the directory. You'll also find:
+   + server.js
+   + .gitignore
+   + jsconfig.json (helpful for editor auto-complete)
+   + README.md
+
+  To start your project, simply run:
+    bun run server.js
+  ```
+</CodeGroup>
+
+With that, your Bun project is set up, complete with a `.gitignore`, README, and main file, which in this case is named `server.js`.
+
+## Setting up the `.env` file
+
+Next up, we're going to set up a `.env` file. This is where we'll store our Chainstack endpoint. Just create a new `.env` file and add this inside:
+
+<CodeGroup>
+  ```bash Bash
+  CHAINSTACK_NODE_URL='YOUR_CHAINSTACK_ENDPOINT'
+  ```
+</CodeGroup>
+
+This way, our Chainstack endpoint stays safe. With Bun, we can directly get environment variables from its environment; no extra packages are needed.
+
+## The code
+
+Now it’s time for the code; in the `server.js` file already created for us by Bun, paste the following:
+
+<CodeGroup>
+  ```javascript server.js
+  const PORT = 5555;
+  const ETHEREUM_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
+  const CHAINSTACK_NODE_URL = Bun.env.CHAINSTACK_NODE_URL;
+  const JSON_HEADERS = { "Content-Type": "application/json" };
+
+  function isValidEthereumAddress(address) {
+    return ETHEREUM_ADDRESS_REGEX.test(address);
+  }
+
+  async function fetchFromEthereumNode(address) {
+    console.log(`Calling Ethereum node with address: ${address}\n`);
+    const response = await fetch(CHAINSTACK_NODE_URL, {
+      method: "POST",
+      headers: {
+        "accept": "application/json",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        id: 1,
+        jsonrpc: "2.0",
+        method: "eth_getBalance",
+        params: [address, "latest"],
+      }),
+    });
+
+    const responseBody = await response.json();
+    console.log(
+      `Received response from Ethereum node: ${JSON.stringify(responseBody)}\n`
+    );
+
+    if (!response.ok) {
+      throw new Error("Error fetching balance");
+    }
+
+    if (responseBody.error) {
+      throw new Error(
+        responseBody.error.message || "Error in Ethereum node response"
+      );
+    }
+
+    return responseBody;
+  }
+
+  function convertWeiToEther(weiValue) {
+    const divisor = BigInt("1000000000000000000");
+    const wholeEthers = weiValue / divisor;
+    const remainderWei = weiValue % divisor;
+    const remainderEther = remainderWei.toString().padStart(18, "0");
+    return `${wholeEthers}.${remainderEther}`;
+  }
+
+  async function getEthereumBalance(address) {
+    const responseBody = await fetchFromEthereumNode(address);
+    const decimalValue = parseInt(responseBody.result.substring(2), 16);
+    const weiValue = BigInt(decimalValue);
+    return convertWeiToEther(weiValue);
+  }
+
+  function logAndReturnResponse(status, content) {
+    console.log(
+      `Sending response back to user: ${status} ${JSON.stringify(content)} \n`
+    );
+    return new Response(JSON.stringify(content), {
+      status: status,
+      headers: JSON_HEADERS,
+    });
+  }
+
+  Bun.serve({
+    port: PORT,
+    async fetch(request) {
+      console.log(`Received request: ${request.method} ${request.url}\n`);
+
+      const urlObject = new URL(request.url);
+      const pathname = urlObject.pathname;
+
+      try {
+        if (request.method === "GET" && pathname.startsWith("/getBalance/")) {
+          const address = pathname.split("/getBalance/")[1];
+          if (!isValidEthereumAddress(address)) {
+            return logAndReturnResponse(400, {
+              error: "Invalid Ethereum address format",
+            });
+          }
+
+          const balance = await getEthereumBalance(address);
+          return logAndReturnResponse(200, {
+            address: address,
+            balance: balance,
+            unit: "Ether",
+          });
+        }
+
+        return logAndReturnResponse(404, { error: "Endpoint does not exist" });
+      } catch (error) {
+        console.error(`Error occurred: ${error.message}`);
+        return logAndReturnResponse(500, { error: error.message });
+      }
+    },
+  });
+
+  console.log(`Bun server running on port ${PORT}...`);
+  ```
+</CodeGroup>
+
+Let us further explain the code.
+
+### 1. Setting up constants
+
+The beginning sets up some constants, like the port number, which you can adapt to your use case, and the Chainstack RPC URL picked up from the environment variables.
+
+<CodeGroup>
+  ```jsx server.js
+  const PORT = 5555;
+  const ETHEREUM_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
+  const CHAINSTACK_NODE_URL = Bun.env.CHAINSTACK_NODE_URL;
+  const JSON_HEADERS = { "Content-Type": "application/json" };
+  ```
+</CodeGroup>
+
+* `PORT` — the port number on which our server will listen.
+
+* `ETHEREUM_ADDRESS_REGEX` — a regular expression to validate Ethereum addresses.
+
+* `CHAINSTACK_NODE_URL` — the URL of the Ethereum node we'll be querying. This is fetched from an environment variable.
+
+  <Info>
+    Note that the environment variable is taken directly from the Bun environment using `Bun.env`.
+  </Info>
+
+* `JSON_HEADERS` — standard JSON headers used in HTTP responses.
+
+### 2. Utility functions
+
+#### `isValidEthereumAddress(address)`
+
+This function checks if a given string matches the Ethereum address format, and the server will return an error if the pattern doesn’t match; it is good practice and enhances UX.
+
+#### `convertWeiToEther(weiValue)`
+
+The smallest unit in Ethereum is named `Wei`. This function converts a value in wei to its equivalent in ether, considering that 1 ether = 10^18 wei, and it is used to return a human-readable value to the user.
+
+### 3. Fetching data from Ethereum node
+
+#### `fetchFromEthereumNode(address)`
+
+This function does the following:
+
+* Logs the Ethereum address it's about to query.
+* Sends a POST request to the Ethereum node to fetch the balance of the address using [eth\_getBalance](/api-reference/ethereum_node_api/accounts_info/eth_getBalance).
+* Checks and logs the response from the Ethereum node.
+* Throws errors if the response is not successful or if there's an error in the Ethereum node's response.
+* Returns the response body if everything is okay.
+
+### 4. Getting Ethereum balance:
+
+#### `getEthereumBalance(address)`
+
+This function orchestrates the process of fetching the balance:
+
+* Calls `fetchFromEthereumNode(address)` to get the balance in wei.
+* Converts the wei value to ether.
+* Returns the balance in ether.
+
+### 5. Logging and sending responses:
+
+#### `logAndReturnResponse(status, content)`
+
+This utility function logs the response status and content and returns the response to the client.
+
+### 6. Server logic
+
+The `Bun.serve` function sets up the server:
+
+* It first logs any incoming request.
+
+* If the request is a GET request to the `"/getBalance/"` endpoint, it processes it the following way:
+
+  * Validates the Ethereum address
+  * Fetches the balance using `getEthereumBalance(address)`
+  * Sends back the balance in ether
+
+* If the endpoint doesn't match, it sends a 404 error.
+
+* Any errors during the process are caught, and a 500 error is returned.
+
+Finally, a log statement indicates that the server is running and listening on the specified port.
+
+So, as you can see, we run everything within Bun. `Bun.serve` spins up a server with no extra dependencies.
+
+## Running the server with hot reloading
+
+Your server setup is complete, and it's time to get it up and running. For an enhanced development experience, start the server with the `--hot` flag. This activates Bun's hot reloading feature, ensuring that any modifications you make to your modules or files are instantly reflected on the server without manual restarts.
+
+<Info>
+  When using `Bun.serve()` for HTTP server tasks, Bun got you covered. It smartly identifies any changes and refreshes your fetch handler, all without rebooting the entire Bun process. This results in almost instantaneous hot reloads, optimizing your development flow.
+</Info>
+
+Start the server with the following command:
+
+<CodeGroup>
+  ```shell Shell
+  bun --hot server.js
+  ```
+</CodeGroup>
+
+Upon execution, you should see:
+
+<CodeGroup>
+  ```shell Shell
+  [0.59ms] ".env"
+  Bun server running on port 5555...
+  ```
+</CodeGroup>
+
+With your server active, you're all set to test your DApp. You can use tools like [Postman](https://www.postman.com/); you can use the following curl request:
+
+<CodeGroup>
+  ```bash cURL
+  curl --location 'localhost:5555/getBalance/0xae2Fc483527B8EF99EB5D9B44875F005ba1FaE13'
+  ```
+</CodeGroup>
+
+This prompts the server to retrieve the balance from the Ethereum node, returning:
+
+<CodeGroup>
+  ```Json JSON
+  {
+      "address": "0xae2Fc483527B8EF99EB5D9B44875F005ba1FaE13",
+      "balance": "148.991988684657950720",
+      "unit": "Ether"
+  }
+  ```
+</CodeGroup>
+
+While the console will log the following:
+
+<CodeGroup>
+  ```shell Shell
+  Received request: GET http://localhost:5555/getBalance/0xae2Fc483527B8EF99EB5D9B44875F005ba1FaE13
+
+  Calling Ethereum node with address: 0xae2Fc483527B8EF99EB5D9B44875F005ba1FaE13
+
+  Received response from Ethereum node: {"jsonrpc":"2.0","id":1,"result":"0x813ade050b80ebb48"}
+
+  Sending response back to user: 200 {"address":"0xae2Fc483527B8EF99EB5D9B44875F005ba1FaE13","balance":"148.991988684657950720","unit":"Ether"}
+  ```
+</CodeGroup>
+
+You've just crafted a streamlined API to fetch Ethereum balances using Bun without additional dependencies.
+
+## Conclusion
+
+In the ever-evolving landscape of JavaScript, Bun emerges as a promising toolkit that simplifies and streamlines the development process. Through this guide, we've witnessed the power and efficiency of Bun, crafting a DApp to fetch Ethereum balances with minimal fuss and zero extra dependencies. The ease with which we can set up servers, integrate with blockchain nodes, and benefit from hot reloading showcases Bun's potential to become a staple in the developer's toolkit.
+
+As we move forward, we must keep an eye on tools like Bun that prioritize developer experience and performance. Whether you're a seasoned developer or just starting, embracing such tools can significantly enhance your productivity and the quality of your projects.

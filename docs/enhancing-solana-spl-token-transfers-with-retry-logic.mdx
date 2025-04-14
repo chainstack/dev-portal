@@ -1,0 +1,352 @@
+---
+title: "Solana: Enhancing SPL Token Transfers with Retry Logic"
+---
+
+* This guide adds simple retry logic to the SPL token transfer process on Solana, building on the [previous code](/docs/transferring-spl-tokens-on-solana-typescript).
+* We wrap transaction submissions in a loop, retrying up to a set limit (`MAX_RETRY_FUNCTION`) with a short delay to handle transient failures (e.g., `TransactionExpiredBlockheightExceededError`).
+* We still include priority fees to bump transaction priority, and we can also configure more robust backoff or advanced retry patterns (exponential backoff, circuit breakers, etc.) if needed.
+* This approach significantly improves reliability, making the code more tolerant of temporary network congestion or node issues.
+
+## Main article
+
+The [previous article](https://dash.readme.com/project/chainstack/v1.0/docs/transferring-spl-tokens-on-solana-typescript) explored transferring SPL tokens on the Solana blockchain using TypeScript. While the provided code successfully demonstrated the token transfer process, it lacked retry logic—a crucial aspect for handling potential failures and retrying failed transactions in blockchain applications.
+
+Retry logic helps mitigate the impact of transient network issues or node overload by automatically retrying failed transactions multiple times. This approach increases the likelihood of successful execution, ensuring better reliability and improving the overall user experience.
+
+This guide will extend the existing codebase by adding a simple retry logic to the token transfer process. We will discuss why retries are needed, explore different error scenarios, and implement a straightforward retry mechanism. Incorporating retry logic will make our application more resilient to temporary network problems, laying the foundation for further improvements in robustness and performance.
+
+<Info>
+  Read [Transferring SPL tokens on Solana: A step-by-step TypeScript tutorial](https://dash.readme.com/project/chainstack/v1.0/docs/transferring-spl-tokens-on-solana-typescript) to find the full code base and learn how it works.
+</Info>
+
+## Understanding the need for retry logic
+
+In blockchain applications, transactions can sometimes fail for various reasons, including network congestion, node overload, or other transient issues. One specific error that can occur when working with the Solana blockchain is the `TransactionExpiredBlockheightExceededError`.
+
+This error occurs when a transaction is repeatedly forwarded to subsequent block leaders without being included in any block until the associated blockhash, or recent blockhash, expires. The blockhash is a critical component of a transaction on Solana, acting as a reference to a recent block to ensure the transaction is processed promptly and to prevent double-spending.
+
+While it is currently impossible to completely eliminate this issue due to the non-deterministic nature of the current Solana mainnet scheduler, implementing retry logic can significantly mitigate the impact of such failures and improve the overall reliability of your blockchain application.
+
+Retrying failed transactions is crucial in blockchain applications for several reasons:
+
+1. **Network resilience**: Blockchain networks can experience temporary disruptions, congestion, or node failures. Retrying transactions after a failure increases the chances of successful execution, ensuring that your application remains functional despite transient network issues.
+2. **User experience**: In user-facing applications, failed transactions can lead to frustration and a poor user experience. By automatically retrying failed transactions, you can provide a seamless experience for your users, minimizing the need for manual intervention or retries.
+3. **Data consistency**: In applications that involve critical data or financial transactions, failed transactions can result in data inconsistencies or financial losses. Retry logic helps ensure that transactions are eventually executed, maintaining data integrity and preventing potential losses.
+4. **Fault tolerance**: Implementing retry logic is fundamental to building robust, fault-tolerant applications. By anticipating and handling failures gracefully, your application becomes more resilient and can recover from unexpected situations.
+
+By understanding the importance of retry logic and the potential issues that can arise in blockchain applications, you can take proactive steps to enhance the reliability and robustness of your Solana-based applications, providing a better user experience and ensuring the integrity of your data and transactions.
+
+## Implementing the retry logic
+
+This section will focus on implementing a simple retry logic for the token transfer process. The approach involves wrapping the transaction send logic in a loop with a maximum number of retry attempts. We'll handle different error types, introduce a delay between retries, and log the retry attempts for better visibility.
+
+<Info>
+  Find the original code base here: [Transferring SPL tokens on Solana: A step-by-step TypeScript tutorial](/docs/transferring-spl-tokens-on-solana-typescript#transferring-spl-tokens-code-walkthrough).
+</Info>
+
+### Overview of the approach
+
+* Use a `for` loop to control the number of retry attempts
+* Set a maximum retry count using an environment variable (`MAX_RETRY_FUNCTION`)
+* Catch and handle errors within the loop
+* Implement a delay or backoff strategy between retries
+* Log or report retry attempts and errors
+
+Before starting, add two environment variables named `MAX_RETRY_FUNCTION` and `MAX_RETRY_WEB3JS` to your `.env` file and set the maximum number of retries.
+
+```
+MAX_RETRY_WEB3JS=10 # Max retries for the Web3.js instance
+MAX_RETRY_FUNCTION=5 # Max retries of the Retry function logic
+```
+
+The `MAX_RETRY_WEB3JS` variable controls the maximum number of retries performed by the Web3.js library when sending a transaction, while `MAX_RETRY_FUNCTION` controls the maximum number of retries for the custom retry logic implemented in our code.
+
+## Code snippets and explanation
+
+Let's walk through the code snippet by snippet and explain what each part does in our exploration.
+
+This SPL transfer implementation includes priority fees, edit the micro lamports you want to add in this line:
+
+<CodeGroup>
+  ```typescript TypeScript
+  const PRIORITY_RATE = 12345; // MICRO_LAMPORTS
+  ```
+</CodeGroup>
+
+### Wrapping the transaction send logic in a retry loop
+
+<CodeGroup>
+  ```typescript TypeScript
+  const retryCount = Number(process.env.MAX_RETRY_FUNCTION);
+
+  // Default retry count set to 5
+  for (let attempt = 1; attempt <= retryCount; attempt++) {
+    try {
+  // Transaction send logic goes here
+      ...
+      return;// Exit the function on a successful transaction
+    } catch (error) {
+  // Handle errors and retry logic
+      ...
+    }
+  }
+  ```
+</CodeGroup>
+
+In this snippet, we first retrieve the maximum retry count from the `MAX_RETRY_FUNCTION` environment variable. Then, we use a `for` loop to control the number of retry attempts. If the transaction is successful, we exit the function using the `return` statement. If an error occurs, we handle it in the `catch` block.
+
+### Handling different error types
+
+<CodeGroup>
+  ```typescript TypeScript
+  catch (error) {
+    console.error(`Attempt ${attempt} failed with error: ${error}`);
+    if (attempt === retryCount) {
+      // Last attempt failed, throw the error
+      throw new Error(`Transaction failed after ${retryCount} attempts.`);
+    }
+    // Additional error handling or logging can be added here
+    ...
+  }
+  ```
+</CodeGroup>
+
+We log the current retry attempt and the error message in the catch block. If it's the last attempt (`attempt === retryCount`), we throw the error, effectively terminating the retry loop. Depending on your specific requirements, you can add error handling or logging logic here.
+
+### Implementing a delay or backoff strategy between retries
+
+<CodeGroup>
+  ```typescript TypeScript
+  // Wait for 2 seconds before retrying
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  ```
+</CodeGroup>
+
+Introduce a delay or backoff strategy between retry attempts to avoid overwhelming the network or the Solana node with rapid retries. In this example, we use a simple 2-second delay (`setTimeout`) wrapped in a `Promise` to pause execution before the next retry.
+
+Based on your application's needs, you can adjust the delay duration or implement more advanced backoff strategies, such as exponential backoff.
+
+### Logging or reporting retry attempts
+
+<CodeGroup>
+  ```typescript TypeScript
+  console.log(`Attempt ${attempt}: Starting Token Transfer Process`);
+  ...
+  console.error(`Attempt ${attempt} failed with error: ${error}`);
+  ```
+</CodeGroup>
+
+To provide better visibility and debugging capabilities, we log the current retry attempt at the beginning of each iteration and log the error message with the attempt number in case of failure.
+
+By incorporating these code snippets and explanations, you can implement a simple retry logic for your token transfer process on the Solana blockchain. This retry logic will help improve your application's reliability and resilience by automatically retrying failed transactions up to a specified maximum number of attempts, with a delay between each retry to avoid overwhelming the network.
+
+## Customizing the retry logic
+
+While the implemented retry logic provides a simple and effective mechanism for handling transient failures, several potential enhancements can further augment the reliability and performance of your Solana blockchain application. These enhancements warrant consideration and evaluation based on your application's requirements and constraints.
+
+### Adaptive delay or backoff strategy
+
+The current implementation employs a fixed 2-second delay between retry attempts. While this approach is suitable for various scenarios, it may be advantageous to consider dynamically adjusting the delay based on network conditions, the number of retry attempts, or the specific error encountered.
+
+One widely adopted strategy is exponential backoff, in which the delay between retries increases exponentially with each failed attempt. This approach can reduce the load on the network during periods of high congestion and provide the network with time to recuperate.
+
+Alternatively, adaptive delays could be incorporated based on real-time network metrics, such as the current transaction confirmation time or the number of pending transactions in the mempool (for EVM chains). Monitoring these metrics can adjust the delay accordingly, balancing retry frequency and network load.
+
+### Advanced retry patterns
+
+The current implementation uses a simple retry pattern, where all failed transactions are retried up to a maximum number of attempts. However, more advanced retry patterns may be considered, contingent upon the application's requirements and the nature of the errors encountered.
+
+One such pattern is the Circuit Breaker pattern, which introduces a temporary pause in retries if a certain threshold of consecutive failures is reached. This can be advantageous in scenarios where immediately retrying after multiple failures is unlikely to succeed, allowing the network or the application to recover before attempting further retries.
+
+Another pattern is the Bulkhead pattern, which limits the number of concurrent retries to prevent overwhelming the system or network resources. This can be particularly beneficial in applications with a high volume of transactions or when dealing with resource-intensive operations.
+
+## The full code
+
+Here, you can find the full implementation of SPL Token transfer plus retry logic. To learn how to set up and run the project, check out [Transferring SPL tokens on Solana: A step-by-step TypeScript tutorial](/docs/transferring-spl-tokens-on-solana-typescript).
+
+<CodeGroup>
+  ```typescript TypeScript
+  import {
+      getOrCreateAssociatedTokenAccount,
+      createTransferInstruction,
+    } from "@solana/spl-token";
+
+    import {
+      Connection,
+      PublicKey,
+      TransactionMessage,
+      VersionedTransaction,
+      Keypair,
+      ParsedAccountData,
+      ComputeBudgetProgram
+    } from "@solana/web3.js";
+
+    import bs58 from "bs58";
+    import "dotenv/config";
+
+    // Fetches the number of decimals for a given token to accurately handle token amounts.
+    async function getNumberDecimals(
+      mintAddress: PublicKey,
+      connection: Connection
+    ): Promise<number> {
+      const info = await connection.getParsedAccountInfo(mintAddress);
+      const decimals = (info.value?.data as ParsedAccountData).parsed.info
+        .decimals as number;
+      console.log(`Token Decimals: ${decimals}`);
+      return decimals;
+    }
+
+    // Initializes a Keypair from the secret key stored in environment variables. Essential for signing transactions.
+    function initializeKeypair(): Keypair {
+      const privateKey = new Uint8Array(bs58.decode(process.env.PRIVATE_KEY!));
+      const keypair = Keypair.fromSecretKey(privateKey);
+      console.log(
+        `Initialized Keypair: Public Key - ${keypair.publicKey.toString()}`
+      );
+      return keypair;
+    }
+
+    // Sets up the connection to the Solana cluster, utilizing environment variables for configuration.
+    function initializeConnection(): Connection {
+      const rpcUrl = process.env.SOLANA_RPC!;
+      const connection = new Connection(rpcUrl, {
+        commitment: "confirmed",
+        wsEndpoint: process.env.SOLANA_WSS,
+      });
+      // Redacting part of the RPC URL for security/log clarity
+      console.log(`Initialized Connection to Solana RPC: ${rpcUrl.slice(0, -32)}`);
+      return connection;
+    }
+
+    async function main() {
+      const retryCount = Number(process.env.MAX_RETRY_FUNCTION);
+
+      // Default retry count set to 5
+      for (let attempt = 1; attempt <= retryCount; attempt++) {
+        try {
+          console.log(`Attempt ${attempt}: Starting Token Transfer Process`);
+
+          const connection = initializeConnection();
+          const fromKeypair = initializeKeypair();
+
+          const destinationWallet = new PublicKey(
+            "CzNGm14nMopjGYyycMbWqEF2e1aEHcJLKk2CHw9BiZwC"
+          );
+
+          const mintAddress = new PublicKey(
+            "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+          );
+
+          // Config priority fee and amount to transfer
+          const PRIORITY_RATE = 12345; // MICRO_LAMPORTS
+          const transferAmount = 0.01; // This will need to be adjusted based on the token's decimals
+
+          // Instruction to set the compute unit price for priority fee
+          const PRIORITY_FEE_INSTRUCTIONS = ComputeBudgetProgram.setComputeUnitPrice({microLamports: PRIORITY_RATE});
+
+
+          console.log("----------------------------------------");
+          const decimals = await getNumberDecimals(mintAddress, connection);
+
+          let sourceAccount = await getOrCreateAssociatedTokenAccount(
+            connection,
+            fromKeypair,
+            mintAddress,
+            fromKeypair.publicKey
+          );
+          console.log(`Source Account: ${sourceAccount.address.toString()}`);
+
+          let destinationAccount = await getOrCreateAssociatedTokenAccount(
+            connection,
+            fromKeypair,
+            mintAddress,
+            destinationWallet
+          );
+          console.log(
+            `Destination Account: ${destinationAccount.address.toString()}`
+          );
+          console.log("----------------------------------------");
+
+          const transferAmountInDecimals = transferAmount * Math.pow(10, decimals);
+
+          const transferInstruction = createTransferInstruction(
+            sourceAccount.address,
+            destinationAccount.address,
+            fromKeypair.publicKey,
+            transferAmountInDecimals
+          );
+
+          let latestBlockhash = await connection.getLatestBlockhash("confirmed");
+
+          const messageV0 = new TransactionMessage({
+            payerKey: fromKeypair.publicKey,
+            recentBlockhash: latestBlockhash.blockhash,
+            instructions: [PRIORITY_FEE_INSTRUCTIONS, transferInstruction],
+          }).compileToV0Message();
+
+          const versionedTransaction = new VersionedTransaction(messageV0);
+          versionedTransaction.sign([fromKeypair]);
+
+          const txid = await connection.sendTransaction(versionedTransaction, {
+            skipPreflight: false,
+            maxRetries: Number(process.env.MAX_RETRY_WEB3JS),
+            preflightCommitment: "confirmed",
+          });
+
+          console.log(`Transaction Submitted: ${txid}`);
+
+          const confirmation = await connection.confirmTransaction(
+            {
+              signature: txid,
+              blockhash: latestBlockhash.blockhash,
+              lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+            },
+            "confirmed"
+          );
+
+          if (confirmation.value.err) {
+            throw new Error("🚨Transaction not confirmed.");
+          }
+
+          console.log(
+            `Transaction Successfully Confirmed! 🎉 View on SolScan: https://solscan.io/tx/${txid}`
+          );
+          return; // Success, exit the function
+        } catch (error) {
+          console.error(`Attempt ${attempt} failed with error: ${error}`);
+          if (attempt === retryCount) {
+            // Last attempt failed, throw the error
+            throw new Error(`Transaction failed after ${retryCount} attempts.`);
+          }
+          // Wait for 2 seconds before retrying
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+      }
+    }
+
+    main()
+  ```
+</CodeGroup>
+
+## Conclusion
+
+In this article, we extend the functionality of our Solana SPL token transfer application by implementing simple retry logic. By adding this retry mechanism, we significantly improve our application's reliability and resilience. Failed transactions are automatically retried multiple times, mitigating the impact of transient network issues or node overload.
+
+We started by understanding the importance of retry logic in blockchain applications, particularly in the Solana blockchain and the `TransactionExpiredBlockheightExceededError` context. We then implemented the retry logic by wrapping the transaction send logic in a loop with maximum retry attempts, handling different error types, introducing a delay or backoff strategy between retries, and logging retry attempts for better visibility.
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

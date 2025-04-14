@@ -1,0 +1,224 @@
+---
+title: "Fetching Transfer Events with getPastEvents for a BAYC NFT"
+---
+
+**TLDR**
+
+* Set up a node.js script using web3.js to connect to Ethereum via Chainstack endpoints.
+* Fetch real-time crypto prices through Chainlink’s AggregatorV3Interface contracts, removing reliance on external APIs.
+* Conversion involves retrieving integer values from the contract and formatting them into human-readable outputs.
+* Call prices at intervals to keep data updated without single-point-of-failure risks.
+
+## Main article
+
+As the Ethereum ecosystem matures and sees more advanced DApps and smart contract interactions, efficiently retrieving historical data becomes paramount. One of the tools developers can leverage for this purpose is the `getPastEvents` function from the web3.js library. This tool, while powerful, has nuances and limitations that developers must be aware of to ensure efficient application development.
+
+## About `getPastEvents`
+
+The `getPastEvents` function is a part of the web3.js library, which provides an interface for developers to interact with the Ethereum blockchain. It's specifically tailored to fetch past events emitted by Ethereum smart contracts, making it a go-to method for DApp developers needing historical contract event data.
+
+<Info>
+  Read [Tracking some Bored Apes: The Ethereum event logs tutorial](/docs/tracking-some-bored-apes-the-ethereum-event-logs-tutorial) to learn more about event logs.
+</Info>
+
+## Best practices when using `getPastEvents`
+
+To maximize the efficiency and reliability of your event data retrieval, follow these guidelines:
+
+1. **Limit the block range**. Always adhere to recommended block range limits. This minimizes the risk of time-consuming queries or receiving excessively large data sets.
+2. **Use Filters**. `getPastEvents` offers filtering options. Leverage them to refine the events you want, making queries more efficient.
+3. **Pagination**. If you must retrieve many events, consider breaking down your requests—query in chunks to prevent potential timeouts or massive responses.
+4. **Error Handling**. Be prepared for potential failures due to network glitches or other unforeseen issues. Implement robust error handling and a retry mechanism.
+
+By following these guidelines and understanding the intricacies of `getPastEvents`, developers can efficiently and effectively integrate historical event data retrieval into their DApps.
+
+<Info>
+  Check out the [Understanding eth\_getLogs limitations](/docs/understanding-eth-getlogs-limitations) guide to learn more about event retrieval best practices.
+</Info>
+
+## Real-world example: Retrieving `Transfer` events for a specific Bored Ape
+
+Bored Ape Yacht Club (BAYC) is a well-known collection of NFTs on the Ethereum blockchain. Each Bored Ape is a unique digital asset; ownership transfers are recorded as `Transfer` events on the blockchain. In this example, we'll demonstrate using the `getPastEvents` function to retrieve all `Transfer` events for a Bored Ape.
+
+## Prerequisites
+
+<CardGroup>
+  <Card title="Download Node.js" href="https://nodejs.org/en/download" icon="angle-right" horizontal />
+  <Card title="Web3.js Library" href="https://docs.web3js.org/" icon="angle-right" horizontal />
+  <Card title="Chainstack Ethereum Node" href="/docs/manage-your-networks#join-a-public-network" icon="angle-right" horizontal />
+</CardGroup>
+<Info>
+  Read [Web3 node.js: From zero to a full-fledged project](/docs/web3-nodejs-from-zero-to-a-full-fledged-project) to learn how to manage a node.js project.
+</Info>
+
+## Get an Ethereum node
+
+Follow these steps to deploy an Ethereum node:
+
+<Steps>
+	<Step>
+[Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+</Step>
+<Step>
+[Deploy a node](/docs/manage-your-networks#join-a-public-network).
+</Step>
+<Step>
+[View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+</Step>
+</Steps>
+
+## Setup
+
+For this example, we will be using node.js, so let’s set up a project.
+
+### Step 1. Setup
+
+Initialize a new node.js project by running:
+
+<CodeGroup>
+  ```shell Shell
+  npm init -y
+  ```
+</CodeGroup>
+
+Install the web3.js library:
+
+<CodeGroup>
+  ```shell Shell
+  npm install web3
+  ```
+</CodeGroup>
+
+### Step 2. Writing the script
+
+In the directory where you created the new project, create a new file named `index.js` and paste the following code into it. This will set up the BAYC ABI, initialize the contract, and fetch `Transfer` events.
+
+<CodeGroup>
+  ```jsx index.js
+  const { Web3 } = require("web3");
+  const url =
+    "YOUR_CHAINSTACK_NODE"; // Replace with your Chainstack Ethereum node endpoint
+  const web3 = new Web3(new Web3.providers.HttpProvider(url));
+
+  // ABI for the Bored Ape Yacht Club contract, only including the Transfer event
+  const BAYC_ABI = [
+    {
+      anonymous: false,
+      inputs: [
+        {
+          indexed: true,
+          internalType: "address",
+          name: "from",
+          type: "address",
+        },
+        {
+          indexed: true,
+          internalType: "address",
+          name: "to",
+          type: "address",
+        },
+        {
+          indexed: true,
+          internalType: "uint256",
+          name: "tokenId",
+          type: "uint256",
+        },
+      ],
+      name: "Transfer",
+      type: "event",
+    },
+  ];
+
+  const BAYC_CONTRACT_ADDRESS = "0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D";
+  const contract = new web3.eth.Contract(BAYC_ABI, BAYC_CONTRACT_ADDRESS);
+
+  async function fetchTransfersForTokenId(tokenId) {
+    try {
+      // Fetch the latest block number and calculate the target block
+      const latestBlock = await web3.eth.getBlockNumber();
+      const target = Number(latestBlock) - 10000;
+
+      // Fetch Transfer events for the given token ID
+      const events = await contract.getPastEvents("Transfer", {
+        filter: { tokenId: tokenId },
+        fromBlock: target,
+        toBlock: "latest",
+      });
+
+      console.log(
+        `Total transfers for Bored Ape ${tokenId}: ${events.length} transfers`
+      );
+
+      // Iterate through the events and log details
+      for (let event of events) {
+        console.log(
+          `From: ${event.returnValues.from} To: ${event.returnValues.to} at block: ${event.blockNumber}`
+        );
+      }
+    } catch (error) {
+      console.error(`Error fetching transfers for token ${tokenId}:`, error);
+    }
+  }
+
+  // Fetch bids for BAYC NFT ID 7924
+  fetchTransfersForTokenId(7924);
+  ```
+</CodeGroup>
+
+### Step 3. Run the Script
+
+Execute the script with:
+
+<CodeGroup>
+  ```shell Shell
+  node index.js
+  ```
+</CodeGroup>
+
+This will display the transfer history of the past 10,000 blocks for the BAYC token with ID 7924, detailing from which address to which address the token was transferred and the block at which the transfer occurred.
+
+Note that there might not be any transfers as we are only querying the past 10,000 blocks.
+
+## Understanding the code
+
+This code provides a practical example of using web3.js to fetch and analyze specific contract events on the Ethereum blockchain, demonstrating a common pattern used in blockchain development and analysis.
+
+1. **Defining BAYC ABI**. The ABI (application binary interface) for the BAYC contract is defined, focusing on the `Transfer` event. The ABI is a critical component that enables the script to interact with the smart contract's functions and events.
+
+2. **Defining BAYC contract address**. The address of the BAYC contract on the Ethereum blockchain is specified.
+
+3. **Initializing contract instance**. A contract instance is created using the ABI and contract address. This instance provides methods to interact with the contract, including fetching past events.
+
+4. **Defining the main function (`fetchTransfersForTokenId`)**:
+
+   * **Fetching latest block number**. The script fetches the latest block number from the Ethereum blockchain.
+   * **Calculating target block**. The target block is calculated by subtracting 10,000 from the latest block number. This defines the range of blocks to query for past events.
+   * **Fetching transfer events**. The `getPastEvents` method is called on the contract instance to fetch all `Transfer` events related to the specified token ID within the block range.
+   * **Logging transfers**. The script logs the total number of transfers for the specified Bored Ape and iterates through the events, logging details such as the sender, receiver, and block number.
+   * **Error handling**. If an error occurs during the process, it's caught and logged to the console.
+
+5. **Calling the main function**. Finally, the `fetchTransfersForTokenId` function is called with a specific token ID (7924) to fetch and log the transfer events for that Bored Ape.
+
+<Info>
+  Note how we are checking the past 10,000 blocks, not the entire chain. If you want to index the events from the entire chain, you will need multiple rounds or a [Subgraph](/docs/subgraphs-tutorial-a-beginners-guide-to-getting-started-with-the-graph).
+</Info>
+
+## Conclusion
+
+Fetching historical event data from the Ethereum blockchain is a common requirement for developers working with DApps and smart contracts. The `getPastEvents` function in the web3.js library offers a powerful and flexible way to retrieve such data, but it also comes with nuances and limitations that must be carefully managed.
+
+In this guide, we explored the `getPastEvents` function, focusing on its application in retrieving `Transfer` events for a specific Bored Ape Yacht Club NFT. We discussed best practices for `getPastEvents`, including limiting the block range, using filters, implementing pagination, and handling errors. We also provided a step-by-step example to demonstrate how to set up a node.js project, initialize the web3.js library, and write a script to fetch and display transfer events for a BAYC NFT.
+
+### About the author
+
+<CardGroup>
+  <Card title="Edin Drazevicanin" img="/images/docs/juOi73j.png">
+    <Icon icon="code"  iconType="solid"/> Technical Support Engineer @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> JUST BUIDL IT!
+
+		[<Icon icon="github"  iconType="brands"/>](https://github.com/0x6564)
+		[<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/edeenn22)
+		[<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/edindr/)
+	</Card>
+</CardGroup>

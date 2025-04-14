@@ -1,0 +1,185 @@
+---
+title: "Chainstack Compare Dashboard"
+description: "Free and open-source dashboard for monitoring RPC node providers performance"
+---
+
+**TLDR**:
+
+* The Chainstack Compare Dashboard provides real-time performance metrics (response times, success rates, transaction confirmation) for major RPC providers across multiple blockchains and regions.
+* Built with Vercel (data collection) and Grafana Cloud (dashboards), it keeps data refreshed every minute with 14 days of history.
+* The ranking system prioritizes fast, reliable providers, while special metrics (e.g., transaction landing on Solana) help fine-tune your choice of provider.
+* Fork the GitHub repository for full technical details and customization of this open dashboard solution.
+
+## Problem
+
+Choosing the right RPC provider for your blockchain or trading project can be challenging. Performance varies by region and protocol, and it changes over time. How do you make an informed decision?
+
+[Chainstack Compare Dashboard](https://chainstack.grafana.net/public-dashboards/65c0fcb02f994faf845d4ec095771bd0) solves this problem by providing real-time performance data for major RPC providers across different regions and blockchains. The dashboard has been built with the help of Vercel (Pro plan) and Grafana Cloud (Free plan). You can either use the dashboard hosted by Chainstack or fork the [GitHub repository](https://github.com/chainstacklabs/chainstack-rpc-dashboard-functions) and customize it to your needs.
+
+<Info>
+  ### Run nodes on Chainstack
+
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required. You can sign up with your GitHub, X, Google, or Microsoft account.
+</Info>
+
+## Solution overview
+
+The solution consists of the two main components: data collection services and dashboard. The data collection service sends API calls to all providers, measures response times, and pushes collected data to the dashboard every minute.
+
+The data collection service only records response times and marks requests based on whether they were successful or not. All calculations, including averages and other aggregated values, are performed by the dashboard.
+
+### Quick start
+<Steps>
+  <Step>
+    Visit the [dashboard](https://chainstack.grafana.net/public-dashboards/65c0fcb02f994faf845d4ec095771bd0?orgId=1)
+  </Step>
+  <Step>
+    Select your blockchain network
+  </Step>
+  <Step>
+    Choose your region of interest
+  </Step>
+  <Step>
+    Review performance metrics
+  </Step>
+</Steps>
+### What you can do
+
+With Chainstack Compare Dashboard, you can:
+
+1. Compare RPC provider performance across regions
+2. Monitor response times and success rates
+3. Monitor transaction confirmation metrics (only for Solana)
+
+The dashboard currently supports:
+
+* Blockchains: Ethereum, Base, Solana, TON
+* Regions: US West, Germany, Singapore
+* Providers: Alchemy, Chainstack, QuickNode, Helius, TonCenter
+
+<Info>
+  ### Data and paid tiers
+
+  All metrics, except for the transaction landing metrics, are updated every minute, with 14 days of historical data available. The transaction landing metrics are updated every 15 minutes.
+
+  For the dashboard, we used paid tiers of the mentioned providers, except for TonCenter where we used the free tier.
+</Info>
+
+### Special features
+
+#### Provider ranking
+
+We evaluate RPC providers based on their speed (response time) and reliability (success rate) across three regions to rank them in each region and globally. Transaction landing metrics are not considered for this ranking.
+
+1. The lower the score, the better the provider
+2. Even small success rate drops (99% vs 97%) significantly impact the final score
+3. Performance is measured equally across all regions
+
+The formula used for ranking is presented below.
+
+Score = 1 ÷ ((1/ResponseTime) × (SuccessRate<sup>3</sup>))
+
+### Solana: transaction landing
+
+We send standardized test transactions every 15 min across the Solana network to measure two metrics:
+
+* **Slot Latency** The time it takes for a transaction to be confirmed on the network, measured in slots. Lower slot latency means faster transaction finality.
+* **Landing Rate** The percentage of transactions that successfully confirm within our testing parameters. This metric helps identify reliable providers for your specific region.
+
+Each test transaction:
+
+* Uses the Solana Memo Program for consistent, lightweight operations
+* Includes fixed priority fees (200,000 microlamports/CU)
+* Has the 55 sec timeout
+
+For more technical details on the transaction landing metric, please check the code [here](https://github.com/chainstacklabs/chainstack-rpc-dashboard-functions/blob/master/metrics/solana_landing_rate.py).
+
+We added a few enhanced endpoints for providers which offer such services. Enhanced enpoints are used only for measuring the transaction confirmation speed.
+
+| Provider name | Default endpoint | Enhanced endpoint                                                     |
+| ------------- | ---------------- | --------------------------------------------------------------------- |
+| Alchemy       | Yes              | No                                                                    |
+| Chainstack    | Yes              | Yes, [enhanced endpoint](/docs/trader-node) with bloXroute technology |
+| Helius        | Yes              | Yes, staked connection                                                |
+| Quicknode     | Yes              | No                                                                    |
+
+## How it works
+
+### Vercel: data collection services
+
+We chose Vercel as our hosting solution due to its simplicity and time-to-production. The [data collection services](https://github.com/chainstacklabs/chainstack-rpc-dashboard-functions) are Vercel serverless functions deployed to multiple regions. Metrics for each blockchain are collected by a dedicated function which is triggered by Vercel cron jobs every minute. Once data is collected, it is pushed to a Grafana Cloud Prometheus instance.
+
+The service has the following performance thresholds:
+
+* Response timeout: 55 seconds
+* Block delay threshold: 55 seconds
+
+Failures include:
+
+* Timeouts and excessive block delays
+* Non-200 HTTP responses
+* JSON-RPC error responses
+
+### Grafana Cloud: dashboards
+
+Grafana Cloud with its hosted Prometheus instance providers hassle-free services. Thanks to it, we can focus on the dashboard quality, rather than on supporting a Prometheus instance.
+
+Grafana Cloud stores dashboard configurations as JSON files, which makes it easier to support and improve them. Data transformation required for some charts is performed with the help of Grafana Data [Transformation feature](https://grafana.com/docs/grafana/latest/panels-visualizations/query-transform-data/transform-data/) and [PromQL](https://prometheus.io/docs/prometheus/latest/querying/basics/). Historical data is available for the last 14 days.
+
+## For developers
+
+<Frame>
+  <img src="/images/docs/4d2f558febc43bc352454f3a5dcc2463148dcae1a4931f9bf75deebebbb4b2ec-image.png" alt="Chainstack Compare Dashboard" />
+</Frame>
+
+For developers interested in the technical implementation and contribution to the project, please refer to our [GitHub repository](https://github.com/chainstacklabs/chainstack-rpc-dashboard-functions), which contains:
+
+1. Complete technical documentation
+2. Setup instructions
+3. Configuration guidelines
+
+## FAQ
+<AccordionGroup>
+  <Accordion title="What providers do you monitor?">
+    Alchemy, Chainstack, QuickNode, Helius, and TonCenter. Paid tiers (except for TonCenter).
+  </Accordion>
+  <Accordion title="Why do I need this dashboard?">
+    It helps choose the right RPC provider based on real data and monitor their performance across regions.
+  </Accordion>
+  <Accordion title="How often is data updated?">
+    Every minute. Transaction landing metrics is updated every 15 minutes.
+  </Accordion>
+  <Accordion title="What counts as a failed request?">
+    Any response slower than 55 seconds, non-200 status codes, or responses containing error messages (as per JSON-RPC specification). For blocks, delays over 55 seconds count as failures.
+  </Accordion>
+  <Accordion title="Can I see historical data?">
+    Yes, dashboards keep 14 days of performance history.
+  </Accordion>
+  <Accordion title="How do you collect the metrics?">
+    We use serverless functions in three regions, measuring response times and success rates from each location.
+  </Accordion>
+  <Accordion title="What API methods do you test?">
+    We focus on commonly used methods like balance checks, transaction simulation, and block queries. Each blockchain has its specific set of tested methods.
+  </Accordion>
+  <Accordion title="What's the difference between global and regional views?">
+    Global shows aggregated performance across all regions, while regional views provide detailed metrics for specific locations.
+  </Accordion>
+</AccordionGroup>
+
+## Conclusion
+
+Chainstack Compare Dashboard provides Web3 developers and users with a comprehensive tool for monitoring RPC provider performance across different regions. By offering real-time metrics on response times, success rates, block delays, and transaction landing, the dashboard enables its users to make data-driven infrastructure decisions.
+
+### About author
+
+<CardGroup>
+  <Card title="Anton Sauchyk" img="/images/docs/profile_images/1817926677730664448/3nNn0T2p_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="laptop"  iconType="solid"/>Multiple years of software development and Web3 expertise. Creator of the open-source Compare Dashboard for RPC provider performance benchmarking. Core contributor to the DevEx team’s pump.fun trading bot. Author of technical tutorials on EVM blockchains, Solana, TON and Elastic Subgraphs.
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/smypmsa)
+    [<Icon icon="twitter"  iconType="brands"/>](https://x.com/sensuniama)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/anton-sauchyk/)
+  </Card>
+</CardGroup>

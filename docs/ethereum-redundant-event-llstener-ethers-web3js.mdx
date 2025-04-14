@@ -1,0 +1,299 @@
+---
+title: "Ethereum: BUIDLing a Redundant Event Listener with ethers and web3.js"
+---
+
+* Monitoring Ethereum events is crucial for accurate data and a smooth user experience.
+* Subscribing to multiple nodes in parallel prevents missed events during node downtime, ensuring reliability.
+* Using web3.js or ethers.js with environment variables streamlines setup and protects your endpoints.
+* Redundant event listeners are key for mission-critical DApps, providing robust real-time updates.
+
+## Main article
+
+When building on Ethereum, reliably monitoring and reacting to events is important. Events like token transfers often trigger downstream actions or application updates. Missing important events can lead to data inconsistencies, incorrect user balances, and poor user experience.
+
+While Ethereum nodes provide access to the blockchain and its events, relying on a single node for event listening can be risky. Nodes can experience downtime, connectivity issues, or other failures, resulting in missed events and application functionality disruptions. This challenge is amplified in mission-critical applications or those handling high-value transactions, where missing events can have severe consequences.
+
+<Info>
+  ### Python version
+
+  We also have a Python version of this tutorial, find it here: [How to set up a redundant Ethereum event listener with Python](/docs/ethereum-redundant-event-listener-python-version).
+</Info>
+
+To address this issue, the concept of a redundant event listener emerges as a solution. By subscribing to multiple Ethereum nodes simultaneously, a redundant event listener increases the chances of receiving events even if one or more nodes fail. This approach introduces redundancy and fault tolerance, ensuring that important events are not missed and that the application remains responsive and up-to-date.
+
+This tutorial will explore how to BUIDL a redundant Ethereum event listener using Node.js and the popular web3.js and ethers.js libraries using WSS RPC nodes. Chainstack global nodes already have redundancy and fault tolerance built in, but we can improve the robustness of this event listener by using Chainstack [Trader Node](/docs/trader-node). This architecture will allow your app to place event listeners in various regions worldwide, ensuring redundancy and accuracy.
+
+<Info>
+  Learn everything about event logs in [Tracking some Bored Apes: The Ethereum event logs tutorial](/docs/tracking-some-bored-apes-the-ethereum-event-logs-tutorial).
+</Info>
+
+## Project overview
+
+This tutorial shows you how to build a redundant Ethereum event listener using Node.js, web3.js, and ethers.js. This application aims to ensure reliable and fault-tolerant monitoring of events on the Ethereum blockchain, specifically the transfer events of the Wrapped Ether (WETH) contract.
+
+The application achieves redundancy by establishing multiple WebSocket connections to Ethereum RPC nodes, using Chainstack global and regional infrastructure. By subscribing to multiple nodes simultaneously, the application increases its chances of receiving events even if one or more nodes experience downtime or connectivity issues.
+
+The logic behind the application is as follows:
+
+1. It defines an array of WebSocket endpoints from various Ethereum node providers.
+2. It creates a filter object that specifies the contract address of the WETH contract and the topic (event signature) for the "Transfer" event, which is the event we want to listen for.
+3. It initializes a `Set` data structure to track unique event identifiers and prevent duplicate event processing.
+4. The application defines a function called `subscribeToLogs` that takes an endpoint as input, creates a new Web3 instance with that endpoint, and sets up a WebSocket subscription to listen for logs (events) matching the defined filter.
+5. When a new event is received, the function checks if the event identifier (a combination of the transaction hash and log index in web3.js and transaction hash and block in ethers) has been seen before. If not, it logs the event data to the console and adds the event identifier to the `Set` to mark it as processed.
+6. The function also handles subscription errors by logging them to the console.
+
+By implementing this redundant event listener, the application ensures that important events, such as WETH transfers, are not missed, even in the face of node failures or connectivity issues. This increased reliability and fault tolerance can be crucial for applications that rely heavily on monitoring and reacting to Ethereum events in real-time.
+
+## Prerequisites
+
+To start with a JavaScript development project, you'll need to install `node.js`, a powerful JavaScript runtime environment that enables developers to run JavaScript code outside a web browser. For this project, it's recommended to use at least version 18. You can [download it from their website](https://nodejs.org/en/download/).
+
+With `node.js` installed, you're ready to start using JavaScript. Now, you can set up your nodes.
+<CardGroup>
+  <Card title="Sign up with Chainstack" href="https://console.chainstack.com/user/account/create" icon="angle-right" horizontal />
+  <Card title="Deploy a node" href="/docs/manage-your-networks#join-a-public-network" icon="angle-right" horizontal />
+  <Card title="View node access and credentials" href="/docs/manage-your-node#view-node-access-and-credentials" icon="angle-right" horizontal />
+</CardGroup>
+
+<Info>
+  Keep in mind that you need at least a Chainstack paid plan to deploy multiple nodes. Check the [Chainstack pricing](https://chainstack.com/pricing/) page for a coupon.
+</Info>
+
+For this project, it is recommended to deploy at least three RPC nodes, one [Global Node](/docs/global-elastic-node), and two [Trader Nodes](/docs/trader-node). Remember that there is no limit on how many nodes you can use in the project, and can also mix different providers.
+
+Once the infrastructure is set up, you can work on a new project.
+
+## Create a new JavaScript project
+
+First, we'll create a new Node.js project and initialize it with a `package.json` file. Open your terminal, navigate to the desired directory, and run the following command:
+
+```
+npm init -y
+```
+
+This will create a `package.json` file with default settings.
+
+Next, we'll install the required dependencies, which are the `web3.js`, `ethers.js` and the `dotenv` package for loading environment variables from a `.env` file:
+
+```
+npm install web3 ethers dotenv
+```
+
+After installing the dependencies, create a new file called `.env` in the root directory of your project. This file will store your environment variables, including the WebSocket endpoints for the Ethereum nodes. In the `.env` file, you can define the endpoints like this:
+
+```
+ENDPOINT_1=YOUR_CHAINSTACK_GLOBAL_NODE
+ENDPOINT_2=YOUR_CHAINSTACK_TRADER_NODE
+ENDPOINT_3=YOUR_CHAINSTACK_TRADER_NODE
+```
+
+<Info>
+  Rememeber that we are using WSS endpoints.
+</Info>
+
+In your Node.js script, you'll need to load the environment variables from the `.env` file using the `dotenv` package. At the top of your script, add the following line:
+
+<CodeGroup>
+  ```javascript Javascript
+  require('dotenv').config();
+  ```
+</CodeGroup>
+
+This will load the environment variables from the `.env` file and make them accessible in your script using `process.env`.
+
+Now, instead of hardcoding the endpoints in your script, you can read them from the environment variables:
+
+<CodeGroup>
+  ```javascript Javascript
+  const endpoints = [
+    process.env.ENDPOINT_1,
+    process.env.ENDPOINT_2,
+    process.env.ENDPOINT_3,
+  ];
+  ```
+</CodeGroup>
+
+By following these steps, you'll have a basic Node.js project set up with the required dependencies, and you'll be able to store and access your WebSocket endpoints securely using environment variables in a `.env` file.
+
+<Info>
+  Check out [Web3 node.js: From zero to a full-fledged project](/docs/web3-nodejs-from-zero-to-a-full-fledged-project) to learn more about managing Node.js projects.
+</Info>
+
+## Web3.js code
+
+This section will guide you through this project using web3.js, and the following section will go over ethers.js. This way, you have options based on your favorite library.
+
+The project is already set up, so let's create a new file named `index.js` and paste the following code:
+
+<CodeGroup>
+  ```javascript index.js
+  const { Web3 } = require("web3");
+  require('dotenv').config(); // Add this in case you didn't earlier
+
+  // List of RPC endpoints
+  const endpoints = [
+    process.env.ENDPOINT_1,
+    process.env.ENDPOINT_2,
+    process.env.ENDPOINT_3,
+  ];
+
+  // Filter for WETH transfer events
+  const logsFilter = {
+    address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", // WETH contract address
+    topics: [
+      "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+    ], // Transfer event signature
+  };
+
+  // Set to track seen event identifiers to prevent duplicates
+  const seenEvents = new Set();
+
+  async function subscribeToLogs(endpoint) {
+    const web3 = new Web3(endpoint);
+    try {
+      const subscription = await web3.eth.subscribe("logs", logsFilter);
+      console.log(`Subscription created with ID: ${subscription.id}`);
+
+      subscription.on("data", (log) => {
+        const eventId = `${log.transactionHash}-${log.logIndex}`;
+        if (!seenEvents.has(eventId)) {
+          seenEvents.add(eventId);
+          console.log(`Event received first from ${endpoint.slice(0, 33)}:`, log);
+        }
+      });
+
+      subscription.on("error", (error) => {
+        console.error(`Error when subscribing to logs from ${endpoint}:`, error);
+      });
+    } catch (error) {
+      console.error(`Error setting up subscription from ${endpoint}:`, error);
+    }
+  }
+
+  // Initialize subscriptions for all endpoints
+  endpoints.forEach((endpoint) => {
+    subscribeToLogs(endpoint);
+  });
+  ```
+</CodeGroup>
+
+### Web3 code explanation
+
+This code sets up a redundant Ethereum event listener using the Web3.js library and environment variables for storing WebSocket endpoints. Here's what's happening:
+
+1. The code starts by importing the `Web3` object from the `web3` library and configuring the `dotenv` package to load environment variables from a `.env` file.
+
+2. The WebSocket endpoints for various Ethereum nodes are read from the environment variables `ENDPOINT_1`, `ENDPOINT_2`, and `ENDPOINT_3` and stored in the `endpoints` array.
+
+3. The `logsFilter` object is defined, which specifies the contract address of the Wrapped Ether (WETH) contract and the topic (event signature) for the "Transfer" event. This filter will be used to subscribe to only the desired events.
+
+4. A `Set` data structure called `seenEvents` is initialized to track unique event identifiers and prevent duplicate event processing.
+
+5. The `subscribeToLogs` async function is defined, which takes an endpoint as input and sets up a WebSocket subscription to listen for logs (events) matching the `logsFilter`.
+
+6. Inside the `subscribeToLogs` function, a new `Web3` instance is created using the provided endpoint, and the `web3.eth.subscribe("logs", logsFilter)` method is called to create a subscription.
+
+7. When a new event is received through the subscription, the `subscription.on("data", ...)` callback is triggered. The callback generates a unique event identifier using the transaction hash and log index and checks if this identifier has been seen before in the `seenEvents` Set.
+
+8. If the event identifier is new, it is added to the `seenEvents` Set and the event data is logged to the console along with the endpoint from which the event was received.
+
+9. The `subscription.on("error", ...)`callback is set up to handle any errors during the subscription process, logging the error into the console.
+
+10. Finally, the `endpoints.forEach(subscribeToLogs)` line iterates over the `endpoints` array and calls the `subscribeToLogs` function for each endpoint creates multiple WebSocket subscriptions to different Ethereum nodes.
+
+By implementing this redundant event listener, the application can monitor WETH transfer events reliably and consistently, even if one or more Ethereum nodes experience downtime or connectivity issues. Using environment variables to store endpoints makes managing and updating endpoint configurations easier without modifying the code directly.
+
+## Ethers.js code
+
+Here, we'll cover the ethers.js version of this project; you can create an entire new Node.js project or just make a new JavaScript file, then paste this code:
+
+```
+const { ethers } = require("ethers");
+require('dotenv').config();
+
+// List of RPC endpoints
+const endpoints = [
+  process.env.ENDPOINT_1,
+  process.env.ENDPOINT_2,
+  process.env.ENDPOINT_3,
+];
+
+const contractAddress = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"; // WETH contract address
+const contractABI = [
+  "event Transfer(address indexed from, address indexed to, uint amount)",
+];
+
+// Set to track seen event identifiers to prevent duplicates
+const seenEvents = new Set();
+
+async function subscribeToEvents(endpoint) {
+  const provider = new ethers.WebSocketProvider(endpoint);
+  const contract = new ethers.Contract(contractAddress, contractABI, provider);
+
+  // Subscribe to the Transfer event
+  contract.on("Transfer", (from, to, amount, event) => {
+    const eventId = `${event.log.transactionHash}-${event.log.blockNumber}`;
+
+    if (!seenEvents.has(eventId)) {
+      seenEvents.add(eventId);
+      console.log(`Event received first from ${endpoint.slice(0, 33)}:`);
+      console.log(
+        `Transfer from ${from} to ${to} of ${ethers.formatEther(
+          amount.toString()
+        )} ETH`
+      );
+      // console.log("Transaction details:", event);
+    }
+  });
+
+  // Handle errors
+  provider.on("error", (error) => {
+    console.error(`WebSocket error from ${endpoint}:`, error);
+  });
+}
+
+// Initialize subscriptions for all endpoints
+endpoints.forEach((endpoint) => {
+  subscribeToEvents(endpoint);
+});
+```
+
+<Info>
+  Ethers.js now supports `ChainstackProvider`, learn more about it by reading [ethers ChainstackProvider Documentation](/api-reference/ethersjs-chainstackprovider).
+</Info>
+
+### Ethers.js code breakdown
+
+This code sets up a redundant Ethereum event listener using the `ethers.js` library and environment variables for storing WebSocket endpoints. Here's what's happening:
+
+1. The code starts by importing the `ethers` object from the `ethers.js` library and configuring the `dotenv` package to load environment variables from a `.env` file.
+
+2. The WebSocket endpoints for various Ethereum nodes are read from the environment variables `ENDPOINT_1`, `ENDPOINT_2`, and `ENDPOINT_3` and stored in the `endpoints` array.
+
+3. The contract address of the Wrapped Ether (WETH) contract and its contract ABI (Application Binary Interface) are defined as constants.
+
+4. A `Set` data structure called `seenEvents` is initialized to track unique event identifiers and prevent duplicate event processing.
+
+5. The `subscribeToEvents` async function is defined, which takes an endpoint as input and sets up an event subscription for the WETH contract's "Transfer" event.
+
+6. Inside the `subscribeToEvents` function, a new `WebSocketProvider` instance is created using the provided endpoint, and a `Contract` instance is created using the contract address, ABI, and provider.
+
+7. The `contract.on("Transfer", ...)` method is used to subscribe to the "Transfer" event of the WETH contract.
+
+8. When a new "Transfer" event is received, the callback function is triggered, generating a unique event identifier using the transaction hash and block number.
+
+9. If the event identifier is new, it is added to the `seenEvents` Set, and the event details (sender, recipient, and amount transferred) are logged to the console along with the endpoint from which the event was received.
+
+10. The `provider.on("error", ...)` callback is set up to handle any errors during the WebSocket connection, logging the error to the console.
+
+11. Finally, the `endpoints.forEach(subscribeToEvents)` line iterates over the `endpoints` array and calls the `subscribeToEvents` function for each endpoint creates multiple WebSocket connections and event subscriptions to different Ethereum nodes.
+
+By implementing this redundant event listener with `ethers.js`, the application can monitor WETH transfer events reliably and consistently, even if one or more Ethereum nodes experience downtime or connectivity issues. Using environment variables to store endpoints makes managing and updating endpoint configurations easier without modifying the code directly.
+
+## Conclusion
+
+Building reliable and fault-tolerant systems is crucial when developing applications on the Ethereum blockchain. By implementing a redundant event listener using Node.js and libraries like web3.js or ethers.js, you can consistently ensure that your application receives important events, such as token transfers, without disruptions.
+
+This approach mitigates the risks associated with relying on a single node. It introduces redundancy by subscribing to multiple nodes simultaneously, increasing the chances of receiving events even if some nodes fail.
+
+The tutorial provided a step-by-step guide to setting up a project, configuring environment variables, and implementing the redundant event listener using web3.js and ethers.js. With this solution, your Ethereum-based application can remain responsive and up-to-date and provide a seamless user experience, even in node failures or connectivity issues.

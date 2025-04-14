@@ -1,0 +1,464 @@
+---
+title: "Integrating Multi-Endpoint Shared Configuration (MESC) with Chainstack: A Comprehensive Guide"
+---
+
+**TLDR**
+
+* `getrawtransaction` retrieves raw or decoded Bitcoin transaction data by `txid`, optionally with a specific block hash.
+* Verbose mode (`true`) returns a detailed JSON, while omitting it yields the raw hex string.
+* Transactions typically remain in the mempool for around 14 days; dropped transactions require resubmission with adequate fees.
+* Bitcoin Core runs many operations single-threaded, so complex or parallel requests may slow under heavy load.
+
+## Main article
+
+In Web3 and blockchain, we get a new chain or a new RPC provider almost daily, and the ability to interact with multiple blockchain networks through RPC endpoints is crucial for developers, applications, and services. The Multi-Endpoint Shared Configuration (MESC) emerges as a pivotal standard in this ecosystem, addressing the pain points of configuring and managing RPC endpoints across diverse tools and platforms.
+
+MESC introduces a standard for configuring RPC endpoints in DApps, emphasizing the ease of sharing configuration data and managing many endpoints. It focuses on making RPC configuration sharing across tools, languages, and environments straightforward, alongside simplifying the management of numerous RPC endpoints. This guide will teach us how to use the MESC CLI using Chainstack endpoints.
+
+## Key components of MESC
+
+MESC represents a significant leap toward simplifying the complexities developers face daily. Let's get into the core aspects that make MESC an indispensable tool for developers navigating the Web3 space.
+
+### Typical usage scenario
+
+Consider a decentralized voting application, `VoteChain`, designed to operate across multiple blockchain networks. This application needs to interact with different RPC endpoints to submit votes or query vote counts. The traditional method requires hardcoding or manually specifying the RPC URL for each network, which is error-prone and cumbersome, especially when aiming to support numerous networks.
+
+### Common interface
+
+One of MESC's standout features is its common interface, implemented across different programming languages and platforms. This uniformity allows developers to interact with the MESC configuration seamlessly, regardless of their development environment. Whether it's Python, Rust, or any other supported language, the interface remains consistent, ensuring developers can easily switch between tools and languages without relearning how to access and manage their RPC configurations.
+
+### MESC specifications
+
+MESC employs a detailed schema to encapsulate all necessary information for RPC configurations, comprising three key-value data schemas: `RpcConfig`, `Endpoint`, and `Profile`. Each schema is meticulously designed to cover all aspects of RPC configuration, from global settings to specific endpoint details and user profiles.
+
+* **RpcConfig schema**: The backbone of MESC, detailing the version, default endpoints, and default networks, mapping chain IDs to endpoint names, network names to chain IDs, and specific endpoint configurations. It also includes profiles for user-specific settings and global metadata for additional information.
+
+* **Endpoint schema**: Specifies individual RPC endpoints, including their names, URLs, associated chain IDs, and any metadata related to the endpoint. This schema ensures each endpoint is uniquely identifiable and adequately linked to its network.
+
+* **Profile schema**: Users can define custom configurations, including a default endpoint, network defaults, and profile-specific metadata. Enabling or disabling MESC for specific profiles allows users to manage their RPC connections.
+
+The specification enforces strict requirements to maintain integrity and consistency within the configuration. All keys within the `RpcConfig` and `Endpoint` schemas are mandatory, with no allowance for unspecified keys except within metadata sections. It mandates that endpoint names referenced in the configuration must correspond to actual endpoints defined within the schema, ensuring referential integrity.
+
+<Info>
+  Find the full [spefications](https://github.com/paradigmxyz/mesc/blob/main/SPECIFICATION.md) in the MESC repository.
+</Info>
+
+#### MESC's role in simplifying configurations
+
+By leveraging MESC, `VoteChain` can dynamically select the appropriate RPC endpoint based on user input or application context, such as the specific blockchain network for casting votes. This is made possible through MESC's ability to interpret various forms of identifiers:
+
+1. **Direct URL**: For direct access to a specific RPC endpoint.
+2. **Network name**: Specify the blockchain network using familiar names.
+3. **Chain ID**: Enabling selection based on the unique identifier of the blockchain.
+4. **Custom profile**: Supporting configurations for various deployment scenarios or user preferences.
+
+This functionality allows `VoteChain` to be highly adaptable and user-friendly, significantly reducing the barrier to entry for users unfamiliar with the specific details of blockchain networks.
+
+#### Hypothetical implementation
+
+To bring this scenario to life, imagine `VoteChain` incorporates a feature allowing users to select the blockchain network for their voting campaign directly from the application interface. Behind the scenes, `VoteChain` uses MESC to manage and resolve the appropriate RPC endpoints:
+
+**For user-friendly network selection**: Users can choose a network by name through the `VoteChain` interface. The application then queries the MESC configuration to retrieve the corresponding RPC URL, ensuring seamless interaction with the chosen network.
+
+#### Pseudo code example
+
+<CodeGroup>
+  ```pseudo pseudo
+  # Assume user_input is the network name or a custom endpoint identifier
+  user_input = get_user_input()
+
+  # MESC resolves the appropriate RPC endpoint
+  if is_custom_endpoint(user_input):
+      endpoint = mesc.get_endpoint_by_name(user_input)
+  else:
+      endpoint = mesc.get_endpoint_by_network_name(user_input)
+
+  # Use the resolved endpoint URL in VoteChain
+  rpc_url = endpoint.url
+  use_rpc_endpoint(rpc_url)
+  ```
+</CodeGroup>
+
+## Get started with the MESC CLI
+
+Now that we understand MESC well and what it's trying to solve, let's learn how to use the MESC CLI.
+
+### Prerequisites
+
+Before we install the MESC CLI, ensuring your development environment is properly set up is essential. The MESC CLI is developed in Rust; having Rust and Cargo (the Rust package manager) installed on your system is a prerequisite. To install Rust and Cargo, execute the following command in your terminal:
+
+<CodeGroup>
+  ```shell Shell
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  ```
+</CodeGroup>
+
+This command downloads and runs the Rust installation script, setting up Rust and Cargo on your system.
+
+#### Get Chainstack endpoints
+
+To configure the MESC CLI you'll also need some endpoints. Follow these steps to get them from Chainstack; remember, you can use any EVM-compatible endpoint.
+
+<CardGroup>
+  <Card title="Sign up with Chainstack" href="https://console.chainstack.com/user/account/create" icon="angle-right" horizontal />
+  <Card title="Deploy a node" href="/docs/manage-your-networks#join-a-public-network" icon="angle-right" horizontal />
+  <Card title="View node access and credentials" href="/docs/manage-your-node#view-node-access-and-credentials" icon="angle-right" horizontal />
+</CardGroup>
+
+### Instal the MESC CLI
+
+With Rust and Cargo ready, installing the MESC CLI is straightforward. Use Cargo to install the MESC CLI with the following command:
+
+<CodeGroup>
+  ```shell Shell
+  cargo install mesc_cli
+  ```
+</CodeGroup>
+
+This command fetches the latest version of the MESC CLI from [crates.io](https://crates.io/crates/mesc_cli) (the Rust package registry) and installs it on your system.
+
+<Info>
+  For additional installation methods and further information, consult the [MESC User Guide](https://paradigmxyz.github.io/mesc/cli.html#installation).
+</Info>
+
+### Understand `mesc.json` configuration
+
+After installing the MESC CLI, the next step is configuring your MESC environment. This is where `mesc.json` comes into play. `mesc.json` is a JSON-formatted configuration file MESC utilizes to manage your RPC endpoints. It is the central repository for all your endpoint configurations, including the default endpoint, network-specific defaults, and any custom profiles you may need for different projects or environments.
+
+The `mesc.json` file is structured to include vital details such as the version of MESC being used (`mesc_version`), a list of RPC endpoints (`endpoints`), and mappings for network defaults (`network_defaults`) and network names (`network_names`). This structured approach allows for a high degree of flexibility and control over how your applications interact with blockchain networks.
+
+### Create `mesc.json`
+
+There are a few ways to manage the `mesc.json` file. The first method we'll explore is creating one directly from the MESC CLI.
+
+Open a terminal on your system and run:
+
+<CodeGroup>
+  ```shell Shell
+  mesc setup
+  ```
+</CodeGroup>
+
+This will start the MESC CLI and prompt you to set up your environment. Select `1) File (recommended)` and follow the instructions to add your endpoints and create `mesc.json`.
+
+Here is how the process will look like in the console:
+
+<CodeGroup>
+  ```shell Shell
+   MESC is disabled because no MESC env vars are set
+   To enable MESC, set one of the MESC env vars
+   Do you want to store your MESC config in a file or in an env var? File (recommended)
+   Where to save MESC config file? ~/mesc.json
+   Need to set MESC_PATH in order to use this file
+   MESC_PATH can be automatically updated for 2 shell config files:
+       1. /Users/name/.bashrc
+       2. /Users/name/.profile
+   What do you want to do? Edit these files automatically (recommended)
+   Edited 2 config files
+   Config file does not exist, do you want to create one? Yes
+   Created blank config at /Users/name/mesc.json
+   Current config has 0 endpoints and 0 profiles
+
+   What do you want to do? Add new endpoint
+   New endpoint URL? https://ethereum-mainnet.core.chainstack.com/AUTH
+   Querying chain id...
+   Using chain_id 1
+   New endpoint name? eth_chainstack
+   New endpoint added
+   What do you want to do? Add new endpoint
+   New endpoint URL? https://avalanche-mainnet.core.chainstack.com/ext/bc/C/rpc/AUTH
+   Querying chain id...
+   Using chain_id 43114
+   New endpoint name? avax_chainstack
+   New endpoint added
+   What do you want to do? Exit and save changes
+   config written to /Users/name/mesc.json
+
+  Shell config files were modified. Restart shell to load these files.
+  ```
+</CodeGroup>
+
+The CLI leads you through the creation of the `mesc.json` file, which is saved by default in the root user directory. Additionally, it automatically sets the `MESC_PATH` environment variable in both `.bashrc` and `.profile`.
+
+<Info>
+  `.bashrc` and `.profile` are shell scripts for configuring user environment variables and settings.
+</Info>
+
+The `mesc.json` file created will look like this:
+
+<CodeGroup>
+  ```Json JSON
+  {
+    "mesc_version": "0.2.0",
+    "default_endpoint": null,
+    "endpoints": {
+      "avax_chainstack": {
+        "name": "avax_chainstack",
+        "url": "https://avalanche-mainnet.core.chainstack.com/ext/bc/C/rpc/AUTH",
+        "chain_id": "43114",
+        "endpoint_metadata": {}
+      },
+      "eth_chainstack": {
+        "name": "eth_chainstack",
+        "url": "https://ethereum-mainnet.core.chainstack.com/AUTH",
+        "chain_id": "1",
+        "endpoint_metadata": {}
+      }
+    },
+    "network_defaults": {},
+    "network_names": {},
+    "profiles": {},
+    "global_metadata": {}
+  }
+  ```
+</CodeGroup>
+
+### Edit `mesc.json`
+
+We have a basic MESC configuration file; let's customize it a bit, adding default networks and default endpoints. In this example, I created the file with two Chainstack endpoints, Ethereum mainnet and Avalanche mainnet. Let's assume I want to default to Ethereum; we can configure the file as follows:
+
+```
+{
+  "mesc_version": "0.2.0",
+  "default_endpoint": "eth_chainstack",
+  "endpoints": {
+    "avax_chainstack": {
+      "name": "avax_chainstack",
+      "url": "https://avalanche-mainnet.core.chainstack.com/ext/bc/C/rpc/AUTH",
+      "chain_id": "43114",
+      "endpoint_metadata": {
+        "host": "chainstack",
+        "node_client": "avalanchego/v0.12.7",
+        "namespaces": ["eth", "net", "web3"],
+        "location": "Global"
+      }
+    },
+    "eth_chainstack": {
+      "name": "eth_chainstack",
+      "url": "https://ethereum-mainnet.core.chainstack.com/AUTH",
+      "chain_id": "1",
+      "endpoint_metadata": {
+        "host": "chainstack",
+        "node_client": "Geth/v1.13.2-stable/linux-amd64/go1.21.1",
+        "namespaces": ["eth", "net", "web3", "debug", "trace"],
+        "location": "Global"
+      }
+    }
+  },
+  "network_defaults": {
+    "1": "eth_chainstack",
+    "43114": "avax_chainstack"
+  },
+    "network_names": {
+    "eth_mainnet" : "1",
+    "avax_mainnet": "43114"
+  },
+  "profiles": {
+    "my_special_tool": {
+      "name": "my_special_tool",
+      "default_endpoint": "eth_chainstack",
+      "network_defaults": {
+        "1": "eth_chainstack"
+      },
+      "profile_metadata": {},
+      "use_mesc": true
+    }
+  },
+  "global_metadata": {
+   "conceal": true
+  }
+}
+```
+
+We added metadata to the endpoints, network names, and a profile here. With extra metadata and configurations, we are ready to test it and learn how to use the MESC CLI to send requests without ever touching the endpoints again. Note that you can also add metadata directly from the setup interface.
+
+<Info>
+  Learn more about the MESC configuration and metadata options in the [MESC User Guide](https://paradigmxyz.github.io/mesc/using_mesc.html)
+</Info>
+
+### MESC CLI: Overview of basic commands
+
+Let's get into the essentials with the MESC CLI. Starting with `mesc --help`, you'll uncover a comprehensive list of commands and their structure alongside valuable help topics for an in-depth understanding of specific commands or steps.
+
+<Info>
+  If the `MESC_PATH` environment variable isn't correctly configured, you might encounter issues. Use `mesc help setup` for guidance on proper setup. In case you've stored the `mesc.json` file in its default location, setting the environment variable is straightforward:
+
+  Shell
+
+  ```
+  export MESC_PATH=~/mesc.json
+  ```
+</Info>
+
+#### Explore available endpoints
+
+Use the `mesc ls` command to display a detailed list of available endpoints. This command also serves as a quick check to ensure MESC is correctly set up, indicating any setup errors directly:
+
+<CodeGroup>
+  ```shell Shell
+  mesc ls
+  ```
+</CodeGroup>
+
+Expect an output similar to the following, listing configured endpoints:
+
+<CodeGroup>
+  ```shell Shell
+         endpoint  │  network  │       url
+  ─────────────────┼───────────┼──────────
+   eth_chainstack  │        1  │  ********
+  avax_chainstack  │    43114  │  ********
+  ```
+</CodeGroup>
+
+You can also use the `mesc endpoint` command to print the full info about endpoints.
+
+<CodeGroup>
+  ```shell Shell
+  mesc endpoint
+  ```
+</CodeGroup>
+
+This command will print the data about the default endpoint:
+
+<CodeGroup>
+  ```shell Shell
+  Endpoint: eth_chainstack
+  - url: https://ethereum-mainnet.core.chainstack.com/AUTH
+  - chain_id: 1
+  - metadata: {"location": String("Global"), "node_client": String("Geth/v1.13.2-stable/linux-amd64/go1.21.1"), "namespaces": Array [String("eth"), String("net"), String("web3")], "host": String("chainstack")}
+  ```
+</CodeGroup>
+
+Add the name of the endpoint to print data about a specific endpoint:
+
+<CodeGroup>
+  ```shell Shell
+  mesc endpoint avax_chainstack
+  ```
+</CodeGroup>
+
+#### Verify endpoint connectivity
+
+To test the connectivity and performance of the endpoints, use the `mesc ping` command. This command not only verifies the operational status of each endpoint but also provides metrics such as latency and the latest block number:
+
+<CodeGroup>
+  ```shell Shell
+  mesc ping
+  ```
+</CodeGroup>
+
+Sample output showcasing the performance metrics:
+
+<CodeGroup>
+  ```shell Shell
+         endpoint  │  network  │  latency  │     block
+  ─────────────────┼───────────┼───────────┼──────────
+  avax_chainstack  │    43114  │    564.4  │  41465592
+   eth_chainstack  │        1  │    574.9  │  19192953
+
+  2 endpoints responded without error
+
+  Additional fields available: ip, client, location
+  ```
+</CodeGroup>
+
+To retrieve more specific data, such as the client information, append the desired field to the ping command:
+
+<CodeGroup>
+  ```shell Shell
+  mesc ping client
+  ```
+</CodeGroup>
+
+In scenarios where endpoints fail to respond, consider specifying a manual timeout to differentiate between genuinely offline endpoints and those that merely exceed the default timeout period:
+
+<CodeGroup>
+  ```shell Shell
+  mesc ping --timeout 5
+  ```
+</CodeGroup>
+
+## Send requests using MESC
+
+At this point, MESC is fully set up, and we can start using it to send RPC requests. The most straightforward way to test and explore its features is by sending cURL requests.
+
+The power of MESC lies in the, as we discussed earlier, MESC allows us to access endpoints intuitively like **Endpoint Name** or **Network Name**.
+
+This is the structure to send a basic cURL request:
+
+<CodeGroup>
+  ```shell Shell
+  curl $(mesc url) --data RPC_REQUEST
+  ```
+</CodeGroup>
+
+`$(mesc url)` will use the default endpoint, in our case `eth_chainstack`, let's fetch the chain ID, for instance:
+
+<CodeGroup>
+  ```shell Shell
+  curl $(mesc url) --data '{"jsonrpc": "2.0", "method": "eth_chainId", "id": "mesc_test"}'
+  ```
+</CodeGroup>
+
+Which will return:
+
+<CodeGroup>
+  ```shell Shell
+  {"jsonrpc":"2.0","id":"mesc_test","result":"0x1"}
+  ```
+</CodeGroup>
+
+We can confirm that it used the Ethereum endpoint as the chain ID returned is `1`. To use the Avalanche endpoint, simply add its name to the command:
+
+<CodeGroup>
+  ```shell Shell
+  curl $(mesc url avax_chainstack) --data '{"jsonrpc": "2.0", "method": "eth_chainId", "id": "mesc_test"}'
+  ```
+</CodeGroup>
+
+And in this case, we'll get Avalanche chain ID:
+
+<CodeGroup>
+  ```shell Shell
+  {"jsonrpc":"2.0","id":"mesc_test","result":"0xa86a"}
+  ```
+</CodeGroup>
+
+<Info>
+  You can use the [Chainstack EVM-Knife](https://web3tools.chainstacklabs.com/hexadecimal-decimal) to convert hexadecimal values to decimal.
+
+  `0xa86a` is `43114` as decimal, which is Avalanche chain ID.
+</Info>
+
+Using the endpoint's name is only one way to use MESC; you can also pick the endpoint by a network default, giving the chain ID:
+
+<CodeGroup>
+  ```shell Shell
+  curl $(mesc url 43114) --data '{"jsonrpc": "2.0", "method": "eth_chainId", "id": "mesc_test"}'
+  ```
+</CodeGroup>
+
+Or by naming a network directly:
+
+<CodeGroup>
+  ```shell Shell
+  curl $(mesc url avax_mainnet) --data '{"jsonrpc": "2.0", "method": "eth_chainId", "id": "mesc_test"}'
+  ```
+</CodeGroup>
+
+You can also invoke the default endpoint associated with a profile:
+
+<CodeGroup>
+  ```shell Shell
+  curl $(mesc url --profile my_special_tool) --data '{"jsonrpc": "2.0", "method": "eth_chainId", "id": "mesc_test"}'
+  ```
+</CodeGroup>
+
+<Info>
+  Check out the [MESC User Guide](https://paradigmxyz.github.io/mesc/cli.html)for more information.
+</Info>
+
+## Conclusion
+
+In the rapidly evolving landscape of blockchain development, the Multi-Endpoint Shared Configuration (MESC) stands out as a critical innovation for simplifying RPC endpoint management. By centralizing and standardizing RPC configurations, MESC significantly reduces the complexity and enhances the security of interacting with blockchain networks. Developers gain the ability to manage endpoints efficiently without directly handling sensitive endpoint details, thereby reducing exposure to security risks. The streamlined process fosters better organization, collaboration, and productivity by allowing quick switches between networks and configurations with minimal overhead.

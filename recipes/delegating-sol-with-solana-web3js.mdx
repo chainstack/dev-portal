@@ -1,0 +1,199 @@
+---
+title: "Delegating SOL with solana-web3.js"
+description: "Using solana-web3.js to interact with Solana's stake program to delegate 0.02 SOL."
+---
+
+<AccordionGroup>
+  <Accordion title="Overview">
+
+solana-web3.js (`@solana/web3.js`) is among one of the most popular ways of connecting to and interacting with the Solana blockchain.
+
+Included within the functionality of solana-web3.js is the ability to interact with Solana's `StakeProgram`, enabling programmatic delegation.
+
+Today, we'll be **delegating 0.02 SOL with solana-web3.js**.
+</Accordion>
+
+<Accordion title="Environment setup">
+
+If you haven't already, ensure node.js is installed.
+
+For this task, you'll need to install two main dependencies.
+
+1. `@solana/web3.js`, this is what you'll be using to interact with Solana.
+2. `bs58` for converting a traditional string private key to a `Uint8Array` in the account definition process.
+
+```js JavaScript
+const solanaWeb3 = require('@solana/web3.js');
+const bs58 = require("bs58");
+```
+
+</Accordion>
+
+<Accordion title="Connecting to Solana">
+
+To begin, you'll need to initialize a connection with the Solana blockchain. Like any other Web3 application, you'll need to create a master variable with an RPC endpoint to achieve this.
+
+In this script, we've defined this within a variable called `connection`, and passed in a Chainstack Solana [Global Elastic Node](https://docs.chainstack.com/docs/global-elastic-node) HTTPS and WSS endpoint.
+
+To launch a Solana Global Elastic Node, do the following:
+<Steps>
+  <Step>
+    Navigate to the Chainstack console
+  </Step>
+  <Step>
+    Deploy a standard-configuration Solana mainnet node
+  </Step>
+  <Step>
+    Open the newly deployed node
+  </Step>
+  <Step>
+    Copy the corresponding HTTPS & WSS endpoints
+  </Step>
+  <Step>
+    Paste them into your `Connection` constructor
+  </Step>
+</Steps>
+```js JavaScript
+const connection = new solanaWeb3.Connection("https://solana-mainnet.core.chainstack.com/AUTHENTICATION", {wsEndpoint:"wss://solana-mainnet.core.chainstack.com/ws/AUTHENTICATION"});
+```
+</Accordion>
+
+<Accordion title="Importing a wallet">
+
+We'll need to import a funded Solana wallet because we'll be spending SOL (0.02) for the delegation. (If you'd like to generate a fresh wallet, you can do so with `solanaWeb3.Keypair.generate()`)
+
+For importing an existing wallet, you'll need to leverage the `fromSecretKey` function on `Keypair`. `fromSecretKey` takes a `Uint8Array` as a parameter, so you'll need to convert your string private key with `bs58.decode`.
+
+```js JavaScript
+const walletKeyPair = solanaWeb3.Keypair.fromSecretKey(new Uint8Array(bs58.decode(process.env['PRIVATE_KEY'])));
+```
+
+</Accordion>
+
+<Accordion title="Creating the stake account">
+
+The first half of the delegation process involves creating a stake account. We'll do this with `StakeProgram.createAccount`.
+
+You'll first need to generate a fresh wallet with `solanaWeb3.Keypair.generate()`, this will represent the keypair for the stake account.
+
+With the keypair generated, you'll then need to create the transaction instructions; in this case, we'll call this `createStakeAccountInstruction` and pass the following parameters:
+
+1. `fromPubkey`, the public key of our funded wallet (the delegator).
+2. `stakePubkey`, the public key of the stake account we just generated.
+3. `authorized`, the authorities of the new stake account. We'll have this set to the funded wallet we previously imported.
+4. `lamports`, the value of the delegation.
+
+With the instructions created, we can then build the transaction in `createStakeAccountTransaction`, then sign it and push it to the network.
+
+```js JavaScript
+  // Create Stake Account
+  const stakeAccount = solanaWeb3.Keypair.generate();
+  const createStakeAccountInstruction = solanaWeb3.StakeProgram.createAccount({
+    fromPubkey: walletKeyPair.publicKey,
+    stakePubkey: stakeAccount.publicKey,
+    authorized: new solanaWeb3.Authorized(walletKeyPair.publicKey, walletKeyPair.publicKey),
+    lamports: solanaWeb3.LAMPORTS_PER_SOL * 0.02,
+  });
+
+  let createStakeAccountTransaction = new solanaWeb3.Transaction().add(createStakeAccountInstruction);
+  createStakeAccountTransaction.recentBlockhash = (await connection.getRecentBlockhash()).blockhash;
+  createStakeAccountTransaction.feePayer = walletKeyPair.publicKey;
+  createStakeAccountTransaction.partialSign(stakeAccount);
+  await solanaWeb3.sendAndConfirmTransaction(
+    connection,
+    createStakeAccountTransaction,
+    [walletKeyPair, stakeAccount],
+  );
+```
+
+</Accordion>
+
+<Accordion title="Delegating the stake">
+With the stake account successfully initialized, we can move on to actually delegating the 0.02 SOL.
+
+First, we'll need to define the public key (`PublicKey`) of the validator we'd like to delegate to, we can define this in `votePubkey`.
+
+From there, similar to the stake account creation, we'll need to build the delegation instructions. We can do this in a variable called `delegateInstructions` and pass the following parameters:
+
+1. `stakePubkey`, the public key of the previously generated stake account.
+2. `authorizedPubkey`, the public key of the stake authority.
+3. `votePubkey`, the public key of the validator you'd like to stake with. We already defined this, so we'll just pass it directly.
+
+Finally, with the instructions created, we can move onto building, signing, and pushing the delegation transaction to the network.
+
+```js JavaScript
+  // Delegate Stake
+  const votePubkey = new solanaWeb3.PublicKey('beefKGBWeSpHzYBHZXwp5So7wdQGX6mu4ZHCsH3uTar');
+  const delegateInstruction = solanaWeb3.StakeProgram.delegate({
+    stakePubkey: stakeAccount.publicKey,
+    authorizedPubkey: walletKeyPair.publicKey,
+    votePubkey,
+  });
+
+  let delegateTransaction = new solanaWeb3.Transaction().add(delegateInstruction);
+  delegateTransaction.recentBlockhash = (await connection.getRecentBlockhash()).blockhash;
+  delegateTransaction.feePayer = walletKeyPair.publicKey;
+  delegateTransaction.sign(walletKeyPair);
+  await solanaWeb3.sendAndConfirmTransaction(
+    connection,
+    delegateTransaction,
+    [walletKeyPair],
+  );
+}
+
+main();
+```
+</Accordion>
+</AccordionGroup>
+
+<RequestExample>
+```js JavaScript
+const solanaWeb3 = require('@solana/web3.js');
+const bs58 = require("bs58");
+
+async function main() {
+  const connection = new solanaWeb3.Connection("https://solana-mainnet.core.chainstack.com/AUTHENTICATION", {wsEndpoint:"wss://solana-mainnet.core.chainstack.com/ws/AUTHENTICATION"});
+  const walletKeyPair = solanaWeb3.Keypair.fromSecretKey(new Uint8Array(bs58.decode(process.env['PRIVATE_KEY'])));
+
+  // Create Stake Account
+  const stakeAccount = solanaWeb3.Keypair.generate();
+  const createStakeAccountInstruction = solanaWeb3.StakeProgram.createAccount({
+    fromPubkey: walletKeyPair.publicKey,
+    stakePubkey: stakeAccount.publicKey,
+    authorized: new solanaWeb3.Authorized(walletKeyPair.publicKey, walletKeyPair.publicKey),
+    lamports: solanaWeb3.LAMPORTS_PER_SOL * 0.02,
+  });
+
+  let createStakeAccountTransaction = new solanaWeb3.Transaction().add(createStakeAccountInstruction);
+  createStakeAccountTransaction.recentBlockhash = (await connection.getRecentBlockhash()).blockhash;
+  createStakeAccountTransaction.feePayer = walletKeyPair.publicKey;
+  createStakeAccountTransaction.partialSign(stakeAccount);
+  await solanaWeb3.sendAndConfirmTransaction(
+    connection,
+    createStakeAccountTransaction,
+    [walletKeyPair, stakeAccount],
+  );
+
+  // Delegate Stake
+  const votePubkey = new solanaWeb3.PublicKey('beefKGBWeSpHzYBHZXwp5So7wdQGX6mu4ZHCsH3uTar');
+  const delegateInstruction = solanaWeb3.StakeProgram.delegate({
+    stakePubkey: stakeAccount.publicKey,
+    authorizedPubkey: walletKeyPair.publicKey,
+    votePubkey,
+  });
+
+  let delegateTransaction = new solanaWeb3.Transaction().add(delegateInstruction);
+  delegateTransaction.recentBlockhash = (await connection.getRecentBlockhash()).blockhash;
+  delegateTransaction.feePayer = walletKeyPair.publicKey;
+  delegateTransaction.sign(walletKeyPair);
+  await solanaWeb3.sendAndConfirmTransaction(
+    connection,
+    delegateTransaction,
+    [walletKeyPair],
+  );
+}
+
+main();
+```
+
+</RequestExample>

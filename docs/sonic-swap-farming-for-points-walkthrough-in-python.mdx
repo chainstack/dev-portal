@@ -1,0 +1,722 @@
+---
+title: "Sonic: Swap Farming for Points Walkthrough in Python"
+---
+
+**TLDR**
+
+* This tutorial demonstrates an investigative approach to automate token swaps on an unverified Uniswap V2–based DEX.
+* It shows how to retrieve the router and LP addresses by decompiling the bytecode, scanning transactions, and decoding input data.
+* Once identified, a round-robin swapping script is built in Python to continuously swap among multiple tokens, including handling approvals.
+* By automating these swaps, developers can farm points and streamline their testnet usage.
+
+## Introduction
+
+On the Sonic testnet, you can do daily tasks that include swaps of a set of the official ERC-20 tokens dispersed from the Sonic faucet.
+
+The DEX has the UI but no instructions on how to automate the swaps (obviously). The contract involved in the swap is not verified, which means we have no contract source and don't have the contract ABI, which in turn adds another obstacle in achieving our objective.
+
+This guide is a quick & fun walkthrough on how to approach the problem, investigate it, and ultimately achieve the automatic swaps.
+
+<Check>
+  ### Get your own node endpoint today
+
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+  You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## The problem
+
+Going to the [swap, account, faucet](https://testnet.soniclabs.com/account) (all in one place) page, you can see that what you can do there is:
+
+* Request different testnet coins (CORAL, ONYX, and so on)
+* Swap them in the interface
+
+But you of course don't want to do any of that manually, so let's FAFO and try to automate the coin swapping. Will implement a round-robin approach in which can just continuously swap coins to farm points.
+
+## Investigate
+
+Once you have requested all the coins for swapping, do a sample swap. As a reminder, here's he [swap, account, faucet](https://testnet.soniclabs.com/account).
+
+The sample swap transaction will reveal an unverified contract address for which you have no source (which is understandable — why publish it and let people farm). Here's the address: [0x086D426f8B653b88a2d6D03051C8b4aB8783Be2b](https://testnet.sonicscan.org/address/0x086d426f8b653b88a2d6d03051c8b4ab8783be2b) . The explorer is a paid implementation by the etherscan, a team that produces the best explorers in the world. It was very nice of the Sonic team do run an etherscan version, which is extremely convenient in everything, **including a built-in decompiler**.
+
+So just go ahead on the [Contract tab](https://testnet.sonicscan.org/address/0x086d426f8b653b88a2d6d03051c8b4ab8783be2b#code), hit the **Decompile Bytecode** button.
+
+This will produce a bunch of output, including a familiar name—`UniswapV2Library`. So, it's Uniswap V2 fork, which means `0x086D426f8B653b88a2d6D03051C8b4aB8783Be2b` is likely the router address. And any token exchange going through the router does the actual exchange on an LP address for the token pair.
+
+And we already know the token addresses, since they are in the faucet and you can request them. And you can also look through all the exchanges going on there on the address: [0x086D426f8B653b88a2d6D03051C8b4aB8783Be2b](https://testnet.sonicscan.org/address/0x086d426f8b653b88a2d6d03051c8b4ab8783be2b) and see that the function signature used for the swaps is `0xddba27a7`.
+
+To be able to script the actual swaps, we need the LP addresses of the tokens.
+
+Here's what we know so far:
+
+* Router (a modification of Uniswap V2): `0x086D426f8B653b88a2d6D03051C8b4aB8783Be2b`
+
+* Token addresses on the faucet:
+
+  * DIAM: `0x30BF3761147Ef0c86E2f84c3784FBD89E7954670`
+  * CORAL: `0xAF93888cbD250300470A1618206e036E11470149`
+  * FLE: `0x9Fa14D267d331c9E8BB7979bcDC212136915eCE8`
+  * MACH: `0x50971F8978C431D560ff658a83a8a03fdf199055`
+  * OBS: `0x3e6eE2F3f33766294C7148bc85c7d145E70cBD9A`
+  * ONYX: `0xE73c4f6A0A3B0EF8337fD080b76C08172b3eB958`
+
+* A token swap involves at least four addresses:
+
+  * Router
+  * TokenA
+  * TokenB
+  * LP address Knowing that, let's create a Python script that scan through blocks for transactions the router address and our token addresses and prints the LP address associated with each swap:
+
+<CodeGroup>
+  ```python Python
+  import json
+  import sys
+  from web3 import Web3
+  from eth_abi import decode
+  from hexbytes import HexBytes
+
+  # Sonic Blaze Testnet configuration
+  RPC_URL = "SONIC_BLAZE_NODE"
+  ROUTER_ADDRESS = "0x086d426f8b653b88a2d6d03051c8b4ab8783be2b"
+  SWAP_METHOD_ID = "0xddba27a7"  # Method ID for the swap function
+  SWAP_METHOD_ID_BYTES = bytes.fromhex(SWAP_METHOD_ID[2:])  # Convert to bytes for comparison
+
+  # Define start block directly in the script from which to start scanning
+  START_BLOCK = 24069000  # Replace with your desired start block
+
+  # Token addresses to track
+  TOKENS = {
+      "DIAM": "0x30BF3761147Ef0c86E2f84c3784FBD89E7954670",
+      "CORAL": "0xAF93888cbD250300470A1618206e036E11470149",
+      "FLE": "0x9Fa14D267d331c9E8BB7979bcDC212136915eCE8",
+      "MACH": "0x50971F8978C431D560ff658a83a8a03fdf199055",
+      "OBS": "0x3e6eE2F3f33766294C7148bc85c7d145E70cBD9A",
+      "ONYX": "0xE73c4f6A0A3B0EF8337fD080b76C08172b3eB958"
+  }
+
+  # Normalize addresses to lowercase for comparison
+  ROUTER_ADDRESS = ROUTER_ADDRESS.lower()
+  TOKENS = {k: v.lower() for k, v in TOKENS.items()}
+
+  # Connect to the Sonic Blaze Testnet
+  w3 = Web3(Web3.HTTPProvider(RPC_URL))
+  if not w3.is_connected():
+      print("Failed to connect to the Sonic Blaze Testnet")
+      sys.exit(1)
+
+  print(f"Connected to Sonic Blaze Testnet. Chain ID: {w3.eth.chain_id}")
+
+  def extract_addresses_from_input(input_data):
+      """
+      Extract all Ethereum addresses from the input data.
+      This is a more robust approach that doesn't rely on specific offsets.
+      """
+      addresses = []
+
+      # Remove '0x' prefix if present
+      if input_data.startswith('0x'):
+          data = input_data[2:]
+      else:
+          data = input_data
+
+      # Scan through the data looking for potential addresses
+      # An Ethereum address is 20 bytes (40 hex chars)
+      for i in range(0, len(data) - 40, 2):  # Step by 2 because each byte is 2 hex chars
+          # Check if this could be an address (look for leading zeros that pad addresses in ABI encoding)
+          potential_address_with_padding = data[i:i+64]
+          if len(potential_address_with_padding) == 64 and potential_address_with_padding.startswith('000000000000000000000000'):
+              address = '0x' + potential_address_with_padding[24:64]
+              # Basic validation: check if it looks like an address
+              if all(c in '0123456789abcdefABCDEF' for c in address[2:]):
+                  addresses.append(address.lower())
+
+      return addresses
+
+  def decode_swap_input(input_data):
+      """
+      Decode the input data of a swap transaction
+      """
+      try:
+          # Extract all addresses from the input data
+          addresses = extract_addresses_from_input(input_data)
+
+          if not addresses:
+              print("No addresses found in input data")
+              return None
+
+          # Filter addresses to find our tokens
+          token_addresses = []
+          for addr in addresses:
+              if addr.lower() in TOKENS.values():
+                  token_addresses.append(addr.lower())
+
+          # The last address is typically the LP address
+          lp_address = None
+          for addr in reversed(addresses):
+              if addr.lower() not in TOKENS.values():
+                  lp_address = addr.lower()
+                  break
+
+          return {
+              "path": token_addresses,
+              "lp_address": lp_address
+          }
+      except Exception as e:
+          print(f"Error decoding input data: {e}")
+          return None
+
+  def scan_blocks(start_block):
+      """
+      Scan blocks for swap transactions involving the specified tokens.
+      Continues until LP addresses are found for all tokens.
+      """
+      # Track LP addresses for each token
+      token_lp_map = {token_addr: set() for token_addr in TOKENS.values()}
+
+      # Keep track of tokens that still need LP addresses
+      tokens_remaining = set(TOKENS.values())
+
+      print(f"Scanning blocks starting from {start_block}...")
+      print(f"Looking for LP addresses for {len(tokens_remaining)} tokens...")
+
+      block_num = start_block
+
+      while tokens_remaining:
+          if block_num % 100 == 0:
+              print(f"Processing block {block_num}...")
+
+          try:
+              block = w3.eth.get_block(block_num, full_transactions=True)
+
+              for tx in block.transactions:
+                  # Check if transaction is to the router contract
+                  if hasattr(tx, 'to') and tx.to and tx.to.lower() == ROUTER_ADDRESS:
+                      # Check if it's a swap transaction by comparing the first 4 bytes (method ID)
+                      if tx.input[:4] == SWAP_METHOD_ID_BYTES:
+                          # Get transaction hash
+                          tx_hash = tx.hash.hex()
+
+                          decoded = decode_swap_input(tx.input.hex())
+
+                          if decoded and decoded["lp_address"] and decoded["path"]:
+                              # Check if any of our tracked tokens are in the path
+                              for token_addr in decoded["path"]:
+                                  if token_addr in tokens_remaining:
+                                      token_name = next((name for name, addr in TOKENS.items() if addr == token_addr), token_addr)
+
+                                      # Add LP address to the map
+                                      token_lp_map[token_addr].add(decoded["lp_address"])
+
+                                      # Print only if this is the first LP address found for this token
+                                      if len(token_lp_map[token_addr]) == 1:
+                                          print(f"Block {block_num}, TX {tx_hash}: Found LP for {token_name}: {decoded['lp_address']}")
+                                          # Remove token from remaining list
+                                          tokens_remaining.remove(token_addr)
+                                          print(f"Remaining tokens to find: {len(tokens_remaining)}")
+
+              # Move to the next block
+              block_num += 1
+
+          except Exception as e:
+              print(f"Error processing block {block_num}: {e}")
+              # Continue to the next block even if there's an error
+              block_num += 1
+
+      print(f"Found LP addresses for all tokens after scanning to block {block_num-1}")
+      return token_lp_map
+
+  def main():
+      token_lp_map = scan_blocks(START_BLOCK)
+
+      print("\n--- Summary of LP Addresses ---")
+      for token_addr, lp_addresses in token_lp_map.items():
+          token_name = next((name for name, addr in TOKENS.items() if addr == token_addr), token_addr)
+          if lp_addresses:
+              print(f"\n{token_name} ({token_addr}):")
+              for lp in lp_addresses:
+                  print(f"  LP: {lp}")
+          else:
+              print(f"\n{token_name} ({token_addr}): No LP addresses found")
+
+  if __name__ == "__main__":
+      main()
+  ```
+</CodeGroup>
+
+Make sure you put:
+
+* `RPC_URL` — the actual Sonic Blaze testnet endpoint URL that you can get from Chainstack.
+* `START_BLOCK` — go for eg 300 blocks in the past
+
+The script will keep running until it finds the LP addresses.
+
+It will print something like this:
+
+<CodeGroup>
+  ```shell Shell
+  Connected to Sonic Blaze Testnet. Chain ID: 57054
+  Scanning blocks starting from 24069000...
+  Looking for LP addresses for 6 tokens...
+  Processing block 24069000...
+  Block 24069018, TX 02fd4c396e9d146eab07b6427a712644fac14cdbc85ea52615f5144484df7c81: Found LP for CORAL: 0x0db7087e050ef022ec1d0432e983ff42506cc990
+  Remaining tokens to find: 5
+  Block 24069039, TX b4995dabb7c74ea1bf01834b6c1b305b426905d27b9bd82dc2a55c44050069d7: Found LP for MACH: 0xf88e70b3e1f848c55781297329093e8b15969908
+  Remaining tokens to find: 4
+  Block 24069078, TX 9a9680eb2487b8d6d4bd226a624104bdec76a2dff08ae2d90219aa68f2e70642: Found LP for FLE: 0xce86c8d81d24dcfe54d29409afeffde81852b8ad
+  Remaining tokens to find: 3
+  Block 24069085, TX a86f4b4f3d46e0a1fae4c369ae5d2541cc43c5d83ee889205d98da5283d401fa: Found LP for ONYX: 0x7d5be487743f73264d6aa4ae202b6103078cd1a8
+  Remaining tokens to find: 2
+  Processing block 24069100...
+  Processing block 24069200...
+  Block 24069235, TX c6bcd8d9d783aef33819343b46924b33f67b9115a5ab45b5eaa56500caaf1174: Found LP for DIAM: 0x9785f7336ccfdd863ffc8179761f51f81e45bdf4
+  Remaining tokens to find: 1
+  Processing block 24069300...
+  Processing block 24069400...
+  Processing block 24069500...
+  Processing block 24069600...
+  Block 24069659, TX 3a0f5f962ec06a8b91dd99128311f1e2ecc760de48fb1b7732bd04c8db43f6c7: Found LP for OBS: 0xd7d04d8a33b6e6eb42a2e0e273e0fe1f23f818fd
+  Remaining tokens to find: 0
+  Found LP addresses for all tokens after scanning to block 24069659
+
+  --- Summary of LP Addresses ---
+
+  DIAM (0x30bf3761147ef0c86e2f84c3784fbd89e7954670):
+    LP: 0x9785f7336ccfdd863ffc8179761f51f81e45bdf4
+
+  CORAL (0xaf93888cbd250300470a1618206e036e11470149):
+    LP: 0x0db7087e050ef022ec1d0432e983ff42506cc990
+
+  FLE (0x9fa14d267d331c9e8bb7979bcdc212136915ece8):
+    LP: 0xce86c8d81d24dcfe54d29409afeffde81852b8ad
+
+  MACH (0x50971f8978c431d560ff658a83a8a03fdf199055):
+    LP: 0xf88e70b3e1f848c55781297329093e8b15969908
+
+  OBS (0x3e6ee2f3f33766294c7148bc85c7d145e70cbd9a):
+    LP: 0xd7d04d8a33b6e6eb42a2e0e273e0fe1f23f818fd
+
+  ONYX (0xe73c4f6a0a3b0ef8337fd080b76c08172b3eb958):
+    LP: 0x7d5be487743f73264d6aa4ae202b6103078cd1a8
+  ```
+</CodeGroup>
+
+## Implementation
+
+Now that we have the LP addresses, and we know this is actually a modified Uniswap V2 contract, let's implement a round-robin swap:
+
+1. It swaps 1 ONYX to 1 CORAL. LP Address: `0x7D5bE487743F73264D6aA4Ae202B6103078cD1a8`
+2. Then it swaps 1 CORAL to 1 OBS. LP Address: `0xD7D04d8A33b6E6EB42a2e0e273e0fe1F23f818fD`
+3. Then it swaps 1 OBS to 1 ONYX. LP Addresss: `0xCE1c63381b03bd5f227C1cCfa71c5E93154f336F`
+4. And it starts all over again (1 ONYX to 1 CORAL and so on)
+
+Also don't forget that we need token approvals and token approval checks to do the actual swaps.
+
+<CodeGroup>
+  ```python Python
+  import json
+  import time
+  import sys
+  from web3 import Web3
+  from eth_abi import encode
+  from hexbytes import HexBytes
+  import requests
+
+  # Sonic Blaze Testnet configuration
+  RPC_URL = "SONIC_BLAZE_NODE"
+  ROUTER_ADDRESS = "0x086d426f8b653b88a2d6d03051c8b4ab8783be2b"
+  SWAP_METHOD_ID = "0xddba27a7"  # Method ID for the swap signature
+
+  ROUTER_ABI = [
+      {
+          "inputs": [
+              {"name": "amountIn", "type": "uint256"},
+              {"name": "path_offset", "type": "uint256"},
+              {"name": "to_offset", "type": "uint256"},
+              {"name": "path", "type": "address[]"},
+              {"name": "lp", "type": "address[]"}
+          ],
+          "name": "swap",
+          "outputs": [{"name": "amounts", "type": "uint256[]"}],
+          "stateMutability": "nonpayable",
+          "type": "function",
+          "function_selector": "0xddba27a7"
+      }
+  ]
+
+  # Token addresses
+  TOKENS = {
+      "ONYX": "0xE73c4f6A0A3B0EF8337fD080b76C08172b3eB958",
+      "CORAL": "0xAF93888cbD250300470A1618206e036E11470149",
+      "OBS": "0x3e6eE2F3f33766294C7148bc85c7d145E70cBD9A"
+  }
+
+  # LP addresses for each swap pair
+  LP_ADDRESSES = {
+      "ONYX_CORAL": "0x7D5bE487743F73264D6aA4Ae202B6103078cD1a8",
+      "CORAL_OBS": "0xD7D04d8A33b6E6EB42a2e0e273e0fe1F23f818fD",
+      "OBS_ONYX": "0xCE1c63381b03bd5f227C1cCfa71c5E93154f336F"
+  }
+
+  # Swap configuration
+  # IMPORTANT: Replace with your own private key
+  PRIVATE_KEY = "PRIVATE_KEY"
+  CYCLES = 4        # Number of swap cycles (0 for infinite)
+  AMOUNT = 1    # Amount to swap each time
+  DELAY = 10        # Delay between swaps in seconds
+
+  # ERC20 ABI for token balance checking and approvals
+  ERC20_ABI = [
+      {
+          "constant": True,
+          "inputs": [{"name": "_owner", "type": "address"}],
+          "name": "balanceOf",
+          "outputs": [{"name": "balance", "type": "uint256"}],
+          "type": "function"
+      },
+      {
+          "constant": False,
+          "inputs": [
+              {"name": "_spender", "type": "address"},
+              {"name": "_value", "type": "uint256"}
+          ],
+          "name": "approve",
+          "outputs": [{"name": "", "type": "bool"}],
+          "type": "function"
+      },
+      {
+          "constant": True,
+          "inputs": [
+              {"name": "_owner", "type": "address"},
+              {"name": "_spender", "type": "address"}
+          ],
+          "name": "allowance",
+          "outputs": [{"name": "", "type": "uint256"}],
+          "type": "function"
+      }
+  ]
+
+  # Connect to the Sonic Blaze Testnet
+  w3 = Web3(Web3.HTTPProvider(RPC_URL))
+  if not w3.is_connected():
+      print("Failed to connect to the Sonic Blaze Testnet")
+      sys.exit(1)
+
+  # Get the chain ID
+  CHAIN_ID = w3.eth.chain_id
+  print(f"Connected to Sonic Blaze Testnet. Chain ID: {CHAIN_ID}")
+
+  # Convert all addresses to checksum format
+  ROUTER_ADDRESS = Web3.to_checksum_address(ROUTER_ADDRESS)
+  TOKENS = {k: Web3.to_checksum_address(v) for k, v in TOKENS.items()}
+  LP_ADDRESSES = {k: Web3.to_checksum_address(v) for k, v in LP_ADDRESSES.items()}
+
+  # Derive wallet address from private key
+  account = w3.eth.account.from_key(PRIVATE_KEY)
+  WALLET_ADDRESS = account.address
+  print(f"Using wallet: {WALLET_ADDRESS}")
+
+  def get_token_balance(token_name):
+      """
+      Get the balance of a specific token for the wallet
+      """
+      token_address = TOKENS[token_name]
+      token_contract = w3.eth.contract(address=token_address, abi=ERC20_ABI)
+      balance_wei = token_contract.functions.balanceOf(WALLET_ADDRESS).call()
+      balance_eth = w3.from_wei(balance_wei, 'ether')
+      return balance_eth
+
+  def check_all_balances():
+      """
+      Check and display balances for all tokens
+      """
+      print("\n--- Current Token Balances ---")
+      for token_name in TOKENS.keys():
+          balance = get_token_balance(token_name)
+          print(f"{token_name}: {balance}")
+      print("-----------------------------")
+
+  def check_and_approve_token(token_name, amount):
+      """
+      Check if the router has enough allowance to spend the token
+      If not, approve the router to spend the token
+      """
+      token_address = TOKENS[token_name]
+      token_contract = w3.eth.contract(address=token_address, abi=ERC20_ABI)
+
+      # Convert amount to Wei
+      amount_wei = w3.to_wei(amount, 'ether')
+
+      # Check current allowance
+      current_allowance = token_contract.functions.allowance(WALLET_ADDRESS, ROUTER_ADDRESS).call()
+
+      if current_allowance < amount_wei:
+          print(f"Approving {token_name} for the router...")
+
+          # Approve a large amount to avoid frequent approvals
+          # Using max uint256 value (2^256 - 1)
+          max_amount = 2**256 - 1
+
+          # Build the approval transaction
+          tx = token_contract.functions.approve(
+              ROUTER_ADDRESS,
+              max_amount
+          ).build_transaction({
+              'from': WALLET_ADDRESS,
+              'gas': 100000,
+              'gasPrice': w3.eth.gas_price,
+              'nonce': w3.eth.get_transaction_count(WALLET_ADDRESS),
+              'chainId': CHAIN_ID
+          })
+
+          # Sign and send the transaction
+          signed_tx = w3.eth.account.sign_transaction(tx, PRIVATE_KEY)
+          tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+
+          print(f"Approval transaction sent: {tx_hash.hex()}")
+
+          # Wait for the transaction to be mined
+          receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+
+          if receipt.status == 1:
+              print(f"{token_name} approved successfully!")
+          else:
+              print(f"Failed to approve {token_name}!")
+              return False
+
+      return True
+
+  def create_swap_transaction(from_token, to_token, amount, lp_address):
+      # Convert amount to Wei (assuming 18 decimals for all tokens)
+      amount_wei = w3.to_wei(amount, 'ether')
+
+      # Create the path array with the token addresses
+      path = [TOKENS[from_token], TOKENS[to_token]]
+
+      # Function selector
+      function_selector = SWAP_METHOD_ID[2:]  # Remove '0x' prefix
+
+      # Encode parameters
+      # 1. amountIn (uint256)
+      amount_hex = f"{amount_wei:064x}"
+
+      # 2. path_offset (uint256) - fixed at 0x60 (96 in decimal)
+      path_offset_hex = "0000000000000000000000000000000000000000000000000000000000000060"
+
+      # 3. to_offset (uint256) - fixed at 0xc0 (192 in decimal)
+      to_offset_hex = "00000000000000000000000000000000000000000000000000000000000000c0"
+
+      # 4. path_length (uint256) - 2 tokens
+      path_length_hex = "0000000000000000000000000000000000000000000000000000000000000002"
+
+      # 5. path tokens (address[])
+      path_tokens_hex = ""
+      for token in path:
+          path_tokens_hex += f"000000000000000000000000{token[2:].lower()}"
+
+      # 6. lp_length (uint256) - 1 LP
+      lp_length_hex = "0000000000000000000000000000000000000000000000000000000000000001"
+
+      # 7. lp_address (address)
+      lp_address_hex = f"000000000000000000000000{lp_address[2:].lower()}"
+
+      # Combine all parts
+      data = f"0x{function_selector}{amount_hex}{path_offset_hex}{to_offset_hex}{path_length_hex}{path_tokens_hex}{lp_length_hex}{lp_address_hex}"
+
+      # Debug print
+      print(f"Transaction data: {data}")
+      print(f"From token: {TOKENS[from_token]}")
+      print(f"To token: {TOKENS[to_token]}")
+      print(f"LP address: {lp_address}")
+
+      # Create transaction dictionary
+      tx = {
+          'from': WALLET_ADDRESS,
+          'to': ROUTER_ADDRESS,
+          'value': 0,
+          'gas': 500000,
+          'gasPrice': w3.eth.gas_price,
+          'nonce': w3.eth.get_transaction_count(WALLET_ADDRESS),
+          'data': data,
+          'chainId': CHAIN_ID
+      }
+
+      return tx
+
+  def sign_and_send_transaction(tx):
+      """
+      Sign and send a transaction
+      """
+      try:
+          # Sign the transaction
+          signed_tx = w3.eth.account.sign_transaction(tx, PRIVATE_KEY)
+
+          # Send the transaction
+          tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+
+          print(f"Transaction sent: {tx_hash.hex()}")
+
+          # Wait for the transaction to be mined
+          receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+
+          if receipt.status == 1:
+              print("Transaction successful!")
+          else:
+              print("Transaction failed!")
+              # Try to get more information about the failure
+              try:
+                  # Try to get the transaction trace
+                  trace_data = {
+                      "jsonrpc": "2.0",
+                      "method": "trace_transaction",
+                      "params": [tx_hash.hex()],
+                      "id": 1
+                  }
+
+                  # Make a direct RPC call to get trace data
+                  response = requests.post(RPC_URL, json=trace_data)
+                  if response.status_code == 200:
+                      trace_result = response.json()
+                      if 'result' in trace_result and trace_result['result']:
+                          for trace in trace_result['result']:
+                              if 'error' in trace:
+                                  print(f"Transaction error: {trace['error']}")
+                      else:
+                          print("No trace data available")
+                  else:
+                      print(f"Failed to get trace data: {response.status_code}")
+              except Exception as e:
+                  print(f"Error getting trace data: {e}")
+
+          return receipt
+      except Exception as e:
+          print(f"Error sending transaction: {e}")
+          return None
+
+  def perform_round_robin_swaps(cycles=CYCLES, amount=AMOUNT, delay=DELAY):
+      """
+      Perform continuous round-robin swaps between ONYX, CORAL, and OBS
+
+      Args:
+          cycles: Number of complete cycles to perform (0 for infinite)
+          amount: Amount of tokens to swap each time
+          delay: Delay in seconds between swaps
+      """
+      # Define the swap sequence
+      swap_sequence = [
+          {"from": "ONYX", "to": "CORAL", "lp": LP_ADDRESSES["ONYX_CORAL"]},
+          {"from": "CORAL", "to": "OBS", "lp": LP_ADDRESSES["CORAL_OBS"]},
+          {"from": "OBS", "to": "ONYX", "lp": LP_ADDRESSES["OBS_ONYX"]}
+      ]
+
+      # Approve all tokens before starting
+      print("Checking and approving tokens...")
+      for token_name in TOKENS.keys():
+          if not check_and_approve_token(token_name, amount):
+              print(f"Failed to approve {token_name}. Aborting.")
+              return
+
+      # Wait a bit after approvals to ensure they're processed
+      print("Waiting 5 seconds for approvals to be fully processed...")
+      time.sleep(5)
+
+      cycle_count = 0
+
+      # Check initial balances
+      check_all_balances()
+
+      try:
+          while cycles == 0 or cycle_count < cycles:
+              print(f"\n--- Starting cycle {cycle_count + 1} ---")
+
+              for swap in swap_sequence:
+                  from_token = swap['from']
+                  to_token = swap['to']
+
+                  # Check balance before swap
+                  from_balance_before = get_token_balance(from_token)
+                  to_balance_before = get_token_balance(to_token)
+
+                  print(f"\nSwapping {amount} {from_token} to {to_token} via LP {swap['lp']}")
+                  print(f"Balance before swap: {from_token}: {from_balance_before}, {to_token}: {to_balance_before}")
+
+                  # Check if we have enough balance
+                  if from_balance_before < amount:
+                      print(f"Insufficient {from_token} balance. Skipping this swap.")
+                      continue
+
+                  # Create and send the swap transaction
+                  tx = create_swap_transaction(from_token, to_token, amount, swap['lp'])
+                  receipt = sign_and_send_transaction(tx)
+
+                  # Check balance after swap
+                  from_balance_after = get_token_balance(from_token)
+                  to_balance_after = get_token_balance(to_token)
+
+                  print(f"Balance after swap: {from_token}: {from_balance_after}, {to_token}: {to_balance_after}")
+                  print(f"Change: {from_token}: {from_balance_after - from_balance_before}, {to_token}: {to_balance_after - to_balance_before}")
+
+                  # Wait between swaps
+                  if delay > 0:
+                      print(f"Waiting {delay} seconds before next swap...")
+                      time.sleep(delay)
+
+              cycle_count += 1
+              print(f"Completed cycle {cycle_count}")
+
+              # Check all balances at the end of each cycle
+              check_all_balances()
+
+      except KeyboardInterrupt:
+          print("\nSwap process interrupted by user")
+          # Show final balances
+          check_all_balances()
+      except Exception as e:
+          print(f"\nError during swap process: {e}")
+          # Show balances even if there was an error
+          check_all_balances()
+
+  def main():
+      print("=== Sonic Token Round-Robin Swap ===")
+      print("This script will continuously swap between ONYX, CORAL, and OBS tokens")
+      print(f"Configured for {CYCLES} cycles, {AMOUNT} tokens per swap, {DELAY}s delay between swaps")
+
+      # Perform the swaps
+      perform_round_robin_swaps()
+
+      print("\nSwap process completed")
+
+  if __name__ == "__main__":
+      main()
+  ```
+</CodeGroup>
+
+Make sure you put:
+
+* `RPC_URL` — the actual Sonic Blaze testnet endpoint URL that you can get from Chainstack.
+* `PRVATE_KEY` — the key that holds the tokens you are going to swap.
+* `CYCLES` — how many cycles to run. `0` for infinite.
+* `AMOUNT` — the amount of each token to keep swapping.
+* `DELAY` — if you want to add a bit of a delay there and not keep blasting the swaps like a bot (which you are).
+
+## Conclusion
+
+And there you have it. We've walked you through on how to make your life easier though FAFO. And honestly the sort of people that can investigate and automate this for points are the type of people that network onboarders may want — active and capable developers.
+
+### About the author
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

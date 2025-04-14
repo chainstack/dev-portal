@@ -1,0 +1,259 @@
+---
+title: "Ethereum: Asset Tokenization with Embark"
+---
+
+* You’ll build a simple contract in Embark that tokenizes assets with a fixed supply of 1,000 tokens.
+* You’ll set a price of 0.1 ether per token and let anyone exchange ether for asset tokens on Sepolia.
+* You’ll use Chainstack to deploy and run your own Sepolia node, and Geth to manage your accounts.
+* You’ll confirm everything works by testing the contract with Embark’s Cockpit and by sending ether from MetaMask.
+
+## Main article
+
+This tutorial will guide you through creating a tokenized asset contract and deploying it on Sepolia testnet.
+
+For illustration purposes, this contract does the following:
+
+* Creates a total supply of 1,000 tokens specific to the asset.
+* Sets the token price to 0.1 ether.
+* Let anyone exchange ether for asset tokens. This tutorial uses [Embark](https://framework.embarklabs.io/) to test and deploy the contract.
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/) to deploy a Sepolia testnet node.
+* [Embark](https://framework.embarklabs.io/) to test and deploy the contract.
+* [Geth](https://geth.ethereum.org/) to create an Ethereum account that will deploy the contract.
+* [MetaMask](https://metamask.io/) to interact with the contract.
+
+## Overview
+
+To get from zero to an asset tokenization contract running on Sepolia, do the following:
+<Steps>
+  <Step>
+  With Chainstack, create a <Tooltip tip="public chain project- a project to join public networks">public chain project</Tooltip>.
+  </Step>
+  <Step>
+  With Chainstack, deploy a Sepolia testnet node.
+  </Step>
+  <Step>
+  With Embark, create a project and the contract.
+  </Step>
+  <Step>
+  With Geth, create a new account.
+  </Step>
+  <Step>
+    Import the account in MetaMask and fund the account with Sepolia ether.
+  </Step>
+  <Step>
+    With Embark, deploy the contract through the Sepolia node.
+  </Step>
+  <Step>
+    With Embark, check the contract with Cockpit.
+  </Step>
+  <Step>
+  Interact with the contract through MetaMask.
+  </Step>
+</Steps>
+
+## Step-by-step
+
+### Create a public chain project
+
+See [Create a project](/docs/manage-your-project#create-a-project).
+
+### Deploy a Sepolia node
+
+See [Join a public network](/docs/manage-your-networks#join-a-public-network).
+
+### Get Sepolia testnet ether from a faucet
+
+In your MetaMask, fund each account with Sepolia ether [Chainstack's Sepolia faucet](https://faucet.chainstack.com).
+
+### Create an Embark project and the contract
+
+<Steps>
+  <Step>
+    Create a new Embark project:
+
+   <CodeGroup>
+     ```bash Shell
+     embark new asset
+     ```
+   </CodeGroup>
+
+   This will create an Embark directory called `asset`.
+  </Step>
+  <Step>
+    Change to the `contracts` directory of the Embark project.
+  </Step>
+  <Step>
+    Create an `AssetTokenized.sol` file in the `contracts` directory:
+
+   <CodeGroup>
+     ```solidity solidity
+     pragma solidity = 0.5.0;
+
+     contract AssetTokenized{
+     uint public supply;
+     uint public pricePerEth;
+     mapping( address => uint ) public balance;
+
+     constructor() public {
+         supply = 1000;                    // There are a total of 1000 tokens for this asset
+         pricePerEth = 100000000000000000; // One token costs 0.1 ether
+       }
+
+       function check() public view returns(uint) {
+         return balance[msg.sender];
+       }
+
+       function () external payable {
+         balance[msg.sender] += msg.value/pricePerEth; // adds asset tokens to how much ether is sent by the investor
+         supply -= msg.value/pricePerEth;              //subtracts the remaining asset tokens from the total supply
+       }
+     }
+     ```
+   </CodeGroup>
+  </Step>
+</Steps>
+
+### Create an Ethereum account
+
+You will use this account to deploy the contract.
+
+<Steps>
+  <Step>
+    Create the account:
+
+   <CodeGroup>
+     ```bash Shell
+     geth account new
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+    Check the path to the keystore file created for the new account:
+
+   <CodeGroup>
+     ```bash Shell
+     geth account list
+     ```
+   </CodeGroup>
+  </Step>
+</Steps>
+
+### Import the account in MetaMask and fund the account
+
+<Steps>
+  <Step>
+    In MetaMask, click **Import Account** > **JSON File.**
+  </Step>
+  <Step>
+    Select the keystore file that you created earlier.
+  </Step>
+  <Step>
+    Fund the account with [Sepolia ether](https://faucet.paradigm.xyz/).
+  </Step>
+</Steps>
+
+### Deploy the contract
+
+<Steps>
+  <Step>
+    In your Embark project directory, change to `config`.
+  </Step>
+  <Step>
+    Append `contracts.js` with the following configuration:
+
+   <CodeGroup>
+     ```js JavaScript
+     chainstack: {
+       deployment:{
+         accounts: [
+             {
+               privateKeyFile:"//root/.ethereum/keystore/UTC--2019-08-01T07-24-17.754471456Z- -73236c8d8aaee5263e8a32c71171030dd7a3e8e6",
+               password:"PASSWORD"
+             }
+         ],
+         host:"YOUR_CHAINSTACK_ENDPOINT",
+         port:false,
+         protocol:"https",
+         type:"rpc"
+       },
+       dappConnection: [
+         "$WEB3",  // uses pre-existing Web3 object if available (e.g in Mist)
+         "ws://localhost:8546",
+         "<http://localhost:8545>"
+       ],
+       gas: "auto",
+     }
+     ```
+   </CodeGroup>
+
+   where
+
+   * `//root/.ethereum/keystore/...` — the location of the keystore file
+   * PASSWORD — the password you provided when creating the Ethereum account with Geth
+   * YOUR\_CHAINSTACK\_ENDPOINT — your Chainstack node endpoint. See also [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+  </Step>
+  <Step>
+    Deploy the contract with Embark:
+
+   <CodeGroup>
+     ```bash Shell
+     embark run chainstack
+     ```
+   </CodeGroup>
+
+   where `chainstack` — the argument from the configuration file `contracts.js`
+
+   This will deploy the contract on Sepolia.
+  </Step>
+</Steps>
+
+### Check the contract with Cockpit
+
+On contract deployment, Embark runs Cockpit which is a front-end application to test the contract.
+
+In your browser, open:
+
+`<http://localhost:55555/explorer/contracts/CONTRACT_NAME>`
+
+where CONTRACT\_NAME — the name of your contract. In this tutorial, the path is `<http://localhost:55555/explorer/contracts/AssetTokenized>`.
+
+This will also display the contract address in the `Deployed at` line.
+
+Test the contract by calling:
+
+* `supply()` — to check the remaining supply of tokens on the contract.
+* `check()` — to check the amount of tokens owned by the Ethereum address you are using to call the contract.
+* `pricePerEth()` — to check the token price in wei.
+
+### Interact with the contract
+
+1. In MetaMask, send an amount of Sepolia ether to the contract address.
+2. In Cockpit, call the contract functions `supply()` and `check()` after a few seconds to see a change in values returned.
+
+<Info>
+  ### See also
+    <CardGroup>
+      <Card title="Ethereum: Academic certificates with Truffle" href="/docs/ethereum-tutorial-academic-certificates-with-truffle" icon="angle-right" horizontal />
+      <Card title="Ethereum: Trust fund account with Remix" href="/docs/ethereum-tutorial-trust-fund-account-with-remix" icon="angle-right" horizontal />
+    </CardGroup>
+</Info>
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

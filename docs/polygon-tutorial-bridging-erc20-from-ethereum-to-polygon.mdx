@@ -1,0 +1,469 @@
+---
+title: "Polygon: Bridging ERC-20 from Ethereum to Polygon"
+---
+
+<Warning>
+  ## Deprecation notice
+
+  As Goerli & Mumbai testnets have been deprecated, this guide is for historical reference.
+</Warning>
+
+The Polygon mainnet is an L2 commit chain to the Ethereum mainnet.
+
+Bridging your existing Ethereum smart contract to the Polygon commit chain allows network users to move their assets based on your contract between an Ethereum network and a Polygon commit chain.
+
+In this tutorial, you will:
+
+* Deploy an ERC-20 smart contract on the Ethereum [Goerli testnet](/docs/protocols-networks).
+* Deploy a compatible smart contract on the Polygon [Mumbai testnet](/docs/protocols-networks).
+* Map the Ethereum smart contract to the Polygon smart contract.
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/) to deploy an Ethereum node and a Polygon node.
+* [Truffle Suite](https://trufflesuite.com/) to create and deploy contracts.
+* [OpenZeppelin Contracts](https://docs.openzeppelin.com/contracts/4.x/) to use the audited [ERC-20 libraries](https://docs.openzeppelin.com/contracts/4.x/erc20) to create your ERC-20 contract.
+
+## Overview
+
+To get from zero to a deployed ERC-20 contract on the Ethereum Goerli testnet and bridge it to the Polygon Mumbai testnet, do the following:
+
+<Steps>
+  <Step>
+  With Chainstack, create a <Tooltip tip="public chain project- a project to join public networks">public chain project</Tooltip>.
+  </Step>
+  <Step>
+  With Chainstack, join the Ethereum Goerli testnet.
+  </Step>
+  <Step>
+  In the same project, join the Polygon Mumbai testnet.
+  </Step>
+  <Step>
+  With Chainstack, access your Ethereum node and Polygon node endpoints.
+  </Step>
+  <Step>
+  With OpenZeppelin, create an ERC-20 contract.
+  </Step>
+  <Step>
+  With Truffle, compile and deploy the contract through your Ethereum node.
+  </Step>
+  <Step>
+  With Truffle, compile and deploy a Polygon contract through your Polygon node.
+  </Step>
+  <Step>
+  Submit a mapping request to bridge the deployed Ethereum contract to the deployed Polygon contract.
+  </Step>
+</Steps>
+
+## Step-by-step
+
+### Create a public chain project
+
+See [Create a project](/docs/manage-your-project#create-a-project).
+
+### Join the Ethereum Goerli testnet and the Polygon Mumbai testnet
+
+See [Join a public network](/docs/manage-your-networks#join-a-public-network).
+
+### Get your Ethereum node and Polygon node access and credentials
+
+See [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+
+### Install OpenZeppelin Contracts
+
+See [OpenZeppelin Contracts](https://docs.openzeppelin.com/contracts/4.x/).
+
+### Install Truffle Suite
+
+See [Truffle Suite: Installation](https://trufflesuite.com/docs/truffle/how-to/install/).
+
+### Create the root Ethereum ERC-20 contract
+<Steps>
+  <Step>
+  On your machine, in the contract directory, initialize Truffle:
+
+   <CodeGroup>
+     ```bash Shell
+     truffle init
+     ```
+   </CodeGroup>
+
+   This will generate the Truffle boilerplate structure:
+
+   <CodeGroup>
+     ```bash Shell
+     .
+     ├── contracts
+     │   └── .gitkeep
+     ├── migrations
+     │   └── .gitkeep
+     ├── test
+     │   └── .gitkeep
+     └── truffle-config.js
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+    Go to the `contracts` directory. In the directory, create your ERC-20 contract: `myL2token.sol`.
+
+   <CodeGroup>
+     ```solidity solidity
+     //SPDX-License-Identifier: MIT
+     pragma solidity ^0.8.0;
+
+     import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+     contract myL2token is ERC20 {
+       constructor(uint256 initialSupply) ERC20("myL2token", "ML2T") {
+         \_mint(msg.sender, initialSupply);
+       }
+     }
+     ```
+   </CodeGroup>
+
+   This is a standard [OpenZeppelin ERC-20 preset contract](https://docs.openzeppelin.com/contracts/4.x/erc20).
+  </Step>
+  <Step>
+    Create `2_deploy_contracts.js` in the `migrations` directory.
+
+   <CodeGroup>
+     ```js JavaScript
+     var myL2token = artifacts.require("./myL2token.sol");
+
+     module.exports = function(deployer) {
+       deployer.deploy(myL2token, 100);
+     };
+     ```
+   </CodeGroup>
+
+   This will create the instructions for Truffle to deploy the contract with the supply of `100 ML2T` tokens.
+  </Step>
+</Steps>
+### Compile and deploy the root Ethereum ERC-20 contract
+<Steps>
+  <Step>
+    Install `HDWalletProvider`.
+
+   [HDWalletProvider](https://github.com/trufflesuite/truffle/tree/develop/packages/hdwallet-provider) is Truffle's separate npm package used to sign transactions.
+
+   Run:
+
+   <CodeGroup>
+     ```bash Shell
+     npm install @truffle/hdwallet-provider
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+    Edit `truffle-config.js` to add:
+
+   * `HDWalletProvider`
+
+   * Your Ethereum node access and credentials
+
+   * Your Ethereum account that you will use to deploy the contract
+
+     <CodeGroup>
+       ```js JavaScript
+       const HDWalletProvider = require("@truffle/hdwallet-provider");
+       const private_key = 'PRIVATE_KEY';
+
+       module.exports = {
+        networks: {
+           goerli: {
+               provider: () => new HDWalletProvider(private_key, "YOUR_CHAINSTACK_ENDPOINT"),
+               network_id: 5
+           }
+          },
+
+        compilers: {
+           solc: {
+           version: "0.8.1",
+           }
+         }
+       };
+       ```
+     </CodeGroup>
+
+   where
+
+   * `goerli` — any network name that you will pass to the `truffle migrate --network` command.
+   * `HDWalletProvider` — Truffle's custom provider to sign transactions.
+   * PRIVATE\_KEY — the private key of your Ethereum account that will deploy the contract.
+   * YOUR\_CHAINSTACK\_ENDPOINT — your Chainstack node endpoint. See also [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials) and [Ethereum tooling](/docs/ethereum-tooling).
+   * `network_id` — the network ID of the Ethereum Goerli testnet: `5`.
+   * `solc` — the Solidity compiler version that Truffle must use.
+
+  </Step>
+  <Step>
+    Run:
+
+   <CodeGroup>
+     ```bash Shell
+     truffle migrate --network goerli
+     ```
+   </CodeGroup>
+
+   This will engage `2_deploy_contracts.js` and deploy the contract to the Ethereum Goerli testnet as specified in `truffle-config.js`.
+  </Step>
+</Steps>
+### Verify your root Ethereum ERC-20 contract on Etherscan
+
+Once your contract is deployed, you can view it online at [Etherscan](https://goerli.etherscan.io/).
+
+Before you submit a mapping request to bridge your root Ethereum ERC-20 contract to the Polygon commit chain, you must verify the contract on Etherscan.
+<Steps>
+  <Step>
+    Flatten your contract code
+
+   Since your ERC-20 contract uses imported OpenZeppelin libraries, you must put all the imports into one `.sol` file to make Etherscan be able to verify it.
+
+   Install [Truffle Flattener](https://www.npmjs.com/package/truffle-flattener).
+
+   In the `contracts` directory, run:
+
+   <CodeGroup>
+     ```bash Shell
+     npx truffle-flattener myL2token.sol > flatmyL2token.sol
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+    Clean up the licensing information.
+
+   The flattened contract will have the same licensing note imported from each of the files. Multiple licensing notes in one file break the Etherscan verification, so you have to leave one licensing note for the entirety of the flattened contract.
+
+   The easiest way to clean up is to search for the `SPDX` mentions in the file and remove all of them except for the very first one.
+  </Step>
+  <Step>
+    Verify the deployed contract on Etherscan.
+
+   At this point, you have your flattened and cleaned-up contract ready for the Etherscan verification.
+  </Step>
+  <Step>
+    Go to [Etherscan](https://goerli.etherscan.io/).
+  </Step>
+  <Step>
+    Find your deployed contract. The address of your contract should have been printed by Truffle at the end of the deployment in the contract address field.
+  </Step>
+  <Step>
+    On the contract page on Etherscan, click **Contract** > **Verify and Publish**.
+  </Step>
+  <Step>
+    In **Compiler Type**, select **Solidity (Single file)**.
+  </Step>
+  <Step>
+    In **Compiler Version**, select **v0.8.1**. This is the version this tutorial used to compile the contract.
+  </Step>
+  <Step>
+    In **Open Source License Type**, select **MIT License (MIT)**.
+  </Step>
+  <Step>
+    Click **Continue**.
+  </Step>
+  <Step>
+    Keep the **Optimization** option set to **No** as Truffle does not use optimization by default.
+  </Step>
+  <Step>
+    Paste the entirety of your flattened `.sol` contract in the **Enter the Solidity Contract Code below** field.
+  </Step>
+  <Step>
+    Click **Verify and Publish**.
+
+    Etherscan will take a few seconds to compile your contract, verify, and publish it.
+  </Step>
+</Steps>
+### Create the child Polygon ERC-20 contract
+<Steps>
+  <Step>
+    Go to the `contracts` directory. In the directory, put the default [child ERC-20 contract](https://github.com/maticnetwork/pos-portal/blob/master/flat/ChildERC20.sol) provided by Polygon.
+  </Step>
+  <Step>
+    Create `2_deploy_contracts.js` in the `migrations` directory.
+
+   <CodeGroup>
+     ```js JavaScript
+     var ChildERC20 = artifacts.require("./ChildERC20.sol");
+
+     module.exports = function(deployer) {
+       deployer.deploy(ChildERC20, 'myL2tokenChild', 'ML2T', 18, '0x2e5e27d50EFa501D90Ad3638ff8441a0C0C0d75e');
+     };
+     ```
+   </CodeGroup>
+
+   where
+
+   * `myL2tokenChild` — the name of your ERC-20 token
+   * `ML2T` — the symbol of your ERC-20 token
+   * `18` — the default decimals number as used by the [OpenZeppelin ERC-20 preset contract](https://docs.openzeppelin.com/contracts/4.x/erc20)
+   * `0x2e5e27d50EFa501D90Ad3638ff8441a0C0C0d75e` — the [ChildChainmanager](https://wiki.polygon.technology/docs/develop/ethereum-polygon/pos/getting-started/#steps-to-use-the-pos-bridge) address on the Polygon Mumbai testnet. For the ChildChainManager contract addresses, look online for the addresses provided by Polygon:
+     * [Mainnet addresses](https://github.com/maticnetwork/static/blob/master/network/mainnet/v1/index.json)
+  </Step>
+</Steps>
+### Compile and deploy the child Polygon ERC-20 contract
+
+Clean up the environment by moving `myL2token.sol` and `flatmyL2token.sol` to a backup directory so that Truffle does not pick them up for deployment.
+
+1. Edit `truffle-config.js` to change to:
+
+   * Your Polygon node access and credentials
+
+   * Your Polygon account that you will use to deploy the contract.
+
+   * The Solidity compiler version used by the default [child ERC-20 contract template](https://github.com/maticnetwork/pos-portal/blob/master/flat/ChildERC20.sol) provided by Polygon.
+
+     <CodeGroup>
+       ```js JavaScript
+       const HDWalletProvider = require("@truffle/hdwallet-provider");
+       const private_key = 'PRIVATE_KEY';
+
+       module.exports = {
+        networks: {
+           mumbai: {
+               provider: () => new HDWalletProvider(private_key, "YOUR_CHAINSTACK_ENDPOINT"),
+               network_id: 80001
+           }
+          },
+
+        compilers: {
+           solc: {
+           version: "0.6.6",
+           }
+         }
+       };
+       ```
+     </CodeGroup>
+
+   where
+
+   * `mumbai` — any network name that you will pass to the `truffle migrate --network` command.
+   * `HDWalletProvider` — Truffle's custom provider to sign transactions.
+   * PRIVATE\_KEY — the private key of your Polygon account that will deploy the contract.
+   * YOUR\_CHAINSTACK\_ENDPOINT — your Chainstack node endpoint. See also [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials) and [Polygon tooling](/docs/polygon-tooling).
+   * `network_id` — the network ID of the Polygon network: testnet is `80001`, mainnet is `137`.
+   * `solc` — the Solidity compiler version that Truffle must use. OpenZeppelin contracts have a higher version Solidity compiler requirement than the default Truffle installation, hence you must provide a specific compiler version.
+
+2. Run:
+
+   <CodeGroup>
+     ```bash Shell
+     truffle migrate --network Mumbai
+     ```
+   </CodeGroup>
+
+### Verify your child Polygon ERC-20 contract on the Polygon explorer
+
+Once your contract is deployed, you can view it online at the [Polygon Mumbai explorer](https://mumbai.polygonscan.com/).
+
+<Steps>
+  <Step>
+    Go to the [Polygon Mumbai explorer](https://mumbai.polygonscan.com/).
+  </Step>
+  <Step>
+    Find your deployed contract. The address of your contract should have been printed by Truffle at the end of the deployment in the `contract address` field.
+  </Step>
+  <Step>
+    On the contract page on the explorer, click **Contract** > **Verify and Publish**.
+  </Step>
+  <Step>
+    In **Compiler Type**, select **Solidity (Single file)**.
+  </Step>
+  <Step>
+    In **Compiler Version**, select **v0.6.6**. This is the compiler version the default child contract uses as provided by Polygon.
+  </Step>
+  <Step>
+    In **Open Source License Type**, select **MIT License (MIT)**.
+  </Step>
+  <Step>
+    Click **Continue**.
+  </Step>
+  <Step>
+    Keep the **Optimization** option set to **No** as Truffle does not use optimization by default.
+  </Step>
+  <Step>
+    Paste the entirety of your `ChildERC20.sol` contract in the **Enter the Solidity Contract Code below** field.
+  </Step>
+  <Step>
+    Click **Verify and Publish**.
+  </Step>
+</Steps>
+
+<Info>
+  ### ABI data
+  If on the verification attempt you get a message that the explorer cannot get the ABI data for the contract verification, do the following:
+
+  1. Go to the [online ABI encoding service](https://abi.hashex.org/).
+
+  2. In the service, provide the [ChildERC20.json](https://github.com/maticnetwork/pos-portal/blob/master/artifacts/ChildERC20.json) ABI data as (ticne). Remove the first and last curly bracket `{}` and `"abi":` or the code will not parse.
+
+  3. Click **Parse**.
+
+  4. Put your constructor data by adding arguments with the data type:
+
+     * name\_: `myL2tokenChild`
+     * symbol\_: `ML2T`
+     * decimals\_: `18`
+     * childChainManager: `0x2e5e27d50EFa501D90Ad3638ff8441a0C0C0d75e`
+
+  5. Copy the encoded data.
+
+  6. Paste the encoded data in the ABI constructor arguments field on the explorer.
+</Info>
+
+The explorer will take a few seconds to compile your contract, verify, and publish it.
+
+### Map your Ethereum ERC-20 contract to the Polygon contract
+
+<Steps>
+  <Step>
+    Go to the [token mapper](https://mapper.polygon.technology/map).
+  </Step>
+  <Step>
+    Select **ERC20** and **Goerli Testnet - Mumbai Testnet**.
+  </Step>
+  <Step>
+    Provide the address of your contract on the Ethereum Goerli testnet and on the Polygon Mumbai testnet.
+  </Step>
+  <Step>
+    Provide an email address to be notified of when the mapping is done.
+  </Step>
+  <Step>
+    Click **Submit**.
+  </Step>
+</Steps>
+
+### Bridge the mapped tokens
+
+When your token is mapped, bridge your token from Ethereum to Polygon and back:
+
+<CardGroup>
+  <Card title="Polygon Mumbai testnet bridge" href="https://wallet.polygon.technology/polygon/bridge/deposit" icon="angle-right" horizontal />
+  <Card title="Polygon mainnet bridge" href="https://wallet.polygon.technology/polygon/bridge/deposit" icon="angle-right" horizontal />
+</CardGroup>
+
+## Conclusion
+
+This tutorial guided you through the basics of bridging an ERC-20 contract from the Ethereum Goerli testnet to the Polygon Mumbai testnet.
+
+The same instructions will work for the Ethereum mainnet and the Polygon mainnet.
+
+Polygon has public L2 contract templates and a network of deployed contracts monitored by Heimdall nodes, all of which make it easy to bridge assets from the Ethereum mainnet to the Polygon commit chain.
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

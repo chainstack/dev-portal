@@ -1,0 +1,214 @@
+---
+title: "How to transfer the entire account balance using web3.js"
+description: "Learn how to transfer the entire balance from an account using web3.js."
+---
+
+<AccordionGroup>
+<Accordion title="Overview">
+
+In this recipe, we dive into the practical use of the web3.js library to execute a critical and often necessary operation within the Ethereum ecosystem: sending the entire balance from one account to another.
+
+</Accordion>
+
+<Accordion title="Environment setup">
+
+Install [node.js](https://nodejs.org/) if it has not been installed yet.
+
+Create a new directory for your project, then install the web3.js library:
+
+`npm install web3`
+
+</Accordion>
+
+<Accordion title="Get your Chainstack endpoint">
+
+To run this code, you will need a Chainstack account and an Ethereum Sepolia node.
+
+> The same code will work with any EVM-compatible chain.
+
+[Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+[Deploy a node](https://docs.chainstack.com/docs/manage-your-networks#join-a-public-network).
+[View node access and credentials](https://docs.chainstack.com/docs/manage-your-node#view-node-access-and-credentials).
+
+</Accordion>
+
+<Accordion title="The code">
+
+Here's a step-by-step explanation of how it operates and its functionalities:
+
+<Steps>
+  <Step title="Initialization">
+    The script starts by importing the web3.js library and initializing a Web3 instance with an HTTP provider. This provider is a connection to an Ethereum node, specified by "YOUR\_CHAINSTACK\_RPC\_NODE".
+  </Step>
+  <Step title="sendEntireBalance Function">
+    This is the core function of the script. It accepts two parameters:
+	- `secretKey`: The private key of the sender's account. This key is necessary for signing transactions, allowing the blockchain to verify that the sender has authorized the transaction.
+	- `to`: The recipient's Ethereum address. This address will receive the entire balance of the sender's account.
+  </Step>
+  <Step title="Account Setup">
+    Using the sender's private key, the script creates an account object and adds it to the web3 wallet. This step is necessary for the web3 instance to manage transactions from this account.
+  </Step>
+  <Step title="Transaction Preparation">
+    The script fetches the sender's account balance and the network's current gas price.
+	- It then estimates the gas limit for the transaction, which is the maximum amount of gas the transaction can consume.
+	- With the gas price and gas limit, the script calculates the total gas cost of the transaction.
+  </Step>
+  <Step title="Calculating the Transfer Amount">
+    The script calculates the amount of Ether (in Wei, the smallest unit of Ether) to be sent by subtracting the gas cost from the account's total balance. It ensures the transaction fees are covered while transferring the maximum possible balance.
+  </Step>
+  <Step title="Transaction Signing and Sending">
+	- A transaction object is created with the recipient address, the amount to send, the gas limit, the gas price, and the nonce (which ensures transactions are processed in order).
+	- The transaction is signed with the sender's private key. This signature proves that the sender indeed created the transaction.
+	- The signed transaction is then broadcast to the Ethereum network.
+  </Step>
+  <Step title="Error Handling and Retries">
+    The script includes error handling to manage failed transactions. It implements a retry mechanism, attempting to resend the transaction to a maximum number of retries (`MAX_RETRIES`) if an error occurs. After each failed attempt, it waits for a cooldown period (`COOLDOWN`) before retrying.
+  </Step>
+  <Step title="Logging">
+    Throughout the process, the script logs various information to the console, including the attempt to send the balance, the current balance, gas prices, gas limits, the amount to send, and the transaction status. If the transaction is successful, it logs the transaction hash and provides a URL to view the transaction on the blockchain explorer.
+  </Step>
+</Steps>
+
+</Accordion>
+
+<Accordion title="Run the code">
+
+You can get your endpoint and paste it into the endpoint const. Also, add your private key and destination.
+
+> The private key needs to start with `0x`.
+
+Then, you can run it with `node YOUR_SCRIPT_NAME.js`.
+
+The console will log the process.
+
+</Accordion>
+</AccordionGroup>
+
+<RequestExample>
+```js index.js
+const { Web3 } = require("web3");
+
+// Initialize Web3 instance using a provider
+const web3 = new Web3(
+  new Web3.providers.HttpProvider("YOUR_CHAINSTACK_RPC_NODE")
+);
+
+/**
+ * Sends the entire balance from a given account to another.
+ *
+ * @param {string} secretKey The private key of the sender's account.
+ * @param {string} to The recipient address.
+ */
+async function sendEntireBalance(secretKey, to) {
+  const account = web3.eth.accounts.privateKeyToAccount(secretKey);
+  web3.eth.accounts.wallet.add(account);
+  const senderAddress = account.address;
+
+  console.log(
+    `Attempting to send entire balance from ${senderAddress} to ${to}`
+  );
+
+  const MAX_RETRIES = 3; // Maximum number of retries
+  const COOLDOWN = 5000; // Time waited between retries in ms
+  let retries = 0; // Initialize retry counter
+
+  async function sendTransaction() {
+    try {
+      const balance = await web3.eth.getBalance(senderAddress);
+      console.log(
+        `Current balance: ${web3.utils.fromWei(balance, "ether")} ETH`
+      );
+
+      const gasPrice = await web3.eth.getGasPrice();
+      console.log(
+        `Current gas price: ${web3.utils.fromWei(gasPrice, "gwei")} Gwei`
+      );
+
+      const gasLimit = await web3.eth.estimateGas({
+        from: senderAddress,
+        to: to,
+      });
+      console.log(`Estimated gas limit: ${gasLimit}`);
+
+      const gasCost = BigInt(gasPrice) * BigInt(gasLimit);
+      console.log(
+        `Estimated gas cost: ${web3.utils.fromWei(
+          gasCost.toString(),
+          "ether"
+        )} ETH`
+      );
+
+      const amountToSend = BigInt(balance) - gasCost;
+      if (amountToSend > 0) {
+        console.log(
+          `Amount to send after deducting gas cost: ${web3.utils.fromWei(
+            amountToSend.toString(),
+            "ether"
+          )} ETH`
+        );
+
+        const transaction = {
+          to: to,
+          value: amountToSend.toString(),
+          gas: gasLimit,
+          gasPrice: gasPrice,
+          nonce: await web3.eth.getTransactionCount(senderAddress, "latest"),
+        };
+
+        console.log("Signing transaction...");
+        const signedTx = await account.signTransaction(transaction);
+        console.log("Transaction signed. Sending...");
+
+        const receipt = await web3.eth.sendSignedTransaction(
+          signedTx.rawTransaction
+        );
+        console.log(
+          `Transaction successful with hash: ${receipt.transactionHash}`
+        );
+        console.log(
+          `Find the transaction in the explorer: https://sepolia.etherscan.io/tx/${receipt.transactionHash}`
+        );
+      } else {
+        console.log(
+          "Not enough balance to cover the gas cost. Transaction aborted."
+        );
+      }
+    } catch (error) {
+      console.error(`Failed to send transaction: ${error.message}`);
+      if (retries < MAX_RETRIES) {
+        retries++;
+        console.log(`Retrying... (${retries}/${MAX_RETRIES})`);
+        await new Promise((resolve) => setTimeout(resolve, COOLDOWN)); // Wait for 5 seconds before retrying
+        await sendTransaction(); // Retry the transaction
+      } else {
+        console.error("Maximum retries reached. Giving up.");
+      }
+    }
+  }
+
+  await sendTransaction();
+}
+
+// Replace with your secret key and recipient address
+const secretKey = "0x_YOUR_PRIVATE_KEY";
+const recipientAddress = "DESTINATION_ADDRESS";
+
+sendEntireBalance(secretKey, recipientAddress);
+```
+</RequestExample>
+
+<ResponseExample>
+```bash
+Attempting to send entire balance from 0x8f8e7012F8F974707A8F11C7cfFC5d45EfF5c2Ae to 0xf25DADF841518A2cb516307876CE44F416661085
+Current balance: 24.4635 ETH
+Current gas price: 10.975813013 Gwei
+Estimated gas limit: 21000
+Estimated gas cost: 0.000230492073273 ETH
+Amount to send after deducting gas cost: 24.463269507926727 ETH
+Signing transaction...
+Transaction signed. Sending...
+Transaction successful with hash: 0xa88b579b2468d695a1f0b6af505a1be8a190d9982a33cae45593a832e7b08c77
+Find the transaction in the explorer: https://sepolia.etherscan.io/tx/0xa88b579b2468d695a1f0b6af505a1be8a190d9982a33cae45593a832e7b08c77
+```
+</ResponseExample>
+

@@ -1,0 +1,360 @@
+---
+title: "Getting Started with Foundry"
+---
+
+* Foundry is a complete toolkit that simplifies Ethereum smart contract development with modular components like Forge (build/test), Anvil (local node), Cast (CLI interactions), and Chisel (Solidity REPL).
+* You can compile and deploy contracts using Solidity-based scripts, specify private keys via CLI flags, and switch between local or custom RPC endpoints.
+* Cast offers flexible commands for sending transactions, reading contract data, or converting values, making it a powerful tool for rapid iteration and debugging.
+* Built-in testing (Forge) supports local, forked, and coverage tests, making it straightforward to manage dependencies, run end-to-end scenarios, and ensure code reliability.
+
+## Main article
+
+If you're diving into smart contract development, you'll find Foundry to be an incredibly handy companion. It's more than just a tool; it's a full-fledged framework that makes smart contracts' development, testing, and deployment smoother and more efficient. Whether you're new to blockchain or an experienced developer, Foundry is designed to be a reliable and comprehensive toolkit that fits right into your workflow.
+
+Foundry is comprised of several key components, each serving a distinct purpose in the smart contract development lifecycle:
+
+1. **Forge**: Forge is the heart of the Foundry framework, acting as a powerful compilation and testing tool. It's instrumental in compiling smart contracts, running a suite of tests (including fuzz and property-based tests), and ensuring the contracts are robust and secure before deployment.
+
+2. **Anvil**: Anvil is a local node tailored for development. This component is invaluable for developers who need a quick and easy way to test their contracts in a local blockchain environment. Anvil enables rapid iteration and debugging without connecting to the main networks or testnets.
+
+3. **Cast**: Cast is a versatile tool within Foundry designed to interact with Ethereum. It facilitates a range of actions, from sending transactions and querying blockchain data to manipulating local Ethereum states. This utility makes interacting with deployed contracts easier and performs various blockchain-related tasks.
+
+4. **Chisel**: Chisel enriches the Foundry suite as a Solidity REPL (Read-Eval-Print Loop), enabling developers to interactively test and experiment with Solidity code snippets. It's ideal for immediate feedback and debugging in real-time, and it's compatible both within and outside Foundry projects.
+
+This guide covers installing Foundry, setting up, compiling, deploying, and interacting with smart contracts.
+
+## Initializing a Project
+
+### Creating a New Project
+
+* In an empty directory, initialize a new Foundry project:
+  <CodeGroup>
+    ```bash Shell
+    forge init
+    ```
+  </CodeGroup>
+* To create a new directory with the project:
+  <CodeGroup>
+    ```bash Shell
+    forge init PROJECT_NAME
+    ```
+  </CodeGroup>
+* **Note:** The `src` directory is where the smart contracts are placed.
+
+## Compiling Contracts
+
+* To compile the contracts, run either:
+
+  <CodeGroup>
+    ```bash Shell
+    forge build
+    ```
+  </CodeGroup>
+
+  or
+
+  <CodeGroup>
+    ```bash Shell
+    forge compile
+    ```
+  </CodeGroup>
+
+* The `out` directory will generate a JSON file containing compilation data, such as ABI.
+
+## Setting Up a Local Blockchain
+
+* Use Anvil to start a local blockchain for testing:
+  <CodeGroup>
+    ```bash Shell
+    anvil
+    ```
+  </CodeGroup>
+* The local blockchain will run at `127.0.0.1:8545`, and you can add it to MetaMask for ease of testing.
+
+## Deploying Contracts
+
+### Deploying Locally or to a Custom RPC
+
+* To deploy smart contracts, use `forge create`. Forge defaults to the Anvil local blockchain, but other RPCs can be specified using the `--rpc-url` flag.
+
+
+Get a free RPC from [Chainstack](https://chainstack.com/).
+
+* Deploying locally with Anvil running:
+  <CodeGroup>
+    ```bash Shell
+    forge create CONTRACT_NAME
+    ```
+  </CodeGroup>
+* Deploying to a custom endpoint:
+  <CodeGroup>
+    ```bash Shell
+    forge create CONTRACT_NAME --rpc-url YOUR_ENDPOINT
+    ```
+  </CodeGroup>
+* This will likely not work because it needs a private key to deploy.
+
+<CodeGroup>
+  ```bash Shell
+  Error:
+  Error accessing local wallet. Did you set a private key, mnemonic or keystore?
+  Run `cast send --help` or `forge create --help` and use the corresponding CLI
+  flag to set your key via:
+  --private-key, --mnemonic-path, --aws, --interactive, --trezor or --ledger.
+  Alternatively, if you're using a local node with unlocked accounts,
+  use the --unlocked flag and either set the `ETH_FROM` environment variable to the address
+  of the unlocked account you want to use, or provide the --from flag with the address directly.
+  ```
+</CodeGroup>
+
+### Options for Specifying Private Key
+
+* Run the create command with the `--interactive` flag for a prompt to add a private key:
+  <CodeGroup>
+    ```bash Shell
+    forge create CONTRACT_NAME --interactive
+    ```
+  </CodeGroup>
+* Or, directly include the private key in the command:
+  <CodeGroup>
+    ```bash Shell
+    forge create CONTRACT_NAME --private-key YOUR_PRIVATE_KEY
+    ```
+  </CodeGroup>
+
+## Writing Deploy Scripts
+
+* Scripts in Foundry are written in Solidity. We'll use a Solidity script to deploy a contract. By convention, script files end with `.s.sol`.
+* **Example:** Deploying `SimpleStorage.sol`.
+
+### Creating the Deploy Script
+
+* Create a file named `deploySimpleStorage.s.sol` with the following content:
+
+  <CodeGroup>
+    ```sol sol
+    // SPDX-License-Identifier: MIT
+    pragma solidity ^0.8.19;
+
+    import {Script} from "forge-std/Script.sol";
+    import {SimpleStorage} from "../src/SimpleStorage.sol";
+
+    contract DeploySimpleStorage is Script {
+        function run() external returns (SimpleStorage) {
+            vm.startBroadcast();
+            SimpleStorage simpleStorage = new SimpleStorage();
+            vm.stopBroadcast();
+            return simpleStorage;
+        }
+    }
+    ```
+  </CodeGroup>
+
+* Deploy the contract using the script:
+
+  <CodeGroup>
+    ```bash Shell
+    forge script script/DeploySimpleStorage.s.sol --rpc-url YOUR_RPC --broadcast --private-key YOUR_PRIVATE_KEY
+    ```
+  </CodeGroup>
+
+Let's break down its key components and functionalities:
+
+1. **Pragma Directive**:
+
+   * `pragma solidity ^0.8.19;`: Specifies that the script is compatible with Solidity version 0.8.19 or any newer version of the 0.8 series but not version 0.9 or above.
+
+2. **Imports**:
+
+   * `import {Script} from "forge-std/Script.sol";`: Imports the `Script` class from the `forge-std` library, which is a part of Foundry, a development environment for Ethereum smart contracts.
+   * `import {SimpleStorage} from "../src/SimpleStorage.sol";`: Imports the `SimpleStorage` contract, presumably a custom contract located in the `src` directory.
+
+3. **Contract Declaration**:
+
+   * `contract DeploySimpleStorage is Script`: Defines a new contract named `DeploySimpleStorage` that inherits from the `Script` class. This setup is typical for deployment scripts in Foundry.
+
+4. **Function Definition**:
+
+   * `function run() external returns (SimpleStorage)`: The `run` function is the main entry point for the deployment script. It's marked `external` as it's intended to be called externally, and it returns an instance of `SimpleStorage`.
+
+5. **Deployment Process**:
+
+   * `vm.startBroadcast();`: Initiates a transaction broadcast. The `vm` object is a special component in Foundry, providing various functionalities related to the Ethereum Virtual Machine (EVM).
+   * `SimpleStorage simpleStorage = new SimpleStorage();`: Instantiates the `SimpleStorage` contract.
+   * `vm.stopBroadcast();`: Ends the transaction broadcast.
+
+6. **Return Statement**:
+
+   * `return simpleStorage;`: Returns the deployed instance of `SimpleStorage`.
+
+This script is a typical example of a deployment script used in the Foundry environment for deploying Ethereum smart contracts. It's concise and follows the pattern of starting a broadcast, deploying the contract, and stopping it. The `SimpleStorage` contract, which is not detailed here, would contain the actual business logic or data storage mechanisms.
+
+## Interacting with Contracts Using Cast
+
+### Sending Transactions
+
+* To send transactions, use `cast send`:
+  <CodeGroup>
+    ```bash Shell
+    cast send ADDRESS FUNCTION_SIG PARAMS
+    ```
+  </CodeGroup>
+* **Example:**
+  <CodeGroup>
+    ```bash Shell
+    cast send 0x5FbDB2315678afecb367f032d93F642f64180aa3 "store(uint256)" 3333 --rpc-url $RPC_URL --private-key $PRIVATE_KEY
+    ```
+  </CodeGroup>
+
+### Reading from Contracts
+
+* Use `cast call` for reading view functions:
+  <CodeGroup>
+    ```bash Shell
+    cast call ADDRESS FUNCTION_SIGNATURE
+    ```
+  </CodeGroup>
+* **Example:**
+  <CodeGroup>
+    ```bash Shell
+    cast call 0x5FbDB2315678afecb367f032d93F642f64180aa3 "retrieve()"
+    ```
+  </CodeGroup>
+
+You can use cast for conversions, for example, hex to dec:
+
+<CodeGroup>
+  ```bash Shell
+  cast --to-base 0x0000000000000000000000000000000000000000000000000000000000000d05 dec
+  ```
+</CodeGroup>
+
+Or use the [Chainstack EVM Swiss Knife](https://web3tools.chainstacklabs.com/hexadecimal-decimal).
+
+## Managing Dependencies
+
+### Installing Smart Contract Dependencies
+
+* Use the following command to install dependencies from a repository:
+  <CodeGroup>
+    ```bash Shell
+    forge install smartcontractkit/chainlink-brownie-contracts --no-commit
+    ```
+  </CodeGroup>
+* Dependencies are added to the `lib` directory.
+
+### Remapping Dependencies
+
+* Add remappings in the `foundry.toml` file for syntax convenience:
+  <CodeGroup>
+    ```toml TOML
+    remappings = ['@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/']
+    ```
+  </CodeGroup>
+
+chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/']
+
+## Writing and Running Tests
+
+### Example Test Contract
+
+* Tests in Foundry are also written in Solidity. Here's an example:
+
+<CodeGroup>
+  ```bash Bash
+  // SPDX-License-Identifier: MIT
+  pragma solidity ^0.8.18;
+
+  import {Test, console} from "forge-std/Test.sol";
+
+  contract FundMeTest is Test {
+      uint256 number = 33;
+
+      function setUp() external {
+          number = 3333;
+      }
+
+      function testDemo() public {
+          console.log("The saved number is", number);
+          assertEq(number, 3333);
+      }
+  }
+  ```
+</CodeGroup>
+
+* Run tests with:
+  <CodeGroup>
+    ```bash Shell
+    forge test -vv
+    ```
+  </CodeGroup>
+* The `-vv` flag outputs detailed logs for better insight.
+
+Let's break down its components:
+
+1. **License and Solidity Version Declaration**:
+
+   * `// SPDX-License-Identifier: MIT`: This is a comment specifying the license under which this file is released, in this case, the MIT License.
+   * `pragma solidity ^0.8.18;`: This line specifies the compiler version. The file is compatible with Solidity version 0.8.18 and above within the 0.8.x range.
+
+2. **Imports**:
+
+   * `import {Test, console} from "forge-std/Test.sol";`: This line imports two elements from the Forge standard library (`forge-std`):
+
+     * `Test`: A base contract that provides testing functionalities.
+     * `console`: A utility to log output to the console. This is particularly useful for debugging and tracking variable values during test execution.
+
+3. **Test Contract Declaration**:
+
+   * `contract FundMeTest is Test {`: This line declares a new contract `FundMeTest` which inherits from the `Test` contract. In the context of Forge, this means `FundMeTest` is a test suite.
+
+4. **State Variable**:
+
+   * `uint256 number = 33;`: A state variable `number` of type `uint256` (unsigned integer of 256 bits) is declared and initialized to 33. This variable is used to demonstrate state manipulation and assertion in the test.
+
+5. **Setup Function**:
+
+   * `function setUp() external { number = 3333; }`: The `setUp()` function is a special function in the Forge framework that runs before each test function. It's used for initializing or resetting the state. Here, it sets the `number` variable to 3333.
+
+6. **Test Function**:
+
+   * `function testDemo() public { ... }`: This is the actual test function. In Forge, any function with a name starting with `test` is considered a test case.
+
+     * `console.log("The saved number is", number);`: This line logs the value of `number` to the console, which is useful for debugging or verifying the test state.
+     * `assertEq(number, 3333);`: This is an assertion statement provided by the `Test` contract. It checks whether the value of `number` is equal to 3333. If the assertion fails (i.e., if `number` is not 3333), the test will fail.
+
+## Testing on a Fork
+
+* Run tests on a forked network by adding an RPC URL:
+  <CodeGroup>
+    ```bash Shell
+    forge test -vvv --fork-url $SEPOLIA_RPC
+    ```
+  </CodeGroup>
+
+## Coverage Analysis
+
+* Use `forge coverage` to analyze how much of your contracts are tested:
+  <CodeGroup>
+    ```bash Shell
+    forge coverage --fork-url $SEPOLIA_RPC
+    ```
+  </CodeGroup>
+  It will display a nice table:
+
+<CodeGroup>
+  ```bash Shell
+  [⠢] Compiling...
+  [⠢] Compiling 26 files with 0.8.20
+  [⠆] Solc 0.8.20 finished in 4.07s
+  Compiler run successful!
+  Analysing contracts...
+  Running tests...
+  | File                      | % Lines       | % Statements  | % Branches    | % Funcs      |
+  |---------------------------|---------------|---------------|---------------|--------------|
+  | script/DeployFundme.s.sol | 0.00% (0/3)   | 0.00% (0/3)   | 100.00% (0/0) | 0.00% (0/1)  |
+  | src/FundMe.sol            | 16.67% (2/12) | 23.53% (4/17) | 0.00% (0/4)   | 25.00% (1/4) |
+  | src/PriceConverter.sol    | 0.00% (0/6)   | 0.00% (0/11)  | 100.00% (0/0) | 0.00% (0/2)  |
+  | Total                     | 9.52% (2/21)  | 12.90% (4/31) | 0.00% (0/4)   | 14.29% (1/7) |
+  ```
+</CodeGroup>

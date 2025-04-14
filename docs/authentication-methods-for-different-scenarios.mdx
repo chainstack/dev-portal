@@ -1,0 +1,172 @@
+---
+title: "Authentication Methods Available on Chainstack"
+---
+
+**TLDR**
+
+* The Chainstack platform API uses a bearer token (API key) passed in the header for requests.
+* Blockchain node requests on Chainstack often use either the auth token appended to the URL or basic authentication (username and password).
+* Always keep API keys, usernames, and passwords private to avoid unauthorized node access.
+* Choose an authentication method based on your security needs and infrastructure constraints – e.g., basic auth for simplicity or key-based for more robust usage.
+
+## Main article
+
+This guide provides a comprehensive overview of the different authentication methods that Chainstack offers. Our goal is to guide you in understanding these options and to assist in selecting the most appropriate method tailored to your specific use cases.
+
+Let's explore the authentication methods available and how they apply to various scenarios.
+
+## Authentication methods
+
+API authentication is a crucial factor in application programming interface (API) development, used to verify the identities of applications or users utilizing the API. Different kinds of authentication methods are available in the API world; let's briefly explore the four primary methods used for API authentication.
+
+1. **API keys**. These are the simplest form of API authentication. The client includes an API key, a unique identifier, in the header or as a parameter in the URL. The server matches the key to a corresponding key in its database and, if it matches, grants access. Although easy to implement, the API key can be misused if intercepted.
+2. **Basic authentication**. This method involves sending a user ID and password with each API request. The credentials are Base-64 encoded but not encrypted, making it easily decipherable by anyone who intercepts the transmission. Basic authentication should always be used over HTTPS to add an additional layer of security.
+3. **Digest authentication**. This is a step up from basic authentication, where the client sends a hashed (or digested) version of the password. It's more secure than basic authentication because even if an attacker intercepts the hashed password, they cannot use it to make API requests.
+4. **OAuth (open authorization)**. OAuth is more complex but secure. It enables third-party applications to make requests on behalf of a user without needing their password. OAuth2, the latest version, uses short-lived access tokens rather than user credentials for authentication.
+5. **JWT (JSON web tokens)**. JWT is a token-based authentication that allows for stateless authentication. An encoded string of characters represents a payload of data, which often includes issued at time (iat), expiration time (exp), and not before (nbf) statements.
+
+Here's a quick comparison table:
+
+| Method                | Security                    | Complexity |
+| --------------------- | --------------------------- | ---------- |
+| API Key               | Low                         | Low        |
+| Basic authentication  | Medium (if used over HTTPS) | Low        |
+| Digest authentication | Medium                      | Medium     |
+| OAuth                 | High                        | High       |
+| JWT                   | High                        | Medium     |
+
+Remember that choosing the right authentication method for your API depends on your specific use case, including your security needs and the resources available for implementation.
+
+<Info>
+  The Chainstack platform api only accepts an API key as a bearer token as a form of authentication, so we’ll focus on this in the next section.
+</Info>
+
+### Header authentication (bearer token)
+
+Header authentication with a bearer token is a common method employed in API requests. This approach involves attaching an authorization header with a bearer token in each HTTP request to the server. This token is a cryptic string, ensuring that data access is only granted to the token's bearer, thus giving this authentication method its name.
+
+In the context of the Chainstack platform, it's crucial to note that header authentication using a bearer token is fully supported for the [platform API requests](/api-reference/platform-api-getting-started). This means users can authenticate their API calls on the platform by simply including the bearer token in their request headers.
+
+However, bearer token authentication is currently unavailable when it comes to blockchain APIs. Blockchain nodes typically don't provide traditional user-based authentication.
+
+Chainstack uses API keys or similar mechanisms to authenticate requests to the hosted nodes. However, these are not traditional bearer tokens.
+
+The following is an example of how to send a header authenticated to the Chainstack platform API using a bearer token.
+
+<Info>
+  Check out the Docs to learn [how to generate your Chainstack API key](/api-reference/platform-api-getting-started#create-api-key).
+</Info>
+
+<CodeGroup>
+  ```bash cURL
+  curl --request GET \
+       --url https://api.chainstack.com/v1/organization/ \
+       --header 'accept: application/json' \
+       --header 'authorization: Bearer YOUR_CHAINSTACK_API_KEY'
+  ```
+</CodeGroup>
+
+This example calls the `Get Organization name and ID` API, which returns the organization name and ID belonging to the API key. Edit `YOUR_CHAINSTACK_API_KEY` with the API key you get from the Chainstack console.
+
+Example response:
+
+<CodeGroup>
+  ```shell Shell
+  {
+    "id": "RG-123-456",
+    "name": "Cool Organization"
+  }
+  ```
+</CodeGroup>
+
+## Selecting the appropriate authentication method
+
+When choosing an authentication method for your scenario, consider the following points:
+
+* **Use case and purpose**. Identify the specific use case and the purpose of the API requests. Understanding the requirements will guide you in selecting the most suitable authentication method.
+* **Security and complexity**. Evaluate the level of security and complexity required for your API requests. Basic authentication provides a straightforward approach, whereas API keys offer a secure way to manage different URLs and chains.
+* **Compatibility and flexibility**. Determine the compatibility of the authentication method with your existing systems and the flexibility it provides for future expansion.
+
+## Authenticating blockchain requests to a node
+
+Chainstack offers two sets of credentials to access a node. One is via endpoints incorporating the API key directly in the URL, and the other is through endpoints requiring a username and password for access.
+
+### Access via auth token
+
+You can use the endpoint with an auth token like you can find in your Chainstack console:
+
+* HTTPS endpoint example: `https://ethereum-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN`
+* WebSocket endpoint example: `wss://ethereum-mainnet.core.chainstack.com/ws/YOUR_AUTH_TOKEN`
+
+You can use a POST request like the following to access the HTTPS endpoint via a curl command.
+
+This example shows how to [retrieve the client version](/api-reference/ethereum_node_api/client_info/web3_clientVersion), one of the standard Ethereum JSON-RPC methods.
+
+<CodeGroup>
+  ```bash cURL
+  curl -X POST --location 'https://ethereum-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN' \
+  --header 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","method":"web3_clientVersion","params":[],"id":1}'
+  ```
+</CodeGroup>
+
+<Warning>
+  Make sure to replace the placeholder endpoint with your endpoint.
+</Warning>
+
+### Password-protected access
+
+For the blockchain API requests, you can also use basic authentication:
+
+* HTTPS endpoint: `https://ethereum-mainnet.core.chainstack.com`
+* WSS endpoint: `wss://ethereum-mainnet.core.chainstack.com/ws`
+* Username: `YOUR_USER_NAME`
+* Password: `YOUR_PASSWORD`
+
+<Info>
+  You can find your [username and password credentials](/docs/manage-your-node#view-node-access-and-credentials) in the Chainstack console.
+</Info>
+
+For password-protected access, you include the username and password in your `curl` command like so:
+
+<CodeGroup>
+  ```bash cURL
+  curl -X POST \
+    -u YOUR_USER_NAME:YOUR_PASSWORD \
+    -H "Content-Type: application/json" \
+    --data '{"jsonrpc":"2.0","method":"web3_clientVersion","params":[],"id":1}' \
+    https://ethereum-mainnet.core.chainstack.com
+  ```
+</CodeGroup>
+
+In this command, `-u YOUR_USER_NAME:YOUR_PASSWORD` includes your username and password for basic authentication. Please replace `YOUR_PASSWORD` with your actual password.
+
+<Info>
+  Keeping your API key and username/password secure is critical to prevent unauthorized access to your blockchain node.
+</Info>
+
+## Conclusion
+
+The realm of API authentication is vast, encompassing a variety of methods, each with its distinct security levels and complexities. From the simplest API Keys to the secure OAuth and JWT methods, the choice depends largely on your specific use case and the resources you have available for implementation.
+
+In the context of Chainstack, platform API requests are authenticated through a bearer token. However, when it comes to blockchain APIs, bearer token authentication is currently not available, and API keys or basic authentication are the preferred methods.
+
+Regardless of your chosen method, it is crucial to remember that the security of your API access points is paramount. Always safeguard your API keys, usernames, and passwords to prevent unauthorized access. Also, consider your use case's specific needs and requirements, including the level of security and complexity required for your API requests and the compatibility and flexibility of the chosen authentication method with your existing systems.
+
+Remember, the ultimate goal of API authentication is to facilitate secure access to services, ensure user data privacy, and prevent unauthorized access. By understanding and effectively implementing the right authentication methods, you are well on your way to achieving these goals in your software development endeavors.
+
+### About the author
+
+<CardGroup>
+  <Card title="Davide Zambiasi" img="/images/docs/profile_images/1533079085001363457/1VvXp1m0_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on EVM, The Graph protocol, and Starknet
+
+    <Icon icon="laptop"  iconType="solid"/> Helping people understand Web3 and blockchain development
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/soos3d)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/web3Dav3)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/davide-zambiasi/)
+  </Card>
+</CardGroup>

@@ -1,0 +1,181 @@
+---
+title: "Fetching Polygon Logs for an Address from a Block using `eth_getTransactionReceiptsByBlock` and web3.py"
+description: "Using the web3.py library, this tool fetches transaction logs from the Polygon blockchain for a given Ethereum address in a specific block. It aids in efficient retrieval and analysis of transaction activities, ideal for debugging and monitoring."
+---
+
+<AccordionGroup>
+<Accordion title="Overview">
+
+With the web3.py library, this script connects to the Polygon blockchain via a Chainstack RPC node running BOR. It's designed to fetch transaction logs from a particular block, specifically targeting logs related to a predefined Ethereum address. Leveraging the `eth_getTransactionReceiptsByBlock` method, exclusive to the BOR node, this code provides a streamlined way to extract and display transaction details, making it a handy tool for developers and analysts monitoring specific addresses on the Polygon network.
+</Accordion>
+
+<Accordion title="Environment setup">
+
+Create a new directory for your project, then install the web3.py library:
+
+`pip install web3`
+</Accordion>
+
+<Accordion title="Get your Chainstack endpoint">
+
+You will need a Chainstack account and a Polygon full node to run this code.
+
+1. [Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+2. [Deploy a node](https://docs.chainstack.com/docs/manage-your-networks#join-a-public-network).
+3. [View node access and credentials](https://docs.chainstack.com/docs/manage-your-node#view-node-access-and-credentials).
+
+</Accordion>
+
+<Accordion title="The logic">
+
+The script connects to the Polygon network using the `web3.py` library and targets a specific block. It fetches transaction receipts from this block and sifts through them to identify transactions related to a predefined Ethereum address. Relevant details from these transactions, including logs, are then extracted and displayed, providing a snapshot of the address's activities within that block. Error handling mechanisms ensure smooth operation and user feedback in case of issues.
+
+</Accordion>
+
+<Accordion title="Create a new file">
+
+In your directory, create a new file named `main.py`.
+
+</Accordion>
+
+<Accordion title="Imports and Constants">
+
+The script starts by importing necessary modules and defining constants.
+
+```python main.py
+from pprint import pprint
+from web3 import Web3
+
+NODE_URL = "YOUR_CHAINSTACK_POLYGON_RPC" # This needs to be running on BOR and the eth_getTransactionReceiptsByBlock method is only available there
+ADDRESS = '0x371ef444a12b951b492f19ed6343a8aac6fdca55' # Edit with the address you need to monitor
+```
+</Accordion>
+
+<Accordion title="Utility Functions">
+
+These functions handle conversions between decimal and hexadecimal formats.
+
+```python main.py
+def decimal_to_hex(decimal_number):
+    """Convert a decimal number to its hexadecimal representation."""
+    return hex(decimal_number)
+
+def hex_to_decimal(hex_string):
+    """Convert a hexadecimal string to its decimal representation."""
+    return int(hex_string, 16)
+```
+</Accordion>
+
+<Accordion title="Log Extraction">
+
+This function sifts through block receipts to find and print logs related to the specified Ethereum address.
+
+```python main.py
+def get_logs_for_address(address, block_receipts):
+    """
+    Fetch and print logs for a given Ethereum address from the provided block receipts.
+    """
+    receipts = block_receipts.get('result', [])
+    for receipt in receipts:
+        if receipt['to'] == address:
+            print('Block number:' , hex_to_decimal(receipt['blockNumber']))
+            print('Transaction hash:', receipt['transactionHash'])
+            print('To:' , receipt['to'], '\n')
+            print('Logs:')
+            pprint(receipt['logs'])
+```
+</Accordion>
+
+<Accordion title="Main Function">
+
+The `main` function serves as the primary driver of the script.
+
+It establishes a connection to the Polygon node, fetches transaction receipts for a specific block, and then invokes the log extraction function.
+
+```python main.py
+def main():
+    web3 = Web3.HTTPProvider(NODE_URL)
+
+    block = 45941582
+    hex_block = decimal_to_hex(block)
+
+    try:
+        block_receipts = web3.make_request('eth_getTransactionReceiptsByBlock', [hex_block])
+        get_logs_for_address(ADDRESS, block_receipts)
+    except Exception as e:
+        print(f"An error occurred: {e}")
+```
+</Accordion>
+
+<Accordion title="Script Execution">
+
+This conditional ensures that the main function is executed only when the script is run directly and not when imported as a module.
+
+```python main.py
+if __name__ == "__main__":
+    main()
+```
+</Accordion>
+
+<Accordion title="Run the code">
+
+Now add your Chainstack node URL and run the script:
+
+```shell
+python3 main.py
+```
+
+The script will print logs for any transaction going to the specified address.
+</Accordion>
+</AccordionGroup>
+<RequestExample>
+```python main.py
+from pprint import pprint
+from web3 import Web3
+
+NODE_URL = "YOUR_CHAINSTACK_POLYGON_RPC" # This needs to be running on BOR and the eth_getTransactionReceiptsByBlock method is only available there
+ADDRESS = '0x371ef444a12b951b492f19ed6343a8aac6fdca55' # Edit with the address you need to monitor
+
+def decimal_to_hex(decimal_number):
+    """Convert a decimal number to its hexadecimal representation."""
+    return hex(decimal_number)
+
+def hex_to_decimal(hex_string):
+    """Convert a hexadecimal string to its decimal representation."""
+    return int(hex_string, 16)
+
+def get_logs_for_address(address, block_receipts):
+    """
+    Fetch and print logs for a given Ethereum address from the provided block receipts.
+    """
+    receipts = block_receipts.get('result', [])
+    for receipt in receipts:
+        if receipt['to'] == address:
+            print('Block number:' , hex_to_decimal(receipt['blockNumber']))
+            print('Transaction hash:', receipt['transactionHash'])
+            print('To:' , receipt['to'], '\n')
+            print('Logs:')
+            pprint(receipt['logs'])
+
+def main():
+    web3 = Web3.HTTPProvider(NODE_URL)
+
+    block = 45941582
+    hex_block = decimal_to_hex(block)
+
+    try:
+        block_receipts = web3.make_request('eth_getTransactionReceiptsByBlock', [hex_block])
+        get_logs_for_address(ADDRESS, block_receipts)
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    main()
+```
+</RequestExample>
+
+<ResponseExample>
+```bash
+{"success":true}
+```
+</ResponseExample>

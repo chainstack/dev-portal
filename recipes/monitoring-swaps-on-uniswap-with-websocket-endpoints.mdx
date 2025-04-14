@@ -1,0 +1,179 @@
+---
+title: "Monitoring swaps on Uniswap with WebSocket endpoints"
+description: "Monitoring swaps, in near real-time, as they happen on Uniswap V2 with web3.js."
+---
+
+<AccordionGroup>
+<Accordion title="Overview">
+
+This code snippet leverages new block subscriptions, enabled by the usage of a WebSocket endpoint, to watch and sift through new blocks, filter transactions that involve the Uniswap V2 router contract, and then, of which, return those that are ETH -> Token swaps.
+
+This snippet uses one of the previous recipes on web3.js subscriptions as a base.
+
+</Accordion>
+<Accordion title="Environment setup">
+
+If you haven't already, ensure node.js is installed.
+
+The only dependency here is `web3.js`, which you can install by running:
+`npm install web3`
+
+```js JavaScript
+const { Web3 } = require('web3');
+```
+
+</Accordion>
+<Accordion title="Defining web3">
+
+To define the `web3` variable, you'll need to first launch a Chainstack Elastic Node, in this case for Ethereum.
+
+<Steps>
+  <Step>
+    Navigate to the Chainstack console
+  </Step>
+  <Step>
+    Deploy an Ethereum mainnet node
+  </Step>
+  <Step>
+    Open the newly deployed node
+  </Step>
+  <Step>
+    Copy the corresponding WSS endpoint
+  </Step>
+  <Step>
+    Paste it into your `Web3` constructor
+  </Step>
+</Steps>
+
+```js JavaScript
+const NODE_URL = "WSS_CHAINSTACK_ENDPOINT";
+const web3 = new Web3(NODE_URL);
+```
+
+</Accordion>
+<Accordion title="Defining the Uniswap V2 constants">
+
+To enable the active filtering of transactions to return ETH -> Token swaps on Uniswap V2, we'll need to define the following:
+
+1. `UNISWAP_ROUTER_ADDRESS`, which as the name suggests, is the address of the V2 router.
+2. `SWAP_EXACT_ETH_FOR_TOKENS_SIGNATURE`, which is the method ID of the `swapExactETHForTokens` method.
+3. `SWAP_EXACT_ETH_FOR_FEE_TOKENS_SIGNATURE`, which is the method ID for the `swapExactETHForTokensSupportingFeeOnTransferTokens` method.
+
+```js JavaScript
+const UNISWAP_ROUTER_ADDRESS = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"; // Uniswap V2
+const SWAP_EXACT_ETH_FOR_TOKENS_SIGNATURE = "0x7ff36ab5";
+const SWAP_EXACT_ETH_FOR_FEE_TOKENS_SIGNATURE = "0xb6f9de95";
+```
+</Accordion>
+<Accordion title="Opening the subscription">
+
+Now, we'll need to setup the subscription that we'll use to continually query new blocks as they get confirmed on the Ethereum blockchain.
+
+This will be defined as `subscribeToNewBlocks`, and will open the `newBlockHeaders` subscription in a variable called `subscription`.
+
+```js JavaScript
+async function subscribeToNewBlocks() {
+  const subscription = await web3.eth.subscribe('newBlockHeaders');
+  subscription.on('data', handleNewBlock);
+}
+```
+</Accordion>
+<Accordion title="Creating the handler function">
+
+The final component of this code includes the defining of `handleNewBlock`, our handler function that will work with the data returned by the subscription.
+
+Within this function, we'll run a `getBlock` call on the returned block number. This call specifically uses the `true` flag as the second parameter, which means the `getBlock` response will include transaction details for each transaction included in the specified block.
+
+These transactions will then be looped through and filtered using a conditional that checks for parity with the router address, along with the specified method IDs.
+
+```js JavaScript
+async function handleNewBlock(blockHeader) {
+  console.log(`Got new block: ${blockHeader.number}`);
+  const block = await web3.eth.getBlock(blockHeader.number, true);
+  block.transactions.forEach((tx) => {
+    if (tx.to && tx.to.toLowerCase() === UNISWAP_ROUTER_ADDRESS.toLowerCase() && (tx.input.startsWith(SWAP_EXACT_ETH_FOR_TOKENS_SIGNATURE) || tx.input.startsWith(SWAP_EXACT_ETH_FOR_FEE_TOKENS_SIGNATURE))) {
+      console.log("--------------------------------");
+      console.log(`Incoming swap transaction: ${tx.hash}`);
+      console.log(`From: ${tx.from}`);
+      console.log(`Value: ${web3.utils.fromWei(tx.value, "ether")} ETH`);
+      console.log("--------------------------------");
+    }
+  })
+}
+
+subscribeToNewBlocks();
+```
+</Accordion>
+<Accordion title="Understanding the response">
+For each transaction that meets the criteria within the conditional we set in `handleNewBlock`, a collection of strings will be printed to the console containing key information, such as the transaction ID, the address that executed the swap, and the amount of ETH being swapped.
+</Accordion>
+</AccordionGroup>
+
+
+<RequestExample>
+```js JavaScript
+const { Web3 } = require('web3');
+
+const NODE_URL = "WSS_CHAINSTACK_ENDPOINT";
+const web3 = new Web3(NODE_URL);
+
+const UNISWAP_ROUTER_ADDRESS = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D"; // Uniswap V2
+const SWAP_EXACT_ETH_FOR_TOKENS_SIGNATURE = "0x7ff36ab5";
+const SWAP_EXACT_ETH_FOR_FEE_TOKENS_SIGNATURE = "0xb6f9de95";
+
+async function subscribeToNewBlocks() {
+  const subscription = await web3.eth.subscribe('newBlockHeaders');
+  subscription.on('data', handleNewBlock);
+}
+
+async function handleNewBlock(blockHeader) {
+  console.log(`Got new block: ${blockHeader.number}`);
+  const block = await web3.eth.getBlock(blockHeader.number, true);
+  block.transactions.forEach((tx) => {
+    if (tx.to && tx.to.toLowerCase() === UNISWAP_ROUTER_ADDRESS.toLowerCase() && (tx.input.startsWith(SWAP_EXACT_ETH_FOR_TOKENS_SIGNATURE) || tx.input.startsWith(SWAP_EXACT_ETH_FOR_FEE_TOKENS_SIGNATURE))) {
+      console.log("--------------------------------");
+      console.log(`Incoming swap transaction: ${tx.hash}`);
+      console.log(`From: ${tx.from}`);
+      console.log(`Value: ${web3.utils.fromWei(tx.value, "ether")} ETH`);
+      console.log("--------------------------------");
+    }
+  })
+}
+
+subscribeToNewBlocks();
+```
+</RequestExample>
+<ResponseExample>
+```bash
+Got new block: 17924098
+--------------------------------
+Incoming swap transaction: 0x188335bbf730f613cea71a58dad9f9964727f3e93ff934149c83045e8ee0cb36
+From: 0xe1605580a0054a99db8d778e560f4b0a2e11a2f2
+Value: 0.05 ETH
+--------------------------------
+--------------------------------
+Incoming swap transaction: 0xa9212c6fd39c52048b596c6d2588c63fa5900730c60ffad7f878e5b2b05d2b05
+From: 0xd6ea485b803e8473d47985c26220bd1fdc67ec39
+Value: 0.1 ETH
+--------------------------------
+--------------------------------
+Incoming swap transaction: 0x442640d4db155f4fef5bfc9b1700d22af596aaec22ca06c392354e150336d3cb
+From: 0x551c3dd4271602de4bdee71345bb360ca5f6a9dd
+Value: 0.3 ETH
+--------------------------------
+--------------------------------
+Incoming swap transaction: 0x53626667bbfa959af2d8d072f8d1f5a5f0a10074ee177676d794be08d9aaf1db
+From: 0xefa316a7faa31356eb6ec9be2c290276f28f6377
+Value: 0.014928321838883508 ETH
+--------------------------------
+--------------------------------
+Incoming swap transaction: 0xd6fd0a658051e971a20fe8b241dec11b4b396281b5e0535ed79eef0f18ff1983
+From: 0xcde474a2ad4542743007a46863ee2a7906419136
+Value: 0.1 ETH
+--------------------------------
+...
+footer subedevice
+footer subefooter dotsfooter ringfooter shape
+See Chainstack in
+```
+</ResponseExample>

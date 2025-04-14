@@ -1,0 +1,162 @@
+---
+title: eth_newPendingTransactionFilter | Avalanche
+openapi: /openapi/avalanche_node_api/transactions_info/eth_newPendingTransactionFilter.json
+  POST /8763cb5a211e1d4345acd51bde484c00/ext/bc/C/rpc
+---
+
+Avalanche API method that creates a filter that listens for new pending transactions on the blockchain. It returns a filter ID, which can be used to retrieve the results using the [eth\_getFilterChanges](/api-reference/avalanche_node_api/filter_handling/eth_getFilterChanges) method. The `eth_newBlockFilter` method is useful for developers who must be notified of new blocks on the blockchain in real time.
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `none`
+
+## Response
+
+* `result` — a hexadecimal string representing the ID of the newly created filter
+
+## Code examples
+
+<Warning>
+The filters created are stored on the blockchain client instance. The filter fill is automatically deleted if not polled within a certain time (5 minutes by default).
+</Warning>
+
+
+Use the following methods with the filter ID:
+
+* [eth\_getFilterChanges](/api-reference/avalanche_node_api/filter_handling/eth_getFilterChanges) to retrieve updates
+* [eth\_uninstallFilter](/api-reference/avalanche_node_api/filter_handling/eth_uninstallFilter) to remove the filter
+
+## `eth_newPendingTransactionFilter` code examples
+
+<Note>
+Note that the `web3.eth.filter` methods have been deprecated and replaced with the `web3.eth.subscribe` in web3.js. See [web3.js subscriptions](/api-reference/avalanche-web3js-subscriptions-methods).
+</Note>
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const createFilter = async () => {
+  try {
+    const filterId = await provider.send('eth_newPendingTransactionFilter', []);
+    console.log(filterId); // the filter ID returned by eth_newFilter
+    return filterId
+  } catch (error) {
+    console.log(error);
+  }
+};
+
+createFilter();
+```
+
+```python web3.py
+from web3 import Web3  
+node_url = "CHAINSTACK_NODE_URL" 
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+def get_new_pending_transactions():
+    try:
+        blocks_filter = web3.eth.filter('pending')
+
+        # Split the string at the space character
+        parts = str(blocks_filter).split(' ')
+
+        # Extract the filter value from the second part
+        filter_id = parts[2]
+
+        return filter_id
+    except Exception as e:
+        print(e)
+
+new_filter = get_new_pending_transactions()
+print(new_filter)
+```
+</CodeGroup>
+
+
+## Use case
+
+One way to use the `eth_newPendingTransactionFilter` method is to listen for new pending transactions at predefined intervals and extract specific data from them. For instance, a decentralized application might check for pending transactions every second and identify those that transfer a value greater than a certain amount of the MATIC token. This could be useful for monitoring high-value transactions or detecting potential fraud or security threats in real time.
+
+Here is an implementation of this concept using ethers.js:
+
+```javascript index.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+// Create a filter using eth_newPendingTransactionFilter
+const createFilter = async () => {
+  try {
+    const filterId = await provider.send('eth_newPendingTransactionFilter', []);
+    console.log(filterId); // the filter ID returned by eth_newFilter
+    return filterId
+  } catch (error) {
+    console.log(error);
+  }
+};
+
+// Use the filter to extract the value from each transaction
+async function getValue(filter) {
+  try {
+    // Retrieve the list of new pending transactions
+    const transactions = await provider.send('eth_getFilterChanges', [filter]);
+
+    // Loop through the list of transactions and process each one
+    for (const hash of transactions) {
+
+      const receipt = await provider.send("eth_getTransactionByHash", [hash]);
+
+      // Check that the receipt is not null and has a non-null value field
+      if (receipt && receipt.value != null) {
+        const value = receipt.value;
+        const decimalValue = BigInt(value).toString();
+        const convertedValue = ethers.utils.formatEther(decimalValue);
+        
+        // Check if the transferred value is greater than or equal to 100 AVAX
+        if (convertedValue >= 100) {
+          console.log(`This transaction is sending more than 100 AVAX`);
+          console.log(`Transaction Hash: ${hash}`);
+          console.log(`Value transferred: ${convertedValue} \n`);
+        }
+      }
+    }
+  } catch (error) {
+    console.error(error); // Handle errors that may occur
+  }
+}
+
+// Main program setting an interval to call the `getValue` function at regular intervals
+async function main() {
+
+const filterId =  await createFilter();
+setInterval(getValue, 1000, filterId);
+
+}
+
+main()
+```
+
+
+This code sets up an Ethereum filter to listen for new pending transactions and extract specific data from them.
+
+The code consists of three functions: `createFilter`, `getValue`, and `main`. Here's an overview of how each function works:
+
+The `createFilter` function sets up a new filter using the `eth_newPendingTransactionFilter` method. It returns the ID of the filter, which can be used to retrieve data from the filter later.
+
+The `getValue` function retrieves the list of new pending transactions using the [eth\_getFilterChanges](/api-reference/avalanche_node_api/filter_handling/eth_getFilterChanges) method and loops through each transaction. For each transaction, it retrieves the transaction data using the [eth\_getTransactionByHash](/api-reference/avalanche_node_api/transactions_info/eth_getTransactionByHash) method and checks if the transaction value is greater than or equal to 100 MATIC. If the value is above this threshold, the function logs information about the transaction to the console.
+
+The `main` function sets up the program by first calling the `createFilter` function to create a new filter and retrieve its ID. It then sets an interval to call the `getValue` function every 1 second, passing the filter ID as an argument to retrieve the latest transaction data at regular intervals.
+
+## Try the `eth_newPendingTransactionFilter` RPC method yourself

@@ -1,0 +1,100 @@
+---
+title: subscribe("logs") | Gnosis
+---
+
+web3.js subscription equivalent to [eth\_newFilter](/api-reference/gnosis_node_api/logs_and_events/eth_newFilter). `subscribe("logs")` allows developers to subscribe to real-time updates about new event logs on the Gnosis Chain; the application will receive notifications whenever new logs matching the filter are emitted.
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `string` — a keyword identifying the type of event to subscribe to, `logs` in this case.
+* `object` — (optional) The subscription options:
+  + `fromBlock` — an integer that specifies the starting block number from which the logs should be fetched. `null` by default.
+  + `address` — the contract address from which the logs should be fetched. It can be a single address or an array of addresses.
+  + `topics` — an array of `DATA` topics. The event topics for which the logs should be fetched. It can be a single topic or an array of topics.
+* `function` — (optional) a callback function that will be called every time a new event of the specified type is received. This function takes two parameters: `error` and `result`. The error parameter contains any error that occurred while subscribing to the event, and the result parameter contains the data for the event that was received.
+
+## Response
+
+* `array` — an array of log objects that match the specified filter:
+  + `address` — the contract address from which the event originated.
+  + `topics` — an array of 32-byte data fields containing indexed event parameters.
+  + `data` — the non-indexed data that was emitted along with the event.
+  + `blocknumber` — the block number in which the event was included. `null` if it is pending.
+  + `transactionhash` — the hash of the transaction that triggered the event. `null` if pending.
+  + `transactionindex` — the integer index of the transaction within the block's list of transactions. `null` if it is pending.
+  + `blockhash` — the hash of the block in which the event was included. `null` if it is pending.
+  + `logindex` — the integer identifying the index of the event within the block's list of events. `null` if pending.
+  + `removed` — the boolean value indicating if the event was removed from the blockchain due to a chain reorganization. `True` if the log was removed. `False` if it is a valid log.
+
+## `subscribe("logs")` code example
+
+<Note>
+Note that web3.js subscriptions require a WebSocket connection.
+</Note>
+
+
+Use the [event emitter instances](https://web3js.readthedocs.io/en/v1.2.11/web3-eth-subscribe.html#eth-subscription-return) to attach event listeners to the subscription object:
+
+* `data` — activates for each new syncing event.
+* `error` — activates if an error is detected during the subscription.
+* `connected` — activates after the subscription is successfully connected and returns the subscription ID.
+* `unsubscribe` — unsubscribes the subscription and returns `true` if successful.
+
+```javascript index.js
+const Web3 = require("web3");
+const NODE_URL = "CHAINSTACK_WSS_URL";
+const web3 = new Web3(NODE_URL);
+
+// Only log transfer events from the WMATIC smart contract.
+const logsFilter = {
+    address: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',
+    topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef']
+}
+
+async function subscribeToLogs() {
+    try {
+        // Create a new subscription to the 'pendingTransactions' event
+        const subscription = await web3.eth.subscribe('logs', logsFilter);
+
+        // Attach event listeners to the subscription object
+        subscription.on('connected', handleConnected);
+        subscription.on('data', handleLogs);
+        subscription.on('error', handleError);
+    } catch (error) {
+        console.error(`Error subscribing to new sync: ${error}`);
+    }
+}
+
+/* Fallback functions to react to the different events */
+
+// Event listener that logs a message when the subscription is connected
+function handleConnected(subscriptionId) {
+    console.log(`New subscription: ${subscriptionId}`);
+}
+
+// Event listener that logs the filtered events
+async function handleLogs(logs) {
+    console.log(logs)
+}
+
+// Event listener that logs any errors that occur
+function handleError(error) {
+    console.error(`Error receiving new blocks: ${error}`);
+}
+
+subscribeToLogs();
+```
+
+
+## Use case
+
+A practical use case for `subscribe("logs")` is a DApp that continuously listens for new specific event logs and isolates certain fields for analytics purposes. This is useful, for example, to track events about a specific ERC-721 token.

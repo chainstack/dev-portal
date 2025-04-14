@@ -1,0 +1,188 @@
+---
+title: "Solana: Listening to pump.fun Migrations to Raydium"
+---
+
+**TLDR**
+* pump.fun tokens start on a bonding curve and later migrate to Raydium for traditional AMM trading.
+* Use the `check_boding_curve_status.py` script to see if a token’s curve is still active or completed.
+* Use the `listen_to_raydium_migration.py` script to track live migration events by decoding relevant on-chain transactions.
+* These tools help you adapt trading strategies when tokens move from pump.fun’s bonding curve to Raydium liquidity pools.
+
+## Main article
+
+For the full pump.fun bot, see [Solana: Creating a trading and sniping pump.fun bot](/docs/solana-creating-a-pumpfun-bot).
+
+See also [Solana: Listening to pump.fun token mint using only logsSubscribe](/docs/solana-listening-to-pumpfun-token-mint-using-only-logssubscribe).
+
+<Info>
+  ### V2 of the pump.fun bot
+
+  V2 of the pump.fun bot is in active development based on your feedback. It's an improved and usable version right from the start.
+
+  Use the [refactored/main-v2](https://github.com/chainstacklabs/pump-fun-bot/tree/refactored/main-v2) branch. And feel free to provide feedback through Issues.
+</Info>
+
+This article is an add-on for two scripts:
+
+<CardGroup>
+  <Card title="check_boding_curve_status.py" href="https://github.com/chainstacklabs/pump-fun-bot/blob/main/learning-examples/check_boding_curve_status.py" icon="angle-right" horizontal />
+  <Card title="listen_to_raydium_migration.py" href="https://github.com/chainstacklabs/pump-fun-bot/blob/main/learning-examples/listen_to_raydium_migration.py" icon="angle-right" horizontal />
+</CardGroup>
+
+This guide shows you how to track the lifecycle of pump.fun tokens from their initial bonding curve state through migration to Raydium using Python scripts.
+
+## Prerequisites
+
+<Check>
+  ### Get you own node endpoint today
+
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+  You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+* Clone the [pump-fun-bot GitHub repository](https://github.com/chainstacklabs/pump-fun-bot/)
+* Install the requirements `pip install -r requirements.txt`
+* Provide the node HTTP and WebSocket endpoints in `config.py`
+
+## Understanding pump.fun token migration
+
+Tokens on pump.fun start trading against a bonding curve—a mathematical formula that determines the token's price based on supply and demand. However, once certain conditions are met, the token "graduates" and migrates its liquidity to Raydium DEX.
+
+A token migrates to Raydium when:
+
+1. The bonding curve reaches completion status (tracked by the `complete` flag in the curve's state)
+2. The token has accumulated sufficient liquidity and trading volume
+3. The migration transaction is executed by the protocol
+
+After migration, trading moves from the bonding curve mechanism to Raydium's traditional AMM (Automated Market Maker) model. This transition is significant because:
+
+* Trading mechanics change from bonding curve to AMM
+* Liquidity becomes more flexible and can be added/removed by users
+* The token becomes accessible to the broader Raydium ecosystem
+
+## Monitoring tools
+
+This guide covers two essential scripts for tracking this migration process:
+
+1. `check_boding_curve_status.py` - Checks if a token is still on the bonding curve or ready for migration
+2. `listen_to_raydium_migration.py` - Monitors real-time migrations to Raydium
+
+### Checking bonding curve status
+
+The `check_boding_curve_status.py` script lets you check if a token's bonding curve is still active or has completed and is ready for Raydium migration.
+
+#### Usage
+
+<CodeGroup>
+  ```shell Shell
+  python check_boding_curve_status.py TOKEN_ADDRESS
+  ```
+</CodeGroup>
+
+Replace `TOKEN_ADDRESS` with the Solana address of the token you want to check. The script derives the associated bonding curve address from the token address that you provide and then makes a [getAccountInfo | Solana](/api-reference/solana_node_api/getAccountInfo) call to the bonding curve.
+
+#### Example output
+
+For an active bonding curve:
+
+```
+Token Status:
+--------------------------------------------------
+Token Mint:              TokenAddressHere...
+Associated Bonding Curve: BondingCurveAddressHere...
+Bump Seed:               255
+--------------------------------------------------
+
+Bonding Curve Status:
+--------------------------------------------------
+Completion Status: Not Completed
+--------------------------------------------------
+```
+
+For a completed bonding curve:
+
+<CodeGroup>
+  ```shell Shell
+  Token Status:
+  --------------------------------------------------
+  Token Mint:              TokenAddressHere...
+  Associated Bonding Curve: BondingCurveAddressHere...
+  Bump Seed:               255
+  --------------------------------------------------
+
+  Bonding Curve Status:
+  --------------------------------------------------
+  Completion Status: Completed
+
+  Note: This bonding curve has completed and liquidity has been migrated to Raydium.
+  --------------------------------------------------
+  ```
+</CodeGroup>
+
+### Monitoring Raydium migrations
+
+The `listen_to_raydium_migration.py` script uses WebSocket subscriptions to monitor real-time migrations of tokens from pump.fun to Raydium DEX.
+
+The pump.fun migration account is [39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg](https://solscan.io/account/39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg).
+
+This is the account that—on the token bonding curve completion status—adds the token to a Raydium's AMM pool with the token's liquidity. This essentially constitutes token migration from pump.fun to Raydium.
+
+Our script uses the [blockSubscribe | Solana](/api-reference/blocksubscribe-solana) method over WebSocket by listening to all the transactions involving the migration account `39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg`, then decodes the transactions using the Raydium IDL `raydium_amm_idl.json` that's also in our [pump-fun-bot repository](https://github.com/chainstacklabs/pump-fun-bot) . After decoding the data, it prints what we actually need—the address of the pump.fun token that migrated and the new liquidity pool address for this token on Raydium.
+
+#### Usage
+
+<CodeGroup>
+  ```shell Shell
+  python listen_to_raydium_migration.py
+  ```
+</CodeGroup>
+
+#### Example output
+
+When a migration occurs:
+
+<CodeGroup>
+  ```shell Shell
+  Found initialize2 instruction!
+
+  Signature: 5KtPn3...
+  Token Address: TokenAddressHere...
+  Liquidity Address: LiquidityPoolAddressHere...
+  ==================================================
+  ```
+</CodeGroup>
+
+## Use cases
+
+These monitoring tools are particularly useful for:
+
+* Traders who need to adjust their strategies when trading moves to Raydium
+* Arbitrage bots that operate differently on bonding curves vs AMMs
+* Market makers looking to provide liquidity as soon as tokens migrate
+* Sniping successful tokens on Raydium early
+* Analytics tools tracking the pump.fun ecosystem
+
+## Conclusion
+
+Understanding and monitoring the token migration process from pump.fun to Raydium is crucial for trading strategies. These tools help you stay informed about the state and location of token liquidity, allowing you to adapt your trading approach accordingly.
+
+For the complete trading bot implementation, see [Creating a pump.fun trading bot](/docs/solana-creating-a-pumpfun-bot).
+
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

@@ -1,0 +1,176 @@
+---
+title: "Geth vs Erigon: Deep Dive into RPC methods on Ethereum Clients"
+---
+
+**TLDR**
+* Geth and Erigon share most Ethereum JSON-RPC API calls but differ in some advanced functionality.
+* Geth provides a few extra methods for mining and wallet-bound calls (e.g., eth\_sendTransaction), while Erigon supports others like eth\_getBlockReceipts and unique debugging/trace methods.
+* Identify which client your provider runs to ensure compatibility and avoid missing methods.
+* Explore the Chainstack API reference for more detail and use web3\_clientVersion to check your client programmatically.
+
+## Main article
+
+The JSON-RPC API is an essential tool for blockchain development as it provides a standardized way to interact with blockchain networks through HTTP or WebSocket connections. At the time of writing, there are seven clients for Ethereum, which is a great achievement in terms of decentralization. However, this can cause a problem for developers because different clients often implement different RPC API sets, leading to confusion.
+
+For example, if your DApp was developed on Erigon and you plan to switch to a new RPC provider running Geth, it's possible that the core API used in your application won't be available on the new node. To avoid compatibility issues, it's important to identify the current client you're using and the available API methods.
+
+This article compares the available RPC APIs for two Ethereum clients, Erigon and Geth, that are available on Chainstack. It is important to note that all tests were performed using **Erigon version 2.42** and **Geth version 1.11.5**, which were the most up-to-date versions as of May 2023. It is possible that there may be changes in the future.
+
+### Find what client your node is running
+
+With Chainstack, you can easily view this information in the console. However, if you prefer a programmatic approach, consider using the `web3_clientVersion` method. This RPC method returns the client version as a response.
+
+Discover how to use `web3_clientVersion` and explore code examples in the [Ethereum node API reference](/api-reference/ethereum_node_api/client_info/web3_clientVersion).
+
+## Standard Ethereum JSON RPC methods available
+
+The Ethereum JSON-RPC is a standard collection of methods that all execution clients must implement. The detailed specification can be found in the [Ethereum documentation](https://ethereum.github.io/execution-apis/api-documentation/).
+
+Most of the standard methods are implemented in both Geth and Erigon. However, the Erigon team has either deprecated or not implemented a few of them.
+
+### Methods available on both Erigon and Geth
+
+|                           |                                        |                                          |                                 |
+| ------------------------- | -------------------------------------- | ---------------------------------------- | ------------------------------- |
+| eth\_blockNumber          | eth\_syncing                           | eth\_gasPrice                            | eth\_maxPriorityFeePerGas       |
+| eth\_feeHistory           | eth\_getBlockTransactionCountByHash    | eth\_getUncleCountByBlockHash            | eth\_getUncleCountByBlockNumber |
+| eth\_getTransactionByHash | eth\_getTransactionByBlockHashAndIndex | eth\_getTransactionByBlockNumberAndIndex | eth\_getTransactionReceipt      |
+| eth\_estimateGas          | eth\_getBalance                        | eth\_getCode                             | eth\_getTransactionCount        |
+| eth\_getStorageAt         | eth\_call                              | eth\_createAccessList                    | eth\_newFilter                  |
+| eth\_newBlockFilter       | eth\_newPendingTransactionFilter       | eth\_getFilterLogs                       | eth\_getFilterChanges           |
+| eth\_uninstallFilter      | eth\_getLogs                           | eth\_sendRawTransaction                  |                                 |
+
+<Info>
+  Check the Chainstack [Ethereum node API reference](/api-reference/ethereum-getting-started) to learn how these methods work.
+</Info>
+
+### Standard methods available on Geth only
+
+|                      |                      |                          |                       |
+| -------------------- | -------------------- | ------------------------ | --------------------- |
+| eth\_accounts        | eth\_sendTransaction | eth\_sign                | eth\_signTransaction  |
+| eth\_mining          | eth\_hashrate        | eth\_getWork             | eth\_submitWork       |
+| eth\_submitHashrate  | eth\_sign            | eth\_signTransaction     | eth\_getProof         |
+| eth\_sendTransaction | debug\_getRawBlock   | debug\_getRawTransaction | debug\_getRawReceipts |
+| debug\_getRawHeader  | debug\_getBadBlocks  |                          |                       |
+
+The following methods require the client to be associated with a wallet address. They are either deprecated or not implemented by Erigon.
+
+* eth\_accounts
+* eth\_sendTransaction
+* eth\_sign
+* eth\_signTransaction
+
+The following methods are only available in miner mode:
+
+* eth\_mining
+* eth\_hashrate
+* eth\_getWork
+* eth\_submitWork
+* eth\_submitHashrate
+
+## Non-standard methods available on both Geth and Erigon
+
+In addition to the standard methods, Geth and Erigon implement their own RPC methods. Erigon was originally a fork of Geth, so both clients share the majority of the RPC APIs.
+
+|                                           |                                             |                                  |
+| ----------------------------------------- | ------------------------------------------- | -------------------------------- |
+| eth\_subscribe                            | eth\_unsubscribe                            |                                  |
+| web3\_clientVersion                       | web3\_sha3                                  |                                  |
+| txpool\_content                           | txpool\_status                              |                                  |
+| net\_listening                            | net\_peerCount                              | net\_version                     |
+| eth\_getUncleByBlockHashAndIndex          | eth\_getUncleByBlockNumberAndIndex          | eth\_getRawTransactionByHash     |
+| eth\_getRawTransactionByBlockHashAndIndex | eth\_getRawTransactionByBlockNumberAndIndex | eth\_createAccessList            |
+| debug\_accountRange                       | debug\_getModifiedAccountsByNumber          | debug\_getModifiedAccountsByHash |
+| debug\_traceBlockByNumber                 | debug\_traceBlockByHash                     | debug\_traceTransaction          |
+| debug\_storageRangeAt                     | debug\_traceCall                            |                                  |
+
+The `eth_subscribe` and `eth_unsubscribe` RPC methods, available exclusively through WebSocket Secure (WSS), allow subscribing to real-time data streams for events like new blocks and pending transactions.
+
+The `web3_clientVersion` function delivers client information, while `web3_sha3` calculates the Keccak hash for a given string.
+
+Utilize `txpool_content` and `txpool_status` RPC methods for accessing transactions in the mempool.
+
+RPC methods within the `net` namespace facilitate the monitoring of a node's P2P status.
+
+Leveraging non-standard methods in the `eth` namespace is advantageous for obtaining extra information that is not accessible via standard RPC methods but is highly valuable for developers.
+
+The `debug` methods are designed for advanced users and fulfill a range of purposes, including gathering execution traces for single or multiple transactions.
+
+### Non-standard methods available on Geth only
+
+|                                    |                             |                       |                                 |
+| ---------------------------------- | --------------------------- | --------------------- | ------------------------------- |
+| txpool\_contentFrom                | txpool\_inspect             |                       |                                 |
+| debug\_backtraceAt                 | debug\_blockProfile         | debug\_chaindbCompact | debug\_chaindbProperty          |
+| debug\_cpuProfile                  | debug\_dbAncient            | debug\_dbAncients     | debug\_dbGet                    |
+| debug\_dumpBlock                   | debug\_freeOSMemory         | debug\_freezeClient   | debug\_gcStats                  |
+| debug\_getAccessibleState          | debug\_getBadBlocks         | debug\_getRawBlock    | debug\_getRawHeader             |
+| debug\_getRawTransaction           | debug\_getRawReceipts       | debug\_goTrace        | debug\_intermediateRoots        |
+| debug\_memStats                    | debug\_mutexProfile         | debug\_preimage       | debug\_printBlock               |
+| debug\_seedHash                    | debug\_setBlockProfileRate  | debug\_setGCPercent   | debug\_setHead                  |
+| debug\_setMutexProfileFraction     | debug\_setTrieFlushInterval | debug\_stacks         | debug\_standardTraceBlockToFile |
+| debug\_standardTraceBadBlockToFile | debug\_startCPUProfile      | debug\_startGoTrace   | debug\_stopCPUProfile           |
+| debug\_stopGoTrace                 | debug\_traceBadBlock        | debug\_traceBlock     | debug\_traceBlockFromFile       |
+| debug\_traceChain                  | debug\_verbosity            | debug\_vmodule        | debug\_writeBlockProfile        |
+| debug\_writeMemProfile             | debug\_writeMutexProfile    |                       |                                 |
+
+Geth provides two additional methods in the `txpool` namespace: `txpool_contentFrom` and `txpool_inspect`. `txpool_contentFrom` retrieves the transactions contained within the txpool, and `txpool_inspect` lists a textual summary of all transactions.
+
+In addition, Geth exposes many execution-time node tuning through the debug namespace. Some of these methods are destructive to the node itself so it should be used with caution. For example:
+
+* `debug_freezeClient` forces a temporary client freeze.
+* `debug_setHead` sets the current head of the local chain by block number.
+* `debug_setTrieFlushInterval` configures how often in-memory state tries are persisted to disk. If this value is set to 0, the node will essentially turn into an archive node.
+
+Geth also provides handy trace methods in the `debug` namespace. If you are interested in how they work, the guide [Deep Dive into Ethereum debug\_trace APIs](https://chainstack.com/deep-dive-into-ethereum-trace-apis/) may be useful for you.
+
+### Non-standard methods available on Erigon only
+
+|                          |                                     |                           |                                |
+| ------------------------ | ----------------------------------- | ------------------------- | ------------------------------ |
+| eth\_getBlockReceipts    | eth\_protocolVersion                | eth\_callMany             | eth\_callBundle                |
+| debug\_accountAt         | debug\_traceCallMany                |                           |                                |
+| trace\_call              | trace\_callMany                     | trace\_rawTransaction     | trace\_replayBlockTransactions |
+| trace\_replayTransaction | trace\_block                        | trace\_filter             | trace\_get                     |
+| trace\_transaction       |                                     |                           |                                |
+| erigon\_getHeaderByHash  | erigon\_getBlockReceiptsByBlockHash | erigon\_getHeaderByNumber | erigon\_getLogsByHash          |
+| erigon\_forks            | erigon\_getBlockByTimestamp         | erigon\_BlockNumber       | erigon\_getLatestLogs          |
+
+Erigon inherits some debug and trace methods from Nethermind and Flashbot, which provides more possibilities than a Geth node.
+
+For example, `debug_traceCallMany` and `trace_callMany` are handy methods that don't exist on Geth. These two methods perform the same function, allowing users to send multiple transactions in a batch to oversee their execution. The transactions are executed in sequence, with each transaction depending on the resulting state of the previous transactions.
+
+## Last but not least
+
+If you would like to learn more about how these methods work in detail, you can visit Chainstack’s [API documentation](/api-reference/ethereum-getting-started). Additionally, there is a [Chainstack Postman collection](/api-reference/ethereum-rpc-methods-postman-collection) for you to try out these RPC methods.
+
+Hope this article is helpful for you. If you have any questions, feel free to ping me on my social media or in Chainstack's [Telegram](https://t.me/chainstack) or [Discord](https://discord.gg/Cymtg2f7pX).
+
+Happy coding, cheers!
+
+<Info>
+  ### See also
+
+  <CardGroup>
+    <Card title="Tracking some Bored Apes: The Ethereum event logs tutorial" href="/docs/tracking-some-bored-apes-the-ethereum-event-logs-tutorial" icon="angle-right" horizontal />
+    <Card title="Uncovering the power of eth\_getBlockReceipts" href="/docs/uncovering-the-power-of-ethgetblockreceipts" icon="angle-right" horizontal />
+    <Card title="Expanding your blockchain horizons: The eth\_getBlockReceipts emulator" href="/docs/expanding-your-blockchain-horizons-the-eth_getblockreceipts-emulator" icon="angle-right" horizontal />
+    <Card title="Deep dive into Merkle proofs and eth\_getProof" href="/docs/deep-dive-into-merkle-proofs-and-eth-getproof-ethereum-rpc-method" icon="angle-right" horizontal />
+    <Card title="Ethereum logs tutorial series: Logs and filters" href="/docs/ethereum-logs-tutorial-series-logs-and-filters" icon="angle-right" horizontal />
+  </CardGroup>
+</Info>
+
+### About the author
+
+<CardGroup>
+  <Card title="Wuzhong Zhu" img="/images/docs/profile_images/1548860905064017921/xCKUgveS_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on Ethereum, zkEVMs, The Graph protocol, and IPFS
+
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/wuzhongzhu)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/wuzhong-zhu-44563589/)
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/wuzhong-zhu)
+  </Card>
+</CardGroup>

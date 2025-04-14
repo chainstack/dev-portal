@@ -1,0 +1,333 @@
+---
+title: "Mastering Custom JavaScript Tracing for Ethereum Virtual Machine"
+---
+
+**TLDR**
+* Provides an overview of custom JavaScript tracers on Ethereum (Geth or Erigon) for advanced debugging and selective data collection.
+* Demonstrates using JS code with debug\_traceTransaction (and others) to log or transform EVM execution details.
+* Explains how to flatten tracer scripts into JSON-RPC payloads, including a Node.js example to automate string conversion.
+* Highlights key methods (step, enter, exit, fault, result) for capturing and returning custom trace data.
+
+## Main article
+
+<Info>
+  ### Available on customized dedicated nodes only
+
+  Custom JavaScript tracers are available as customized solutions on the [Enterprise plan](https://chainstack.com/pricing/) on [dedicated nodes](/docs/dedicated-node).
+</Info>
+
+If you've landed on this article, it's likely that you're already acquainted with the concept of tracing. If not, we recommend starting with our [Deep dive into Ethereum debug\_trace APIs](https://chainstack.com/deep-dive-into-ethereum-trace-apis/) for a comprehensive understanding of tracing and the prevalent EVM tracing methods.
+
+Tracing, in the context of Ethereum, refers to the process where Ethereum clients execute or re-execute a transaction or block, gathering crucial information produced during the execution. This process serves as an invaluable tool for debugging, performance analysis, and a multitude of other applications.
+
+Ethereum provides built-in tracing functionality through its JSON-RPC API. There are three types of tracing supported by Ethereum:
+
+<CardGroup>
+  <Card title="Basic tracing" href="https://geth.ethereum.org/docs/developers/evm-tracing/basic-traces" icon="angle-right" iconType="solid" horizontal />
+  <Card title="Built-in tracer tracing" href="https://geth.ethereum.org/docs/developers/evm-tracing/built-in-tracers" icon="angle-right" iconType="solid" horizontal />
+  <Card title="Custom tracing" href="https://geth.ethereum.org/docs/developers/evm-tracing/custom-tracer" icon="angle-right" iconType="solid" horizontal />
+</CardGroup>
+
+<Info>
+  You can also find details about [built-in tracers](/api-reference/ethereum-debug-trace-rpc-methods#pre-built-javascript-based-tracers) and [custom tracing](/api-reference/ethereum_node_api/debug_and_trace/custom_js_tracer) in the Chainstack documentation.
+</Info>
+
+**Basic tracing** and **Built-in tracers** serve as powerful debugging tools. They generate all the crucial data for most general purposes. Nevertheless, there can be situations that demand more specific details to align with particular requirements, or sometimes the standard tracer output too much data when only something specific is needed. This is where custom JavaScript tracing comes into play, allowing for enhanced customization of the tracing output.
+
+This article will discuss custom JS tracing, which is one of the custom tracing methods that Ethereum supports.
+
+## What is custom JavaScript tracing?
+
+Custom JavaScript tracing enables developers to create custom tracing scripts that can be executed on the Ethereum node. It is available on both Geth and Erigon.
+
+<Info>
+  For an in-depth understanding of the RPC methods available on Geth and Erigon, we invite you to explore our comprehensive guide [Geth vs Erigon: Deep dive into RPC methods on Ethereum clients](/docs/geth-vs-erigon-deep-dive-into-rpc-methods-on-ethereum-clients).
+</Info>
+
+Users can use custom JavaScript tracing in conjunction with the following popular tracing methods:
+<CardGroup>
+<Card title="debug_traceCall" href="/api-reference/ethereum_node_api/debug_and_trace/debug_traceCall" icon="angle-right" iconType="solid" horizontal />
+<Card title="debug_traceTransaction" href="/api-reference/ethereum_node_api/debug_and_trace/debug_traceTransaction" icon="angle-right" iconType="solid" horizontal />
+<Card title="debug_traceBlockByHash" href="/api-reference/ethereum_node_api/debug_and_trace/debug_traceBlockByHash" icon="angle-right" iconType="solid" horizontal />
+<Card title="debug_traceBlockByNumber" href="/api-reference/ethereum_node_api/debug_and_trace/debug_traceBlockByNumber" icon="angle-right" iconType="solid" horizontal />
+</CardGroup>
+Please note that JS tracing is a feature that can be disabled, and not all nodes or RPC providers support JS tracing. The simplest way to test if your endpoint supports JS tracing is to submit a sample request to the endpoint.
+
+To use JS tracing the vanilla way, pass the JS code to the "tracer" as a parameter and send it over an HTTPS JSON request. Below are some examples of using JS tracing.
+
+The following sample requests are taken from [the official Geth documentation](https://geth.ethereum.org/docs/developers/evm-tracing/custom-tracer). The code simply finds all the stack positions for all "CALL" opcodes using the `log.stack.peek` function.
+
+### Example with the `debug_traceCall` method
+
+In this case, the custom tracer object encompasses JavaScript code that will execute at every stage of the Ethereum virtual machine (EVM) during transaction execution. This specific tracer captures the first value from the EVM's stack each time a `CALL` opcode is detected, storing the collected values in the `data` array.
+
+<CodeGroup>
+  ```bash cURL
+  curl --location 'YOUR_CHAINSTACK_ENDPOINT' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "jsonrpc": "2.0",
+    "method": "debug_traceCall",
+    "params": [
+  		{
+  	    "from": "0xdeadbeef29292929192939494959594933929292",
+  	    "to": "0xde929f939d939d393f939393f93939f393929023",
+  	    "gas": "0x7a120",
+  	    "data":"0xf00d4b5d00000000000000000000000001291230982139282304923482304912923823920000000000000000000000001293123098123928310239129839291010293810"
+  	  },
+  	  "0x7765",
+  	  {
+  	      "tracer":"{data: [], fault: function(log) {}, step: function(log) { if(log.op.toString() == '\''CALL'\'') this.data.push(log.stack.peek(0)); }, result: function() { return this.data; }}"
+  	  }
+    ],
+    "id": 1
+  }'
+  ```
+</CodeGroup>
+
+### Example with the `debug_traceTransaction` method
+
+The custom tracer here checks each operation (step) in the transaction, and if the operation is a `CALL`, it pushes the top item on the stack (`log.stack.peek(0)`) into the `data` array. The result of the tracer is this 'data' array.
+
+<CodeGroup>
+  ```bash cURL
+  curl --location 'YOUR_CHAINSTACK_ENDPOINT' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "jsonrpc": "2.0",
+    "method": "debug_traceTransaction",
+    "params": ["0x2595b06198245b5b2c92b1316c5c5e92edac0a611250ae53f8961468a73a55a2",
+    {
+        "tracer":"{data: [], fault: function(log) {}, step: function(log) { if(log.op.toString() == '\''CALL'\'') this.data.push(log.stack.peek(0)); }, result: function() { return this.data; }}"
+    }],
+    "id": 1
+  }'
+  ```
+</CodeGroup>
+
+If running those examples returns an error, it means your node does not support custom JS tracing.
+
+## node.js example
+
+In theory, it's possible to use custom JavaScript (JS) tracing solely through an HTTPS endpoint. However, this approach carries numerous restrictions. If your objective is to exclusively use HTTP requests, there are certain considerations you must take into account:
+
+* When using a JSON object in request parameters, double quote strings are not supported. Code like `log.op.toString() == "CALL"` needs to be converted to single quotes `log.op.toString() == 'CALL'` before using it as a parameter.
+* Simplify the code by flattening it and eliminating all comments.
+
+The [official example](https://geth.ethereum.org/docs/developers/evm-tracing/javascript-tutorial) demonstrates the construction of tracer objects as strings.
+
+<CodeGroup>
+  ```javascript Javascript
+  tracer = function (tx) {
+    return debug.traceTransaction(tx, {
+      tracer:
+        '{' +
+        'retVal: [],' +
+        'step: function(log,db) {this.retVal.push(log.getPC() + ":" + log.op.toString())},' +
+        'fault: function(log,db) {this.retVal.push("FAULT: " + JSON.stringify(log))},' +
+        'result: function(ctx,db) {return this.retVal}' +
+        '}'
+    }); // return debug.traceTransaction ...
+  }; // tracer = function ...
+  ```
+</CodeGroup>
+
+This is not a scalable approach and is incompatible with integrated development environments (IDEs) like Visual Studio Code. It also requires reformatting the code into a lengthy string every time you want to make changes before submitting it to the server.
+
+In the next section, we'll develop a simple JavaScript program that handles the process in a more elegant way. This code will handle a JavaScript tracer object, automating its transformation into the requisite tracer string.
+
+## Prerequisites
+
+To follow along with this tutorial, ensure you have the following prerequisites:
+
+* An [Ethereum node that supports debug and trace API](/docs/debug-and-trace-apis), for example, Chainstack's node running on Erigon
+* [node.js](https://nodejs.org/en/download) and npm are installed on your system.
+
+### Step 1: Initialize
+
+In this example, we will use node.js as our primary platform. Create an empty project directory and initialize the project using the following command:
+
+<CodeGroup>
+  ```shell Shell
+  npm init
+  ```
+</CodeGroup>
+
+### Step 2: Install dependencies
+
+To communicate with a server over an HTTP connection, install the `node-fetch` package.
+
+<CodeGroup>
+  ```shell Shell
+  npm install node-fetch@2
+  ```
+</CodeGroup>
+
+### Step 3: Define the tracing script
+
+We will define a custom tracing script that outputs the execution trace of a smart contract.
+
+First, create a new JS file called `trace.js`:
+
+<CodeGroup>
+  ```shell Shell
+  echo $null >> trace.js
+  ```
+</CodeGroup>
+
+Paste the following code in `trace.js`:
+
+<CodeGroup>
+  ```javascript trace.js
+  const fetch = require("node-fetch");
+  const url = "YOUR_CHAINSTACK_ENDPOINT"
+
+  tracer = {
+      retVal: [],
+      afterSload: false,
+      callStack: [],
+      byte2Hex: function(byte) {
+          if (byte < 0x10)
+              return "0" + byte.toString(16);
+          return byte.toString(16);
+      },
+      array2Hex: function(arr) {
+          let retVal = "";
+          for (let i = 0; i < arr.length; i++)
+              retVal += this.byte2Hex(arr[i]);
+          return retVal;
+      },
+      getAddr: function(log) {
+          return this.array2Hex(log.contract.getAddress());
+      },
+      step: function(log, db) {
+          let opcode = log.op.toNumber();
+          // SLOAD
+          if (opcode == 0x54) {
+              this.retVal.push(log.getPC() + ": SLOAD " +
+                  this.getAddr(log) + ":" +
+                  log.stack.peek(0).toString(16));
+              this.afterSload = true;
+          }
+          // SLOAD Result
+          if (this.afterSload) {
+              this.retVal.push("    Result: " +
+                  log.stack.peek(0).toString(16));
+              this.afterSload = false;
+          }
+          // SSTORE
+          if (opcode == 0x55)
+              this.retVal.push(log.getPC() + ": SSTORE " +
+                  this.getAddr(log) + ":" +
+                  log.stack.peek(0).toString(16) + " <- " +
+                  log.stack.peek(1).toString(16));
+          // End of step
+      },
+      fault: function(log, db) { this.retVal.push("FAULT: " + JSON.stringify(log)) },
+      result: function(ctx, db) { return this.retVal }
+  };
+
+  // Flatten tracer's code
+  function getTracerString(tracer) {
+      result = "{"
+      for (property in tracer) {
+          if (typeof tracer[property] == "function")
+              result = result + property.toString() + ": " + tracer[property]
+          else
+              result = result + property.toString() + ": " + JSON.stringify(tracer[property])
+          result += ","
+      }
+      result += "}"
+
+      return result.replace(/"/g, "'")
+  }
+
+  async function main() {
+      const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+              "method": "debug_traceTransaction",
+              "params": ["0x2f1c5c2b44f771e942a8506148e256f94f1a464babc938ae0690c6e34cd79190", {
+                  "tracer": getTracerString(tracer)
+              }],
+              "id": 1,
+              "jsonrpc": "2.0"
+          }),
+      });
+
+      result = await response.json()
+      console.log(JSON.stringify(result));
+      console.log("***end***")
+  }
+
+  main()
+  ```
+</CodeGroup>
+
+To see the trace in action, add your Chainstack endpoint and run `node trace`.
+
+This example traces the contract creation code for USDT at transaction [0x2f1c5c2b44f771e942a8506148e256f94f1a464babc938ae0690c6e34cd79190](https://etherscan.io/tx/0x2f1c5c2b44f771e942a8506148e256f94f1a464babc938ae0690c6e34cd79190).
+
+## Understanding the code
+
+The main function runs a POST request with the `debug_traceTransaction` method on a transaction hash. The `getTracerString` function is used to convert the `tracer` object to a string representation. This is necessary because the `tracer` object must be passed as a string in the JSON-RPC request.
+
+The `tracer` object comes equipped with a suite of methods designed to process transaction details:
+
+* `byte2Hex` and `array2Hex` — these are our utility functions responsible for converting byte and array data into hexadecimal form.
+* `getAddr` — this function is used to extract the contract's address from the log.
+* `step` — invoked for every opcode (operation code) in the transaction, this method is crucial for tracking operations and documenting any modifications to storage. For clarity, `SLOAD` and `SSTORE` refer to EVM opcodes for data loading and storage.
+* `fault` — if an error or exception arises within the transaction, this method gets called and logs the error for record-keeping.
+* `result` — at the end of execution, this method provides an array with all the logs collected during the process.
+
+## How does JavaScript interact with Ethereum clients
+
+You may have observed that custom JavaScript tracing requires providing JavaScript code to the Ethereum client. But how does this work? The key lies in Ethereum clients' ability to execute JavaScript code, made possible through a JavaScript implementation written in the Go programming language.
+
+Let’s take Geth as an example, which uses [Goja](https://github.com/dop251/goja), which enables [JavaScript tracing on Geth](https://github.com/ethereum/go-ethereum/blob/9231770811cda0473a7fa4e2bccc95bf62aae634/eth/tracers/js/goja.go#L97).
+
+### What is Goja?
+
+Goja is an ECMAScript 5.1 (JavaScript) implementation in Go, offering the ability to run, manipulate, and test JavaScript within Go applications. It enables JavaScript scripting in a Go environment, interoperability with JavaScript code, and server-side rendering. When JavaScript tracing code is sent to Geth, Goja interprets it and executes it alongside the main program.
+
+### Custom JS tracing syntax
+
+To use JS tracing, you must define the following functions in your code:
+
+* `result` (mandatory) — defines what is returned to the RPC caller, and takes two arguments: `ctx` and `db`.
+* `fault` (mandatory) — is invoked when an error occurs during tracing, and takes two arguments: `log` and `db`. Information about the error can be obtained using the `log.getError()` method.
+* `setup` — is invoked once at the beginning when the tracer is being constructed. It takes in one argument, `config`, which is tracer-specific and allows users to pass in [options](https://geth.ethereum.org/docs/developers/evm-tracing/built-in-tracers#config) to the tracer.
+* `step` — is called for each execution step during tracing, and is the main execution function for JS tracing. It takes two arguments: `log` and `db`.
+* `enter` and `exit` (must be used in combination with each other) — are called when stepping in and out of an internal call. They are specifically called for the `CALL` and `CREATE` variants, as well as for the transfer implied by a `SELFDESTRUCT`. The `enter` function takes a `callFrame` object as an argument, and the `exit` function takes a `frameResult` object as an argument.
+
+To learn more about how these functions work, refer to [this official tutorial](https://geth.ethereum.org/docs/developers/evm-tracing/built-in-tracers#config).
+
+## Conclusion
+
+Custom JS tracing allows developers to create scripts that can be executed on the Ethereum node using popular methods like `debug_traceCall`, `debug_traceTransaction`, `debug_traceBlockByHash`, and `debug_traceBlockByHash`.
+
+The article provides practical examples of how to use custom JS tracing, including running sample requests to endpoints and implementing a custom tracer script using node.js, which serves as a more scalable approach compared to constructing tracer objects as strings.
+
+This concludes the tutorial. I hope you found it useful. Thank you for reading.
+
+If you have any questions, feel free to reach out to me on Chainstack's [Telegram](https://t.me/chainstack) or [Discord](https://discord.gg/Cymtg2f7pX) or on my social media.
+
+Cheers!
+
+### About the author
+
+<CardGroup>
+  <Card title="Wuzhong Zhu" img="/images/docs/profile_images/1548860905064017921/xCKUgveS_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on Ethereum, zkEVMs, The Graph protocol, and IPFS
+
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/wuzhongzhu)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/wuzhong-zhu-44563589/)
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/wuzhong-zhu)
+  </Card>
+</CardGroup>

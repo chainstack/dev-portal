@@ -1,0 +1,385 @@
+---
+title: "Filecoin: Deploy a Deal-Making Contract Using Hardhat"
+---
+
+<Warning>
+  ### Filecoin support is deprecated
+
+  Chainstack deprecated support for Filecoin nodes. This page here is for legacy and in case you may find it useful.
+</Warning>
+
+## Introduction
+
+This tutorial will show you how to deploy a deal-making smart contract on the Calibration Testnet. The Calibration Testnet supports the FEVM implementation.
+
+### Filecoin Virtual Machine and Filecoin EVM
+
+The **Filecoin Virtual Machine**, or FVM, serves as the backbone of the Filecoin network, providing a powerful runtime environment for the execution of smart contracts, known as **actors**. Actors can be written in Solidity and, in the future, in any language that compiles to WebAssembly, empowering developers to establish and enforce a set of rules to store and retrieve data on the Filecoin network.
+
+The FVM acts as a gatekeeper, ensuring the integrity of stored data and enforcing the terms of storage deals, such as data retention and retrieval times, making the Filecoin network a safe and reliable platform for decentralized data storage.
+
+The **Filecoin Ethereum Virtual Machine**, or FEVM, brings the power of the Ethereum Virtual Machine (EVM) to the Filecoin network. The FEVM is virtualized as a runtime layer on top of the Filecoin Virtual Machine, allowing for the execution of EVM smart contracts on the network.
+
+With the FEVM, developers can quickly and easily start writing actors on the Filecoin blockchain, utilizing all of the familiar tools, packages, and languages they are used to while having access to Filecoin's unique storage capabilities, opening up new possibilities and opportunities for DApp development.
+
+Follow the FEVM implementation progress on the [Filecoin docs](https://docs.filecoin.io/developers/smart-contracts/concepts/filecoin-evm/#fevm-and-native-fvm).
+
+### Filecoin actors
+
+In the Filecoin network, **actors** are a crucial component and play a role analogous to smart contracts in the Ethereum Virtual Machine. These actors are integral to the system's operations, as any change to the state of the Filecoin blockchain necessitates the initiation of an actor method invocation.
+
+The code that defines an actor is divided into various methods. When messages are sent to an actor, they include information specifying which method(s) to call and the input parameters for those methods. Moreover, actor code interacts with a runtime object that contains information about the overall state of the network, such as the current epoch, cryptographic signatures, and proof validations.
+
+Just like smart contracts on other blockchain platforms, actors in the Filecoin network must pay a gas fee. This fee, denominated in Filecoin's native cryptocurrency (FIL), is used to offset the cost of a transaction, which includes the network resources used to process the transaction.
+
+Every actor in the Filecoin network has several attributes associated with it: a Filecoin balance, a state pointer, a code that identifies its type, and a nonce, which tracks the number of messages sent by this actor.
+
+Actors in the Filecoin network fall into two categories:
+
+1. **Built-in actors** — these are pre-programmed actors that the Filecoin network team writes and deploys directly into the network. They come pre-installed and are designed to execute specific functions within the network. For instance, the `StorageMinerActor` is a built-in actor that handles storage mining operations and the collection of proofs.
+2. **User actors** — these are akin to smart contracts that developers can create and deploy on the Filecoin network via the FVM. User actors are developed by third-party developers and offer a broad spectrum of functionalities within the network. They provide the flexibility for developers to create custom solutions and applications on the Filecoin network.
+
+## Prerequisites
+
+* A Filecoin node
+* [Hardhat](https://hardhat.org/) to create and deploy contracts
+* [yarn installed](https://classic.yarnpkg.com/lang/en/docs/install/) on your machine
+
+## Overview
+
+To get from zero to an emitted deal proposal on the Calibration Testnet, do the following:
+
+<Steps>
+  <Step>
+  Get a Filecoin node endoint.
+  </Step>
+  <Step>
+  Clone the FEVM deal-making kit from Filecoin’s GitHub.
+  </Step>
+  <Step>
+  Fund your wallet from the Filecoin faucet.
+  </Step>
+  <Step>
+  Prepare files for storage on the Filecoin network, converting them in `.car`.
+  </Step>
+  <Step>
+  Deploy the deal-making contract on the Filecoin Calibration Testnet through a node.
+  </Step>
+  <Step>
+  Make a deal proposal for the Boost storage providers to pick up.
+  </Step>
+</Steps>
+<Info>
+  Add your [Filecoin endpoint to MetaMask](/docs/filecoin-tooling#metamask).
+</Info>
+
+### Clone the FEVM deal-making kit from Filecoin’s GitHub
+
+The Filecoin team has developed a comprehensive FEVM deal-making kit. This kit provides developers with a suite of tools designed to facilitate the deployment of deal-making smart contracts and the creation of deal proposals, thereby streamlining the process of engaging with the Filecoin network.
+
+Clone the [FEVM deal-making kit](https://github.com/filecoin-project/fvm-starter-kit-deal-making) repository. Note that this kit includes a submodule to convert files into `.car`; use the following command to clone the submodule as well:
+
+<CodeGroup>
+  ```shell Shell
+  git clone --recurse-submodules https://github.com/filecoin-project/fvm-starter-kit-deal-making.git
+  ```
+</CodeGroup>
+
+Move the terminal into the root folder of the project:
+
+<CodeGroup>
+  ```shell Shell
+  cd fvm-starter-kit-deal-making
+  ```
+</CodeGroup>
+
+Then install the dependencies running the yarn command:
+
+<CodeGroup>
+  ```shell Shell
+  yarn install
+  ```
+</CodeGroup>
+
+### Set up environment variables and network configuration
+
+In the `.env.example` file, delete its content and paste the following:
+
+<CodeGroup>
+  ```yaml .env.example
+  PRIVATE_KEY="YOUR_PRIVATE_KEY"
+  CALIBRATION_URL="FILECOIN_ENDPOINT"
+  CHAIN_ID:314159
+  ```
+</CodeGroup>
+
+Add the private key of the account you intend to use for deploying the smart contract and interacting with the network, along with the URL of the Calibration Testnet. This step is crucial for establishing a secure connection using environment variables.
+
+Finally, save the file and rename it to `.env`.
+
+### Fund your wallet from the Filecoin faucet
+
+Before proceeding further, ensure you have some testnet funds from the Filecoin faucet.
+
+* [Filecoin faucet](https://faucet.calibration.fildev.network/funds.html)
+
+Clicking the above link will direct you to a page where you can input your wallet address. This faucet accepts both Ethereum format addresses and Filecoin's f4address format.
+
+The FEVM deal-making kit comes equipped with a Hardhat task that allows for the conversion of an Ethereum address to an f4address using a private key. If you wish to determine your f4address, execute the command below after configuring your private key in the `.env` file.
+
+<CodeGroup>
+  ```shell Shell
+  yarn hardhat get-address
+  ```
+</CodeGroup>
+
+You will receive a response like the following:
+
+<CodeGroup>
+  ```shell Shell
+  Ethereum address (this addresss should work for most tools): 0x8f8e7012F8F974707A8F11C7cfFC5d45EfF5c2Ae
+  f4address (also known as t4 address on testnets): f410fr6hhaexy7f2ha6upchd477c5ixx7lqvoim54aeq
+  ```
+</CodeGroup>
+
+You can input either the Ethereum address or the f4address into the faucet. The faucet will provide a message ID. This ID can be used in the [Filecoin Explorer](https://calibration.filscout.com/en) to view the details of the transaction.
+
+### Prepare files for storage on the Filecoin network
+
+Files intended for upload to the Filecoin network must be in the `.car` format. Prior to proposing a deal, these files need to be converted, and certain necessary information must be obtained. The most straightforward method to accomplish this is by utilizing the [FVM Data Depot](https://data.lighthouse.storage/) page, which we will explore in this tutorial. Alternatively, you can use the included submodule in the repository to generate `.car` files. Instructions for this process can be found within the [repository](https://github.com/filecoin-project/fvm-starter-kit-deal-making#option-b-use-the-generate-car-tool-locally).
+
+Login into the FVM Data Depot page and click **Upload New File**. Once the process is done, you can access the page with the information we’ll need. To propose a deal, we will need the following:
+
+* **Piece CID**
+* **Piece Size**
+* **CAR Size**
+* **URL**
+
+### Edit `hardhat.config.js`
+
+Before proceeding with the contract deployment, it is necessary to modify the config file in order to incorporate the Calibration endpoint from the environment variables.
+
+To accomplish this, please follow the steps below:
+
+1. Locate the hardhat.config.js file.
+2. Remove all existing content from the file.
+3. Copy and paste the following code into the hardhat.config.js file:
+
+```
+require("@nomicfoundation/hardhat-toolbox")
+require("hardhat-deploy")
+require("hardhat-deploy-ethers")
+require("./tasks")
+require("dotenv").config()
+
+const PRIVATE_KEY = process.env.PRIVATE_KEY
+/** @type import('hardhat/config').HardhatUserConfig */
+module.exports = {
+    solidity: {
+        version: "0.8.17",
+        settings: {
+          optimizer: {
+            enabled: true,
+            runs: 1000,
+            details: { yul: false },
+          },
+        },
+      },
+    defaultNetwork: "Calibration",
+    networks: {
+        Calibration: {
+            chainId: process.env.CHAIN_ID,
+            url: process.env.CALIBRATION_URL,
+            accounts: [PRIVATE_KEY],
+        },
+        FilecoinMainnet: {
+            chainId: 314,
+            url: "https://api.node.glif.io",
+            accounts: [PRIVATE_KEY],
+        },
+    },
+    paths: {
+        sources: "./contracts",
+        tests: "./test",
+        cache: "./cache",
+        artifacts: "./artifacts",
+    },
+}
+```
+
+This setup will pick up the Calibration endpoint from the environment variables.
+
+### Deploy the deal-making contract on the Filecoin Calibration Testnet
+
+Now it’s time to deploy the smart contract, which you can find in the `contracts` directory. You will be deploying the `DealClient.sol` smart contract.
+
+Here is a high-level overview of the contract:
+
+1. **Imports and structs**. The contract imports several libraries and contracts, including types and utilities, from the `@zondax/filecoin-solidity` package. It also defines several structs to model deal requests and extra parameters associated with these requests.
+2. **DealClient contract**. The main contract, `DealClient`, is designed to facilitate the creation and management of storage deals on the Filecoin network. It includes several mappings to keep track of deal requests, piece requests, piece providers, piece deals, and piece statuses.
+3. **Deal proposal creation**. The `makeDealProposal` function allows the contract owner to create a new deal proposal. The proposal is stored in the `dealRequests` array, and various mappings are updated to track the new proposal.
+4. **Deal proposal retrieval**. The `getDealProposal` function allows anyone to retrieve a deal proposal given its ID. It returns a CBOR-encoded representation of the proposal.
+5. **Deal authentication and notification**. The `authenticateMessage` and `dealNotify` functions are designed to be called by the Filecoin market actor as part of the deal publishing process. They validate the deal proposal and update the contract's state to reflect the published deal.
+6. **Deal activation status**. The `updateActivationStatus` function can be called to retrieve the activation status of a deal and update the contract's state accordingly.
+7. **Balance management**. The `addBalance` and `withdrawBalance` functions allow the contract owner to add funds to the storage market actor's escrow and withdraw funds from it.
+8. **DataCap reception**. The `receiveDataCap` function is designed to be called by the Filecoin datacap actor. It emits an event to signal that datacap has been received.
+9. **Filecoin method handling**. The `handle_filecoin_method` function is a universal entry point for calls coming from built-in Filecoin actors. It dispatches these calls to the appropriate function based on the method number.
+
+The contract is deployed by the `0_deploy.js` script in the `deploy` directory. This is a standard Hardhat deploying script, and it will work to deploy your contract. If you want to also convert the new contract address to f4address to find it in the explorer, as it does not support Ethereum addresses, delete the code from the deploy file and paste the following:
+
+<CodeGroup>
+  ```javascript 0_deploy.js
+  require("hardhat-deploy")
+  require("hardhat-deploy-ethers")
+  const fa = require("@glif/filecoin-address");
+
+  const { networkConfig } = require("../helper-hardhat-config")
+
+  const private_key = network.config.accounts[0]
+  const wallet = new ethers.Wallet(private_key, ethers.provider)
+
+  module.exports = async ({ deployments }) => {
+      console.log("Wallet Ethereum Address:", wallet.address)
+
+      //deploy DealClient
+      const DealClient = await ethers.getContractFactory('DealClient', wallet);
+      console.log('Deploying DealClient...');
+      const dc = await DealClient.deploy();
+      await dc.deployed()
+
+       //Convert Ethereum address to f4 address
+      const f4Address = fa.newDelegatedEthAddress(dc.address).toString();
+      console.log('DealClient deployed to:', dc.address);
+      console.log('f4Address:', f4Address);
+
+
+  }
+  ```
+</CodeGroup>
+
+This code only adds a line to convert the Ethereum address to f4address, which you can use to find the contract in the [Filecoin explorer](https://calibration.filscout.com/en).
+
+Run the following command to deploy the `DealClient` smart contract:
+
+<CodeGroup>
+  ```shell Shell
+  yarn hardhat deploy
+  ```
+</CodeGroup>
+
+The console will return something similar to the following:
+
+<CodeGroup>
+  ```bash Bash
+
+  Wallet Ethereum Address: 0x8f8e7012F8F974707A8F11C7cfFC5d45EfF5c2Ae
+  Deploying DealClient...
+  DealClient deployed to: 0x702E0755450aFb6A72DbE3cAD1fb47BaF3AC525C
+  f4Address: f410foaxaovkfbl5wu4w34pfnd62hxlz2yus4fdk622a
+  ```
+</CodeGroup>
+
+Now you can find the smart contract you deployed in the [Filecoin explorer](https://calibration.filscout.com/en).
+
+### Make a deal proposal
+
+Before invoking the `makeDealProposal` function from the smart contract, it's important to understand how the payload is constructed and the various parameters involved. To this end, you'll find a struct named `DealRequest` that outlines these parameters.
+
+The `DealRequest` struct looks like this:
+
+<CodeGroup>
+  ```solidity DealRequest
+  /*
+   * The DealRequest struct represents a user's request for this contract to initiate a deal.
+   * This structure is designed in alignment with Filecoin's Deal Proposal, with the exception
+   * of the provider field. The provider is omitted because any provider can respond to a deal
+   * broadcast by this contract.
+   */
+
+  struct DealRequest {
+    bytes piece_cid;
+    uint64 piece_size;
+    bool verified_deal;
+    string label;
+    int64 start_epoch;
+    int64 end_epoch;
+    uint256 storage_price_per_epoch;
+    uint256 provider_collateral;
+    uint256 client_collateral;
+  	uint64 extra_params_version;
+    ExtraParamsV1 extra_params;
+  }
+  ```
+</CodeGroup>
+
+Let’s go over the parameter:
+
+* `piece_cid` — a unique identifier of the piece obtained when converting the file to `.car`.
+
+* `piece_size` — represents the size of the piece in bytes.
+
+* `verified_deal` — indicates whether the deal has been allocated `DataCap` or not. `DataCap` boosts the "quality-adjusted power" of storage providers by a factor of 10, resulting in better block rewards. Notaries receive batches of `DataCap` that they can distribute to clients. `DataCap` is consumed when used for making storage deals.
+
+* `label` — refers to the `DataCID` obtained during the conversion of the file to `.car`.
+
+* `start_epoch` — represents the epoch at which you want the storage to begin.
+
+* `end_epoch` — signifies the epoch at which you want the storage to conclude.
+
+* `storage_price_per_epoch` — the price offered per epoch in `attoFil`, similar to wei in Ethereum. This price corresponds to the cost per gigabyte of storage every 30 seconds (one epoch). A value of `1000000000000000000` means the deal offers 1 FIL per gigabyte stored every 30 seconds. The price can be set to zero, indicating it is free.
+
+* `provider_collateral` — the collateral that the storage provider must provide for the deal. It can be set to zero.
+
+* `client_collateral` — the collateral that you, as the client, must provide for the deal. It can also be set to zero.
+
+* `extra_params_version` — generally set to 1.
+
+* `ExtraParamsV1` — includes additional parameters:
+
+  * `car_link` — the link to the `.car` file obtained during the conversion.
+  * `car_size` — the size of the `.car` file obtained during the conversion.
+  * `skip_ipni_announcement` — indicates whether the deal should be announced to IPNI indexers or not.
+  * `remove_unsealed_copy` — specifies whether the storage provider should remove an unsealed copy.
+
+Now that you have a good idea about the deal-making parameters, we can send it to the network. The Filecoin kit includes a Hardhat task to facilitate these steps; in the terminal, send the following command:
+
+<CodeGroup>
+  ```shell Shell
+  yarn hardhat make-deal-proposal --contract 0x702E0755450aFb6A72DbE3cAD1fb47BaF3AC525C --piece-cid baga6ea4seaqcgnwcifpjmcxqxpmmvcayct2msrj2wzhyrm7we6jl4c5i3gq7eda --piece-size 2097152 --verified-deal false --label "baga6ea4seaqcgnwcifpjmcxqxpmmvcayct2msrj2wzhyrm7we6jl4c5i3gq7eda" --start-epoch 587734 --end-epoch 600000 --storage-price-per-epoch 1000000000000000000 --provider-collateral 2000000000000000000 --client-collateral 0 --extra-params-version 1 --location-ref "YOUR_CAR_FILE_LINK" --car-size 1282438 --skip-ipni-announce false --remove-unsealed-copy false
+  ```
+</CodeGroup>
+
+Make sure to edit this request, including the address of the contract you just deployed and the info gathered when converting the file to `.car`.
+
+This will return a message with your proposal ID:
+
+<CodeGroup>
+  ```bash Bash
+  Making deal proposal on network Calibration
+  Complete! Event Emitted. ProposalId is: 0xfd6419d07e4c269e58d0c63969756c2124155b4a8d6dd08b8cd46e3a9acbf625
+  ```
+</CodeGroup>
+
+To track the progress of your transaction, you can use the Filecoin explorer and review the details of the [transaction made for this tutorial](https://calibration.filscout.com/en/message/bafy2bzaceccg4fmbd4rna5ohthc7t2nui3jz7t54ahlafxxe3rd7tgkhj4npa). This will provide you with insights into how your transaction was executed.
+
+Once your transaction is confirmed, the [Boost storage providers](https://boost.filecoin.io/) will be able to proceed and pick up your deal.
+
+## Conclusion
+
+In this tutorial, we walked through the deployment of a deal-making smart contract on the Filecoin Calibration Testnet, leveraging the Filecoin Ethereum Virtual Machine (FEVM). We delved into the concepts of the Filecoin Virtual Machine (FVM) and actors in the Filecoin network, equipping you with an understanding of the underlying architecture.
+
+### About the author
+
+<CardGroup>
+  <Card title="Davide Zambiasi" img="/images/docs/profile_images/1533079085001363457/1VvXp1m0_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on EVM, The Graph protocol, and Starknet
+
+    <Icon icon="laptop"  iconType="solid"/> Helping people understand Web3 and blockchain development
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/soos3d)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/web3Dav3)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/davide-zambiasi/)
+  </Card>
+</CardGroup>

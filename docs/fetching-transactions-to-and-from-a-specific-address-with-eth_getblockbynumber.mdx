@@ -1,0 +1,288 @@
+---
+title: "Fetching Transactions to and from a Specific Address with eth_getBlockByNumber"
+---
+
+**TLDR**
+* Fetching Ethereum transactions for a specific address can be done with Python, the Web3 library, and a Chainstack node.
+* Use eth\_getBlockByNumber to inspect each block’s transactions, filter by from and to addresses, then compile relevant tx hashes.
+* You can speed up retrieval by parallelizing block fetches – multi-threading can significantly cut down the total runtime.
+* This approach is crucial for auditing, real-time monitoring, or any scenario requiring granular, address-based blockchain data.
+
+## Introduction
+
+In the rapidly evolving world of blockchain technology, Ethereum has emerged as a leading platform for decentralized applications (DApps), smart contracts, and token transactions. As the ecosystem grows, so does the need for tools and methods that provide insights into network activity. One such tool is the ability to fetch transactions to and from specific Ethereum addresses, an invaluable capability for a range of applications—from auditing and analytics to monitoring and compliance.
+
+Whether you're a DApp developer looking to debug contract interactions, a financial analyst tracking asset flows, or an Ethereum user wanting to keep tabs on your transactions, understanding how to fetch transaction data programmatically is essential. This article aims to fill that knowledge gap by providing a step-by-step guide on how to fetch transactions for a specific Ethereum address using Python and Chainstack. We'll walk you through the entire process, from setting up your development environment to customizing and optimizing your code for various use cases.
+
+## Setting up the environment
+
+Before diving into the code, it's crucial to set up a proper development environment. This ensures you have all the necessary tools and configurations to run the code smoothly. Below are the components you'll need and the steps to set them up.
+
+### Python and Web3 library
+
+1. **Install Python**. If you haven't already, download and install Python from the [official website](https://www.python.org/downloads/).
+
+2. **Create a virtual environment**. In your project directory, create a new virtual environment:
+
+   <CodeGroup>
+     ```shell Shell
+     python3 -m venv tx_monitor
+     ```
+   </CodeGroup>
+
+   Then activate it:
+
+   <CodeGroup>
+     ```shell Shell
+     source tx_monitor/bin/activate
+     ```
+   </CodeGroup>
+
+3. **Install the Web3 library**. Open your terminal and run the following command to install the Web3 library:
+
+   <CodeGroup>
+     ```shell Shell
+     pip install web3
+     ```
+   </CodeGroup>
+
+### Blockchain RPC endpoint with Chainstack
+
+You'll need access to an RPC node to interact with a blockchain. Chainstack provides a straightforward way to deploy and manage blockchain nodes.
+
+1. **Sign up for Chainstack**. Visit the [Chainstack signup page](https://console.chainstack.com/user/account/create) and follow the instructions to create an account.
+
+   <Info>
+     Try out the new [social login](https://twitter.com/ChainstackHQ/status/1709988403893223599) feature.
+   </Info>
+
+2. **Deploy a node**. Once your account is set up, you can deploy an Ethereum node. Follow the [Chainstack documentation](/docs/manage-your-networks#join-a-public-network) for a step-by-step guide on how to do this.
+
+3. **Access node credentials**. After deploying your node, you'll need the RPC URL to interact with the Ethereum network. You can find this information in the Chainstack dashboard. For more details, see [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+
+In this article, we use a BNB Smart Chain node as an example.
+
+## The code’s logic
+
+Now, let’s go over the logic we implement in this project. The code will take the following steps:
+
+1. **Initialization**. Set up the BNB Smart Chain node connection and specify the block range and address to monitor.
+
+2. **Core functionality**, Use the `eth_getBlockByNumber` method indirectly through Web3's `get_block` function to fetch each block within the specified range.
+
+   <Info>
+     Learn more about [eth\_getBlockByNumber](/api-reference/ethereum_node_api/blocks_info/eth_getBlockByNumber).
+   </Info>
+
+3. **Transaction filtering**. For each fetched block, scan through the list of transactions and identify those that involve the specified Ethereum address. It does this by checking the `from` and `to` fields in each transaction.
+
+4. **Result compilation**. All transactions involving the specified address are compiled into a list printed out at the end.
+
+### Importance of `eth_getBlockByNumber`
+
+The `eth_getBlockByNumber` method is crucial here as it allows the script to fetch the entire block data, including the full list of transactions within each block. By doing so, the script can then iterate through these transactions to identify those that involve the specified address. This method provides a way to access historical data on the blockchain, making it a valuable tool for auditing and monitoring activities.
+
+In a new file, paste the following code:
+
+<CodeGroup>
+  ```python Python
+  from web3 import Web3
+  from web3.middleware import geth_poa_middleware
+
+  rpc_url = "YOUR_CHAINSTACK_ENDPOINT" # Change it to your Chainstack's node URL
+
+  from_block = 32720146 # Define the block interval you have interest on
+  to_block = 	32720209
+
+  your_address = "0x2D4C407BBe49438ED859fe965b140dcF1aaB71a9" # Define the address of interest
+
+  w3 = Web3(Web3.HTTPProvider(rpc_url))
+  w3.middleware_onion.inject(geth_poa_middleware, layer=0) # This is needed for some specific protocols given some ExtraBytes in the response. For polygon, for example, this is needed
+
+  def get_transactions_for_address(address, from_block, to_block):
+      transactions = []
+
+      for block_number in range(from_block, to_block + 1):
+          print(f'Inspecting block {block_number}')
+          block = w3.eth.get_block(block_number, full_transactions=True)
+          if block is not None and 'transactions' in block:
+              for tx in block['transactions']:
+                  if address in [tx['from'], tx['to']]:
+                      transactions.append(tx['hash'].hex())
+                      print(f'TX involving {your_address} here')
+
+      return transactions
+
+  if __name__ == "__main__":
+
+      print(f'Scanning for TXs involving {your_address}')
+      transactions = get_transactions_for_address(your_address, from_block, to_block)
+      if transactions:
+          print(f"Transactions involving address {your_address}:")
+          for tx_hash in transactions:
+              print(tx_hash)
+      else:
+          print(f"No transactions found for address {your_address} in the specified block range.")
+  ```
+</CodeGroup>
+
+## Fetching transactions with precision
+
+At the heart of our script is the `get_transactions_for_address` function, a meticulously designed piece of logic that scans the blockchain to identify transactions involving a specific address within a user-defined range of blocks. Here's an overview of its operation:
+
+* The function embarks on a block-by-block journey, traversing from the starting block number defined in `from_block` to the ending block number in `to_block`.
+* The function scrutinizes every transaction within each block, examining the sender (`from`) and recipient (`to`) addresses. The transaction hash is captured and stored in a list if it identifies a transaction where the specified Ethereum address is either the sender or the recipient.
+
+This function is a robust yet straightforward mechanism for compiling a transaction history for a given Ethereum address. Doing so offers invaluable insights for auditing, monitoring, or any other use cases requiring a detailed transaction history.
+
+## The significance of transaction tracking
+
+### Transaction monitoring: A multi-faceted utility
+
+The capability to accurately retrieve transactions associated with a particular address is not just a feature—it's an essential tool with diverse applications, such as:
+
+* **For wallet users**. This functionality enables wallet users to meticulously monitor incoming and outgoing transactions, thereby providing a reliable way to verify that all transactions have been executed as expected.
+* **For developers**. This tool is especially beneficial for developers who must keep tabs on interactions with their deployed smart contracts. It serves as a real-time monitoring system and an auditing mechanism to ensure the contracts operate as designed.
+
+### Real-world applications
+
+To further illustrate the utility of this tool, let's dive into some scenarios where it can be particularly impactful:
+
+* Token asset management — the ability to track token transfers to and from a specific address is invaluable for managing your digital assets effectively. It provides a transparent view of your token portfolio's activity.
+* Transaction verification — for businesses and individual users, confirming the successful receipt of funds is paramount. This tool simplifies that process by providing a straightforward way to verify transaction completion.
+* Smart contract oversight — for developers and auditors alike, this tool is important for continuously monitoring and auditing smart contract interactions. It provides a granular view of transactional data, aiding in both development and compliance efforts.
+
+## Fine-tuning and performance enhancement
+
+### Strategic block range selection
+
+One cornerstone of maximizing this script's utility is the judicious selection of the `from_block` and `to_block` parameters. These values define the scope of your transaction search, and their optimal setting depends on your specific use case. Whether you're interested in a brief snapshot of recent activity or an exhaustive historical audit, adjusting these parameters allows you to focus your query accordingly.
+
+### Advanced transaction filtering
+
+For those looking to go beyond basic transaction tracking, the script can be further customized by implementing additional filters. For example, you could refine your search by filtering transactions based on their value or by isolating only those transactions that interact with a particular smart contract. This level of granularity enables you to extract precisely the data you're interested in, making your monitoring efforts more targeted and efficient.
+
+## Leveraging parallel computing for efficiency
+
+Performance optimization becomes a key consideration because the `get_block` method can be resource-intensive—especially when dealing with a large range of blocks. One effective strategy for speeding up the data retrieval process is through parallelization. By employing multi-threading, you can distribute the workload across multiple threads, reducing overall runtime. The script includes a parallelized version of the core function, demonstrating how multi-threading can significantly improve performance.
+
+<Info>
+  Learn more about multithreading in Python in [Mastering multithreading in Python for Web3 requests: A comprehensive guide](/docs/mastering-multithreading-in-python-for-web3-requests-a-comprehensive-guide).
+</Info>
+
+<CodeGroup>
+  ```python Python
+  from web3 import Web3
+  from web3.middleware import geth_poa_middleware
+  import concurrent.futures
+  import time
+
+  # Use the same RPC URL as in your original code
+  rpc_url = "YOUR_CHAINSTACK_ENDPOINT"
+
+  # Use the same block range as in your original code
+  from_block = 32720146
+  to_block = 32720209
+
+  # Use the same Ethereum address as in your original code
+  your_address = "0x2D4C407BBe49438ED859fe965b140dcF1aaB71a9"
+
+  w3 = Web3(Web3.HTTPProvider(rpc_url))
+  w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+
+  def get_transactions_for_block_range(address, from_block, to_block, block_number, num_threads):
+      transactions = []
+      for block_num in range(from_block + block_number, to_block + 1, num_threads):
+          block = w3.eth.get_block(block_num, full_transactions=True)
+          if block is not None and 'transactions' in block:
+              for tx in block['transactions']:
+                  if address in [tx['from'], tx['to']]:
+                      transactions.append(tx['hash'].hex())
+                      print(f'TX involving {address} found')
+      return transactions
+
+  if __name__ == "__main__":
+      latencies = []
+
+      for num_threads in [1, 2, 4, 8]:
+          start_time = time.time()
+
+          with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+              futures = []
+              for i in range(num_threads):
+                  futures.append(
+                      executor.submit(
+                          get_transactions_for_block_range,
+                          your_address,
+                          from_block,
+                          to_block,
+                          i,
+                          num_threads
+                      )
+                  )
+
+              transactions = []
+              for future in concurrent.futures.as_completed(futures):
+                  transactions.extend(future.result())
+
+          end_time = time.time()
+          latency = end_time - start_time
+          latencies.append((num_threads, latency))
+
+          if transactions:
+              print(f"Transactions involving address {your_address} with {num_threads} threads:")
+              for tx_hash in transactions:
+                  print(tx_hash)
+          else:
+              print(f"No transactions found for address {your_address} in the specified block range.")
+
+      print("\nPerformance Metrics:")
+      for num_threads, latency in latencies:
+          print(f"Threads: {num_threads}, Latency: {latency:.2f} seconds")
+  ```
+</CodeGroup>
+
+This code will output the difference found while simultaneously using 1, 2, 4, and 8 threads. Here is the result we found:
+
+<CodeGroup>
+  ```python Python
+  Performance Metrics:
+  Threads: 1, Latency: 22.53 seconds
+  Threads: 2, Latency: 12.35 seconds
+  Threads: 4, Latency: 6.62 seconds
+  Threads: 8, Latency: 3.33 seconds
+  ```
+</CodeGroup>
+
+The code tests the performance with 1, 2, 4, and 8 threads, allowing us to observe how the system scales with increasing threads. Here's a breakdown of the results:
+
+* **Single-threaded (1 thread)**. When running the code with a single thread, it took 22.53 seconds to complete the task. This serves as our baseline for performance comparison.
+* **Dual-threaded (2 threads)**. With two threads, the latency dropped to 12.35 seconds. This is almost a 45% reduction in time compared to the single-threaded execution, showcasing the benefits of parallelization.
+* **Quad-threaded (4 threads)**. Utilizing four threads further reduced the latency to 6.62 seconds. This is roughly a 70% reduction compared to the single-threaded baseline.
+* **Octa-threaded (8 threads)**. Finally, with eight threads, the latency was minimized to 3.33 seconds. This is an astonishing reduction of about 85% compared to the single-threaded execution.
+
+These results demonstrate the power of multithreading in optimizing computational tasks. The more threads we use, the lower the latency, up to a point. This is a classic example of how parallel computing can significantly speed up inherently parallelizable tasks, like fetching transactions from different blocks in a blockchain.
+
+### Hardware constraints
+
+The number of threads you can effectively use is often limited by the hardware on which the code is running. Most modern CPUs have multiple cores, and each core can run one or more threads. It's generally a good idea to align the number of threads with the number of available CPU cores for optimal performance.
+
+### Scalability testing
+
+The numbers 1, 2, 4, and 8 were chosen to provide a broad spectrum for scalability testing. Starting with a single thread provides a baseline performance metric. Doubling the number of threads at each step (1 to 2, 2 to 4, and 4 to 8) allows us to observe how the system scales with increasing threads. This is a common approach to gauge the "speedup" factor and to understand if the application benefits from parallelization.
+
+### Diminishing returns
+
+It's essential to note that adding more threads doesn't always result in linear performance improvement. Due to factors like thread management overhead and resource contention, there's a point beyond which adding more threads may yield diminishing returns or even degrade performance. That's why it's useful to test with various numbers of threads to find the "sweet spot."
+
+### Task granularity
+
+The granularity of the task at hand also influences the optimal number of threads. If the task can be broken down into smaller, independent sub-tasks (as is the case with fetching transactions from different blocks), it's more likely to benefit from multi-threading. However, if the task involves many shared states or resources, adding more threads might lead to issues like race conditions or deadlocks.
+
+## Conclusion
+
+The capacity to retrieve transactions associated with a particular address is an indispensable tool for anyone engaged in the blockchain space. This utility transcends roles, offering valuable insights for wallet users, developers, and auditors alike. It not only enhances your understanding of transactional flows but also fortifies the transparency and accountability that are the cornerstones of blockchain technology.
+
+Through thoughtful customization and optimization, you can fine-tune this code to serve many applications. Whether you're tracking fund movements, auditing smart contracts, or monitoring network activity, the code provides a robust foundation upon which you can build.
+
+The introduction of multi-threading options showcases how performance can be significantly improved, allowing for more efficient data retrieval and analysis. This adaptability underscores the code's versatility, making it a reliable real-time monitoring and historical data analysis solution.

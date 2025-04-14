@@ -1,0 +1,587 @@
+---
+title: "Solana: How to Build Actions and Blinks"
+description: "YouTube embed"
+---
+
+<Frame>
+  <iframe width="100%" height="420" src="https://www.youtube.com/embed/PYdO2AJ7wvI" title="Building with Solana Actions &amp; Blinks" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+</Frame>
+**TLDR**
+
+* Solana Actions and Blinks enable user-friendly transaction flows by exposing an API that wallets and social apps can preview, sign, and submit.
+* This example uses Next.js to build an Actions endpoint that deposits/withdraws SOL from Meteora’s Dynamic Vaults (Mercurial SDK).
+* A GET handler returns JSON metadata for Blinks (buttons, inputs, and icons), while a POST handler composes transactions based on user inputs.
+* Linking your endpoint with dial.to or x.com lets wallets automatically detect, render, and process these transactions in a single click.
+
+## Main article
+
+<Info>
+  ### Actions and Blinks under continuous development
+
+  As of this writing, for Blinks to be unfurled (properly displayed), they must be registered with [dial.to](http://dial.to/) and posted on [x.com](http://x.com/) . Additionally, please be aware that Actions and Blinks have been recently introduced and are under continuous development.
+</Info>
+
+## Introduction
+
+Solana Actions is an API that returns transactions on the Solana blockchain for previewing, signing, and sending across various contexts, including websites. By linking to an Actions endpoint, users can perform blockchain transactions without leaving the site.
+
+The second key component is Blinks. Blinks convert any Solana Action (a link to an endpoint) into a shareable, metadata-rich link. Action-aware clients (e.g., Solana wallets, the Dialect browser extension) detect these links and enhance them with features like icons, buttons, and input text boxes.
+
+To put it simple, the Actions act as an API server, while Blinks on a client side render (or unfurl) links to an Actions endpoint into a user-friendly UI.
+
+<Check>
+  ### Run Solana mainnet and devnet nodes on Chainstack
+
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required. You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Overview
+
+The tutorial is based on the Solana [documentation](https://solana.com/docs/advanced/actions) and [guides](https://www.youtube.com/watch?v=kCht01Ycif0) devoted to the Actions and Blinks. The Solana documentation provides an in-depth description of the Actions specification.
+
+We will build our own Actions server that handles GET and POST requests, returns metadata for displaying Blinks, and provides a transaction for signing.
+
+In our example, we will implement adding and removing funds from one of the [Mecurical Dynamic Vaults](https://app.meteora.ag/vaults) (SOL). Users will have an option to enter how many SOL they want to either deposit or withdraw ([Vault SDK](https://github.com/mercurial-finance/vault-sdk)).
+
+<Info>
+  ### Meteora Dynamic Vaults
+
+  Meteora Dynamic Vaults are dynamic yield vaults that rebalance every minute across lending platforms to find the best possible yield while prioritizing keeping user funds as accessible as possible.
+</Info>
+
+## Setup
+
+We will use Next.js as a framework for API development. Run the command below with the default parameters.
+
+```
+npx create-next-app solana-actions-tutorial
+cd solana-actions-tutorial
+```
+
+Navigate to the app folder and install the required packages.
+
+```
+npm install @solana/web3.js @solana/actions @mercurial-finance/vault-sdk@0.5.3 @types/bn.js encoding
+```
+
+Create `.env.local` file and add your Chainstack endpoint there.
+
+```
+CHAINSTACK_ENDPOINT=YOUR_RPC_NODE
+```
+
+All development and testing will be conducted on the devnet, where Mercurial Vaults are also deployed. Please switch your wallet to the devnet and request SOL [here](https://solfate.com/faucet). [The GitHub repository](https://github.com/chainstacklabs/solana-actions-meteora-vault/tree/master) for the tutorial.
+
+## Code walkthrough
+
+Let’s create `route.ts` inside `src/app/api/actions/vault` of the app. This file will contain all the handlers compliant with [the Actions specification](https://solana.com/docs/advanced/actions#specification).
+
+### Import dependencies
+
+Import the tutorial dependencies. We use the `actions` package for proper reading and composing requests and responses. Other imports are required for interacting with Mercurial vaults.
+
+<CodeGroup>
+  ```typescript TypeScript
+  import {
+    ActionGetResponse,
+    ActionPostRequest,
+    ActionPostResponse,
+    ACTIONS_CORS_HEADERS,
+    createPostResponse,
+  } from "@solana/actions";
+
+  import { clusterApiUrl, Connection, PublicKey, Transaction } from "@solana/web3.js";
+
+  import {
+    StaticTokenListResolutionStrategy,
+    TokenInfo,
+  } from "@solana/spl-token-registry";
+
+  import VaultImpl from "@mercurial-finance/vault-sdk";
+  import { BN } from "bn.js";
+  ```
+</CodeGroup>
+
+### GET request and response
+
+The endpoint must respond with JSON that contains [metadata](https://solana.com/docs/advanced/actions#get-request) to render a Blink. Adding `ActionGetResponse` helps us to see which fields should be presented in a body.
+
+The fields `icon`, `description`, and `title` are self-explanatory. Note that `icon` must be an absolute URL. Other fields are used for defining buttons and inputs from the user. The `label` field is used for a single button without inputs, while the `actions` in `links` are used to describe buttons with inputs.
+
+Please see the example below, where we define two buttons with their respective inputs and query parameters
+
+<CodeGroup>
+  ```typescript TypeScript
+  export const GET = async (req: Request) => {
+    const baseURL = new URL(req.url).origin;
+    const pathActions = new URL(req.url).pathname;
+
+    const payload: ActionGetResponse = {
+      icon: new URL("/chainstack_square.png", baseURL).toString(),
+      label: "Meteora",
+      description: "Manage your SOL Vault liquidity",
+      title: "Meteora Dynamic Vault Actions",
+      links: {
+        actions: [
+          {
+            label: "Deposit SOL",
+            href: `${pathActions}?action=deposit&amount={amount}`,
+            parameters: [
+              {
+                name: "amount",
+                label: "Amount",
+              },
+            ],
+          },
+          {
+            label: "Withdraw SOL",
+            href: `${pathActions}?action=withdraw&amount={amount}`,
+            parameters: [
+              {
+                name: "amount",
+                label: "Amount",
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    return Response.json(payload, {
+      headers: ACTIONS_CORS_HEADERS,
+    });
+  };
+
+  export const OPTIONS = GET;
+  ```
+</CodeGroup>
+
+### POST request and response
+
+The purpose of the POST handler is to parse parameters sent by a client and compose a transaction for signing. In our case, we need to understand whether the user wants to deposit or withdraw funds, and the desired amount.
+
+First, we need to verify that the user's wallet is valid, which is provided in the request body. If there is an error, include an error description in the `message` key of the response so that a client can properly parse this message (see the `ActionError` interface).
+
+For now, let's simplify the parsing of parameters and skip any additional checks.
+
+<CodeGroup>
+  ```typescript TypeScript
+  export const POST = async (req: Request) => {
+    try {
+      const body: ActionPostRequest = await req.json();
+
+      // Ensure the account parameter is valid
+      let userAccount: PublicKey;
+
+      try {
+        userAccount = new PublicKey(body.account);
+      } catch (err) {
+        return Response.json(
+          { message: "Invalid account provided" },
+          {
+            status: 400,
+            headers: ACTIONS_CORS_HEADERS,
+          },
+        );
+      }
+
+    const action = new URL(req.url).searchParams.get("action");
+    const amount = parseFloat(new URL(req.url).searchParams.get("amount") ?? "");
+  ```
+</CodeGroup>
+
+Next, we need to obtain an instance of the SOL vault using the Mercurial SDK. This instance is required to generate the proper instructions. Use your Chainstack endpoint from `.env.local` to have a stable and fast connection to Solana.
+
+<CodeGroup>
+  ```typescript TypeScript
+      // Retrieve SOL token information
+      const tokenMap = new StaticTokenListResolutionStrategy().resolve();
+      const SOL_TOKEN_INFO = tokenMap.find(token => token.symbol === "SOL") as TokenInfo;
+
+      // Get a Vault Implementation instance
+      const connection = new Connection(process.env.CHAINSTACK_ENDPOINT! || clusterApiUrl("devnet"));
+      const vault: VaultImpl = await VaultImpl.create(connection, SOL_TOKEN_INFO);
+  ```
+</CodeGroup>
+
+Depending on the user’s choice, get a transaction for either depositing or withdrawing funds. Addiotionally, we need to calculate a so called virtual price. It will help us define how many SOL we will get for a specific amount of LP tokens.
+
+<CodeGroup>
+  ```typescript TypeScript
+      // Calculate virtual price using the vault's unlocked amount and lp supply
+      const vaultUnlockedAmount = (await vault.getWithdrawableAmount()).toNumber();
+      const virtualPrice = (vaultUnlockedAmount / vault.lpSupply.toNumber()) || 0;
+
+      // Create a transaction based on the action
+      let instruction!: Transaction;
+
+      if (action === "deposit") {
+        instruction = await vault.deposit(
+          userAccount,
+          new BN(amount * 10 ** SOL_TOKEN_INFO.decimals),
+        );
+
+      } else if (action === "withdraw") {
+        instruction = await vault.withdraw(
+          userAccount,
+          new BN((amount / virtualPrice) * 10 ** SOL_TOKEN_INFO.decimals),
+        );
+      }
+  ```
+</CodeGroup>
+
+It’s time to create a transaction. We already have instructions from the vault. Let’s add them to the transaction. A user account will pay fee for it. Additionally, we need to specify the latest blockhash - this part may not be obligatory, however there may be unexpected behaviour from the Phantom wallet.
+
+To compose a response, we are using a utility provided by the `actions` package. It does some work for us. All we need to do is to pass the prepared transaction and specify a message that a user will see after a transaction is confirmed successfully.
+
+<Info>
+### Only one transaction
+
+  At the time of writing, only one transaction can be returned. It can be either a Legacy transaction or a Versioned transaction.
+</Info>
+
+<CodeGroup>
+  ```typescript TypeScript
+    	const transaction = new Transaction();
+      transaction.add(instruction);
+
+      transaction.feePayer = userAccount;
+      // It's not required, a client will replace it with the latest blockhash
+      // However, Phantom wallet doesn't send a transaction without a blockhash
+      transaction.recentBlockhash = (
+        await connection.getLatestBlockhash({ commitment: "finalized" })
+      ).blockhash;
+
+      // Create a POST response
+      const payload: ActionPostResponse = await createPostResponse({
+        fields: {
+          transaction: transaction,
+          message:
+            action == "deposit"
+              ? `Deposit ${amount} SOL`
+              : `Withdraw ${amount} SOL`,
+        },
+      });
+
+      return Response.json(payload, {
+        headers: ACTIONS_CORS_HEADERS,
+      });
+
+    } catch (err) {
+      return Response.json(
+        { message: "Unknown error occurred" },
+        {
+          status: 500,
+          headers: ACTIONS_CORS_HEADERS,
+        },
+      );
+    }
+  };
+  ```
+</CodeGroup>
+
+### Parameters validation
+
+Let's return to the validation process. To keep the code streamlined, we have placed the validation logic into a separate function.
+
+In this function, we validate parameters and return relevant error messages for any invalid values. We will invoke this function in the POST handler and throw an exception if any error messages are returned.
+
+<CodeGroup>
+  ```jsx jsx
+  function validateQueryParams(requestURL: URL): {
+    action: string;
+    amount: number;
+    errorMessage?: string;
+  } {
+    // Validate the action and amount parameters
+    const action = requestURL.searchParams.get("action");
+    const amountParam = requestURL.searchParams.get("amount");
+
+    // Ensure the action and amount parameters are present
+    if (!action || !amountParam) {
+      return {
+        action: "",
+        amount: 0,
+        errorMessage: "Missing action or amount parameter",
+      };
+    }
+
+    // Ensure the action parameter is valid
+    if (action !== "deposit" && action !== "withdraw") {
+      return {
+        action: "",
+        amount: 0,
+        errorMessage: "Invalid action parameter",
+      };
+    }
+
+    // Ensure the amount parameter is valid
+    const amount = parseFloat(amountParam);
+
+    if (isNaN(amount) || amount <= 0) {
+      return {
+        action: "",
+        amount: 0,
+        errorMessage: `Invalid amount for ${action}`,
+      };
+    }
+
+    return {
+      action,
+      amount,
+    };
+  }
+  ```
+</CodeGroup>
+
+### Putting it all together
+
+The complete `route.ts` includes both GET and POST handlers, along with the validation of the POST parameters.
+
+<CodeGroup>
+  ```typescript TypeScript
+  import {
+    ActionGetResponse,
+    ActionPostRequest,
+    ActionPostResponse,
+    ACTIONS_CORS_HEADERS,
+    createPostResponse,
+  } from "@solana/actions";
+
+  import { clusterApiUrl, Connection, PublicKey, Transaction } from "@solana/web3.js";
+
+  import {
+    StaticTokenListResolutionStrategy,
+    TokenInfo,
+  } from "@solana/spl-token-registry";
+
+  import VaultImpl from "@mercurial-finance/vault-sdk";
+  import { BN } from "bn.js";
+
+  export const GET = async (req: Request) => {
+    const baseURL = new URL(req.url).origin;
+    const pathActions = new URL(req.url).pathname;
+
+    const payload: ActionGetResponse = {
+      icon: new URL("/chainstack_square.png", baseURL).toString(),
+      label: "Meteora",
+      description: "Manage your SOL Vault liquidity",
+      title: "Meteora Dynamic Vault Actions",
+      links: {
+        actions: [
+          {
+            label: "Deposit SOL",
+            href: `${pathActions}?action=deposit&amount={amount}`,
+            parameters: [
+              {
+                name: "amount",
+                label: "Amount",
+              },
+            ],
+          },
+          {
+            label: "Withdraw SOL",
+            href: `${pathActions}?action=withdraw&amount={amount}`,
+            parameters: [
+              {
+                name: "amount",
+                label: "Amount",
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    return Response.json(payload, {
+      headers: ACTIONS_CORS_HEADERS,
+    });
+  };
+
+  export const OPTIONS = GET;
+
+  export const POST = async (req: Request) => {
+    try {
+      const body: ActionPostRequest = await req.json();
+
+      // Ensure the account parameter is valid
+      let userAccount: PublicKey;
+
+      try {
+        userAccount = new PublicKey(body.account);
+      } catch (err) {
+        return Response.json(
+          { message: "Invalid account provided" },
+          {
+            status: 400,
+            headers: ACTIONS_CORS_HEADERS,
+          },
+        );
+      }
+      // Validate the action and amount parameters
+      const { action, amount, errorMessage } = validateQueryParams(
+        new URL(req.url),
+      );
+      if (errorMessage) {
+        return Response.json(
+          { message: errorMessage },
+          {
+            status: 400,
+            headers: ACTIONS_CORS_HEADERS,
+          },
+        );
+      }
+
+      // Retrieve SOL token information
+      const tokenMap = new StaticTokenListResolutionStrategy().resolve();
+      const SOL_TOKEN_INFO = tokenMap.find(token => token.symbol === "SOL") as TokenInfo;
+
+      // Get a Vault Implementation instance
+      const connection = new Connection(process.env.CHAINSTACK_ENDPOINT! || clusterApiUrl("devnet"));
+      const vault: VaultImpl = await VaultImpl.create(connection, SOL_TOKEN_INFO);
+
+      // Calculate virtual price using the vault's unlocked amount and lp supply
+      const vaultUnlockedAmount = (await vault.getWithdrawableAmount()).toNumber();
+      const virtualPrice = (vaultUnlockedAmount / vault.lpSupply.toNumber()) || 0;
+
+      // Create a transaction based on the action
+      let instruction!: Transaction;
+      if (action === "deposit") {
+        instruction = await vault.deposit(
+          userAccount,
+          new BN(amount * 10 ** SOL_TOKEN_INFO.decimals),
+        );
+      } else if (action === "withdraw") {
+        instruction = await vault.withdraw(
+          userAccount,
+          new BN((amount / virtualPrice) * 10 ** SOL_TOKEN_INFO.decimals),
+        );
+      }
+
+      const transaction = new Transaction();
+      transaction.add(instruction);
+
+      transaction.feePayer = userAccount;
+      // It's not required, a client will replace it with the latest blockhash
+      // However, Phantom wallet doesn't send a transaction without a blockhash
+      transaction.recentBlockhash = (
+        await connection.getLatestBlockhash({ commitment: "finalized" })
+      ).blockhash;
+
+      // Create a POST response
+      const payload: ActionPostResponse = await createPostResponse({
+        fields: {
+          transaction: transaction,
+          message:
+            action == "deposit"
+              ? `Deposit ${amount} SOL`
+              : `Withdraw ${amount} SOL`,
+        },
+      });
+
+      return Response.json(payload, {
+        headers: ACTIONS_CORS_HEADERS,
+      });
+    } catch (err) {
+      return Response.json(
+        { message: "Unknown error occurred" },
+        {
+          status: 500,
+          headers: ACTIONS_CORS_HEADERS,
+        },
+      );
+    }
+  };
+
+  function validateQueryParams(requestURL: URL): {
+    action: string;
+    amount: number;
+    errorMessage?: string;
+  } {
+    // Validate the action and amount parameters
+    const action = requestURL.searchParams.get("action");
+    const amountParam = requestURL.searchParams.get("amount");
+
+    // Ensure the action and amount parameters are present
+    if (!action || !amountParam) {
+      return {
+        action: "",
+        amount: 0,
+        errorMessage: "Missing action or amount parameter",
+      };
+    }
+
+    // Ensure the action parameter is valid
+    if (action !== "deposit" && action !== "withdraw") {
+      return {
+        action: "",
+        amount: 0,
+        errorMessage: "Invalid action parameter",
+      };
+    }
+
+    // Ensure the amount parameter is valid
+    const amount = parseFloat(amountParam);
+
+    if (isNaN(amount) || amount <= 0) {
+      return {
+        action: "",
+        amount: 0,
+        errorMessage: `Invalid amount for ${action}`,
+      };
+    }
+
+    return {
+      action,
+      amount,
+    };
+  }
+  ```
+</CodeGroup>
+
+## Testing
+
+To test the Actions, let’s first run the Next.js development server:
+
+<CodeGroup>
+  ```jsx jsx
+  npm run dev
+  ```
+</CodeGroup>
+
+The Actions are now live on `localhost:3000`. To test the GET request, send it to `localhost:3000/api/actions/vault`. You can simply open this URL in your browser to see the response.
+
+To test how unfurling works without registering the app, append the endpoint URL to `dial.to/?action=solana-action:`. For example, `dial.to/?action=solana-action:http://localhost:3000/api/actions/vault`. Open that link in your browser to see a nicely rendered Blink. Congratulations!
+
+You can also test your Actions server with the help of [Inspector](https://www.blinks.xyz/inspector).
+
+<Info>
+  ### Browser settings
+
+  In case you have an empty page, please check your browser's security settings. For instance, Brave browser has Shields enabled by default. To test the local Blink, please disable Shields.
+</Info>
+
+<Info>
+  ### Devnet issues
+
+  Please note that there may be issues with the transaction status displayed on the [dial.to](http://dial.to/) page when using the Devnet. The page might indicate that a transaction is not confirmed, even though it has been confirmed on the blockchain.
+</Info>
+
+## Conclusion
+
+In this tutorial, we explored the implementation of Solana Actions and Blinks to interact with Meteora’s Dynamic Vaults. With this feature, users can seamlessly perform blockchain transactions directly from social media or other web applications.
+
+### About author
+
+
+<CardGroup>
+  <Card title="Anton Sauchyk" img="/images/docs/profile_images/1817926677730664448/3nNn0T2p_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="laptop"  iconType="solid"/>Multiple years of software development and Web3 expertise. Creator of the open-source Compare Dashboard for RPC provider performance benchmarking. Core contributor to the DevEx team’s pump.fun trading bot. Author of technical tutorials on EVM blockchains, Solana, TON and Elastic Subgraphs.
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/smypmsa)
+    [<Icon icon="twitter"  iconType="brands"/>](https://x.com/sensuniama)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/anton-sauchyk/)
+  </Card>
+</CardGroup>

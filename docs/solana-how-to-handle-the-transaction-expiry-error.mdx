@@ -1,0 +1,140 @@
+---
+title: "Solana: How to Handle the Transaction Expiry Error"
+---
+
+**TLDR**
+* The `TransactionExpiredBlockheightExceededError` occurs when Solana transactions aren’t confirmed before a specified block window (the `lastValidBlockHeight`).
+* Network congestion, high throughput, and delayed transaction propagation can all trigger this error.
+* Priority fees help prioritize urgent transactions, while robust retry logic ensures expired transactions get resubmitted with updated parameters.
+* Using multiple geographically distributed RPC endpoints reduces latency and improves transaction success rates.
+
+## Main article
+
+Solana stands out in the blockchain ecosystem as a platform designed for speed and efficiency. Known for its impressive capabilities, Solana supports high throughput and low latency, characteristics that are critical for applications requiring rapid transaction processing and scalability. This performance is achieved through innovative technologies like Proof of History (PoH) and a highly optimized network protocol, empowering developers to build fast and scalable decentralized applications.
+
+However, the sophisticated architecture of Solana also introduces unique challenges, especially when it comes to managing transactions. Like any high-performance blockchain, Solana requires that transactions be handled precisely to prevent errors that could disrupt user experiences or application functionality. One common issue developers encounter is the `TransactionExpiredBlockheightExceededError`, which occurs when transactions are not confirmed within a specific timeframe. This has been happening more often since the chain is busy and congested.
+
+Properly addressing such errors is crucial for maintaining smooth operations on the Solana network, ensuring that applications remain reliable and responsive under various network conditions. In the following sections, we will learn more about this error, exploring its causes and detailing strategies to mitigate its occurrence through priority fees and effective retry logic.
+
+## What is a TransactionExpiredBlockheightExceededError?
+
+The `TransactionExpiredBlockheightExceededError` in Solana indicates a specific issue where a transaction fails to be confirmed within a designated window. Every transaction on the Solana blockchain can specify a `lastValidBlockHeight`, which sets the latest block by which the transaction must be confirmed.
+
+If the network processes this block without confirming the transaction, it will be automatically dropped, triggering this error. This mechanism ensures that transactions do not remain pending indefinitely and helps maintain the integrity and fluidity of the blockchain operations.
+
+In Solana, the concept of `lastValidBlockHeight` is integral to how transactions are managed and processed on the blockchain. Here’s why this mechanism works as it does and the benefits it brings:
+
+### What is the role of recent blockhashes
+
+In Solana, each transaction must reference a recent blockhash. This block hash acts as a form of "timestamp" and nonce, indicating when a transaction was created relative to the ledger's state. A block hash is a 32-byte SHA-256 hash and serves several critical functions:
+
+* **Transaction uniqueness**: A block hash ensures each transaction is unique because it includes a snapshot of the ledger's state at a specific time. This prevents duplicate transactions within a short time frame.
+* **Security measure**: By requiring a recent block hash, the network ensures that transactions are recent and relevant, helping to prevent replay attacks where an old transaction is submitted again with malicious intent.
+
+Transactions must use a block hash from within the last 150 blocks, representing a window of about 80-90 seconds, given Solana’s block times. This narrow window ensures that:
+
+* **Transactions are current**: Transactions referencing a blockhash older than 150 blocks are automatically rejected. This policy enforces that only recent and timely transactions are processed, keeping the network up-to-date.
+* **Network efficiency**: By discarding old transactions, the network avoids spending resources on processing or storing irrelevant or outdated requests. This helps maintain high throughput and low latency, key features of Solana’s architecture.
+
+### Challenges and side-effects
+
+However, this system also introduces certain challenges:
+
+* **Forced transaction mortality**: Since transactions are only valid for about 80-90 seconds, they have a very short life. A transaction must be resubmitted with a new blockhash if it is not processed within this window. This can be challenging during network congestion or for applications that batch or schedule transactions.
+
+* **Issue of non-uniqueness in high throughput**: In scenarios where many transactions are issued rapidly, there's a high chance that multiple transactions might end up with the same block hash. This is particularly true during peak times. When this happens, transactions can be seen as duplicates and may be rejected or ignored, even if they are legitimate and unique in their intent.
+
+* **Operational complexity**: For developers and users, managing a transaction's lifecycle—ensuring it's submitted with a valid, recent blockhash and handling rejections due to timing—adds an extra layer of complexity to application logic.
+
+## What causes a TransactionExpiredBlockheightExceededError?
+
+This error typically arises from a few main scenarios that are crucial for developers to understand and mitigate:
+
+1. **Network congestion:** Despite Solana's capability to process tens of thousands of transactions per second, it is not immune to congestion. During peak times, when the number of transactions surges, the network may struggle to process all transactions. If the network fails to confirm a transaction before it reaches the `lastValidBlockHeight`, the transaction will expire. This situation can be exacerbated during intense trading periods or large-scale DApp interactions.
+
+2. **Improper estimation of `lastValidBlockHeight`:** Accurately setting the `lastValidBlockHeight` is crucial and requires a good understanding of the network’s current load and transaction throughput. Developers might underestimate how many blocks are needed for a transaction to be confirmed, leading to a premature expiry. It's important to assess this parameter accurately, considering typical and peak network conditions to avoid such expirations.
+
+3. **Latency from chain leader:** The chain leader in Solana is responsible for producing blocks. Any latency in this process, whether due to hardware issues, network delays, or software problems, can delay the time it takes for transactions to be included in a block. If such latency causes the `lastValidBlockHeight` to be reached before the transaction is processed, the transaction will expire without confirmation.
+
+4. **Delay in propagation:** When transactions are submitted through remote procedure call (RPC) services, there can be a delay in the propagation of the transaction to the network. This delay is particularly problematic if the RPC service does not immediately broadcast the transaction to the network or experiences high traffic. Such delays increase the risk of the transaction not being processed in time, especially if the `lastValidBlockHeight` is set too optimistically.
+
+## How to handle a TransactionExpiredBlockheightExceededError?
+
+Successfully handling the TransactionExpiredBlockheightExceededError requires proactive strategies to ensure that transactions are processed within their valid window, even under challenging network conditions. Below, we explore three main strategies:
+
+* Priority fees
+* Retry and re-broadcast logic
+* Use multiple endpoints with geographically located nodes.
+
+### How to handle transaction expiry with Priority Fees
+
+In Solana, priority fees are critical in determining the processing order of transactions submitted to the network. The system prioritizes transactions based on the fees associated with them, which means that transactions with higher fees are more likely to be processed quickly. This is particularly important during high network activity, where the competition for block space can lead to delays in transaction confirmations.
+
+To leverage this mechanism, developers can opt to increase the transaction fee—referred to as a priority fee—to boost the priority of their transaction in the processing queue. By doing so, they increase the likelihood that their transaction will be processed before reaching the `lastValidBlockHeight`.
+
+This strategy is especially effective in mitigating the `TransactionExpiredBlockheightExceededError`, as it helps ensure that transactions are confirmed within their valid window, even under congested network conditions.
+
+<Info>
+  ### How to use Priority Fees
+
+  Learn how to implement priority fees in your transactions using `solana/web3.js`: [Solana: How to use Priority Fees to unlock faster transactions](/docs/solana-how-to-priority-fees-faster-transactions) and [estimate Priority Fees dynamically](/docs/solana-estimate-priority-fees-getrecentprioritizationfees).
+</Info>
+
+### How to implement a retry logic
+
+Implementing effective retry logic is crucial for managing transactions in Solana, especially during high network congestion. This approach ensures that transactions stand a higher chance of being processed before reaching the `lastValidBlockHeight`.
+
+According to Solana documentation, even though RPC nodes have a generic rebroadcasting algorithm, developers can significantly benefit from customizing their rebroadcasting logic to better suit their application needs.
+
+* **Retry mechanism**: The retry mechanism involves resubmitting a transaction with adjusted parameters if the initial submission fails. This could be due to the transaction nearing or exceeding the `lastValidBlockHeight` due to network delays or congestion. Custom rebroadcasting logic allows applications to control the retry process more finely, for example, by adjusting the `lastValidBlockHeight` and transaction fees dynamically based on the current network status.
+* **Adjusting `lastValidBlockHeight`**: The strategy here involves setting the `lastValidBlockHeight` based on the current block height at each retry attempt. Solana's documentation highlights the use of the `maxRetries` parameter in the `sendTransaction` method can be set to manage how many times an RPC node should retry sending the transaction to the leader. Developers might choose to set`maxRetries` to a lower number and manually manage the retries within their application logic, using current network conditions to guide the timing of these retries.
+* **Enhanced control with custom logic**: Developers are encouraged to enable preflight checks that raise errors before the actual submission of transactions. This ensures that all signatures are valid and the referenced block hash is still within the last 150 blocks, helping prevent unnecessary retries. Ensuring that the initial transaction's block hash has expired is critical to avoid duplicating transactions on the network if a transaction must be resubmitted.
+
+<Info>
+### How to implement a retry logic
+
+Learn how to implement a retry logic in your transactions using `solana/web3.js`: [Solana: Enhancing SPL Token transfers with retry logic](/docs/enhancing-solana-spl-token-transfers-with-retry-logic).
+</Info>
+
+Also, check the [Solana docs](https://solana.com/docs/core/transactions/retry) on how to take care of re-broadcasting transactions.
+
+### How to use multiple endpoints with geographically distributed nodes
+
+To enhance the reliability and speed of transaction confirmations on Solana, developers can strategically use multiple RPC endpoints that are geographically closer to the Solana chain leader. This method effectively reduces the inherent network latency that can delay transaction processing. By positioning RPC nodes closer to the chain leader, transactions are quicker relayed to the leader for inclusion in the upcoming blocks.
+
+Geographically distributed nodes help minimize the distance data must travel, speeding up the overall transaction time from submission to confirmation. This is crucial during periods of high network activity where every millisecond can determine whether a transaction is confirmed before reaching the `lastValidBlockHeight`.
+
+Additionally, using multiple endpoints can provide redundancy, enhancing the resilience of the transaction submission process. If one node experiences issues or excessive traffic, others may submit the transaction successfully.
+
+<Info>
+### How to use multiple RPC endpoints to optimize DApp performance
+
+  This tutorial explains how to use multiple endpoitns. This is focused on fethcing real time data rather than sending transactions, but can be adapted.
+
+  * [Solana: How to use multiple RPC endpoints to optimize DApp performance](/docs/solana-how-to-use-multiple-rpc-endpoints-optimize-dapp-performance)
+</Info>
+
+## Conclusion
+
+Solana stands out for its speed and efficiency in the fast-paced and ever-evolving world of blockchain technology. However, navigating its complexities requires a robust understanding of how transactions are processed and the common pitfalls, such as the `TransactionExpiredBlockheightExceededError`.
+
+Developers can enhance transaction success rates by employing strategic mitigation techniques such as using priority fees, implementing retry logic, and leveraging multiple geographically located RPC endpoints to ensure their applications remain robust and responsive.
+
+These strategies address the inherent challenges of a high-throughput blockchain like Solana and pave the way for building more resilient and efficient applications. Embracing these practices will equip developers to take full advantage of Solana's capabilities, driving innovation and performance in the decentralized application space.
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

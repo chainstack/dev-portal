@@ -1,0 +1,109 @@
+---
+title: eth_getFilterChanges | Cronos
+openapi: /openapi/cronos_node_api/eth_getFilterChanges.json POST /b9b0fb92029d58b396139a9e89cf479b
+---
+
+Cronos API polling method used to retrieve updates from a filter. A filter is an object used to track changes to the state of the blockchain.
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+Filters can be created using one of the following methods:
+
+* [eth\_newFilter](/api-reference/cronos_node_api/eth_newFilter)
+* [eth\_newPendingTransactionFilter](/api-reference/cronos_node_api/eth_newPendingTransactionFilter)
+* [eth\_newBlockFilter](/api-reference/cronos_node_api/eth_newBlockFilter)
+
+After creating a filter using one of the available methods, the resulting filter ID can be used to fetch changes by calling the `eth_getFilterChanges` method.
+
+<Warning>
+**Disclaimer**
+
+Note that the default interactive example in this page will not work as the filter will be expired.
+
+To test `eth_getFilterChanges` in this page, first create a new filter using one of the following:
+
+* [eth\_newFilter](/api-reference/cronos_node_api/eth_newFilter)
+* [eth\_newPendingTransactionFilter](/api-reference/cronos_node_api/eth_newPendingTransactionFilter)
+* [eth\_newBlockFilter](/api-reference/cronos_node_api/eth_newBlockFilter)
+
+Then use the fresh filter ID as the parameter for `eth_getFilterChanges`.
+</Warning>
+
+
+## Parameters
+
+* `string` — the filter ID of the filter for which you want to retrieve the changes
+
+## Response
+
+* `array` — an array that represents the changes that have occurred on the blockchain since the last time the filter was polled:
+  + For filters created with `eth_newBlockFilter`:
+    - `blockHash` — the hashes of the new blocks since the last time the filter was polled.
+  + For filters created with `eth_newPendingTransactionFilter`:
+    - `transactionHash` — the hashes identifying new pending transactions since the last time the filter was polled.
+  + For filters created with `eth_newFilter`, the following event logs:
+    - `address` — the contract address from which the event originated.
+    - `topics` — an array of 32-byte data fields containing indexed event parameters.
+    - `data` — the non-indexed data that was emitted along with the event.
+    - `blocknumber` — the block number in which the event was included. `null` if it is pending.
+    - `transactionhash` — the hash of the transaction that triggered the event. `null` if pending.
+    - `transactionindex` — the integer index of the transaction within the block's list of transactions. `null` if it is pending.
+    - `blockhash` — the hash of the block in which the event was included. `null` if it is pending.
+    - `logindex` — the integer identifying the index of the event within the block's list of events. `null` if pending.
+    - `removed` — the boolean value indicating if the event was removed from the blockchain due to a chain reorganization. `True` if the log was removed. `False` if it is a valid log.
+
+## `eth_getFilterChanges` code examples
+
+<Note>
+Note that the `web3.eth.filter` methods have been deprecated and replaced with the `web3.eth.subscribe` in web3.js. See [web3.js subscriptions](/api-reference/ethereum-web3js-subscriptions-methods).
+</Note>
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+async function getFilterChanges(filter) {
+  try {
+    const changes = await provider.send('eth_getFilterChanges', [filter]);
+    console.log(changes); // Log the with the new data
+  } catch (err) {
+    console.error(err); // Handle errors that may occur
+  }
+}
+
+const filterId =  '0x4e7ef166cd43f188b0f8f9e218966a8f' //'YOUR_FILTER_iD'
+getFilterChanges(filterId)
+```
+
+```python web3.py
+from web3 import Web3  
+node_url = "CHAINSTACK_NODE_URL" 
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+def get_filtered_events(filter_id):
+    try:
+        filter_changes = web3.eth.get_filter_changes(filter_id)
+        print(filter_changes) # the array of events that match the filter
+    except Exception as e:
+        print(e)
+
+filter_id = '0x0'
+get_filtered_events(filter_id)       
+```
+</CodeGroup>
+
+
+## Use case
+
+The `eth_getFilterChanges` method can poll a filter to periodically retrieve new data. You can, for example, create a blocks filter using [eth\_newBlockFilter](/api-reference/cronos_node_api/eth_newBlockFilter) and periodically poll it to get new blocks.
+
+## Try the `eth_getFilterChanges` RPC method yourself

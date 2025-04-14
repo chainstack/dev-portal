@@ -1,0 +1,625 @@
+---
+title: "Indexing Uniswap Data with Subgraphs"
+---
+
+**TLDR**
+* Demonstrates creating a subgraph to track new Uniswap V3 pools and their ERC-20 tokens.
+* Uses The Graph’s codegen to bind the Uniswap factory contract and the token contracts to fetch details like token name and symbol.
+* Shows how to map on-chain data into entities (Pool, Token) and query it using GraphQL URLs or curl.
+* Empowers developers to index large-scale DeFi activity by utilizing Chainstack Subgraphs for dependable performance.
+
+## Introduction
+
+Expanding upon the oh-so-obvious title, this article will show you how to use subgraphs to quickly index and query data from the Uniswap smart contracts.
+
+As the saying goes: "Those who are versed in the knowledge of Web3, are also privy to the understanding of Uniswap.” Uniswap is kind of like our own version of Wall Street, minus the centrality, oversight, and shadiness. It is a decentralized exchange (DEX) built on the Ethereum network that allows users to trade cryptocurrencies in a trustless and decentralized manner.
+
+Uniswap handles over a million transactions a day and these transactions can include everything from managing token swaps to liquidity and more. All these transactions carry useful data that could give us insights regarding the token popularity, distribution, price, and even the state of the market as a whole. The only thing that is preventing a developer from attaining all this worldly knowledge is the fact it takes too much effort to index and order such data using conventional methodologies (like libraries, explorers, etc).
+
+That was until The Graph protocol came into the picture.
+
+## Enter The Graph
+
+The Graph is an open-source decentralized protocol that enables the querying and indexing of data stored on Ethereum and other decentralized networks using GraphQL APIs. The Graph allows developers to create and publish subgraphs, which provides a way to index and organize data stored on the blockchain.
+
+A subgraph is essentially a mapping of the data stored on the blockchain into a more easily understandable format. Subgraphs can extract data from various sources such as smart contracts, events, and external data feeds. Once the data is fetched and indexed, it can be queried using GraphQL, a language for probing APIs. This allows developers to easily access and understand the data stored on the blockchain.
+
+Chainstack Subgraphs amplify the convenience by providing an enterprise-grade solution for deploying and managing subgraphs. Now, don’t take my word for it, consider this article as an exercise to understand the utility and effectiveness of Chainstack Subgraphs (and by extension, The Graph protocol) when it comes to indexing blockchain data.
+
+So let’s get to it.
+
+## Start with what
+
+After a rather flattering introduction about Uniswap and The Graph, we are left with another important question, what are we going to index? You see, Uniswap is a constellation of smart contracts. The logic of various Uniswap functionalities is actually split across these contracts. Different Uniswap contracts handle different transactions and these transactions emit various events and logs that carry useful information.
+
+Trying to index the data from all these contracts is quite possible, but it might be a bit too overwhelming, especially if you are just starting out. So, this article will show you how to index a particular Uniswap smart contract, and then you can use the same process for indexing the other contracts.
+
+### Indexing data from the factory
+
+Alright, for this article you will use the *UniswapV3Factory* contract as the indexing source. This contract is responsible for the deployment and management of Uniswap liquidity pools.
+
+Technically, a liquidity pool is a smart contract that locks in pairs of ether and ERC-20 tokens. These pools facilitate the swapping and exchanging of these tokens. To facilitate the trade, each pool will have an ample amount (or liquidity) of these tokens.
+
+In Uniswap, users are free to create their own pools with token pairs of their choice. The UniswapV3Factory sits at the center of all this and helps with the creation and deployment of these pool contracts. Upon the creation of a new pool, the UniswapV3Factory contract emits an event, `PoolCreated`, that carries the details of the newly created pool.
+
+Here, you will learn how to create a subgraph for indexing the data from this event and keeping track of all the pools in Uniswap (version 3) and also the tokens involved in those pools.
+
+So let’s build a subgraph.
+
+## Prerequisites
+
+Before you start BUIDLing, make sure that you have the following dependencies installed on your system:
+
+* [node.js](https://nodejs.org/en/download/) (^v16)
+* A code editor (VS Code, preferably)
+
+Once you have everything, you can use npm to install the graph-cli package:
+
+<CodeGroup>
+  ```bash Shell
+  npm install -g @graphprotocol/graph-cli
+  ```
+</CodeGroup>
+
+graph-cli is a command line interface tool that helps you define and deploy subgraphs. The above command installs the package globally in your system.
+
+To see if everything is properly installed, use the following command in a terminal:
+
+<CodeGroup>
+  ```bash Shell
+  graph -v
+  ```
+</CodeGroup>
+
+This will return the current version of the package.
+
+Alright, now that we have everything, let's create a subgraph project.
+
+## Preparing the subgraph project
+
+To create a new subgraph project:
+
+1. Create a new directory.
+
+2. Open a terminal in the directory.
+
+3. Use the following command:
+
+   <CodeGroup>
+     ```bash Shell
+     graph init
+     ```
+   </CodeGroup>
+
+This command will allow you to create a new subgraph project from a predefined example or an existing contract. Since you will be working with the *UniswapV3Factory* contract, let’s use that for creating the project.
+
+Upon entering the command, it will prompt you for the following details:
+
+| Detail                              | Provided value                                                                                                                                                                                                                       |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Protocol                            | Ethereum                                                                                                                                                                                                                             |
+| Product for which to initialize     | subgraph-studio                                                                                                                                                                                                                      |
+| Subgraph slug                       | UniswapV3Graph\*\*                                                                                                                                                                                                                   |
+| Directory to create the subgraph in | UniswapV3Graph\*\*                                                                                                                                                                                                                   |
+| Ethereum network                    | mainnet                                                                                                                                                                                                                              |
+| Contract address                    | [Address of the UniswapV3Factory contract](https://etherscan.io/address/0x1f98431c8ad98523631ae4a59f267346ea31f984#:~:text=Uniswap%20V3%3A%20Factory%20%7C%20Address%200x1f98431c8ad98523631ae4a59f267346ea31f984%20%7C%20Etherscan) |
+| Contract name                       | [Name of the UniswapV3Factory contract](https://etherscan.io/address/0x1f98431c8ad98523631ae4a59f267346ea31f984#code)                                                                                                                |
+| Index contract events as entities   | Yes                                                                                                                                                                                                                                  |
+
+\*\* — These values are up to the developer's discretion.
+
+```
+✔ Protocol · ethereum
+✔ Product for which to initialize · subgraph-studio
+✔ Subgraph slug · UniswapV3Graph
+✔ Directory to create the subgraph in · UniswapV3Graph
+? Ethereum network …
+✔ Ethereum network · mainnet
+✔ Contract address · 0x1F98431c8aD98523631AE4a59f267346ea31F984
+✔ Fetching ABI from Etherscan
+✔ Fetching Start Block
+✔ Start Block · 12369621
+✔ Contract Name · UniswapV3Factory
+✔ Index contract events as entities (Y/n) · true
+  Generate subgraph
+  Write subgraph to directory
+✔ Create subgraph scaffold
+✔ Initialize networks config
+✔ Initialize subgraph repository
+✔ Install dependencies with yarn
+✔ Generate ABI and schema types with yarn codegen
+Add another contract? (y/n): n
+Subgraph UniswapV3Graph created in UniswapV3Graph
+```
+
+Once you give all the details, the command will generate a new subgraph project. Based on the contract address that was provided, the graph-cli tool will automatically fetch the corresponding contract ABI and store it in the `/abis` directory. graph-cli will also install all the required npm packages for the project.
+
+<Info>
+  Note that this version of the graph-cli picks up the start block automatically, but you can change it, either here or in the manifest file.
+</Info>
+
+After the project initialization, your directory structure will look something like this:
+
+<CodeGroup>
+  ```bash Shell
+  .
+  ├── abis
+  │   └── UniswapV3Factory.json
+  ├── networks.json
+  ├── package.json
+  ├── schema.graphql
+  ├── src
+  │   └── uniswap-v-3-factory.ts
+  ├── subgraph.yaml
+  ├── tests
+  │   ├── uniswap-v-3-factory.test.ts
+  │   └── uniswap-v-3-factory-utils.ts
+  └── tsconfig.json
+  ```
+</CodeGroup>
+
+Now, most of these files will be populated with some auto-generated code, but you are free to modify the code based on the use case.
+
+### Defining the schema
+
+One of the first files that you have to modify is the `schema.graphql` file, which contains the data schema. The schema file helps define the data that is to be stored by the subgraph and how to query it using GraphQL.
+
+Now, when you open the schema file in your code editor, you can see that it already contains some schema definitions. They define various entity types and their relationships.
+
+An entity is essentially a data object, and we can use the `schema.graphql` file to define multiple entities. Each entity in the schema file will be annotated using the `@entity` directive. Within each entity, we can add certain fields that act like the entity's properties.
+
+Each entity field will have a `name` to identify it and a `type` that defines the kind of data that should be stored against that field. The subgraphs fetch the blockchain data and store it in the form of entities that are defined in the schema file.
+
+Developers can make certain fields in the entity mandatory by marking them with an exclamation mark (`!`). Entities are mutable by default, meaning we might modify existing entities while mapping the data to an entity. To prevent this, we can make entities immutable by using the following annotation: `@entity(immutable: true)`.
+
+In the auto-generated schema file, entities are modeled after the events emitted by our [factory contract](https://github.com/Uniswap/v3-core/blob/main/contracts/UniswapV3Factory.sol) (`OwnerChanged`, `PoolCreated`, `FeeAmountEnabled`). Some of the fields in those entities represent the data that is part of the respective events, and other fields are there to hold generic block information.
+
+All the entities, however, have an ID field, which is sort of like the unique identifier or the primary key. Hence, the `id` field is mandatory among entities, and the ID should always be of the type `Bytes` or `String`.
+
+So, the auto-generated schema file (and the project as a whole) is defined to index the data from these events. But as we already discussed, we need to keep track of the pools and the tokens in them. To do that, we can remove all the existing entities from the schema file and create two new entities:
+
+<CodeGroup>
+  ```graphql schema.graphql
+  type Pool @entity {
+    id: ID! #id
+    token0: Token! #first token in the pair
+    token1: Token! #second token in the pair
+    feeAmount: BigInt! #The desired fee for the pool
+    timestamp: BigInt! #the block timestamp
+    blockNumber: BigInt! #block number
+
+  }
+
+  type Token @entity {
+    id: ID!
+    symbol: String! #token symbol
+    name: String! #token name
+  }
+  ```
+</CodeGroup>
+
+Here, we have created a `Pool` and a `Token` entities. As you can see, within the `Pool` entity, we have mentioned `Token` as a data type for certain fields (`token0`, `token1`). This is how we define the relationship between the entities. The fields represent the tokens involved in the pool, and by making them type `Token`, we have established a relationship from one entity to another.
+
+Both entities have an `id` field, which is given as type `ID`. This essentially means that the `id` field expects a string value (type `ID` == type `String`).
+
+### Fetching `Token` data
+
+As you can see in our schema file, we have the `Token` entity, and within that entity, we have defined fields like `name` and `symbol`, indented to carry the token name and symbol. Now, if you inspect the data emitted using the [`PoolCreated` event](https://github.com/Uniswap/v3-core/blob/main/contracts/UniswapV3Factory.sol), it doesn't have all those details. In the event we are provided with the token addresses, it seems like we need to use those addresses to get the `name` and `symbol` of the tokens.
+
+Now, this is where The Graph becomes a thing of beauty.
+
+<Info>
+  This might get a bit bumpy, so read carefully.
+</Info>
+
+You see, in The Graph, we can derive data from multiple sources, and these sources include other smart contracts. The ERC-20 tokens in the pool are controlled by a smart contract. The address that is passed along with the `PoolCreated` event is the address of these smart contracts. Since they are ERC-20 tokens, their smart contract includes certain ready-only (view) functions that return the token name and symbol.
+
+So, all you need to do is to get the ABI of the contract, and The Graph will actually allow you to bind the corresponding contract of the ABI to its respective address and call any and all public read-only (view) functions from that contract.
+
+This means that if we could get ABI of the token contracts, we can bind it with the token address that is passed in the event and call the required functions for fetching the token name and symbol. So, how do we get the individual token contract ABIs?
+
+One way to do this is to add the ABI of the general [ERC-20 contract implementation](https://gist.github.com/veox/8800debbf56e24718f9f483e1e40c35c) to our project. This will allow us to access all the default, public read-only functions that are part of every ERC-20 token. Yes, that includes the `getter` functions for the token name and symbol.
+
+<Tip>
+  To get the ABI of the ERC-20 contract implementation, you can copy the implementation code and compile it using online IDEs like Remix. Also, you only need the array for the ABI and not the entire JSON object.
+</Tip>
+
+Once you have the ABI, create a new file inside the `/abis` directory, `ERCToken.json` (you can choose any name), and save the ABI inside the file. Now your project structure should look like this:
+
+<CodeGroup>
+  ```bash Shell
+  ├── abis
+  │   ├── ERCToken.json
+  │   └── UniswapV3Factory.json
+  ├── networks.json
+  ├── package.json
+  ├── schema.graphql
+  ├── src
+  │   └── uniswap-v-3-factory.ts
+  ├── subgraph.yaml
+  ├── tests
+  │   ├── uniswap-v-3-factory.test.ts
+  │   └── uniswap-v-3-factory-utils.ts
+  └── tsconfig.json
+  ```
+</CodeGroup>
+
+Using the ABI, we can now fetch the token name and symbol from its contract, but before we do all that, we have to edit our project manifest.
+
+### Editing the manifest
+
+The manifest file (`subgraph.yaml`) is the entry point to our subgraph. It specifies all the parameters of our subgraph, like its schema, data sources, and mappings. Overall, it contains all the information required for indexing and querying our subgraph. As with other files, graph-cli generates a manifest file for our subgraph when we initialize the project, but as always, we have to make a few tweaks of our own:
+
+<CodeGroup>
+  ```yaml subgraph.yaml
+  specVersion: 0.0.5
+  schema:
+    file: ./schema.graphql
+  dataSources:
+    - kind: ethereum
+      name: UniswapV3Factory
+      network: mainnet
+      source:
+        address: "0x1F98431c8aD98523631AE4a59f267346ea31F984"
+        abi: UniswapV3Factory
+        startBlock: 14974589
+      mapping:
+        kind: ethereum/events
+        apiVersion: 0.0.7
+        language: wasm/assemblyscript
+        entities:
+          - Pool
+          - Token
+        abis:
+          - name: UniswapV3Factory
+            file: ./abis/UniswapV3Factory.json
+          - name: ERCToken
+            file: ./abis/ERCToken.json
+        eventHandlers:
+          - event: PoolCreated(indexed address,indexed address,indexed uint24,int24,address)
+            handler: handlePoolCreated
+        file: ./src/uniswap-v-3-factory.ts
+  ```
+</CodeGroup>
+
+This is our new and improved manifest which:
+
+* Contains the details of our newly defined entities.
+* Added our new ABI file details.
+* Includes a `startBlock` property in the `dataSources` section.
+
+<Info>
+  ### About `startBlock`
+  The `startBlock` property is rather interesting as it specifies the block from which we want to start our indexing. While specifying the property, remember that the lower the block number, the higher the time it will take to complete the indexing.
+</Info>
+
+Alright, now that we have our manifest file, let's generate some code.
+
+### Generating the code
+
+Once we define the schema and set the manifest, we can use the following command to generate certain useful code:
+
+<CodeGroup>
+  ```bash Shell
+  graph codegen
+  ```
+</CodeGroup>
+
+The command will take the `subgraph.yaml` (manifest) file as a reference and generate:
+
+* AssemblyScript class for every smart contract in the ABI files mentioned in the manifest
+* AssemblyScript class for every contract event to provide easy access to event parameters
+* Code for accessing the block and transaction the event originated from
+* AssemblyScript class for each entity type in our schema
+
+It is a good practice to run this command every time you edit your schema, ABIs, or the manifest file.
+
+All the newly generated code will be stored inside the `/generated` directory as AssemblyScript files (.ts):
+
+<CodeGroup>
+  ```bash Shell
+  ├── schema.ts
+  └── UniswapV3Factory
+      ├── ERCToken.ts
+      └── UniswapV3Factory.ts
+  ```
+</CodeGroup>
+
+Within these files, we will have all the codes necessary for accessing data from the chain, and we will use these codes to do some mappings.
+
+### Mapping the data
+
+Mapping, as the name suggests, helps chart the data that we source from the blockchain into the entities that we defined in our schema. We write the mapping code using AssemblyScript, which closely resembles the syntax of TypeScript. You can find the default mapping file inside the `/src` directory: `uniswap-v-3-factory.ts`.
+
+The structure of the mapping code is quite straightforward; remember the `eventHandlers` that we defined in our manifest:
+
+<CodeGroup>
+  ```yaml yaml
+        eventHandlers:
+          - event: PoolCreated(indexed address,indexed address,indexed uint24,int24,address)
+            handler: handlePoolCreated
+  ```
+</CodeGroup>
+
+Well, the mapping file is where we define the code for the handler (`handlePoolCreated`). The event handler is defined as a function within the mapping file, and the function will have the same name as the handler (`handlePoolCreated`).
+
+Each handler function accepts a single parameter called the `event`. The `type` of `event` is set to the event that it is handling.
+
+Now, before we modify our mapping file, let us create some additional code for getting the token details.
+
+### Handling token details
+
+To fetch the token details, we will create an additional AssemblyScript file in our `/src` directory (`tokenUtils.ts`) and add the code for:
+
+* Binding the contract to the token address
+* Fetch the token name and symbol
+
+So, create a new file, `tokenUtils.ts`, inside the `/src` directory and add the following code:
+
+<CodeGroup>
+  ```js tokenUtils.ts
+  //fetch class from generated file
+  import { ERCToken } from "../generated/UniswapV3Factory/ERCToken"
+  //import datatype
+  import { Address } from '@graphprotocol/graph-ts'
+
+  /*
+  function to get the token name
+  parameter: Address of the token
+  returns: token name (type: string)
+  */
+  export function getTokenName(tokenAddress: Address): string {
+  	//binding the address
+    let contract = ERCToken.bind(tokenAddress)
+    let tokenName = 'unknown'
+
+  	// calling the try_name() function to retrieve the name
+  	// the function definition can be found in:
+  	// ../generated/UniswapV3Factory/ERCToken
+    let name = contract.try_name()
+    if (!name.reverted) {
+      tokenName = name.value
+    }
+  	//return token name
+    return tokenName
+  }
+  /*
+  function to get the token symbol
+  parameter: Address of the token
+  returns: token symbol (type: string)
+  */
+  export function getTokenSymbol(tokenAddress: Address): string {
+  	//binding the address
+    let contract = ERCToken.bind(tokenAddress)
+    let tokenSymbol = 'unknown'
+  	// calling the try_symbol() function to retrieve the name
+  	// the function definition can be found in:
+  	// ../generated/UniswapV3Factory/ERCToken
+    let symbol = contract.try_symbol()
+    if (!symbol.reverted) {
+      tokenSymbol = symbol.value
+    }
+  	//return token symbol
+    return tokenSymbol
+  }
+  ```
+</CodeGroup>
+
+As you can see, the code uses the class and functions generated using the `codegen` command, in order to access the token details.
+
+Apart from the generated files, we also use the graph-ts library to import the `Address` type. The graph-ts library is specifically designed to help write subgraph mappings, and it does so by providing APIs to access data on the chain, cryptographic functions, smart contracts, etc.
+
+Alright, now we have a way to fetch the token details, so let’s use it to map data to our entities.
+
+### Writing the event handler
+
+As discussed, event handlers are functions that contain the logic for sourcing the data to our entities. To write the handler for our `PoolCreated` event, open the `uniswap-v-3-factory.ts` file and replace the existing code with the following:
+
+<CodeGroup>
+  ```js uniswap-v-3-factory.ts
+  //import event class from generated files
+  import {
+    PoolCreated as PoolCreatedEvent
+  } from "../generated/UniswapV3Factory/UniswapV3Factory"
+  //import entity classes from generated files
+  import {
+    Pool,Token
+  } from "../generated/schema"
+  //import functions from tokenUtils
+  import {
+    getTokenName,getTokenSymbol
+  } from "./tokenUtils"
+  //import type
+  import { BigInt } from '@graphprotocol/graph-ts'
+
+  //function for handling PoolCreatedEvent
+  export function handlePoolCreated(event: PoolCreatedEvent): void {
+    // loading the entities
+    // Here, the id of the token is essentially its address
+    // converted to string. While loading, we use the id to see
+    // if an entity with that id exists
+    let token0 = Token.load(event.params.token0.toHexString())
+    let token1 = Token.load(event.params.token1.toHexString())
+      // check if entity is empty null
+    if (token0 === null) { //if empty
+  		// create new entity
+  		// while creating new Token entity, the address of the token is
+      // converted to string and it is passed as the id
+      token0 = new Token(event.params.token0.toHexString())
+      token0.name = getTokenName(event.params.token0) //get name
+      token0.symbol = getTokenSymbol(event.params.token0) //get symbol
+    }
+    if (token1 === null) {
+      token1 = new Token(event.params.token1.toHexString())
+      token1.name = getTokenName(event.params.token1)
+      token1.symbol = getTokenSymbol(event.params.token1)
+
+    }
+  	//create new entity
+  	// here, the address of the pool is converted to string
+    // and passed as the id
+    let pool = new Pool(event.params.pool.toHexString()) as Pool
+    pool.token0 = token0.id //set token id
+    pool.token1 = token1.id
+    pool.timestamp = event.block.timestamp //set timestamp
+    pool.blockNumber = event.block.number //set block number
+    pool.feeAmount = BigInt.fromI32(event.params.fee) //set fee
+
+  	//save entities
+    token0.save()
+    token1.save()
+    pool.save()
+  }
+  ```
+</CodeGroup>
+
+Much like the `tokenUtils.ts` file, we import all the required classes and code from the generated files. This lets us access all the required information. Also, we are using the functions from the `tokenUtils.ts` file to fetch the token details.
+
+You can see that while calling those functions, we are passing the address of the tokens as parameters. The token address itself is given as an event parameter `event.params.token0.toHexString()`.
+
+Also, while creating new entities (`Token`, `Pool`), you can see that the address of the token and the pool are taken from the event parameters. It is then converted to a string with `toHexString()` and passed onto the class afterward in order to be stored as the ID of that particular entity. In the case of `Token`, the same method is used to load the tokens.
+
+### Building the code
+
+Now that we are done with the mappings, we can build the code. So, open a terminal in the root directory of the project and type:
+
+<CodeGroup>
+  ```bash Shell
+  graph codegen &&  graph build
+  ```
+</CodeGroup>
+
+<Tip>
+  It is always a good practice to do a `codegen` right before you build your code.
+</Tip>
+
+The command will compile your code and create corresponding WebAssembly files (.wasm). All the build artifacts will be stored inside the `/build` directory.
+
+And with that, your subgraph is ready for deployment.
+
+## Deploying the subgraph
+
+<Info>
+  Subgraphs must be associated with a project. If you don’t already have a project to add the subgraph to, see [create a project](/docs/manage-your-project#create-a-project).
+</Info>
+
+<Steps>
+  <Step>
+    In [Subgraphs](https://console.chainstack.com/subgraphs), click **Add subgraph**.
+  </Step>
+
+  <Step>
+    In the **Choose network** section:
+
+    * Choose a **Blockchain protocol**.
+    * Choose the **Network**.
+    * Choose the **Type**.
+    * Click **Next**. The **Create subgraph** section is displayed.
+  </Step>
+
+  <Step>
+    In the **Create subgraph** section:
+
+    * Enter a **Name** for the subgraph.
+    * Select the **Project** that you want to assign your subgraph to.
+    * Click **Add subgraph**. The details page of the new subgraph is displayed.
+  </Step>
+</Steps>
+
+Once the subgraph is created, scroll down to the part where it shows the subgraph **Deployment command** and copy the command.
+
+Once you have the command, open a terminal in your project directory and then paste and run the deployment command. The command will prompt you for the version labelling and once you provide that, the command will automatically deploy your subgraph. Once the subgraph is deployed, the command will give you the GraphQL UI URL to interact with your subgraph.
+
+<Info>
+  Note that the time it takes for your subgraph to sync will depend on the number of blocks that you are trying to index and your code.
+</Info>
+
+## Querying the subgraph
+
+The GraphQL UI URL provides a rather convenient way to query your subgraph—all you need to do is model a query and hit the run button. As an example, here’s a query that will help you get the first 10 liquidity pool details:
+
+<CodeGroup>
+  ```graphql GraphQL
+  {
+    pools(first: 10){
+      id
+      token0{
+        name
+        id
+        symbol
+      }
+      token1{
+        name
+        id
+        symbol
+      }
+      blockNumber
+      timestamp
+    }
+  }
+  ```
+</CodeGroup>
+
+You can use the following query to get the list of tokens:
+
+<CodeGroup>
+  ```graphql GraphQL
+  {
+    tokens(first: 10){
+      id
+      name
+      symbol
+    }
+  }
+  ```
+</CodeGroup>
+
+## Query using curl and Query URL
+
+You can also query your subgraph using curl and the Query URL provided in the **Subgraph query** section of your Chainstack Subgraphs.
+
+To do this, first make sure you have installed [curl](https://curl.se/download.html) in your system.
+
+Once you install curl, you can use the following command to query your subgraph:
+
+<CodeGroup>
+  ```bash cURL
+  curl -g \-X POST \-H "Content-Type: application/json" \-d '{"query":"{pools(first:10){id token0{id name symbol} token1{id name symbol} timestamp blockNumber}}"}' \<Chainstack-Query-URL>
+  ```
+</CodeGroup>
+
+## Conclusion
+
+And with that, we have reached the end of our subgraph tutorial. The article was intended to help you understand the scope and usage of subgraphs so that you can incorporate them into your Web3 applications and provide seamless access to blockchain data and insights.
+
+<Info>
+  ### See also
+
+  <CardGroup>
+    <Card title="A beginner’s guide to getting started with The Graph" href="/docs/subgraphs-tutorial-a-beginners-guide-to-getting-started-with-the-graph" icon="angle-right" horizontal />
+    <Card title="Explaining Subgraph schemas" href="/docs/subgraphs-tutorial-working-with-schemas" icon="angle-right" horizontal />
+    <Card title="Debugging subgraphs with a local Graph Node" href="/docs/subgraphs-tutorial-debug-subgraphs-with-a-local-graph-node" icon="angle-right" horizontal />
+    <Card title="Indexing ERC-20 token balance using Subgraphs" href="/docs/subgraphs-tutorial-indexing-erc-20-token-balance" icon="angle-right" horizontal />
+    <Card title="Deploying a Lido subgraph with Chainstack" href="/docs/subgraphs-tutorial-deploying-a-lido-subgraph-with-chainstack" icon="angle-right" horizontal />
+    <Card title="Fetching subgraph data using JS" href="/docs/subgraphs-tutorial-fetching-subgraph-data-using-javascript" icon="angle-right" horizontal />
+  </CardGroup>
+</Info>
+
+### About the author
+
+<CardGroup>
+<Card
+  title="Sethu Raman Omanakuttan"
+  img="/images/docs/u/44131280.png"
+>
+<Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+<Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on Ethereum, NEAR , Graph Protocol and Oasis.
+<Icon icon="laptop"  iconType="solid"/> Majored in computer science and technology.
+
+
+[<Icon icon="github"  iconType="brands"/>](https://github.com/SethuRamanOmanakuttan)
+[<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/Sethu_Raman_O)
+[<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/sethuraman-omanakuttan)
+</Card>
+</CardGroup>

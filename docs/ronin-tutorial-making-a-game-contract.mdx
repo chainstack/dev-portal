@@ -1,0 +1,525 @@
+---
+title: "Ronin: Make a Game's Smart Contract"
+---
+
+**TLDR:**
+* Ronin is an EVM-compatible chain optimized for large-scale Web3 gaming, offering streamlined gameplay and robust security.
+* This tutorial walks you through deploying a Ronin node on the Saigon Testnet and creating a Hardhat-based smart contract for a simple blockchain game.
+* The contract accepts deposits, verifies if players can participate, and pays out winners while retaining funds when players lose—illustrating a basic on-chain gaming model.
+* You’ll learn to configure Hardhat, manage environment variables, and deploy your contract to Ronin for full transparency and fair gameplay.
+
+## Introduction to Ronin
+
+Ronin, an Ethereum Virtual Machine (EVM) compatible blockchain, is purpose-built to serve the unique needs of the gaming industry. Developed by Sky Mavis, the creators of Axie Infinity, Ronin stands out for its ability to support large-scale online games, specifically in the realm of Web3 gaming.
+
+### Key technical features of Ronin
+
+* **Optimized for gaming**: Ronin is designed to streamline the gaming experience by removing the complexities commonly found in other blockchains. This results in a platform that is efficient, with minimal spam and optimized uptime for games.
+
+* **Security enhancements**: in response to security challenges faced in the past, Ronin has undergone extensive security overhauls. These include rigorous internal security protocols, comprehensive code reviews, and architecture audits to ensure robust security measures are in place.
+
+### Consensus mechanisms in Ronin
+
+* **Proof-of-authority (PoA)** — Ronin initially utilized the PoA consensus mechanism. In this system, a select group of validators, trusted for their expertise and reputation, were responsible for maintaining the network. This approach facilitated faster transaction speeds and lower fees due to its energy-efficient design.
+
+* **Transition to delegated-proof-of-stake (DPoS)** — Ronin integrated the DPoS consensus mechanism to advance decentralization. This allowed broader participation in the network's maintenance, where anyone holding enough RON tokens could become a validator. While retaining the benefits of PoA, such as efficiency and low costs, this shift markedly improved the blockchain's decentralization.
+
+<Info>
+  Check out the [Ronin docs](https://docs.roninchain.com/basics/introduction) to learn more.
+</Info>
+
+Since Ronin is designed to develop games, today, we'll make a smart contract that can handle for games.
+
+In this tutorial, you will:
+
+* Deploy a Ronin node on the Saigon Testnet.
+* Create the game smart contract with Hardhat.
+* Deploy the smart contract with Hardhat
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/) to deploy a Ronin node.
+* [node.js](https://nodejs.org/en/) as the JavaScript framework.
+* [Hardhat](https://hardhat.org/hardhat-runner/docs/getting-started#overview) to create, deploy, and interact with contracts.
+
+## Overview
+
+This tutorial guides you through the process of developing a smart contract for a blockchain-based game specifically tailored for deployment on the Ronin Saigon Testnet. We aim to develop a versatile and robust smart contract capable of managing the core game logic on the blockchain.
+
+The game itself is designed to be played on the client side, typically within a web browser. Players will have the ability to connect their Ronin wallet and deposit a specified fee to begin gameplay. The smart contract plays a pivotal role in the gaming experience: it securely handles the deposit and, depending on the game's outcome, executes the payout.
+
+To get from zero to a working game, do the following:
+
+<Steps>
+  <Step>
+  With Chainstack, create a public chain project.
+  </Step>
+  <Step>
+  With Chainstack, join the Ronin Saigon Testnet.
+  </Step>
+  <Step>
+  With Chainstack, access your Ronin node endpoint.
+  </Step>
+  <Step>
+  With Hardhat, create and set up the project.
+  </Step>
+</Steps>
+## Step-by-step
+
+### Create a public chain project
+
+See [Create a project](/docs/manage-your-project#create-a-project).
+
+### Join the Ronin Saigon testnet
+
+See [Join a public network](/docs/manage-your-networks#join-a-public-network).
+
+### Get your Ronin node endpoint
+
+See [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+
+### Fund your wallet
+
+Before diving into the game project, make sure to top up your wallet with testnet RON.
+
+* Install the [Ronin wallet](https://wallet.skymavis.com/).
+* Use the [Ronin faucet](https://faucet.roninchain.com/).
+
+### Install Hardhat
+
+See [Installing Hardhat](https://hardhat.org/hardhat-runner/docs/getting-started#installation).
+
+### Install dotenv
+
+Install the `dotenv` package to securely manage environment variables.
+
+<CodeGroup>
+  ```shell Shell
+  npm i dotenv
+  ```
+</CodeGroup>
+
+### Create a Hardhat project
+
+Create a new directory for your project, then run the following from a terminal:
+
+<CodeGroup>
+  ```shell Shell
+  npx hardhat
+  ```
+</CodeGroup>
+
+This will launch the Hardhat CLI, prompting you to choose a starter project. For this project, answer **yes** to the following:
+
+* `Create a JavaScript project`
+* `Do you want to install this sample project's dependencies with npm (hardhat @nomicfoundation/hardhat-toolbox)?`
+
+### Edit the Hardhat configuration file
+
+You will find a file named `hardhat.config.js` in the root directory. This file configures various settings for your Hardhat projects, such as the network you want to deploy your contracts on, the compilers you want to use, and the plugins you want to enable.
+
+Delete the default code in the file and replace it with the following:
+
+<CodeGroup>
+  ```javascript hardhat.config.js
+  require("@nomicfoundation/hardhat-toolbox");
+  require("dotenv").config();
+
+  const RONIN_SAIGON_CHAINSTACK = process.env.RONIN_SAIGON_CHAINSTACK;
+  const PRIVATE_KEY = process.env.RONIN_PRIVATE_KEY;
+
+  /** @type import('hardhat/config').HardhatUserConfig */
+  module.exports = {
+    networks: {
+      saigon: {
+        url: RONIN_SAIGON_CHAINSTACK,
+        accounts: [PRIVATE_KEY],
+      },
+    },
+    solidity: "0.8.23",
+  };
+  ```
+</CodeGroup>
+
+Let's break down what each part of the file does:
+
+* `require("@nomicfoundation/hardhat-toolbox");` imports the Hardhat Toolbox plugin, which provides several useful tools and utilities for Hardhat projects.
+* `require("dotenv").config();` loads environment variables from a `.env` file using the `dotenv` package.
+* `module.exports = { ... }` exports a JavaScript object containing the configuration for the Hardhat project.
+* `solidity: "0.8.23",` sets the Solidity compiler version to 0.8.23.
+* `networks: { ... }` defines the network configurations for the Hardhat project. In this case, it defines a network called `saigon` that connects to the Ronin Saigon blockchain network.
+* `saigon: { ... }` defines the configuration for the `saigon` network.
+* `url: RONIN_SAIGON_CHAINSTACK,` sets the URL for the Saigon network using the `RONIN_SAIGON_CHAINSTACK` environment variable.
+* `accounts: [PRIVATE_KEY],` sets the accounts for the `saigon` network using the `PRIVATE_KEY` environment variable. This will allow the Hardhat project to deploy contracts and interact with the Saigon network using the specified private key.
+
+### Create the game-handling smart contract
+
+In the root directory, you will find a directory named `contracts` with a sample contract in it. Rename this contract to `Game.sol` and replace its code with the following:
+
+<CodeGroup>
+  ```sol Game.sol
+  // SPDX-License-Identifier: MIT
+  pragma solidity ^0.8.23;
+
+  /// @title Game Contract
+  /// @notice This contract allows players to deposit ETH to play a game and handles game results and payouts.
+  contract Game {
+      /// @notice Minimum deposit amount required to play the game
+      uint256 public constant MINIMUM_DEPOSIT = 1 ether;
+
+      /// @notice Maximum deposit amount allowed for the game
+      uint256 public constant MAXIMUM_DEPOSIT = 2 ether;
+
+      /// @notice Mapping to track user deposits
+      mapping(address => uint256) public deposits;
+
+      /// @notice Owner address
+      address private owner;
+
+      /// @notice Sets the contract deployer as the owner
+      constructor() payable {
+          owner = msg.sender;
+      }
+
+      /// @notice Ensures that only the owner can call the function
+      modifier onlyOwner() {
+          require(msg.sender == owner, "Only the owner can call this function");
+          _;
+      }
+
+      /// @dev Deposits ETH to the contract to play the game
+      /// @notice Deposits must be between 1 and 2 Ethers
+      /// @notice Contract must have enough funds to pay potential winnings
+      function deposit() public payable {
+          require(msg.value >= MINIMUM_DEPOSIT && msg.value <= MAXIMUM_DEPOSIT, "Deposit must be between 1 and 2 Ethers");
+          require(address(this).balance + msg.value >= MAXIMUM_DEPOSIT * 2, "Contract does not have enough funds to cover potential winnings");
+          deposits[msg.sender] += msg.value;
+      }
+
+      /// @notice Checks if the user has enough deposit to play
+      /// @param user The address of the user to check
+      /// @return True if the user has enough deposit, false otherwise
+      function canPlay(address user) public view returns (bool) {
+          return deposits[user] >= MINIMUM_DEPOSIT;
+      }
+
+      /// @notice Handles the game result and processes payouts or deposit retention
+      /// @dev Only callable by the owner
+      /// @param player The address of the player
+      /// @param userWon Indicates whether the player won or not
+      function gameResult(address player, bool userWon) public onlyOwner {
+          require(canPlay(player), "Player did not deposit enough to play");
+          uint256 depositAmount = deposits[player];
+
+          if (userWon) {
+              require(address(this).balance >= depositAmount * 2, "Contract does not have enough funds");
+              payable(player).transfer(depositAmount * 2);
+          } else {
+              // Keep the deposit in the contract if AI wins
+          }
+
+          deposits[player] = 0;
+      }
+
+      /// @notice Allows the owner to withdraw all funds from the contract
+      /// @dev Only callable by the owner
+      function withdraw() public onlyOwner {
+          uint256 balance = address(this).balance;
+          require(balance > 0, "No funds to withdraw");
+          payable(owner).transfer(balance);
+      }
+
+      // Additional functions can be added here
+  }
+  ```
+</CodeGroup>
+
+<Info>
+  ### Default logic
+
+  Keep in mind that this smart contract is a proof of concept and it should not be used in production as is. A security audit is higly recomended.
+</Info>
+
+## Understanding the smart contract
+
+This smart contract, designed for a blockchain-based game, operates on a simple yet effective mechanism. It allows players to deposit RON (or the native currency of the chain you are using) within a specified range—a minimum of 1 ether and a maximum of 2 ethers—to participate in the game. This range ensures fair play and manages the contract's ability to pay winnings. The contract tracks these deposits against each player's address, maintaining a balance reflecting their current game stake.
+
+Let's break down each element and function of the smart contract.
+
+### Contract overview
+
+* **Contract name** — `Game`
+* **Purpose** — this contract allows players to deposit ETH to play a game, and it manages the game results and payouts.
+
+### Constants
+
+1. **MINIMUM\_DEPOSIT**
+
+   * **Type** — `uint256` (unsigned integer)
+   * **Purpose** — specifies the minimum amount of ether a player must deposit to play the game.
+   * **Value** — 1 ether
+
+2. **MAXIMUM\_DEPOSIT**
+
+   * **Type** — `uint256`
+   * **Purpose** — indicates the maximum amount of ether a player can deposit.
+   * **Value** — 2 ethers
+
+### State variables
+
+1. **deposits**
+
+   * **Type** — `mapping(address => uint256)`
+   * **Purpose** — keeps track of the amount of ether each player (address) has deposited.
+
+2. **owner**
+
+   * **Type** — `address`
+   * **Purpose** — stores the address of the contract owner, who has special privileges (like executing the `gameResult` and `withdraw` functions).
+
+### Constructor
+
+* **Functionality** — sets the deployer of the contract as the `owner`.
+
+### Modifiers
+
+1. **onlyOwner**
+   * **Purpose** — restricts the execution of certain functions to only the contract owner.
+
+### Functions
+
+1. **deposit**
+
+   * **Access** — public
+   * **Payment Type** — payable (can receive ether)
+   * **Purpose** — allows players to deposit ETH within the allowed range (1 to 2 ethers). It also ensures the contract has enough funds to cover potential winnings.
+   * **Logic** — updates the `deposits` mapping with the player's deposit amount.
+
+2. **canPlay**
+
+   * **Access** — public
+   * **Purpose** — checks if a user has deposited enough ETH to play the game.
+   * **Parameters** — `user` (address of the player)
+   * **Returns** — `bool` (`True` if the player has enough deposit, `False` otherwise)
+
+3. **gameResult**
+
+   * **Access** — public, but restricted to `onlyOwner`
+
+   * **Purpose** — processes the outcome of the game. It either pays out double the deposit to the player if they win or retains the deposit in the contract if they lose.
+
+   * **Parameters**:
+
+     * `player` — address of the player
+     * `userWon` — boolean indicating whether the player won or not
+
+   * **Logic** — if the player wins, it transfers double the deposit amount to them and resets their deposit to zero. If the player loses, just resets their deposit.
+
+4. **withdraw**
+
+   * **Access** — public, but restricted to `onlyOwner`
+   * **Purpose** — allows the owner to withdraw all ETH stored in the contract.
+   * **Logic** — transfers the entire contract balance to the owner's address.
+
+### TL;DR
+
+* Players can participate in the game by depositing a certain amount of ether (between 1 and 2 ethers).
+* The contract ensures fairness and readiness for payouts before accepting deposits.
+* After the game ends, the result is communicated to the contract. Winners receive double their stake, while the stakes of those who lose remain with the contract.
+* Only the contract owner can process game results and withdraw funds from the contract, ensuring controlled and secure operations.
+
+### Environment variables
+
+In the root directory of the Hardat project, create a `.env` file for your endpoint and private keys:
+
+```
+RONIN_SAIGON_CHAINSTACK="YOUR_CHAINSTACK_RONIN_ENDPOINT"
+RONIN_PRIVATE_KEY="YOUR_RONIN_WALLET_PRIVATE_KEY"
+```
+
+### Create the deploying script
+
+In the `scripts` directory inside the root of your project, you will find a file named `deploy.js`. Replace its content with the following:
+
+<CodeGroup>
+  ```javascript deploy.js
+  const hre = require("hardhat");
+
+  async function main() {
+    console.log("Deploying contract...");
+    const GameContract = await hre.ethers.deployContract("Game");
+
+    // Deploy the contract.
+    await GameContract.waitForDeployment();
+    console.log("Contract deployed to:", GameContract.target);
+    const roninAddress = GameContract.target.substring(2);
+    console.log(
+      `Find the contract at https://saigon-app.roninchain.com/address/ronin:${roninAddress}`
+    );
+  }
+
+  // We recommend this pattern to be able to use async/await everywhere
+  // and properly handle errors.
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+  ```
+</CodeGroup>
+
+This code is a script that deploys a `Game` smart contract.
+
+Here's a breakdown of what each part of the script does:
+
+1. **Import Hardhat runtime environment (HRE)**:
+
+   <CodeGroup>
+     ```javascript Javascript
+     const hre = require("hardhat");
+     ```
+   </CodeGroup>
+
+   This line imports the Hardhat runtime environment, which provides various utilities for working with Ethereum, such as deploying contracts.
+
+2. **Main function**:
+
+   <CodeGroup>
+     ```javascript Javascript
+     async function main() {
+       console.log("Deploying contract...");
+       const GameContract = await hre.ethers.deployContract("Game");
+
+       // Deploy the contract.
+       await GameContract.waitForDeployment();
+       console.log("Contract deployed to:", GameContract.target);
+       const roninAddress = GameContract.target.substring(2);
+       console.log(
+         `Find the contract at https://saigon-app.roninchain.com/address/ronin:${roninAddress}`
+       );
+     }
+     ```
+   </CodeGroup>
+
+   The `main` function is an asynchronous function where the main logic of the script is executed.
+
+3. **Starting deployment process**:
+
+   <CodeGroup>
+     ```javascript Javascript
+     console.log("Deploying contract...");
+     ```
+   </CodeGroup>
+
+   This line prints a message to the console indicating that the deployment process is starting.
+
+4. **Deploying the contract**:
+
+   <CodeGroup>
+     ```javascript Javascript
+     const GameContract = await hre.ethers.deployContract("Game");
+     ```
+   </CodeGroup>
+
+   This line uses Hardhat's `ethers` plugin to deploy a contract named `Game`. The `await` keyword is used because `deployContract` is an asynchronous operation.
+
+5. **Waiting for deployment completion**:
+
+   <CodeGroup>
+     ```javascript Javascript
+     await GameContract.waitForDeployment();
+     ```
+   </CodeGroup>
+
+   This line waits for the contract deployment to be completed. It's important to wait for the deployment to finish before proceeding.
+
+6. **Logging the deployed contract address**:
+
+   <CodeGroup>
+     ```javascript Javascript
+     console.log("Contract deployed to:", GameContract.target);
+     ```
+   </CodeGroup>
+
+   After the contract is successfully deployed, this line logs the address of the deployed contract to the console.
+
+7. **Removing the `0x` prefix from the address**:
+
+   <CodeGroup>
+     ```javascript Javascript
+     const roninAddress = GameContract.target.substring(2);
+     ```
+   </CodeGroup>
+
+   This line removes the `0x` prefix from the Ethereum address using the `substring` method. As the Ronin explorer uses this format: `https://saigon-app.roninchain.com/address/ronin:49a1EA88e5F81850DE30Dc038c1d08028ecFc9b5`.
+
+8. **Providing the contract address on Ronin explorer**:
+
+   <CodeGroup>
+     ```javascript Javascript
+     console.log(
+         `Find the contract at https://saigon-app.roninchain.com/address/ronin:${roninAddress}`
+     );
+     ```
+   </CodeGroup>
+
+   This line constructs a URL to view the contract on the Ronin blockchain explorer and logs it to the console. It appends the modified address to the explorer's URL.
+
+9. **Error handling**:
+
+   <CodeGroup>
+     ```javascript Javascript
+     main().catch((error) => {
+       console.error(error);
+       process.exitCode = 1;
+     });
+     ```
+   </CodeGroup>
+
+   This part of the script ensures that if any errors occur during the execution of the `main` function, they are caught and printed to the console, and the script exits with an error code.
+
+### Deploy the smart contract
+
+To deploy the `Game` contract, run the following command in the terminal:
+
+```
+npx hardhat run --network saigon scripts/deploy.js
+```
+
+This will deploy the contract on Ronin Saigon Testnet displaying something similar to the following:
+
+```
+Deploying contract...
+Contract deployed to: 0x49a1EA88e5F81850DE30Dc038c1d08028ecFc9b5
+Find the contract at https://saigon-app.roninchain.com/address/ronin:49a1EA88e5F81850DE30Dc038c1d08028ecFc9b5
+```
+
+You can now find the contract on the [Saigon Explorer](https://saigon-app.roninchain.com/). You can also find the transactions from the Ronin wallet.
+
+## Next steps
+
+Now you have a working smart contract deployed, the next step will be to build a front end with your game and wallet interaction.
+
+## Conclusion
+
+In this comprehensive tutorial, we journeyed through the exciting world of blockchain-based game development on the Ronin blockchain, an EVM-compatible platform optimized for gaming. From setting up a node on the Ronin Saigon testnet to deploying a game-centric smart contract using Hardhat, we've laid down a robust foundation for blockchain game developers.
+
+The key takeaway from this tutorial is the seamless integration of blockchain technology into gaming. By deploying a smart contract on Ronin, we have created a system that enhances the gaming experience and ensures secure and fair gameplay. The ability to handle in-game financial transactions directly on the blockchain, including player deposits and payouts, showcases the power and versatility of smart contracts in gaming environments.
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

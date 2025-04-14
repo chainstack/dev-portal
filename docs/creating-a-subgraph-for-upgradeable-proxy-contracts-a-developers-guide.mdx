@@ -1,0 +1,96 @@
+---
+title: "Creating a Subgraph for Upgradeable Proxy Contracts: A Developer's Guide"
+description: "In this article, we explore the intricacies of developing a subgraph for upgradeable proxy contracts, a crucial component in modern smart contract development. This guide aims to provide a clear understanding and methodology for handling such contracts, ensuring a seamless update process."
+---
+
+### **Understanding Upgradeable Proxy Contracts**
+
+Upgradeable Proxy Contracts, as explained in resources like OpenZeppelin, offer a dynamic solution for updating smart contracts. They allow for the modification of the contract's logic over time, while the user interface remains unchanged. This separation of core functionality from the user interaction layer is pivotal in maintaining a stable yet adaptable contract environment.
+
+### **The Challenge with Contract Events**
+
+A significant challenge in updating proxy contracts arises when altering contract events, especially when these events need to accommodate different data types or structures. A common issue is the limitation in indexing the same event name with varied parameter structures, a frequent obstacle for subgraph developers.
+
+### **The Strategy: Renaming Events for Legacy and New Data**
+
+The key strategy here is to rename events when they are updated. This allows for indexing both the legacy data and the new data. It involves modifying the contract's ABI (Application Binary Interface) to include the legacy event with a new name.
+
+### **Example: Updating Events in a Sample Contract**
+
+Let's consider a hypothetical smart contract, MarketExchange.sol. We'll demonstrate how to transition from a legacy event to a revised version.
+
+Legacy Event (Version 1):
+
+<CodeGroup>
+  ```Text GraphQL
+  event LegacyTrade(
+      bytes32 indexed tradeId,
+      bytes32 indexed tradePair,
+      address indexed initiator,
+      ERC20 assetSent,
+      ERC20 assetReceived,
+      uint128 sentAmount,
+      uint128 receivedAmount,
+      uint64 tradeTimestamp
+  );
+  ```
+</CodeGroup>
+
+Updated Event (Version 2):
+
+<CodeGroup>
+  ```Text GraphQL
+  event NewTrade(
+      bytes32 indexed tradeId,
+      bytes32 indexed tradePair,
+      address indexed initiator,
+      ERC20 assetSent,
+      ERC20 assetReceived,
+      uint128 sentAmount,
+      uint128 receivedAmount
+  );
+  ```
+</CodeGroup>
+
+In this update, the 'tradeTimestamp' is removed, considering its retrievability from the transaction context.
+
+### **Modifying Contract ABIs for Subgraph Compatibility**
+
+The next essential step is to update the ABI in our subgraph to recognize the legacy event under its new name.
+
+Configuring the Subgraph.yaml File The subgraph.yaml file is then adjusted to index events from both the legacy and the current versions of the contract:
+
+<CodeGroup>
+  ```json JSON
+  abis:
+      - name: MarketExchange
+        file: ./abis/MarketExchangeOptimism.json
+  eventHandlers:
+      - event: NewTrade(...)
+        handler: handleNewTrade
+      ...
+      - event: LegacyTrade(...)
+        handler: handleLegacyTrade
+      ...
+  ```
+</CodeGroup>
+
+### **Conclusion**
+
+Through the use of proxy contracts and adherence to event-driven development principles, we can navigate contract version updates seamlessly. This method ensures data preservation and maintains the ecosystem built around a consistent access address. Adapting our subgraphs to index both legacy and current events exemplifies the flexibility and robustness of blockchain applications.
+
+### About the author
+
+<CardGroup>
+  <Card title="Kirill Balakhonov" img="/images/docs/u/44712112.png" >
+    <Icon icon="code"  iconType="solid"/>Product Lead @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on Ethereum and Graph protocol
+
+    <Icon icon="laptop"  iconType="solid"/> Majored in Data Science and Product Management
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/balakhonoff)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/balakhonoff)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/kirill-balakhonov/)
+  </Card>
+</CardGroup>

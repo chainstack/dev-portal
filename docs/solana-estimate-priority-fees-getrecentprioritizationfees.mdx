@@ -1,0 +1,448 @@
+---
+title: "Solana: Estimate Priority Fees with getRecentPrioritizationFees"
+description: "TLDR:"
+---
+
+* The `getRecentPrioritizationFees` method provides real-time insights into recent priority fee data on Solana.
+* It helps you dynamically gauge how much extra fee (in micro-lamports/Compute Unit) others are paying.
+* You can then set your transaction priority fee accordingly, balancing costs with faster confirmation needs.
+* This guide shows how to implement and analyze recent prioritization fees using TypeScript and Solana web3.js.
+
+## Main article
+
+Within blockchain technology, transaction processing efficiency is a cornerstone of network performance and user satisfaction. At the heart of this efficiency lies the nuanced concept of prioritization fees—a critical element that ensures transactions are processed promptly.
+
+Recognizing the importance of this aspect, Solana has introduced the `getRecentPrioritizationFees` method provides users with up-to-date information about these fees, allowing them to have an idea of the current fees attached to successful transactions and to estimate the priority fee to attach to transactions dynamically.
+
+In this guide, we’ll explore the `getRecentPrioritizationFees` method, its operational mechanics, and its role in enhancing transaction efficiency. We will also discuss practical applications, demonstrating how to integrate this method into your decentralized applications (DApps) using the `solana/web3.js` library and TypeScript.
+
+## What are Priority Fees on Solana?
+
+Priority fees on Solana allow users to expedite their transactions by paying an additional fee, measured in [micro-lamports](/docs/solana-glossary#micro-lamports) per [Compute Unit](/docs/solana-glossary#compute-units). These optional fees are added to the base transaction fee, typically 5000 lamports per signature. The rationale behind priority fees is to make transactions more appealing to validator nodes for block inclusion, thereby ensuring quicker processing.
+
+This system effectively allows users to bid for transaction processing priority, which is especially useful during high network congestion. Validators are motivated to prioritize transactions offering higher fees per compute unit, ensuring efficient use of network resources. While transactions can proceed without priority fees, adding them increases the likelihood of faster execution.
+
+## Deploy a Chainstack Solana node
+
+Before getting started, deploy a Solana node on Chainstack so you are ready to play with the code and examples. This will provide direct blockchain access, which is essential for effectively exploring features like the getRecentPrioritizationFees method.
+
+<Steps>
+  <Step>
+    [Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+  </Step>
+  <Step>
+    [Deploy a node](/docs/manage-your-networks#join-a-public-network).
+  </Step>
+  <Step>
+    [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+  </Step>
+</Steps>
+## Understand the \`getRecentPrioritizationFees method
+
+The `getRecentPrioritizationFees` method offers real-time insights into the network's current trends of prioritization fees. These fees are calculated per compute unit and are paid by transactions seeking to secure a higher priority in the block processing queue. By leveraging these prioritization fees, transactions can gain precedence over others in the same block, thus ensuring quicker inclusion and execution on the blockchain.
+
+Opting to pay a prioritization fee is voluntary, yet it significantly enhances a transaction's chance of being included in the forthcoming block. This strategic payment allows transactions to outpace others, offering lower or no prioritization fees.
+
+The method returns a response composed of objects, each representing a prioritization fee observed in a recent slot or block on the Solana blockchain.
+
+### Parameters
+
+* **Array**: This parameter accepts a variety of base-58 encoded public key strings representing Solana account addresses, with a cap of 128 addresses.
+
+### Response
+
+The method's response is structured as an array of objects, with each object shedding light on a prioritization fee observed in a recent slot (block). The detailed attributes of each object include:
+
+* **Slot**: Identifies the specific slot (or block) on the Solana blockchain where the transactions tied to the observed prioritization fees were processed.
+* **prioritizationFee**: Indicates the fee amount, in micro-lamports, that was paid by at least one transaction in the specified slot to secure a higher processing priority.
+
+## cURL example
+
+Below is a practical demonstration of a simple `getRecentPrioritizationFees` request using cURL.
+
+This example uses the Jupiter aggregator as a reference point, meaning the fees reflect those pertinent to that specific DApp.
+
+<CodeGroup>
+  ```solidity solidity
+  curl --request POST \
+       --url YOUR_SOLANA_ENDPOINT \
+       --header 'accept: application/json' \
+       --header 'content-type: application/json' \
+       --data '
+  {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "getRecentPrioritizationFees",
+    "params": [
+      [
+        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
+      ]
+    ]
+  }
+  '
+  ```
+</CodeGroup>
+
+<Info>
+  You can find more explanations and examples in the [Chainstack API reference](/api-reference/solana_node_api/getRecentPrioritizationFees).
+</Info>
+
+## Explore the project
+
+This simple project is designed as a comprehensive guide for developers looking to optimize their transactions on the Solana blockchain through the strategic use of priority fees. By harnessing the `getRecentPrioritizationFees` method, the provided code dynamically fetches recent prioritization fee data, offering a deep dive into the current fee landscape.
+
+This project will provide various priority fee measurements based on the `getRecentPrioritizationFees` response:
+
+* Average Prioritization Fee, including slots with zero fees.
+* Average Prioritization Fee excluding slots with zero fees.
+* Median Prioritization Fee excluding slots with zero fees.
+
+### Environment setup
+
+* **Node.js**: Ensure you have [Node.js](https://nodejs.org/en/download/current) (version 18 or above) installed on your machine. Node.js is essential for running the scripts and managing the dependencies of the Raydium SDK.
+* **npm**: Node Package Manager is the default package manager for Node.js projects. It is used to install the necessary dependencies for this project. npm comes pre-installed with Node.js, so you don't need to install it separately.
+* **Solana wallet**: A Solana wallet with some SOL and SLP tokens.
+
+<Info>
+  If you prefer, you can also use Yarn as an alternative package manager. Yarn is a fast, reliable, and secure dependency management tool. After installing Node.js, you can install Yarn by running `npm install --global yarn` in your terminal.
+</Info>
+
+## Set up a TypeScript project
+
+Before working on the code, we need to set up a TypeScript project. This will provide us with a structured environment for our code and allow us to take advantage of TypeScript's type-checking and other features. Follow these steps to create a new TypeScript project:
+
+**Create a new directory for your project**: Open your terminal and navigate to the location where you want to create your project directory. Run the following command to create a new directory:
+
+<CodeGroup>
+  ```bash Bash
+  mkdir solana-getRecentPrioritizationFees
+  ```
+</CodeGroup>
+
+**Initialize a new Node.js project**: Navigate into the newly created directory and initialize a new Node.js project by running:
+
+<CodeGroup>
+  ```bash Bash
+  cd solana-getRecentPrioritizationFees
+  npm init -y
+  ```
+</CodeGroup>
+
+This will create a `package.json` file, which is used to manage project dependencies.
+
+**Install TypeScript and type definitions**: Next, we must install TypeScript and the type definitions for the Solana Web3.js library. Run the following command:
+
+<CodeGroup>
+  ```bash Bash
+  npm install --save-dev typescript @types/node
+  ```
+</CodeGroup>
+
+**Create a TypeScript configuration file**: To configure TypeScript for our project, we must create a `tsconfig.json` file. Run the following command to generate a basic configuration file:
+
+<CodeGroup>
+  ```bash Bash
+  tsc --init
+  ```
+</CodeGroup>
+
+This will create a `tsconfig.json` file with default settings. You can customize these settings as needed for your project.
+
+**Create a source file**: Let's create our first TypeScript file where we'll write our code.
+
+<CodeGroup>
+  ```bash Bash
+  touch main.ts
+  ```
+</CodeGroup>
+
+### Install required packages
+
+We must install several packages to interact with the Solana blockchain and work with SPL tokens. These packages will provide the necessary functionality to connect to a Solana node, manage wallets, and perform token transfers.
+
+Follow these steps to install the required packages:
+
+**Install the Solana Web3.js library and the SPL Token library**:
+
+<CodeGroup>
+  ```bash Bash
+  npm install @solana/web3.js
+  ```
+</CodeGroup>
+
+* The `@solana/web3.js` package is the official Solana Web3 library, which provides a JavaScript API for interacting with the Solana blockchain.
+
+**Install additional dependencies**:
+
+<CodeGroup>
+  ```bash Bash
+  npm install dotenv
+  ```
+</CodeGroup>
+
+* The `dotenv` package allows us to load environment variables from a `.env` file, which helps store sensitive information like private keys.
+
+After running these commands, your `package.json` file should have the following dependencies:
+
+<CodeGroup>
+  ```Json JSON
+  "dependencies": {
+    "@solana/web3.js": "^1.90.1",
+    "dotenv": "^16.4.5"
+  }
+  ```
+</CodeGroup>
+
+With these packages installed, you'll have the tools to connect to a Solana node, manage wallets, and perform blockchain calls using TypeScript.
+
+In the next section, we'll start coding.
+
+## Set up your environment variables
+
+This tutorial will use sensitive information such as private keys and RPC node URLs. It's crucial to keep this information secure and avoid committing it to version control systems like Git. We'll use the `dotenv` package to load environment variables from a `.env` file to achieve this.
+
+Follow these steps to set up your environment variables:
+
+1. **Create a `.env` file**: In the root directory of your project, create a new file called `.env`. This file will store your environment variables.
+2. **Add your environment variables**: Open the `.env` file and add the following variables, replacing the placeholders with your actual values:
+
+```
+SOLANA_RPC="YOUR_HTTPS_CHAINSTACK_URL"
+```
+
+* `SOLANA_RPC`: This variable should contain your Solana node's HTTP RPC URL. If you're using a Chainstack node, the RPC URL is in the node's credentials.
+
+### How to use environment variables
+
+Once the `.env` file is set up, you can load environment variables in your TypeScript code (e.g., `main.ts`), import the `dotenv` package, and load the environment variables at the beginning of your script:
+
+<CodeGroup>
+  ```tsx tsx
+  import "dotenv/config";
+  ```
+</CodeGroup>
+
+This will load the environment variables from the `.env` file into the `process.env` object, allowing you to access them using `process.env.VARIABLE_NAME`.
+
+**Access environment variables**: You can now access the environment variables in your code like this:
+
+<CodeGroup>
+  ```tsx tsx
+  const rpcUrl = process.env.SOLANA_RPC;
+  ```
+</CodeGroup>
+
+By following this approach, you can keep sensitive information like private keys and node URLs out of your codebase, making it more secure and easier to manage different environments (e.g., development, staging, production).
+
+<Info>
+  Remember to add the `.env` file to your `.gitignore` file to prevent it from being committed to version control systems, as it contains sensitive information.
+</Info>
+
+## Code walkthrough
+
+Now that we have set up the project, installed the required packages, and configured the environment variables, it's time to put everything together and implement the code:
+
+### Add the code
+
+1. Open the `main.ts` file you created earlier in your preferred code editor.
+2. Paste the following code into the `main.ts` file:
+
+<CodeGroup>
+  ```solidity solidity
+  import { Connection, PublicKey } from '@solana/web3.js';
+  import 'dotenv/config';
+
+  // Strongly type the environment variable getter
+  function getEnvVariable(key: string): string {
+      const value = process.env[key];
+      if (!value) {
+          throw new Error(`Environment variable ${key} is not set.`);
+      }
+      return value;
+  }
+
+  // Define interfaces for more explicit typing
+  interface PrioritizationFeeObject {
+      slot: number;
+      prioritizationFee: number;
+  }
+
+  interface Config {
+      lockedWritableAccounts: PublicKey[];
+  }
+
+  const getPrioritizationFees = async () => {
+      try {
+          const SOLANA_RPC = getEnvVariable('SOLANA_RPC');
+          const connection = new Connection(SOLANA_RPC);
+
+          const publicKey = new PublicKey('JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4');
+
+          const config: Config = {
+              lockedWritableAccounts: [publicKey]
+          };
+
+          const prioritizationFeeObjects = await connection.getRecentPrioritizationFees(config) as PrioritizationFeeObject[];
+
+          if (prioritizationFeeObjects.length === 0) {
+              console.log('No prioritization fee data available.');
+              return;
+          }
+
+          // Extract slots and sort them
+          const slots = prioritizationFeeObjects.map(feeObject => feeObject.slot).sort((a, b) => a - b);
+
+          // Extract slots range
+          const slotsRangeStart = slots[0];
+          const slotsRangeEnd = slots[slots.length - 1];
+
+          // Calculate the average including zero fees
+          const averageFeeIncludingZeros = prioritizationFeeObjects.length > 0
+              ? Math.floor(prioritizationFeeObjects.reduce((acc, feeObject) => acc + feeObject.prioritizationFee, 0) / prioritizationFeeObjects.length)
+              : 0;
+
+          // Filter out prioritization fees that are equal to 0 for other calculations
+          const nonZeroFees = prioritizationFeeObjects
+              .map(feeObject => feeObject.prioritizationFee)
+              .filter(fee => fee !== 0);
+
+          // Calculate the average of the non-zero fees
+          const averageFeeExcludingZeros = nonZeroFees.length > 0
+              ? Math.floor(nonZeroFees.reduce((acc, fee) => acc + fee, 0) / nonZeroFees.length )
+              : 0;
+
+          // Calculate the median of the non-zero fees
+          const sortedFees = nonZeroFees.sort((a, b) => a - b);
+          let medianFee = 0;
+          if (sortedFees.length > 0) {
+              const midIndex = Math.floor(sortedFees.length / 2);
+              medianFee = sortedFees.length % 2 !== 0
+                  ? sortedFees[midIndex]
+                  : Math.floor((sortedFees[midIndex - 1] + sortedFees[midIndex]) / 2);
+          }
+
+          console.log(`Slots examined for priority fees: ${prioritizationFeeObjects.length}`)
+          console.log(`Slots range examined from ${slotsRangeStart} to ${slotsRangeEnd}`);
+          console.log('====================================================================================')
+
+          // You can use averageFeeIncludingZeros, averageFeeExcludingZeros, and medianFee in your transactions script
+          console.log(` 💰 Average Prioritization Fee (including slots with zero fees): ${averageFeeIncludingZeros} micro-lamports.`);
+          console.log(` 💰 Average Prioritization Fee (excluding slots with zero fees): ${averageFeeExcludingZeros} micro-lamports.`);
+          console.log(` 💰 Median Prioritization Fee (excluding slots with zero fees): ${medianFee} micro-lamports.`);
+      } catch (error) {
+          console.error('Error fetching prioritization fees:', error);
+      }
+  };
+
+  getPrioritizationFees();
+  ```
+</CodeGroup>
+
+This script is a practical application designed for Solana blockchain developers to fetch and analyze recent prioritization fees, aiding in informed decision-making for transaction fee settings.
+
+Here's a breakdown of its components and how each part contributes to the overall functionality:
+
+### Import dependencies and setup
+
+* **Solana Web3.js**: Imports the `Connection` and `PublicKey` modules from the Solana web3.js library, enabling interaction with the Solana blockchain and handling public key addresses.
+* **Dotenv**: Imports configuration for environment variables, allowing the script to securely access the Solana RPC endpoint specified in your environment.
+
+### Utility function
+
+* **`getEnvVariable`**: A utility function that retrieves environment variables securely. It throws an error if the specified environment variable is not found, ensuring the script has all the necessary configurations.
+
+### Interface definitions
+
+* **`PrioritizationFeeObject`**: Defines the structure for objects containing prioritization fee data, including the slot number and the fee amount.
+* **`Config`**: Defines the configuration object structure, specifying which accounts' prioritization fees will be fetched.
+
+### Main async `getPrioritizationFees` function
+
+* **Initialize connection**: Establishes a connection to the Solana blockchain using the RPC endpoint specified in your environment variables.
+
+* **Define public key and config**: Specifies the public key(s) for which the prioritization fees will be fetched and sets up the configuration object accordingly.
+
+* **Fetch prioritization fees**: This method calls the `getRecentPrioritizationFees` method with the defined config, retrieving an array of `PrioritizationFeeObject`s containing recent fee data.
+
+* **Handle no data case**: Checks if no prioritization fee data was returned and logs a message indicating the absence of data.
+
+* **Data analysis**:
+
+  * Sorts and analyzes the slots of the returned fee objects to determine the range of slots examined.
+  * Calculates the average prioritization fee, including and excluding zeros, to provide insights into the overall fee trends.
+  * Determines the median prioritization fee from the non-zero fees to give a middle-point fee estimate less influenced by outliers.
+
+### Calculations and output
+
+* **Sort and calculate averages/median**: Performs numerical analysis on the fetched fee data to calculate average and median fees, offering a comprehensive view of fee trends. These metrics are essential for developers looking to optimize transaction costs based on current network conditions.
+* **Logging results**: This function outputs the analysis results, including the range of slots examined and the calculated average and median fees, providing actionable insights for setting transaction priority fees.
+
+### Error handling
+
+* **Catch block**: This block captures and logs any errors encountered during the execution of the async function, ensuring that issues are reported for debugging.
+
+### Run the script
+
+Now that we have the code and understand how it works, it’s time to run it. You can edit the reference addresses in the config:
+
+<CodeGroup>
+  ```typescript TypeScript
+  const publicKey = new PublicKey('JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4');
+
+  const config: Config = {
+      lockedWritableAccounts: [publicKey]
+  };
+  ```
+</CodeGroup>
+
+To run the code after you configured the parameters, run the following command in the terminal:
+
+<CodeGroup>
+  ```shell Shell
+  ts-node main.ts
+  ```
+</CodeGroup>
+
+This will fetch the data and log the results in the console; it will look similar to this:
+
+<CodeGroup>
+  ```shell Shell
+  $ ts-node main.ts
+
+  Slots examined for priority fees: 150
+  Slots range examined from 255369379 to 255369528
+  ====================================================================================
+   💰 Average Prioritization Fee (including slots with zero fees): 1053 micro-lamports.
+   💰 Average Prioritization Fee (excluding slots with zero fees): 4938 micro-lamports.
+   💰 Median Prioritization Fee (excluding slots with zero fees): 4261 micro-lamports.
+  ```
+</CodeGroup>
+
+Now you can use `averageFeeIncludingZeros`, `averageFeeExcludingZeros`, and `medianFee` in your transactions script to add fees dynamically.
+
+<Info>
+  Learn how to add Priority Fees to your transactions by reading **[Solana: How to use Priority Fees to unlock faster transactions](/docs/solana-how-to-priority-fees-faster-transactions).**
+</Info>
+
+## Conclusion
+
+This guide gets into the `getRecentPrioritizationFees` method on Solana, offering a comprehensive overview and practical examples of leveraging priority fees to enhance transaction processing efficiency. We've explored the concept of priority fees, set up a Solana node on Chainstack, and provided a detailed walkthrough of fetching and analyzing prioritization fee data using TypeScript.
+
+Through this process, we've gained insights into the importance of dynamically estimating fees to balance cost efficiency with transaction speed. This knowledge empowers developers to optimize their DApps on the Solana blockchain, ensuring transactions are processed timely without incurring unnecessary costs.
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

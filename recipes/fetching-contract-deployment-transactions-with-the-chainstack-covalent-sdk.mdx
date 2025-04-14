@@ -1,0 +1,143 @@
+---
+title: "Fetching contract deployment transactions with the Chainstack Covalent SDK"
+description: "Querying the Chainstack Covalent SDK to return a list of contracts deployed by a specified address."
+---
+
+<AccordionGroup>
+<Accordion title="Overview">
+
+This code snippet is designed to fetch contract deployment transactions for a specified wallet address on a given blockchain network using Chainstack's Covalent integration SDK. It then retrieves the contract address for each transaction and prints the transaction hash and contract address.
+
+In short, this script will fetch a full list of contracts deployed by a specified address.
+
+</Accordion>
+<Accordion title="Environment setup">
+
+Install node.js in case it's not yet installed.
+
+Create a new directory for your project, then install the web3.js library:
+`npm install web3`
+
+Additionally, install the Chainstack Covalent SDK:
+`npm install chainstack-covalent-sdk`
+
+```js JavaScript
+const { ChainstackApi } = require('chainstack-covalent-sdk');
+const { Web3 } = require('web3');
+```
+</Accordion>
+<Accordion title="Get your Chainstack API key and endpoint">
+
+You'll need both an endpoint for the blockchain you'd like to query, as well as a Chainstack platform API key for authentication within the Chainstack Covalent SDK.
+
+1. Retrieve your API key by navigating to your Chainstack account settings, then API keys. Generate a new key, and place that in the `ChainstackApi` constructor.
+
+> Remember you will need to purchase the Chainstack-Covalent integration from the [Chainstack Marketplace](https://console.chainstack.com/marketplace/).
+
+2. Head over to the Chainstack console and deploy a node for your query chain. Copy the corresponding HTTPS endpoint and paste it into `web3`.
+
+```js JavaScript
+const web3 = new Web3('CHAINSTACK_ENDPOINT');
+
+const chainstackApi = new ChainstackApi('CHAINSTACK_API_KEY');
+```
+</Accordion>
+<Accordion title="Initializing the parameters">
+
+To begin, you'll need to create a variable that holds the parameters of our SDK method call. In this case, you'll need to define `chainName` and `walletAddress`.
+
+`chainName` should be formatted as 'chain-network', with chain referring to the name of the blockchain in question, and network referring to the mainnet, testnet, etc. For example, 'eth-sepolia', or 'base-mainnet'
+
+`walletAddress` should be defined as a string containing the address of the wallet you'd like to query the contract deployments of.
+
+```js JavaScript
+const fetchContractDeploymentTransactionsParams = {
+  chainName: "chain-network", // ex: base-mainnet
+  walletAddress: "0x03d4C4b1B115c068Ef864De2e21E724a758892A2"
+};
+```
+</Accordion>
+<Accordion title="Creating the handler function">
+
+Now, with your parameters defined, we'll need to create the response handler function to retrieve additional information, such as the address of the deployed contract.
+
+This function will leverage the RPC node previously defined to run a `getTransactionReceipt` request on the provided transaction hash.
+
+```js JavaScript
+async function getContractDeploymentDetails(txHash) {
+  const txReceipt = await web3.eth.getTransactionReceipt(txHash);
+  return txReceipt.contractAddress;
+}
+```
+</Accordion>
+<Accordion title="Calling the method and printing the response">
+
+Now we'll need to define the `main()` function. This function will contain the `fetchContractDeploymentTransactions` call to the Chainstack Covalent SDK. Within this call, we'll pass in the parameters defined earlier.
+
+This will result in a response containing a list of relevant transactions, in which we'll then parse through in the `for` loop. For each transaction, we'll run it through the handler, `getContractDeploymentDetails`, then print out the hash & contract address.
+
+```js JavaScript
+async function main() {
+  const contractDeploymentTransactions = await chainstackApi.fetchContractDeploymentTransactions(fetchContractDeploymentTransactionsParams);
+  for (const transaction of contractDeploymentTransactions) {
+    const address = await getContractDeploymentDetails(transaction.tx_hash);
+    console.log(`Transaction hash: ${transaction.tx_hash}`);
+    console.log(`Contract address: ${address}`);
+  }
+}
+
+main();
+```
+
+</Accordion>
+<Accordion title="Understanding the response">
+
+The response here will be dependent upon the address you decide to query, but you should expect to see multiple strings printed to the console following the order of: "Details for transaction `tx`", then "Contract Address: `address`".
+
+The transaction hash will directly point to the transaction in which the contract was deployed, and the contract address refers to the address of the deployed contract itself.
+
+Due to the computationally intensive nature of this method, responses may take a few seconds.
+</Accordion>
+</AccordionGroup>
+
+<RequestExample>
+```js JavaScript
+const { ChainstackApi } = require('chainstack-covalent-sdk');
+const { Web3 } = require('web3');
+
+const web3 = new Web3('CHAINSTACK_ENDPOINT');
+
+const chainstackApi = new ChainstackApi('CHAINSTACK_API_KEY');
+
+const fetchContractDeploymentTransactionsParams = {
+  chainName: "chain-network", // ex: base-mainnet
+  walletAddress: "0x03d4C4b1B115c068Ef864De2e21E724a758892A2"
+};
+
+async function getContractDeploymentDetails(txHash) {
+  const txReceipt = await web3.eth.getTransactionReceipt(txHash);
+  return txReceipt.contractAddress;
+}
+
+async function main() {
+  const contractDeploymentTransactions = await chainstackApi.fetchContractDeploymentTransactions(fetchContractDeploymentTransactionsParams);
+  for (const transaction of contractDeploymentTransactions) {
+    const address = await getContractDeploymentDetails(transaction.tx_hash);
+    console.log(`Transaction hash: ${transaction.tx_hash}`);
+    console.log(`Contract address: ${address}`);
+  }
+}
+
+main();
+```
+</RequestExample>
+
+<ResponseExample>
+```bash
+Details for transaction 0x3d7f70bcaeb73ad4ed169f243611fcaebc2a28e083b2889380f17079759e4c11:
+Contract Address: 0x7c0f776193acf24fde9d6a78d1918e4b032811b6
+Details for transaction 0x8e46b1c1bee7faf0ed02518de2cc19571d042bddb065f58de3dabcc64428d21e:
+Contract Address: 0xbb65c9f00af359b04cac6ff5729f1f0fb531bf08
+...
+```
+</ResponseExample>

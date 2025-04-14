@@ -1,0 +1,187 @@
+---
+title: "TON: Wallet Initialization with Tonweb"
+---
+
+**TLDR**
+* Explains the NFT standard on TON (TEP-62, TEP-64) and key features for ownership and metadata.
+* Demonstrates how to set up, compile, and deploy both NFT item and collection contracts.
+* Shows how to interact with these contracts via Blueprint wrappers and test them using Sandbox.
+* Provides a starting reference to extend NFT functionality on the TON blockchain.
+
+## Main article
+
+To be able to use your account on TON, you need to have an initialized wallet. Wallet initialization means deploying a TON wallet contract for your account.
+
+While this is a great feature of the TON blockchain, you might find it cumbersome dealing with wallet deployments during your development stage.
+
+So here's a couple of scripts in JavaScript using [tonweb](https://github.com/toncenter/tonweb) that can help you:
+
+* GenerateAndInitialize.js — a script that generates a key pair for an account and then keeps running until you top it up with TON; once the account has enough TON, the script deploys a wallet contract.
+* CheckAndDepoy.js — a script that checks whether an account is initialized; if it's not initialized, the script deploys a wallet contract.
+
+## Prerequisites
+
+Make sure [tonweb](https://www.npmjs.com/package/tonweb) is installed.
+
+<Check>
+  ### Get you own node endpoint today
+
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+  You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## GenerateAndInitialize
+
+This script does the following:
+
+* Generates a key pair and saves it to `wallet_keys.json`
+* Keeps running and checking the balance of the generated account until it's topped up
+* Once the account is topped up, the script deploys a `v4R2` wallet contract
+
+<CodeGroup>
+  ```javascript Javascript
+  const TonWeb = require('tonweb');
+  const fs = require('fs');
+
+  const httpProvider = new TonWeb.HttpProvider('CHAINSTACK_NODE_WITH_jsonRPC');
+  const tonweb = new TonWeb(httpProvider);
+
+  async function generateAndInitializeWallet() {
+      // Generate a new key pair
+      const keyPair = TonWeb.utils.nacl.sign.keyPair();
+
+      // Create a v4R2 wallet instance
+      const WalletClass = tonweb.wallet.all['v4R2'];
+      const wallet = new WalletClass(tonweb.provider, {
+          publicKey: keyPair.publicKey,
+          wc: 0
+      });
+
+      // Get the wallet address
+      const walletAddress = await wallet.getAddress();
+      const addressString = walletAddress.toString(true, true, true);
+
+      console.log('Generated wallet address:', addressString);
+      console.log('Please send some TON to this address to initialize the wallet.');
+
+      // Save the key pair to a file
+      const keyPairData = {
+          publicKey: TonWeb.utils.bytesToHex(keyPair.publicKey),
+          secretKey: TonWeb.utils.bytesToHex(keyPair.secretKey)
+      };
+      fs.writeFileSync('wallet_keys.json', JSON.stringify(keyPairData, null, 2));
+      console.log('Key pair saved to wallet_keys.json');
+
+      // Wait for the wallet to be topped up
+      await waitForBalance(walletAddress);
+
+      // Initialize the wallet
+      console.log('Initializing wallet...');
+      const deployResult = await wallet.deploy(keyPair.secretKey).send();
+      console.log('Deployment transaction sent:', deployResult);
+
+      console.log('Waiting for deployment to complete...');
+      await new Promise(resolve => setTimeout(resolve, 10000)); // Wait for 10 seconds
+
+      const seqno = await wallet.methods.seqno().call();
+      if (seqno !== null) {
+          console.log('Wallet successfully initialized!');
+      } else {
+          console.log('Wallet initialization might have failed. Please check the address on a block explorer.');
+      }
+  }
+
+  async function waitForBalance(address) {
+      while (true) {
+          const balance = await tonweb.getBalance(address);
+          if (balance && balance !== '0') {
+              console.log('Balance detected:', TonWeb.utils.fromNano(balance), 'TON');
+              break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 5000)); // Check every 5 seconds
+      }
+  }
+
+  generateAndInitializeWallet().catch(console.error);
+  ```
+</CodeGroup>
+
+Make sure you put your Chainstack TON node endpoint with a `/jsonRPC` at the end instead of `CHAINSTACK_NODE_WITH_jsonRPC`.
+
+## CheckAndDepoy
+
+This script does the following:
+
+* Converts the private key to an account address
+* Checks the account if it's initialized or not
+* Checks the balance
+* If the account is not initialized and has enough TON coins for wallet contract deployment, proceeds with the deployment
+
+<CodeGroup>
+  ```javascript Javascript
+  const TonWeb = require('tonweb');
+
+  const privateKey = 'PRIVATE_KEY';
+
+  const httpProvider = new TonWeb.HttpProvider('CHAINSTACK_NODE_WITH_jsonRPC');
+  const tonweb = new TonWeb(httpProvider);
+
+  async function deployWallet() {
+      try {
+          const keyPair = TonWeb.utils.nacl.sign.keyPair.fromSecretKey(TonWeb.utils.hexToBytes(privateKey));
+          const WalletClass = tonweb.wallet.all['v4R2'];
+          const wallet = new WalletClass(tonweb.provider, {
+              publicKey: keyPair.publicKey,
+              wc: 0
+          });
+
+          const walletAddress = await wallet.getAddress();
+          console.log('Wallet address:', walletAddress.toString(true, true, true));
+
+          const balance = await tonweb.provider.getBalance(walletAddress.toString());
+          console.log('Wallet balance:', balance);
+
+          if (balance === '0') {
+              console.error('Wallet has no balance. Please add funds before deploying.');
+              return;
+          }
+
+          const seqno = await wallet.methods.seqno().call();
+          console.log('Seqno:', seqno);
+
+          if (seqno === null) {
+              console.log('Wallet not deployed. Deploying...');
+              const deployResult = await wallet.deploy(keyPair.secretKey).send();
+              console.log('Deploy result:', deployResult);
+          } else {
+              console.log('Wallet already deployed. Seqno:', seqno);
+          }
+      } catch (error) {
+          console.error('Unexpected error:', error.message);
+      }
+  }
+
+  deployWallet();
+  ```
+</CodeGroup>
+
+Make sure you put your Chainstack TON node endpoint with a `/jsonRPC` at the end instead of `CHAINSTACK_NODE_WITH_jsonRPC`; and put your private key in`PRIVATE_KEY`.
+
+### About the author
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

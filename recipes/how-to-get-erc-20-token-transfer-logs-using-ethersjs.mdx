@@ -1,0 +1,173 @@
+---
+title: "How to get ERC-20 token transfer logs using ethers.js"
+description: "This recipe shows you how to use the Ethers library with a Chainstack Ethereum node to retrieve transfer logs for an ERC-20 token."
+---
+
+<AccordionGroup>
+  <Accordion title="Prerequisites" >
+
+  You will need a Chainstack account and an Ethereum node to follow this recipe.
+
+  1. [Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+2. [Deploy a node](https://docs.chainstack.com/docs/manage-your-networks#join-a-public-network).
+3. [View node access and credentials](https://docs.chainstack.com/docs/manage-your-node#view-node-access-and-credentials).
+
+  </Accordion>
+  <Accordion title="Environment setup" >
+
+1. Install [node.js](https://nodejs.org/en/) in case it is not installed yet.
+
+Create a new directory for your project, then install the `ethers.js` library.
+
+`npm install ethers`
+</Accordion>
+<Accordion title="Initialize a provider instance" >
+
+Create a new file, `index.js`, import the ethers.js library, and initialize a new provider instance using your Chainstack node URL.
+
+Paste your Chainstack node URL in the `nodeUrl` const.
+
+```js index.js
+const ethers = require('ethers');
+
+// Initialize connection to the node.
+const nodeUrl = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(nodeUrl);
+```
+</Accordion>
+<Accordion title="Initialize the ABI and smart contract instance" >
+
+Now we need to create a smart contract instance using the address and ABI.
+
+In this case, we only use the part of the ABI describing the `transfer` event.
+
+This specific example retrieves the transfer logs for the APE token, but you can use any ERC-20 token smart contract address.
+
+```js index.js
+// Import and parse ABI for ERC-20 standard.
+const abi = [
+    // In this case, we only import the 'Transfer' event part of the ABI.
+    "event Transfer(address indexed from, address indexed to, uint amount)"
+];
+
+// Create contract instance using an ERC-20 contract address and ABI.
+const address = '0x4d224452801ACEd8B2F0aebE155379bb5D594381' // APE token
+const contract = new ethers.Contract(address, abi, provider)
+```
+</Accordion>
+<Accordion title="Function to retrieve the logs" >
+
+Create a function called `getLogs` where we define the range of blocks to query and call the `queryFilter` function to retrieve the transfer logs.
+
+We query the past 100 blocks in this example and use the `getBlockNumber()` method to identify the latest block.
+
+```js index.js
+async function getLogs() {
+
+    // Edit the range of blocks that you want to get logs from
+    const range = 100;  // Get logs from the past 100 blocks
+    const latestBlock = await provider.getBlockNumber()
+    const from = latestBlock - range
+
+    // queryFilter takes the name of the event and from and to block as parameters.
+    const transferEvents = await contract.queryFilter('Transfer', from, latestBlock)
+    return transferEvents
+}
+```
+</Accordion>
+<Accordion title="Create the main function and parse the response" >
+
+Now we can create a `main()` function used to run the main program.
+
+This function will call the `getLogs()` function and parse the response extracting only the data that we want; in this case:
+
+  - Transaction hash
+  - From address
+  - To address
+  - Amount of Ape tokens transferred
+
+  ```js index.js
+  async function main() {
+      const ape_logs = await getLogs();
+      //console.log(ape_logs) // Print full logs
+
+      // Parse the logs and extract only tx hash, from address, to address, and amount transferred.
+      for (let object of ape_logs){
+          console.log(`Transaction hash of APE transfer: ${object.transactionHash}`)
+          console.log(`From: ${object.args.from}`)
+          console.log(`To: ${object.args.to}`)
+          console.log(`Amount of APE transferred: ${ethers.formatEther(String(object.args.amount))} \n`)
+      }
+  }
+
+  main()
+  ```
+</Accordion>
+<Accordion title="Run the index.js file" >
+
+Now you can save and run the file with:
+
+`node index.js`
+
+The script will retrieve the logs from the past 100 blocks and print the transfer information on the screen.
+
+</Accordion>
+</AccordionGroup>
+
+<RequestExample>
+```js index.js
+const ethers = require('ethers');
+
+// Initialize connection to the node.
+const nodeUrl = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(nodeUrl);
+
+// Import and parse ABI for ERC-20 standard.
+const abi = [
+    // In this case, we only import the 'Transfer' event part of the ABI.
+    "event Transfer(address indexed from, address indexed to, uint amount)"
+];
+
+// Create contract instance using an ERC-20 contract address and ABI.
+const address = '0x4d224452801ACEd8B2F0aebE155379bb5D594381' // APE token
+const contract = new ethers.Contract(address, abi, provider)
+
+async function getLogs() {
+
+    // Edit the range of blocks that you want to get logs from
+    const range = 100;  // Get logs from the past 100 blocks
+    const latestBlock = await provider.getBlockNumber()
+    const from = latestBlock - range
+
+    // queryFilter takes the name of the event and from and to block as parameters.
+    const transferEvents = await contract.queryFilter('Transfer', from, latestBlock)
+    return transferEvents
+}
+
+async function main() {
+    const ape_logs = await getLogs();
+    //console.log(ape_logs) // Print full logs
+
+    // Parse the logs and extract only tx hash, from address, to address, and amount transferred.
+    for (let object of ape_logs){
+        console.log(`Transaction hash of APE transfer: ${object.transactionHash}`)
+        console.log(`From: ${object.args.from}`)
+        console.log(`To: ${object.args.to}`)
+        console.log(`Amount of APE transferred: ${ethers.formatEther(String(object.args.amount))} \n`)
+    }
+}
+
+main()
+```
+</RequestExample>
+
+<ResponseExample>
+```bash
+$ node index
+
+Transaction hash of APE transfer: 0x3125accac13704e1bb017021dd385293e79c7bc3b1090fd82df690249116c5d4
+From: 0x74de5d4FCbf63E00296fd95d33236B9794016631
+To: 0x51C72848c68a965f66FA7a88855F9f7784502a7F
+Amount of APE transferred: 782.652322144396771286
+```
+</ResponseExample>

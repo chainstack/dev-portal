@@ -1,0 +1,139 @@
+---
+title: "Querying subgraphs in Python with Subgrounds"
+description: "Leveraging the Subgrounds Python library to interact with subgraphs."
+---
+
+<AccordionGroup>
+<Accordion title="Overview">
+
+There are a multitude of ways to interact with subgraphs using Python. In this code snippet, we'll review one of the more streamlined options: using the Subgrounds library to query data and save it in a pandas `DataFrame`.
+
+Subgrounds is a Python library by the Playgrounds team designed specifically to reduce friction present within python-based subgraph querying.
+</Accordion>
+<Accordion title="Environment setup">
+
+If you haven't already, ensure that you've installed any version of Python greater than or equal to `3.10`, but less than `4.0`
+
+In this case, the only dependency here is `subgrounds`, which you can install by running: `pip install subgrounds`
+
+```python Python
+from subgrounds import Subgrounds
+```
+</Accordion>
+<Accordion title="Defining the subgraph object">
+
+To define the subgraph object, we'll need to first define `sg` and `CHAINSTACK_SUBGRAPH`.
+
+- `sg` can be set equal to `Subgrounds()`
+- `CHAINSTACK_SUBGRAPH` can be set equal to the query URL of a chosen subgraph you've [deployed on Chainstack](https://docs.chainstack.com/docs/dedicated-subgraphs#query-a-subgraph).
+
+With these two variables defined, you can call the `load_subgraph` function on `sg` and pass in `CHAINSTACK_SUBGRAPH`.
+
+```python Python
+sg = Subgrounds()
+
+CHAINSTACK_SUBGRAPH = "CHAINSTACK_SUBGRAPH_QUERY_URL"
+
+subgraph = sg.load_subgraph(CHAINSTACK_SUBGRAPH)
+```
+
+</Accordion>
+<Accordion title="Defining the query">
+
+To begin building the query itself, we'll need to define the following:
+
+1. `latest_pairs`, or a variable name of your choice, which will contain the query, `subgraph.Query.{root field}`, in this case, we'll be using the `pairs` root field.
+2. Additionally, you'll need to define any query arguments. In this example, we're ordering the results by timestamp in descending order and only returning the first 5 results. For this snippet, this is defined by `orderBy`, `orderDirection`, and `first`.
+
+```python Python
+latest_pairs = subgraph.Query.pairs(
+  orderBy=subgraph.Pair.createdAtTimestamp,
+  orderDirection='desc',
+  first=5,
+)
+</Accordion>
+<Accordion title="Executing the query">
+
+Now we'll need to execute the query and save it in a variable called `result`. Subgrounds gives you a variety of options regarding the format of the result, this can be changed by using a corresponding query function:
+
+1. `query_df` returns data in a pandas `DataFrame`, which is what we're using in this snippet
+2. `query_json` returns data in a JSON format, specifically of type `dict`.
+3. `query` returns data based on its shape, and can return types `str`, `int`, `float`, `bool`, `list`, `tuple`, or `None`.
+
+Within the query function, you'll need to include the specific values that you'd like to be included in the response.
+
+```python Python
+result = sg.query_df([
+  latest_pairs.id,
+  latest_pairs.token0.symbol,
+  latest_pairs.token0.name,
+  latest_pairs.token0.decimals,
+  latest_pairs.token1.symbol,
+  latest_pairs.token1.name,
+  latest_pairs.token1.decimals,
+  latest_pairs.reserve0,
+  latest_pairs.reserve1,
+  latest_pairs.token0Price,
+  latest_pairs.token1Price,
+  latest_pairs.createdAtTimestamp,
+  latest_pairs.createdAtBlockNumber,
+  latest_pairs.syncAtTimestamp,
+])
+```
+</Accordion>
+<Accordion title="Understanding the response">
+The response you get will vary significantly depending on the query parameters, specific return values, and the format in which you request the data.
+
+In this case, due to the snippet using a pandas `DataFrame`, we can see a truncated view of the table containing the data we queried.
+</Accordion>
+</AccordionGroup>
+
+<RequestExample>
+```python Python
+from subgrounds import Subgrounds
+
+sg = Subgrounds()
+
+CHAINSTACK_SUBGRAPH = "CHAINSTACK_SUBGRAPH_QUERY_URL"
+
+subgraph = sg.load_subgraph(CHAINSTACK_SUBGRAPH)
+
+latest_pairs = subgraph.Query.pairs(
+  orderBy=subgraph.Pair.createdAtTimestamp,
+  orderDirection='desc',
+  first=5,
+)
+
+result = sg.query_df([
+  latest_pairs.id,
+  latest_pairs.token0.symbol,
+  latest_pairs.token0.name,
+  latest_pairs.token0.decimals,
+  latest_pairs.token1.symbol,
+  latest_pairs.token1.name,
+  latest_pairs.token1.decimals,
+  latest_pairs.reserve0,
+  latest_pairs.reserve1,
+  latest_pairs.token0Price,
+  latest_pairs.token1Price,
+  latest_pairs.createdAtTimestamp,
+  latest_pairs.createdAtBlockNumber,
+  latest_pairs.syncAtTimestamp,
+])
+
+print(result)
+```
+</RequestExample>
+
+<ResponseExample>
+```bash
+                                     pairs_id  ... pairs_syncAtTimestamp
+0  0x51c2f70c7a0a00d256413efc2bfa5deb8505bc4d  ...            1692395664
+1  0x53eea6e8d4594d77a0eb6ab10feaf1501562a3a9  ...                     0
+2  0x54e557c357792a901725369d86b7190bf60acf6c  ...                     0
+3  0xcfc7ed03aa9c3a23237bd48b401be775112c539d  ...                     0
+4  0x130af79e6b376784ce6823754bd712e3c7d0064a  ...                     0
+
+[5 rows x 14 columns]
+```
+</ResponseExample>

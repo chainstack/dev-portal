@@ -1,0 +1,285 @@
+---
+title: "Scroll: Deploy Uniswap V3 on Scroll"
+---
+**TLDR:**
+* Shows how to deploy the entire Uniswap v3 suite onto the Scroll Sepolia Testnet in a few steps
+* Guides through setting up the v3 deploy repository, configuring a Scroll RPC endpoint, and specifying WETH and admin settings
+* Explains core Uniswap v3 contracts (Router, Factory, NFT positions, migrator, etc.) and how they compose the AMM
+* Emphasizes the Scroll environment’s hierarchical ZKP optimizations, making this deployment straightforward and efficient
+
+## What is Scroll?
+
+[Scroll](https://scroll.io/) network is a new scaling solution for Ethereum that uses zero-knowledge proofs to make transactions fast, secure, and cheap. It's fully compatible with the EVM (Ethereum Virtual Machine), so developers can easily port their DApps to Scroll without any changes.
+
+Chainstack recently announced support for Scroll’s Sepolia Testnet, which makes it even easier for developers to get started. In this tutorial, you’ll learn how to deploy the full Uniswap v3 AMM suite on Scroll in just a few easy steps.
+
+## Why use Scroll?
+
+[Scroll's hierarchical ZKP](https://docs.scroll.io/en/technology/) system is optimized for both provers and verifiers, allowing it to achieve faster transaction finality and lower gas fees than other layer-2 scaling solutions.
+
+The first layer of Scroll's ZKP system is optimized for provers, using custom circuit optimization and hardware-friendly proving algorithms. This allows provers to generate proofs much faster, reducing the overall transaction latency.
+
+The second layer of Scroll's ZKP system is optimized for verifiers, using succinct proofs and verification algorithms compatible with the EVM. This allows verifiers to verify proofs much faster, reducing the overall transaction cost.
+
+As a result of its hierarchical ZKP system, Scroll is able to achieve much faster transaction finality and lower gas fees than other layer-2 scaling solutions. This makes it a great choice for applications that require high throughput and low latency, such as DeFi and NFT trading.
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/) to deploy a Scroll Sepolia node
+* [node.js](https://nodejs.org/en/) as the JavaScript framework
+* The [yarn](https://yarnpkg.com/) package manager
+* TypeScript V4.2.3
+
+## Overview
+
+This tutorial shows you how to deploy the Uniswap V3 smart contracts on the Scroll Sepolia Testnet. To get from zero to a deployed instance of Uniswap V3, do the following:
+
+<Steps>
+  <Step>
+  With Chainstack, create a <Tooltip tip="A public chain project- a project to join public networks">public chain project</Tooltip>.
+  </Step>
+  <Step>
+  With Chainstack, join the Scroll Sepolia Testnet.
+  </Step>
+  <Step>
+  With Chainstack, access your Scroll Sepolia node endpoint.
+  </Step>
+  <Step>
+  Fund your account through the Chainstack Faucet.
+  </Step>
+  <Step>
+  Deploy the Uniswap v3 suite.
+  </Step>
+</Steps>
+
+## Step-by-step
+
+### Create a public chain project
+
+See [Create a project](/docs/manage-your-project#create-a-project).
+
+### Join the Scroll Sepolia Testnet
+
+See [Join a public network](/docs/manage-your-networks#join-a-public-network).
+
+### Get your Scroll Sepolia node endpoint
+
+See [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+
+### Fund your wallet
+
+Before diving into the project, top up your wallet with testnet Scroll ETH. The best option is to get some Sepolia ETH from the Chainstack Faucet and then bridge them to Scroll Sepolia:
+
+1. Get Sepolia ETH from the [Chainstack Sepolia Faucet](https://faucet.chainstack.com).
+2. Bridge to Scroll Sepolia using the [Scroll Bridge](https://sepolia--scroll-io.netlify.app/bridge).
+
+<Info>
+  To deploy the Uniswap v3 Suite you will need about 0.5 ETH in your wallet with a gas price of 11 gwei. Make sure you have enough funds in your wallet before you proceed.
+</Info>
+
+### Deploy the Uniswap v3 suite
+
+In this step, we will deploy the full Uniswap v3 AMM suite on Scroll network. And we will leverage the [v3 deploy](https://github.com/Uniswap/deploy-v3) official repository to automate the process.
+
+The repository contains a CLI script for deploying the latest Uniswap v3 smart contracts to any EVM-compatible network.
+
+This repository collects almost all of the contracts that make up Uniswap v3 and provides scripts to deploy them easily in a single command.
+
+Uniswap is one of the most popular decentralized finance (DeFi) solutions in the Web3 space. Uniswap v3 is the third major version of Uniswap, and it allows users to swap ERC-20 tokens without a centralized intermediary. Since its launch in May 2021, Uniswap v3 has quickly become the most popular [DeX](/docs/web3-language-and-acronyms#dex) in the world, with over $100 billion in [total value locked](/docs/smart-contracts-glossary#total-value-locked).
+
+#### Set up the CLI
+
+<Steps>
+  <Step>
+  Clone the repository:
+
+   <CodeGroup>
+     ```shell Shell
+     git clone https://github.com/Uniswap/deploy-v3.git
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+  Make sure you install TypeScript V4.2.3:
+
+   <CodeGroup>
+     ```shell Shell
+     yarn add typescript@4.2.3 --dev
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+  Move into the repository's directory:
+
+   <CodeGroup>
+     ```shell Shell
+     cd deploy-v3
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+  Install the dependencies and build:
+
+   <CodeGroup>
+     ```shell Shell
+     yarn && yarn build
+     ```
+   </CodeGroup>
+  </Step>
+</Steps>
+
+The console should have a similar output:
+
+```
+$ ncc build index.ts -o dist -m
+ncc: Version 0.36.1
+ncc: Compiling file index.js into CJS
+ncc: Using typescript@4.2.3 (local user-provided)
+1480kB  dist/index.js
+1480kB  [3043ms] - ncc 0.36.1
+$ cat shebang.txt dist/index.js > dist/index.cmd.js && mv dist/index.cmd.js dist/index.js
+✨  Done in 3.76s.
+```
+
+#### Deploy the smart contracts
+
+For the next step, you will need the following:
+
+* The private key of the account deploying the smart contracts, starting with `0x`
+* The Chainstack Scroll Sepolia HTTPS endpoint
+* The address of the account that will manage the smart contracts
+
+In the console, run the following command, adding your private key, endpoint, and address:
+
+<CodeGroup>
+  ```shell Shell
+  yarn start \
+  -pk YOUR_PRIVATE_KEY \
+  -j YOUR_CHAINSTACK_ENDPOINT \
+  -w9 0xa1EA0B2354F5A344110af2b6AD68e75545009a03 \
+  -ncl ETH -o YOUR_ADDRESS
+  ```
+</CodeGroup>
+
+Here is a list of what the flags mean:
+
+* `-pk` — your deployment account's private key.
+* `-j` — the JSON-RPC endpoint.
+* `-w9` — the address of the WETH9 contract. On the Scroll Testnet, this contract is deployed at `0xa1EA0B2354F5A344110af2b6AD68e75545009a03`.
+* `-ncl` — the native currency label. This is the symbol for the native token, which is `ETH`.
+* `-o` — the owner's address of the deployed administrator contract.
+
+Below is the full list of options:
+
+<CodeGroup>
+  ```shell Shell
+  > npx @uniswap/deploy-v3 --help
+  Usage: npx @uniswap/deploy-v3 [options]
+
+  Options:
+    -pk, --private-key <string>               Private key used to deploy all contracts
+    -j, --json-rpc <url>                      JSON RPC URL where the program should be deployed
+    -w9, --weth9-address <address>            Address of the WETH9 contract on this chain
+    -ncl, --native-currency-label <string>    Native currency label, e.g. ETH
+    -o, --owner-address <address>             Contract address that will own the deployed artifacts after the script runs
+    -s, --state <path>                        Path to the JSON file containing the migrations state (optional) (default: "./state.json")
+    -v2, --v2-core-factory-address <address>  The V2 core factory address used in the swap router (optional)
+    -g, --gas-price <number>                  The gas price to pay in GWEI for each transaction (optional)
+    -c, --confirmations <number>              How many confirmations to wait for after each transaction (optional) (default: "2")
+    -V, --version                             output the version number
+    -h, --help                                display help for command
+  ```
+</CodeGroup>
+
+Running this command will deploy the contracts one by one; the console will display each deployment like the following:
+
+```
+Step 1 complete [
+  {
+    message: 'Contract UniswapV3Factory deployed',
+    address: '0x0287f57A1a17a725428689dfD9E65ECA01d82510',
+    hash: '0x9832d37fc03460326a4a17a77bf81ad0f7c4e75a4a5d495230bc49cb93f7d1d6'
+  }
+]
+Step 2 complete [
+  {
+    message: 'UniswapV3Factory added a new fee tier 1 bps with tick spacing 1',
+    hash: '0x8f9e1cf9fc09efbcad4e56885e041d1bbe9bae53432f798d53122fc3ceb9477b'
+  }
+]
+.
+.
+.
+```
+
+You can also find the details of the contracts in the `state.json` file.
+
+Congratulations, you deployed all of the Uniswap v3 smart contracts on the Scroll Sepolia Testnet.
+
+<Info>
+  Use the [block explorer](https://sepolia-blockscout.scroll.io/) to see the transactions.
+</Info>
+
+## Understanding the smart contracts
+
+### `UniswapV3Factory`
+
+[The UniswapV3Factory contract](https://docs.uniswap.org/protocol/reference/core/UniswapV3Factory) is the central hub for all Uniswap v3 pools. It allows users to create new pools, query information about existing pools, and add or remove liquidity from pools. The UniswapV3Factory contract is also responsible for managing the protocol fees for all Uniswap v3 pools.
+
+### `UniswapInterfaceMulticall`
+
+[UniswapInterfaceMulticall](https://docs.uniswap.org/contracts/v3/reference/periphery/base/Multicall) is a helper contract allowing users to group multiple function calls into one call. This can be useful for reducing the number of transactions that need to be sent to the blockchain and ensuring that all calls are executed in the same block.
+
+### `ProxyAdmin` and `TransparentUpgradeableProxy`
+
+A proxy gateway contract is a smart contract that allows for the easy upgrade of other smart contracts. This is essential for any project that wants to evolve over time without having to fork the blockchain.
+
+### `TickLens`
+
+The [TickLens](https://docs.uniswap.org/protocol/reference/periphery/lens/TickLens) contract is a peripheral contract in the Uniswap v3 protocol. It provides functions for querying information about the ticks in a Uniswap v3 pool. The `TickLens` contract can be used to:
+
+* Find out how many ticks are in a pool.
+* Determine which ticks are initialized.
+* Identify which ticks have liquidity.
+
+### `NonfungibleTokenPositionDescriptor` and `NonfungiblePositionManager`
+
+The [NonfungibleTokenPositionDescriptor](https://docs.uniswap.org/contracts/v3/reference/periphery/NonfungibleTokenPositionDescriptor) contract stores the ID of NFTs and their respective `NonFungiblePositionManger` contract address. The [NonfungiblePositionManager](https://docs.uniswap.org/contracts/v3/reference/periphery/NonfungiblePositionManager) manages the positions and liquidity for ERC-721 non-fungible tokens.
+
+### `V3Migrator`
+
+The [V3Migrator](https://docs.uniswap.org/contracts/v3/reference/periphery/V3Migrator) contract is a tool that helps developers migrate their Uniswap v2 pools to Uniswap v3.
+
+### `UniswapV3Staker`
+
+The [UniswapV3Staker](https://docs.uniswap.org/protocol/reference/periphery/staker/UniswapV3Staker) contract is a peripheral contract in the Uniswap v3 protocol. It allows users to stake their ERC-20 tokens in Uniswap v3 pools in order to earn rewards. The rewards are paid out as the pool's native token.
+
+The `UniswapV3Staker` contract is critical to the Uniswap v3 protocol because it incentivizes liquidity provision. By allowing users to earn rewards for staking their tokens, the `UniswapV3Staker` contract helps to ensure that there is always enough liquidity in Uniswap v3 pools to facilitate swaps. This makes the protocol more decentralized and efficient.
+
+### `QuoterV2` and `SwapRouter02`
+
+The `Quoter` and `SwapRouter` contracts are essential for users who want to exchange tokens on Uniswap.
+
+[QuoterV2](https://docs.uniswap.org/protocol/reference/periphery/lens/QuoterV2) is a peripheral contract in the Uniswap v3 protocol. It allows users to get price quotes for swaps without executing the swap. `QuoterV2` uses the Uniswap v3 core, periphery contracts, and the `PoolTicksCounter` library. It includes functions to quote exact input or output amounts and handles reverts by counting initialized ticks crossed.
+
+[SwapRouter02](https://docs.uniswap.org/contracts/v3/reference/periphery/SwapRouter) executes swaps across different asset pools. It is a stateless contract, meaning it holds no token balances. This makes it more efficient and secure than other types of contracts.
+
+The `SwapRouter` contract considers the price of tokens, the liquidity in different pools, and the fees for swaps to calculate the best price for a swap. It then executes the swap, transferring tokens between pools and updating users' balances.
+
+## Conclusion
+
+In conclusion, deploying Uniswap v3 on Scroll is a relatively straightforward process. Following the steps outlined in this tutorial, you can create a Uniswap v3 pool on Scroll in just a few minutes. Once your pool is deployed, you can start providing liquidity and earning fees.
+
+### About the author
+
+<CardGroup>
+  <Card title="Wuzhong Zhu" img="/images/docs/profile_images/1548860905064017921/xCKUgveS_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on Ethereum, zkEVMs, The Graph protocol, and IPFS
+
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/wuzhongzhu)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/wuzhong-zhu-44563589/)
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/wuzhong-zhu)
+  </Card>
+</CardGroup>

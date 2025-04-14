@@ -1,0 +1,312 @@
+---
+title: "Solana: How to Use Multiple RPC Endpoints to Optimize DApp Performance"
+---
+
+**TLDR**
+
+* Use multiple Solana RPC endpoints to reduce latency and avoid single points of failure.
+* A distributed setup ensures higher availability and faster data updates, especially for real-time balance monitoring.
+* This sample Node.js code with a connection pool approach demonstrates how to subscribe to account balance changes across different geographic locations simultaneously.
+* Environment variables keep your endpoints secure while allowing easy setup and configuration.
+
+## Main article
+
+This guide will explore how a distributed approach to querying the Solana blockchain can reduce latency and provide a more resilient infrastructure for your DApps. Whether you're a blockchain enthusiast or a seasoned developer looking to optimize your Solana-based projects, this tutorial is crafted to offer valuable insights and practical steps to achieve a seamless and efficient blockchain interaction experience.
+
+### A brief overview of Solana's architecture
+
+Solana stands out in the blockchain world for its unprecedented throughput and minimal transaction costs stemming from its innovative architecture. The Proof of History (PoH) consensus mechanism is at the heart of Solana's efficiency. This unique solution enables greater scalability by creating a historical record proving that an event has occurred at a specific time. This, coupled with the blockchain's underlying Proof of Stake (PoS) consensus, allows Solana to process thousands of transactions per second without compromising decentralization or security.
+
+## A simple project
+
+At the heart of this tutorial lies a practical, hands-on example that will guide us through the intricacies of interacting with Solana's network using multiple RPC endpoints.
+
+We will develop a robust piece of JavaScript code to manage a pool of Solana connections. This code establishes connections to several RPC endpoints across different geographic locations and intelligently distributes operations amongst these endpoints to achieve optimal performance and reliability. Through this example, we aim to listen to the balance changes of a specific Solana account from multiple nodes in parallel. Using multiple nodes in different regions simultaneously can improve reliability and performance, and the first node to get the updated data will win the race.
+
+### The importance of multiple endpoints
+
+The traditional approach of interacting with the blockchain through a single RPC endpoint can be a bottleneck for your application. This is where the strategy of using multiple endpoints across various geographic locations comes into play, offering several key advantages:
+
+* **Redundancy**: By having your application connected to multiple nodes, you mitigate the risk of a single point of failure. If one node goes down or becomes unreachable, your application can seamlessly switch to another, ensuring uninterrupted service. This is because each node is physically running on a different machine.
+* **Reduced Latency**: Latency can vary significantly based on the geographic distance between your user and the RPC endpoint. Generally, the endpoint closer to the user will respond faster, but sometimes, another node may pick up new data sooner.
+* **Higher Availability**: Different nodes may have varying loads or maintenance schedules. Running multiple endpoints ensures that your application always has access to at least one up-to-date and responsive node, thereby improving the reliability of your service.
+
+Throughout this tutorial, we'll guide you through setting up a Solana connection pool to interact with multiple RPC endpoints efficiently. We aim to empower your applications to leverage Solana's high-performance blockchain most effectively, ensuring users enjoy a fast, reliable, and seamless experience.
+
+## Prerequisites
+
+Before we get into the code, ensuring you have the right tools and setup is crucial. Let’s walk through everything you’ll need:
+
+### Environment setup
+
+To interact with the Solana blockchain and execute the scripts you'll write, certain environmental setups are necessary:
+
+* **Node.js**: Install Node.js (version 18 or above) on your machine. Node.js is fundamental for running our scripts and managing dependencies. You can download it from [the official Node.js website](https://nodejs.org/).
+* **npm (Node Package Manager)**: npm is the default package manager for Node.js and is indispensable for installing the libraries our project requires. It comes bundled with Node.js, so there's no separate installation process.
+
+### Deploy a Chainstack Solana node
+
+Note that you need to be on a [paid plan](https://chainstack.com/pricing/) to deploy multiple nodes.
+
+<Steps>
+  <Step>
+    [Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+  </Step>
+  <Step>
+    [Deploy a node](/docs/manage-your-networks#join-a-public-network).
+  </Step>
+  <Step>
+    [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+  </Step>
+</Steps>
+
+### Installing required packages
+
+Our project will rely on several Node.js packages to communicate with the Solana blockchain:
+
+* **`@solana/web3.js`**: This Solana JavaScript library provides the functionality to interact with the Solana blockchain from a JavaScript application.
+* **`dotenv`**: A utility package that loads environment variables from a `.env` file into `process.env`, helping securely manage sensitive information like RPC URLs.
+
+To install these packages, navigate to your project directory in your terminal and run:
+
+<CodeGroup>
+  ```bash Bash
+  npm install @solana/web3.js dotenv
+  ```
+</CodeGroup>
+
+Then add this line to your `package.json` file:
+
+<CodeGroup>
+  ```jsx jsx
+    "type": "module",
+  ```
+</CodeGroup>
+
+### Setting up environment variables
+
+We'll use environment variables to manage our RPC endpoints and other sensitive information. This method keeps our credentials secure and makes our application easily configurable without hardcoding sensitive data:
+
+1. **Create a `.env` file** in the root of your project directory.
+2. **Add your Solana RPC URLs and sensitive information** to the `.env` file. For instance:
+
+```
+# HTTPS endpoints
+SOLANA_RPC_NODE_1="YOUR_CHAINSTACK_RPC"
+SOLANA_RPC_NODE_3="YOUR_CHAINSTACK_RPC"
+SOLANA_RPC_NODE_2="YOUR_CHAINSTACK_RPC"
+
+# WSS endpoints
+SOLANA_WSS_NODE_1="YOUR_CHAINSTACK_WSS"
+SOLANA_WSS_NODE_3="YOUR_CHAINSTACK_WSS"
+SOLANA_WSS_NODE_2="YOUR_CHAINSTACK_WSS"
+```
+
+### Additional considerations
+
+* **Security**: Always keep your private keys and sensitive information secure. Do not commit your `.env` file or any files containing sensitive data to version control. Make sure to include the `.env` file in your `.gitignore`.
+
+With these prerequisites out of the way, you're now set to dive into the code.
+
+## The code
+
+Now that we are set, create a new file in your project named `index.js` and paste the following code into it.
+
+<CodeGroup>
+  ```javascript Javascript
+  import { Connection, PublicKey } from '@solana/web3.js';
+  import 'dotenv/config';
+
+  class ConnectionPool {
+      constructor(endpoints) {
+          this.connections = endpoints.map(endpoint => ({
+              rpcUrl: endpoint.rpc,
+              connection: new Connection(endpoint.rpc, { wsEndpoint: endpoint.wss }),
+          }));
+      }
+  }
+
+  let latestLoggedBalance = null; // Shared state to track the latest logged balance
+
+  function listenForBalanceChanges(publicKey, connectionPool) {
+      connectionPool.connections.forEach(({ connection, rpcUrl }) => {
+          console.log(`Setting up balance change listener for node: ${rpcUrl.slice(0,33)}`);
+          connection.onAccountChange(new PublicKey(publicKey), (accountInfo) => {
+              const newBalance = accountInfo.lamports;
+
+              // Check if this balance change has already been logged
+              if (latestLoggedBalance !== newBalance) {
+                  const now = new Date();
+                  const dateTimeString = now.toISOString(); // Converts current time to ISO 8601 format
+
+                  console.log(`[${dateTimeString}] Balance change detected on node: ${rpcUrl.slice(0,33)}`);
+                  console.log(`[${dateTimeString}] New balance: ${newBalance} lamports`);
+                  console.log("======================================================================")
+
+                  // Update the shared state with the new balance
+                  latestLoggedBalance = newBalance;
+              }
+          }, 'confirmed');
+      });
+  }
+
+  (async () => {
+      const nodeEndpoints = [
+          { rpc: process.env.SOLANA_RPC_NODE_1, wss: process.env.SOLANA_WSS_NODE_1 },
+          { rpc: process.env.SOLANA_RPC_NODE_2, wss: process.env.SOLANA_WSS_NODE_2 },
+          { rpc: process.env.SOLANA_RPC_NODE_3, wss: process.env.SOLANA_WSS_NODE_3 },
+      ];
+
+      const connectionPool = new ConnectionPool(nodeEndpoints);
+      const publicKey = "G98hD3T33SiJa8WcWgJ9coT5fz1F3ciwJjKnecxxd3Bi"; // Replace with the address you're interested in
+
+      // Listen for balance changes on all nodes
+      listenForBalanceChanges(publicKey, connectionPool);
+  })();
+  ```
+</CodeGroup>
+
+## Code breakdown
+
+The code provided establishes a connection to multiple Solana RPC endpoints and listens for balance changes on a specific account across these nodes. This approach enhances the robustness and responsiveness of applications interacting with the Solana blockchain by leveraging multiple geographic locations to minimize latency and ensure higher availability. Let's break down the key components and functionalities of this code:
+
+### Importing dependencies and configuring environment variables
+
+<CodeGroup>
+  ```jsx jsx
+  import { Connection, PublicKey } from '@solana/web3.js';
+  import 'dotenv/config';
+  ```
+</CodeGroup>
+
+* **`@solana/web3.js`**: The Solana JavaScript library provides the necessary functionality to interact with the Solana blockchain.
+* **`dotenv/config`**: Automatically loads environment variables from a `.env` file into `process.env`, securing sensitive information such as RPC URLs.
+
+### The `ConnectionPool` class
+
+<CodeGroup>
+  ```jsx jsx
+  class ConnectionPool {
+      constructor(endpoints) {
+          this.connections = endpoints.map(endpoint => ({
+              rpcUrl: endpoint.rpc,
+              connection: new Connection(endpoint.rpc, { wsEndpoint: endpoint.wss }),
+          }));
+      }
+  }
+  ```
+</CodeGroup>
+
+This class is responsible for managing connections to various Solana RPC endpoints. It takes an array of endpoints upon instantiation, each specifying RPC and WebSocket URLs, and establishes a `Connection` object for each. These connections are stored for subsequent use in listening for account changes.
+
+### Shared state for balance tracking
+
+<CodeGroup>
+  ```jsx jsx
+  let latestLoggedBalance = null;
+  ```
+</CodeGroup>
+
+A globally shared variable to keep track of the most recent balance that has been logged. This prevents the re-logging of the same balance amount if multiple nodes report the same balance change.
+
+### Function for listening to balance changes
+
+<CodeGroup>
+  ```jsx jsx
+  function listenForBalanceChanges(publicKey, connectionPool) {
+      connectionPool.connections.forEach(({ connection, rpcUrl }) => {
+          console.log(`Setting up balance change listener for node: ${rpcUrl.slice(0,33)}`);
+          connection.onAccountChange(new PublicKey(publicKey), (accountInfo) => {
+              const newBalance = accountInfo.lamports;
+              if (latestLoggedBalance !== newBalance) {
+                  const now = new Date();
+                  const dateTimeString = now.toISOString();
+                  console.log(`[${dateTimeString}] Balance change detected on node: ${rpcUrl.slice(0,33)}`);
+                  console.log(`[${dateTimeString}] New balance: ${newBalance} lamports`);
+                  console.log("======================================================================");
+                  latestLoggedBalance = newBalance;
+              }
+          }, 'confirmed');
+      });
+  }
+  ```
+</CodeGroup>
+
+This function sets up listeners for balance changes on a specified public key across all connections in the provided `connectionPool`. Each connection attempts to establish a listener that triggers on account changes, capturing new balance amounts. It logs the balance change along with a timestamp, ensuring only new changes are considered, thanks to the shared state tracking the latest balance.
+
+### Main execution flow
+
+<CodeGroup>
+  ```jsx jsx
+  (async () => {
+      const nodeEndpoints = [
+          { rpc: process.env.SOLANA_RPC_NODE_1, wss: process.env.SOLANA_WSS_NODE_1 },
+          { rpc: process.env.SOLANA_RPC_NODE_2, wss: process.env.SOLANA_WSS_NODE_2 },
+          { rpc: process.env.SOLANA_RPC_NODE_3, wss: process.env.SOLANA_WSS_NODE_3 },
+      ];
+
+      const connectionPool = new ConnectionPool(nodeEndpoints);
+      const publicKey = "G98hD3T33SiJa8WcWgJ9coT5fz1F3ciwJjKnecxxd3Bi";
+
+      listenForBalanceChanges(publicKey, connectionPool);
+  })();
+  ```
+</CodeGroup>
+
+In the script's main execution flow, it first defines RPC and WebSocket endpoints as environment variables, then creates a `ConnectionPool` with these endpoints. It specifies a public key to monitor and invokes `listenForBalanceChanges` to monitor balance updates across the network. It demonstrates a practical use case for real-time balance tracking on the Solana blockchain.
+
+## Run the script
+
+To run the script, make sure to place your HTTPS and WSS endpoints in the `.env` file, then run the start command in the console:
+
+<CodeGroup>
+  ```jsx jsx
+  node index
+  ```
+</CodeGroup>
+
+This will start the program and log any new balance change in real-time, like the following:
+
+<CodeGroup>
+  ```jsx jsx
+  Setting up balance change listener for node: https://solana-mainnet.core.chain
+  Setting up balance change listener for node: https://nd-094-012-520.p2pify.com
+  Setting up balance change listener for node: https://nd-445-788-065.p2pify.com
+  [2024-04-08T21:00:49.290Z] Balance change detected on node: https://nd-445-788-065.p2pify.com
+  [2024-04-08T21:00:49.290Z] New balance: 1104861848 lamports
+  ======================================================================
+  [2024-04-08T21:00:49.927Z] Balance change detected on node: https://nd-445-788-065.p2pify.com
+  [2024-04-08T21:00:49.927Z] New balance: 1104856848 lamports
+  ======================================================================
+  [2024-04-08T21:00:51.788Z] Balance change detected on node: https://nd-445-788-065.p2pify.com
+  [2024-04-08T21:00:51.788Z] New balance: 1104851848 lamports
+  ======================================================================
+  [2024-04-08T21:00:52.841Z] Balance change detected on node: https://nd-094-012-520.p2pify.com
+  [2024-04-08T21:00:52.841Z] New balance: 1104846848 lamports
+  ======================================================================
+  [2024-04-08T21:00:54.139Z] Balance change detected on node: https://nd-094-012-520.p2pify.com
+  [2024-04-08T21:00:54.139Z] New balance: 1104841848 lamports
+  ======================================================================
+  ```
+</CodeGroup>
+
+## Conclusion
+
+To wrap up this tutorial, we've explored the world of leveraging multiple RPC endpoints across different geographical locations to enhance the reliability and performance of Solana-based applications. We've demonstrated a pragmatic approach to optimizing blockchain interactions for a seamless user experience by implementing a real-time connection pool to listen for account balance changes. This method minimizes latency, mitigates the risk of single points of failure, and ensures your application remains resilient and responsive under varying network conditions.
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

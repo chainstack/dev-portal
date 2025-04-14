@@ -1,0 +1,150 @@
+---
+title: trace_filter | Fantom
+---
+
+Fantom API method that filters and retrieves transaction execution traces based on specified criteria. It provides a detailed record of all the actions taken by transactions within the Ethereum Virtual Machine (EVM) during the specified block range.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `fromBlock` — the starting block number (in hexadecimal) from which to filter.
+* `toBlock` — the ending block number (in hexadecimal) to filter to.
+* `toAddress` — array of addresses involved in the transactions (sender or receiver).
+* `fromAddress` — array of addresses that initiated the transactions.
+* `offset` — the offset trace number, indicating the starting point for trace retrieval. This is useful for pagination.
+* `count` — the integer number of traces to display in a batch, allowing for controlled data retrieval.
+
+## Response
+
+* `blockHash` — the hash of the block in which the trace was included.
+* `blockNumber` — the number of the block in which the trace occurred.
+* `subtraces` — the number of sub-traces spawned by the trace.
+* `traceAddress` — an array that indicates the hierarchical position of the trace.
+* `transactionHash` — the hash of the transaction.
+* `transactionPosition` — the position of the transaction within the block.
+* `action` — an object that describes the action taken by the trace:
+  + `callType` — the type of call, such as `call`, `delegatecall`, or `staticcall`.
+  + `from` — the address of the sender who initiated the trace.
+  + `gas` — the units of gas used by the transaction.
+  + `input` — the data sent with the transaction.
+  + `to` — the recipient of the transaction if applicable.
+  + `value` — the value transferred in Wei.
+* `result` — an object that contains the outcome of the trace:
+  + `gasUsed` — the gas used by the transaction, encoded as hexadecimal.
+  + `output` — the return value of the execution, encoded as a hexadecimal string.
+* `error` — a string indicating any errors that occurred during the transaction execution.
+* type`— the type of action taken by the transaction,`call`or`create`.` call `is the most common type of trace and occurs when a smart contract invokes another contract's function.`create` represents the creation of a new smart contract. This type of trace occurs when a smart contract is deployed to the blockchain.
+
+## `trace_filter` code examples
+
+<CodeGroup>
+```javascript web3.js
+const { Web3, Web3PluginBase } = require("web3");
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const web3 = new Web3(NODE_URL);
+
+// Define the TraceBlockPlugin class focused only on trace_filter
+class TraceBlockPlugin extends Web3PluginBase {
+    pluginNamespace = 'trace';
+
+    async traceFilter(options) {
+        return this.requestManager.send({
+            method: 'trace_filter',
+            params: [options],
+        });
+    }
+}
+
+// Register the plugin
+web3.registerPlugin(new TraceBlockPlugin());
+
+// Function to use traceFilter
+async function traceFilter(options) {
+    const result = await web3.trace.traceFilter(options);
+    console.log(result);
+}
+
+// Example usage of traceFilter
+const filterOptions = {
+    fromBlock: '0x4bbb701',
+    toBlock: '0x4bbb701',
+    toAddress: ['0x5dD4A25B354993e3201419db5172dfEEDaF39AdF'],
+    offset: 2,
+    count: 1
+};
+
+traceFilter(filterOptions);
+```
+
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+// Function to use traceFilter
+const traceFilter = async (options) => {
+    const params = {
+        fromBlock: options.fromBlock,
+        toBlock: options.toBlock,
+        toAddress: options.toAddress,
+        fromAddress: options.fromAddress,
+        offset: options.offset,
+        count: options.count
+    };
+    const traces = await provider.send('trace_filter', [params]);
+    console.log(traces);
+};
+
+// Example usage of traceFilter
+const filterOptions = {
+    fromBlock: '0x4bbb701',
+    toBlock: '0x4bbb701',
+    toAddress: ['0x5dD4A25B354993e3201419db5172dfEEDaF39AdF'],
+    offset: 2,
+    count: 1
+};
+
+traceFilter(filterOptions);
+```
+
+```python web3.py
+from web3 import Web3
+
+# Setup Web3 connection
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# Define the filter options
+filter_options = {
+    'fromBlock': '0x4bbb701',
+    'toBlock': '0x4bbb701',
+    'toAddress': ['0x5dD4A25B354993e3201419db5172dfEEDaF39AdF'],
+    'offset': 2,
+    'count': 1
+}
+
+# Function to use traceFilter
+def trace_filter(options):
+    result = web3.provider.make_request('trace_filter', [options])
+    return result
+
+# Example usage of traceFilter
+traces = trace_filter(filter_options)
+print(traces)
+```
+</CodeGroup>
+
+
+## Use case
+
+The `trace_filter` method is invaluable for developers and analysts who must conduct thorough investigations of transaction flows and state changes in the EVM, particularly over a specific block range. For example, this method can help audit smart contract interactions over time, investigate potential security breaches or unexpected behaviors in deployed contracts, and deeply analyze complex transaction sequences.
+
+## Try the `trace_filter` RPC method yourself

@@ -1,0 +1,128 @@
+---
+title: "Monitor incoming transactions to an Ethereum address in real time using subscriptions and web3.js"
+description: "This Recipe shows you how to leverage subscriptions, WSS endpoints, and web3.js to monitor incoming transactions in real-time."
+---
+
+<AccordionGroup>
+<Accordion title="Overview">
+In this Recipe, we leverage the web3.js library to monitor real-time incoming transactions to a specified address.
+
+We'll use a WebSocket endpoint to listen for new blocks, then inspect the new block to find transactions we might be interested in.
+</Accordion>
+<Accordion title="Environment setup">
+
+Install [node.js](https://nodejs.org/) in case it is not installed yet.
+
+Create a new directory for your project, then install the web3.js library:
+
+`npm install web3`
+
+</Accordion>
+<Accordion title="Get your Chainstack endpoint">
+
+To run this code, you will need a Chainstack account and an Ethereum archive node.
+
+1. [Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+2. [Deploy a node](https://docs.chainstack.com/docs/manage-your-networks#join-a-public-network).
+3. [View node access and credentials](https://docs.chainstack.com/docs/manage-your-node#view-node-access-and-credentials).
+
+</Accordion>
+<Accordion title="The code">
+
+Here is a breakdown of the code:
+
+1. **Import and Setup**:
+	- The `Web3` class is imported from the `web3` package.
+	- A new `Web3` instance is created, connected to an Ethereum node through a WebSocket URL (`NODE_URL`).
+	- A specific Ethereum wallet address to monitor is defined as `walletAddress`.
+2. **Subscribing to New Block Headers**:
+	- The function `subscribeToNewBlocks` is an asynchronous function that establishes a subscription to the `newBlockHeaders` event using `web3.eth.subscribe`.
+	- Upon successfully subscribing, it logs the connection status and the subscription ID.
+	- It attaches two event listeners to the subscription: one for handling new block data (`data` event) and another for handling errors (`error` event).
+3. **Handling New Blocks**:
+	- The `handleNewBlock` function is triggered whenever a new block header is received.
+	- It logs a message indicating it's scanning for transactions to the specified `walletAddress`.
+	- The function fetches the full block data, including all transactions, using `web3.eth.getBlock`.
+	- It iterates over each transaction in the block, checking if the transaction's recipient (`to` address) matches the `walletAddress`.
+	- For transactions matching the criteria, it logs the transaction hash, sender address (`from`), recipient address (`to`), and the value transferred in Ether.
+4. **Error Handling**:
+	- The `handleError` function logs any errors that occur during the subscription or block handling process.
+5. **Execution**:
+	- The script executes by calling `subscribeToNewBlocks()`, initiating the subscription and monitoring process.
+
+</Accordion>
+<Accordion title="Run the code">
+
+Now you can get your endpoint and paste it into the `NODE_URL` const. Then you can run it with `node YOUR_SCRIPT_NAME`
+</Accordion>
+</AccordionGroup>
+
+<RequestExample>
+```js index.js
+import { Web3 } from "web3";
+
+const NODE_URL =
+	"YOUR_WEBSOCKET_USER";
+const web3 = new Web3(NODE_URL);
+
+const walletAddress = "ADDRESS_TO_MONITOR";
+
+async function subscribeToNewBlocks() {
+  try {
+    const event = "newBlockHeaders";
+    const subscription = await web3.eth.subscribe(event);
+
+    console.log(`Connected to ${event}, Subscription ID: ${subscription.id}`);
+
+    // Attach an event listener to the subscription object for 'data'
+    subscription.on("data", handleNewBlock);
+    subscription.on("error", handleError);
+  } catch (error) {
+    console.error(`Error subscribing to new blocks: ${error}`);
+  }
+}
+
+async function handleNewBlock(blockHeader) {
+  console.log(`Scanning for transactions to: ${walletAddress}`)
+  //console.log("New block header:", blockHeader);
+
+  // Fetch the full block data to access transactions
+  const block = await web3.eth.getBlock(blockHeader.number, true);
+
+  if (block && block.transactions) {
+    block.transactions.forEach((tx) => {
+      // Check if the transaction was to MY_ADDRESS
+      if (tx.to && tx.to.toLowerCase() === walletAddress.toLowerCase()) {
+        console.log("Incoming ETH transfer:", tx.hash);
+        console.log(`From: ${tx.from}`);
+        console.log(`To: ${walletAddress}`); // To confirm the address monitored
+        console.log(`Value: ${web3.utils.fromWei(tx.value, 'ether')} ETH`);
+        console.log("--------------------------------");
+      }
+    });
+  }
+}
+
+function handleError(error) {
+  console.error("Error when subscribing to new block headers:", error);
+}
+
+subscribeToNewBlocks();
+```
+</RequestExample>
+
+<ResponseExample>
+```bash
+New subscription: 0x345d18c7ccab37f303282b72638363f3
+Got new block: 17793654
+Incoming ETH transfer: 0xe339f5353bd5e139a45aa8e42b9c12189d5809ce79a645dccbc2908a70b79421
+From: 0xae2Fc483527B8EF99EB5D9B44875F005ba1FaE13
+Value: 0.000000000441920915 ETH
+--------------------------------
+Incoming ETH transfer: 0xcd5488f9985b44c7b4e0de3140c47ade95fa01c9ee5e32adf87d04f1e2afcb27
+From: 0xae2Fc483527B8EF99EB5D9B44875F005ba1FaE13
+Value: 0.000000000450311043 ETH
+--------------------------------
+```
+</ResponseExample>
+

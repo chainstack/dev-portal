@@ -1,0 +1,235 @@
+---
+title: "Sending Trader Node Warp Transaction with web3.js, ethers.js, web3.py, and ethClient.go"
+---
+**TLDR**
+* Chainstack Trader nodes use a bloXroute-powered BDN behind the scenes to send your transactions to validators at high speed – a Warp transaction.
+* Improves transaction propagation vs. normal node endpoints, so your transaction is seen sooner and has better chances in tight mempool conditions.
+* No extra sign-up is needed for bloXroute; you keep using standard Ethereum JSON-RPC calls.
+* Examples are given for web3.js, ethers.js, web3.py, and Go’s ethclient.
+
+## Main article
+
+<Info>
+  ### EVM transactions
+
+  This guide focuses on the EVM [Trader nodes](/docs/warp-transactions): Ethereum, BNB Smart Chain, Polygon.
+</Info>
+
+## Introduction
+
+A [Warp](/docs/warp-transactions) transaction is an integration of Chainstack and the high-speed [bloXroute](https://bloxroute.com/) network. Warp transactions are designed to reduce transaction times and ensure efficient delivery to their destination.
+
+Simply put, when a transaction is sent through a Trader node with Warp transactions endpoint, it is placed on an "expressway" for blockchain transaction propagation. This means that compared to sending transactions through a standard EVM node, a Warp transaction can reach validators much more quickly, significantly reducing transaction finalization time.
+
+This article describes how to implement Warptransactions with Chainstack and popular Web3 libraries.
+
+## What is a Warp transaction, and what is bloXroute?
+
+When a transaction is sent to a normal EVM node, it is propagated to all nodes within the blockchain network. It moves from node to node until a validator validates it or eventually reaches all nodes. Depending on network conditions, this process usually takes a few hundred milliseconds to a few seconds.
+
+<Info>
+  Check out how to test transaction propagation by reading [Monitoring transaction propagation from node to mempool in EVM networks with Python](/docs/monitoring-transaction-propagation-from-node-to-mempool-in-evm-networks-with-python).
+</Info>
+
+<Frame caption="Figure 1. A normal transaction propagation in a nutshell">
+  <img src="/images/docs/e0f1e07-normal-transaction-propagation.png" />
+</Frame>
+
+A bloXroute distribution network (BDN), which can be found in more detail in the [BDN Architecture](https://docs.bloxroute.com/bdn-architecture), is a special network with a direct connection to a set of validators. The core of the BDN is a high-capacity, low-latency global network of servers optimized to propagate transactions and blocks quickly. In general, a transaction sent to the BDN will be delivered to a validator in an expedited manner.
+
+<Frame caption="Figure 2. Transaction propagation through BDN">
+  <img src="https://files.readme.io/4d64c44-transaction-propagation-with-bloxroute.png" />
+</Frame>
+
+According to their [website](https://bloxroute.com/why-bloxroute/), bloXroute's BDN provides several benefits, including:
+
+* Faster transaction propagation: bloXroute's BDN can propagate transactions up to 400-1,000 ms faster than the traditional peer-to-peer (P2P) network. This can be a significant advantage for applications that require real-time transaction processing, such as trading and DeFi.
+* Improved network stability: bloXroute's BDN is more stable than the P2P network. This is because the servers are connected using a dedicated network, reducing the risk of congestion and packet loss.
+* Increased scalability: bloXroute's BDN is designed to scale to meet the needs of future blockchain applications. The network is dynamic and can be easily scaled up or down as needed.
+
+### What about Trader nodes with Warp transactions?
+
+A Trader node with Warp transactions enabled is a hybrid of a normal EVM node and a BDN, combining the best of both worlds. In most circumstances, it behaves just like a normal EVM node. However, when it receives a transaction from the user, it immediately forwards the transaction to the closest [bloXroute cloud API](https://docs.bloxroute.com/introduction/cloud-api-ips), which serves as the gateway to the BDN. The transaction does not follow the normal propagation process.
+
+There are a few benefits of using Trader nodes with Warp transactions:
+
+* Users can use a Trader node with Warp transactions to avoid the need for separate signup for the [bloXroute service](https://bloxroute.com/pricing/). This is particularly convenient for users who send a low number of transactions each month.
+* bloXroute uses a special set of APIs for authentication and sending transactions, which may not be compatible with the customer's existing implementation. In contrast, a Chainstack Trader node with Warp transactions leverages the standard Ethereum JSON-RPC API, making it compatible with most mainstream tools and libraries, such as Metamask, web3.py, and web3.js.
+* When monitoring transactions within a network, using a Trader node with Warp transactions may be a better option since it is directly connected to other peers in the network.
+
+## How to access a Trader node with Warp transactions on Chainstack
+
+The Trader node transactions feature is available on the [paid plans](https://chainstack.com/pricing/) for the following protocols:
+
+* Ethereum
+* Solana
+* BNB Smart Chain
+
+To deploy a Trader node, in the wizard select a Trader node > Warp transactions.
+
+This is the gateway to your application.
+
+## How to execute a Warp transaction
+
+A Warp transaction is a type of transaction that is dispatched to your node using the [eth\_sendRawTransaction](/api-reference/ethereum_node_api/execute_transactions/eth_sendRawTransaction) RPC method. This method is a standard Ethereum procedure for transmitting transactions.
+
+In this section, we will dive deeper into the process of sending Warp transactions using some of the most widely used Web3 libraries. We will provide examples for web3.js, ethers.js, web3.py, and ethClient.go.
+
+### Executing a Warp transaction with web3.js
+
+web3.js is a library that allows you to interact with a local or remote Ethereum node using HTTP, IPC, or WebSocket. Here's how you can send a Warp transaction using web3.js:
+
+<CodeGroup>
+  ```javascript Javascript
+  const Web3 = require("web3");
+
+  var url = "YOUR_CHAINSTACK_TRADER_NODE_ENDPOINT"
+  var publicKey = "YOUR_ADDRESS"
+  var privateKey = "YOUR_PRIVATE_KEY"
+
+  const web3 = new Web3(url);
+
+  const transaction = {
+    from: publicKey,
+    to: publicKey,
+    value: 100,
+    gas: 30000,
+    gasPrice: 1000000000,
+  };
+
+  const signedTransaction = await web3.eth.accounts.signTransaction(transaction, privateKey);
+  const transactionHash = await web3.eth.sendSignedTransaction(signedTransaction.rawTransaction);
+  const transactionReceipt = await web3.eth.getTransactionReceipt(transactionHash);
+
+  console.log(transactionReceipt);
+  ```
+</CodeGroup>
+
+## Executing a Waro\p transaction with ethers.js
+
+ethers.js is a complete Ethereum library and wallet implementation prioritizing compactness and simplicity. Here's how you can send a Warp transaction using ethers.js:
+
+<CodeGroup>
+  ```javascript Javascript
+  const { ethers } = require("ethers");
+
+  var url = "YOUR_CHAINSTACK_TRADER_NODE_ENDPOINT"
+  var publicKey = "YOUR_ADDRESS"
+  var privateKey = "YOUR_PRIVATE_KEY"
+
+  async function main() {
+      const provider = new ethers.JsonRpcProvider(url);
+      balance = await provider.getBalance(publicKey)
+      console.log("balance is " + balance)
+      var nonce = await provider.getTransactionCount(publicKey);
+      console.log("nonce is " + nonce)
+
+      var wallet = new ethers.Wallet(privateKey, provider)
+
+      var transaction = {
+          'to': publicKey,
+          'value': 100,
+          'maxGasFee': 6000000000000000
+      };
+      console.log("sending tx")
+      wallet.sendTransaction(transaction)
+          .then((txObj) => {
+              console.log('txHash', txObj.hash)
+          })
+  }
+  main();
+  ```
+</CodeGroup>
+
+## Executing a Warp transaction with web3.py
+
+web3.py is a Python library for interacting with Ethereum. It's commonly used for scripting, back-end development, and server-side tasks. Here's how you can send a Warp transaction using web3.py:
+
+<CodeGroup>
+  ```python Python
+  import web3
+
+  url = "YOUR_CHAINSTACK_TRADER_NODE_ENDPOINT"
+  publicKey = "YOUR_ADDRESS"
+  privateKey = "YOUR_PRIVATE_KEY"
+
+  w3 = web3.Web3(Web3.HTTPProvider(url))
+
+  transaction = {
+      "from": publicKey,
+      "to": publicKey,
+      "value": 100,
+      "gas": 300000,
+      "gasPrice": 1000000000,
+  }
+  signed_transaction = w3.eth.account.sign_transaction(transaction, privateKey)
+  transaction_hash = w3.eth.send_raw_transaction(signed_transaction.rawTransaction)
+  transaction_receipt = w3.eth.wait_for_transaction_receipt(transaction_hash)
+
+  print(transaction_receipt)
+  ```
+</CodeGroup>
+
+## Executing a Warp transaction with ethClient.go
+
+ethClient.go is a Go-based Ethereum client that allows you to interact with the Ethereum blockchain. Here's how you can send a Warp transaction using ethClient.go:
+
+<CodeGroup>
+  ```go go
+  package main
+
+  import (
+      "fmt"
+      "math/big"
+      "github.com/ethereum/go-ethereum/ethclient"
+  )
+
+  func main() {
+    client, err := ethclient.Dial("YOUR_CHAINSTACK_TRADER_NODE_ENDPOINT")
+      if err != nil {
+          panic(err)
+      }
+
+  		publicKey := ""
+  		privateKey := ""
+
+      // Create the transaction
+      transaction := types.Transaction{
+          From: publicKey,
+          To: publicKey,
+          Value: big.NewInt(1000000000000),  // in wei
+          Gas: 3000,
+          GasPrice: big.NewInt(1000000000),  // in wei
+      }
+
+      signedTransaction, err := transaction.Sign(types.Secp256k1PrivateKey(crypto.FromECDSA(common.HexToECDSA(privateKey))))
+      if err != nil {
+          panic(err)
+      }
+
+      txHash, err := client.SendTransaction(signedTransaction)
+      if err != nil {
+          panic(err)
+      }
+      fmt.Println(txHash)
+  }
+  ```
+</CodeGroup>
+
+## Conclusion
+
+This article has provided an in-depth look at the integration between Chainstack and bloXroute, the mechanics of Warp transactions, and how to execute Warp transactions using the most popular Web3 libraries.
+
+Feel free to ping me on Twitter or Telegram if you have any questions.
+
+<CardGroup>
+  <Card title="Wuzhong Zhu" img="/images/docs/profile_images/1548860905064017921/xCKUgveS_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on Ethereum, zkEVMs, The Graph protocol, and IPFS
+
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/wuzhongzhu)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/wuzhong-zhu-44563589/)
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/wuzhong-zhu)
+  </Card>
+</CardGroup>

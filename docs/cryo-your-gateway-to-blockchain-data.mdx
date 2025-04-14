@@ -1,0 +1,531 @@
+---
+title: "cryo: Your Gateway to Blockchain Data"
+---
+
+**TLDR**
+
+* **cryo** is a Rust-based command-line tool for extracting blockchain data (blocks, transactions, logs) into formats like JSON or Parquet.
+* You can flexibly specify block ranges, columns, or events to filter exactly the data you want.
+* Pairing cryo with a high-performance Chainstack global node unlocks near-unlimited RPS for lightning-fast data retrieval and analyses.
+* Prebuilt event scrapers for ERC-20/721 Transfers or custom logs provide a seamless research and development experience.
+
+## Main article
+
+Cryo, by [Paradigm](https://www.paradigm.xyz/), is a tool that is as cool as its name suggests. If you're venturing into blockchain data, whether you're a researcher, developer, or just a curious explorer, `cryo` is about to become your new best friend. This guide is designed to walk you through what `cryo` is, how it works, and how to harness its power to fetch blockchain data quickly.
+
+At its core, `cryo` is a command-line interface (CLI) tool, but don't let the simplicity of its interface fool you. This tool packs a powerful punch, making an easy and flexible way to extract blockchain data into various user-friendly formats. Whether you need your data in Parquet, CSV, JSON, or piped directly into a Python data frame, `cryo` has got you covered.
+
+So, whether you're planning to build complex applications, conduct in-depth research, or satisfy your curiosity about blockchain operations, `cryo` will make the process simple and fast. Today, let's learn how to use `cryo` coupled with a high-performance Chainstack [Global Node](/docs/global-elastic-node).
+
+<Info>
+  Here you can find the [cryo repository](https://github.com/paradigmxyz/cryo).
+</Info>
+
+## Understanding how `cryo` works
+
+Understanding the magic under the hood is always important to utilize a full tool's potential. This section will give you a glimpse into the inner workings of `cryo`, explaining its data extraction process, how it handles data schemas and formatting, and the range of blockchain networks it supports.
+
+### Data extraction process
+
+`cryo`'s primary tool is the JSON-RPC protocol, a widely used standard that allows for communication with a blockchain node.
+
+When you run a `cryo` command, it sends out JSON-RPC requests to a blockchain node. These requests ask for specific pieces of data like blocks, transactions, or logs. The node responds with raw data, which `cryo` then meticulously processes. It's not just about fetching data; `cryo` transforms this data into structured and readable formats like CSV, JSON, or Parquet files. This transformation makes it incredibly straightforward to use this data in various applications or analyses.
+
+### Efficiency oowered by Rust
+
+The speed and efficiency of `cryo` are standout features, largely attributed to its development in Rust. Renowned for its performance and memory safety, Rust enables `cryo` to handle blockchain data with exceptional speed and efficiency. This results in rapid data processing, even when dealing with the large datasets typical in blockchain networks. Rust's prowess in concurrency further amplifies `cryo's` ability to manage multiple data extraction tasks simultaneously, ensuring swift and smooth operation. In short, `cryo` leverages Rust's strengths to offer a fast, reliable, and efficient data extraction experience.
+
+### Supported chains
+
+The blockchain world is vast and diverse, and `cryo` is built to navigate this diversity. It's compatible with various blockchain networks, making it a versatile tool for users interested in different ecosystems.
+
+Primarily, `cryo` is compatible with Ethereum and supports EVM-based networks. This wide range of compatibility is possible because `cryo` utilizes [ethers.rs](http://ethers.rs/) for JSON-RPC requests, allowing it to interact with any chain compatible with ethers-rs. This versatility makes `cryo` a valuable asset, whether you're getting into the bustling world of Ethereum or exploring the unique landscapes of its various Layer 2 solutions and sidechains.
+
+## Installation and setup
+
+Getting `cryo` up and running involves a few straightforward steps. This section will guide you through the prerequisites, the installation process, and setting up essential environment variables. We'll also set up a Chainstack global endpoint.
+
+### Prerequisites
+
+Before installing `cryo`ensure that your system meets the following requirements:
+
+1. **Rust**: `cryo` is built in Rust, so you must install Rust on your machine. If you haven't installed Rust, you can do so via [rustup](https://www.rust-lang.org/tools/install), the recommended way to install the Rust programming language.
+
+### Installation steps
+
+`cryo` can be installed either directly from the source or via `crates.io`. Here's how you can do it:
+
+**Method 1: Install from source**
+
+1. Clone the `cryo` repository:
+
+   ```
+   git clone https://github.com/paradigmxyz/cryo.git
+   ```
+
+2. Navigate to the `cryo` directory:
+
+   ```
+   cd cryo
+   ```
+
+3. Install `cryo` using Cargo:
+
+   ```
+   cargo install --path ./crates/cli
+   ```
+
+**Method 2: Install from [crates.io](http://crates.io/)**
+
+1. Run the install command:
+
+   ```
+   cargo install cryo_cli
+   ```
+
+<Info>
+  Installing from source has been the most reliable method so far.
+</Info>
+
+## Basic usage of `cryo`
+
+Diving into `cryo` begins with understanding its basic and help commands and the variety of data types it can extract. This section will cover the foundational aspects of using `cryo`, including the essential commands and options that make it a versatile tool for blockchain data extraction.
+
+### Basic commands
+
+`cryo` offers several commands to help you navigate its functionalities:
+
+1. **`cryo help`**: This is your go-to command for any assistance. It provides an overview of all available commands and options in `cryo`. Whenever in doubt, just type `cryo help` in your terminal.
+2. **`cryo help syntax`**: Blockchain data queries can sometimes get complex. The `cryo help syntax` command is designed to help you understand how to effectively specify block ranges, transaction hashes, and other query parameters.
+3. **`cryo help datasets`**: This command displays all the available datasets that `cryo` can extract. Datasets include `blocks`, `transactions`, `logs`, and many others, each serving a specific type of data extraction.
+4. **`cryo help DATASET(S)`**: Use this command for detailed information about a specific dataset. It helps you understand the nuances of each dataset, what data it includes, and how it can be used. For instance, if you want to know more about the `logs` dataset, you should use `cryo help logs`.
+
+### Data types and options
+
+`cryo` can extract various types of blockchain data, each with its own set of applicable options:
+
+* **Logs**: Extracts event logs from the blockchain. Useful for tracking events emitted by smart contracts.
+* **Blocks**: Retrieves block data. This is essential for analyses that require details like block data, block time, and transactions within a block.
+* **Transactions**: Fetches transaction data, crucial for examining transaction flows, gas prices, and contract interactions.
+
+To further refine your data extraction, `cryo` provides a range of options:
+
+* **`-include-columns`**: Specify which columns to include in your output. For instance, if you're only interested in certain aspects of a transaction, like gas prices and transaction hashes, this option allows you to focus on just those columns.
+* **`-exclude-columns`**: Conversely, if there are columns you want to omit from your output, this option lets you exclude them, streamlining your dataset.
+* **`-blocks`**: A crucial option for specifying the range of blocks you are interested in. You can define a single block, a range, or multiple ranges.
+* **`-contract`**: This option lets you specify a particular contract address when dealing with log-related data.
+
+`cryo` also includes various other options for output format (`--csv`, `--json`), sorting (`--sort`), and filtering based on transaction parameters. Combining these data types and options gives you a powerful toolkit to customize your data extraction precisely to your needs.
+
+## Using `cryo` with a custom RPC
+
+To use `cryo` you'll need a custom RPC (Remote Procedure Call) endpoint. This section will explain what a custom RPC endpoint is and how to use it with `cryo`.
+
+### Chainstack RPC nodes
+
+An RPC endpoint in the context of blockchain is a server interface that allows you to interact with the blockchain network. It's like a gateway through which you send requests (like fetching data) and receive responses. So, how do you choose an RPC?
+
+Cryo is a high-performing tool that can send many requests per second, and the Chainstack global node is ideal for this tool.
+
+<Info>
+  ### Chainstack global nodes
+
+  Chainstack global nodes are geo-load-balanced nodes enabling intelligent routing of requests to the nearest server, reducing latency and delivering maximum performance.
+
+  By proactively monitoring node status, global nodes adapt to network conditions in real time providing instant failover to another node during network interruptions on a global scale.
+</Info>
+
+### Get a global node
+
+Follow these steps to deploy an Ethereum node:
+<Steps>
+<Step>
+[Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+</Step>
+<Step>
+[Deploy a node](/docs/manage-your-networks#join-a-public-network).
+</Step>
+<Step>
+[View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+</Step>
+</Steps>
+To follow this guide, deploy a global Ethereum node.
+
+Once you deploy the node, you'll have access to an RPC endpoint, which will look like this:
+
+```
+https://ethereum-mainnet.core.chainstack.com/YOUR_CREDENTIALS
+```
+
+Now, we are ready to start fetching some blockchain data.
+
+### Use a custom RPC with `cryo`
+
+To use a custom RPC endpoint with `cryo`, you can use the `--rpc` flag followed by the URL of your RPC endpoint or add it as an environment variable. Here's how to do it:
+
+* In your `cryo` command, add the `-rpc` flag followed by your custom RPC URL. For example:
+
+  ```
+  cryo <COMMAND> --rpc <YOUR_CHAINSTACK_NODE>
+  ```
+
+* If you want to use it as an environment variable, export it as a variable named `ETH_RPC_URL` by running this in the console:
+
+  ```
+  export ETH_RPC_URL=https://ethereum-mainnet.core.chainstack.com/YOUR_CREDENTIALS
+  ```
+
+<Info>
+  If you add the endpoints as an environment variable, you do not need to add the `--rpc` flag when running a command.
+</Info>
+
+## Fetch some data
+
+At this point, you are ready to get your hands dirty with blockchain data; let's explore a few kinds of datasets you can get from `cryo` and you can fine-tune the requests.
+
+### Extract basic block information
+
+Block information is a fundamental kind of data needed to analyze the blockchain's state at specific times, which is essential for historical analysis, auditing, and verifying transaction integrity. It is also somewhat resource-intensive, especially with a wide block range.
+
+The basic block data command syntax is:
+
+```
+cryo blocks --blocks START_BLOCK:END_BLOCK
+```
+
+Let's explore some `cryo` commands to work with blocks.
+
+### Dry command
+
+The `--dry` flag in `cryo` is useful for previewing the structure and content of the data you plan to extract without actually executing the data extraction.
+
+Using the `--dry` command with cryo provides a snapshot of the parameters, source details, output configuration, and the data schema for the requested dataset. This feature is highly beneficial for confirming the data fields and format before running a full data extraction process. It helps in understanding the range of data (like block numbers and types of data points), source information (like network and RPC URL), and how the data will be output (such as the file format and chunk size). This preemptive insight allows users to adjust their query parameters and output settings as needed, ensuring they get the data they need in the desired format. This is especially valuable for large-scale data operations where efficiency and precision are critical.
+
+Run it with:
+
+```
+cryo blocks --blocks 18734075:18735075 --dry
+```
+
+The output will be similar to the following:
+
+```
+cryo parameters
+───────────────
+- version: 0.2.0-183-gebfc97b
+- data:
+    - datatypes: blocks
+    - blocks: n=1,000 min=18,734,075 max=18,735,074 align=no reorg_buffer=0
+- source:
+    - network: ethereum
+    - rpc url: <https://ethereum-mainnet.core.chainstack.com/>
+    - max requests per second: unlimited
+    - max concurrent requests: unlimited
+    - max concurrent chunks: 4
+- output:
+    - chunk size: 1,000
+    - chunks to collect: 1 / 1
+    - output format: parquet
+    - output dir: /PATH
+    - report file: $OUTPUT_DIR/.cryo/reports/2023-12-07_12-12-44.189964.json
+
+schema for blocks
+─────────────────
+- block_number: uint32
+- block_hash: binary
+- timestamp: uint32
+- author: binary
+- gas_used: uint64
+- extra_data: binary
+- base_fee_per_gas: uint64
+- chain_id: uint64
+
+sorting blocks by: block_number
+
+other available columns: parent_hash, state_root, transactions_root, receipts_root, logs_bloom, total_difficulty, size
+
+[dry run, exiting]
+```
+
+Let's briefly analyze the response and see what customizations we can make.
+
+1. **Version and Data Types**: It lists the version of cryo being used and the data types selected for extraction (e.g., blocks). This is useful for ensuring you're working with the correct version and data set.
+   1. **Data Details**: It specifies the range of data to be extracted (e.g., block numbers and their range), which helps verify that you're targeting the correct segment of the blockchain.
+2. **Source Information**: Shows the network (e.g., Ethereum), RPC URL, and rate limits. This confirms the blockchain source and helps manage resource usage.
+   1. This can be particularly important when dealing with rate limits and ensuring network compatibility. For example, free Chainstack endpoints are rate-limited at 30 requests per second.
+3. **Output Configuration**: Details about how the data will be output, including format (e.g., Parquet), directory path, chunk size, and the number of chunks. This is crucial for understanding how the data will be organized and stored, allowing for proper data storage and management planning.
+4. **Data Schema**: Lists the columns included in the output (e.g., block\_number, block\_hash, timestamp). This is essential for understanding the structure of the extracted data, enabling users to anticipate the kind of information they will receive and how it can be utilized in their analysis or application.
+5. **Sorting and Additional Columns**: Information on how the data will be sorted and other available columns that were not included in the extraction but are available for use. This can be useful for refining future data extraction queries.
+
+### Customize a fetch command
+
+From the dry run above, we can see a few details:
+
+* The command will fetch 1000 blocks, which is the range we want.
+* There is no rate limit, and concurrent requests are unlimited.
+* The output will be a [Parquet file](https://www.databricks.com/glossary/what-is-parquet) with 1000 entries.
+* `schema for blocks` displays what kind of data will be extracted.
+
+We can use a few extra flags to customize this:
+
+```
+cryo blocks \
+    --blocks 18734075:18735075 \
+    --json \
+    --requests-per-second 30 \
+    --columns block_number block_hash timestamp chain_id \
+    --dry
+```
+
+This command will limit the RPS to 30, return a JSON file, and only keep the block number, block hash, timestamp, and chain ID. Running it will return the following:
+
+```
+cryo parameters
+───────────────
+- version: 0.2.0-183-gebfc97b
+- data:
+    - datatypes: blocks
+    - blocks: n=1,000 min=18,734,075 max=18,735,074 align=no reorg_buffer=0
+- source:
+    - network: ethereum
+    - rpc url: <https://ethereum-mainnet.core.chainstack.com/>
+    - max requests per second: 30
+    - max concurrent requests: 30
+    - max concurrent chunks: 4
+- output:
+    - chunk size: 1,000
+    - chunks to collect: 1 / 1
+    - output format: json
+    - output dir: /PATH
+    - report file: $OUTPUT_DIR/.cryo/reports/2023-12-07_13-01-04.300002.json
+
+schema for blocks
+─────────────────
+- block_number: uint32
+- block_hash: hex
+- timestamp: uint32
+- chain_id: uint64
+
+sorting blocks by: block_number
+
+other available columns: parent_hash, author, state_root, transactions_root, receipts_root, gas_used, extra_data, logs_bloom, total_difficulty, size, base_fee_per_gas
+
+[dry run, exiting]
+```
+
+Once you verify that's the data you need, run the same command without the `--dry` flag to actually send the requests, you'll get an output similar to this:
+
+```
+collecting data
+───────────────
+started at 2023-12-07 13:03:52.669
+   done at 2023-12-07 13:04:26.789
+
+collection summary
+──────────────────
+- total duration: 34.120 seconds
+- total chunks: 1
+    - chunks errored:   0 / 1 (0.0%)
+    - chunks skipped:   0 / 1 (0.0%)
+    - chunks collected: 1 / 1 (100.0%)
+- blocks collected: 1,000
+    - blocks per second:     29.3
+    - blocks per minute:  1,758.5
+    - blocks per hour:  105,509.5
+    - blocks per day: 2,532,227.9
+```
+
+As you can see, it gives us the details of the operation, and you'll find a JSON file in your output path with the following structure:
+
+<CodeGroup>
+  ```Json JSON
+  [
+    {
+      "block_hash": "0x0294b4c63bcc7d721ecafe323a38e391efc13698117851f2eef969bbc2267874",
+      "block_number": 18734075,
+      "timestamp": 1701948011,
+      "chain_id": 1
+    },
+    {
+      "block_hash": "0xcf9d0f402eaaa4e6082145e3ee932a1749f6d6d75a3885e7c59098d259b1b544",
+      "block_number": 18734076,
+      "timestamp": 1701948023,
+      "chain_id": 1
+    },
+    {
+      "block_hash": "0xae2b4c8e6c5e0e8c0e962d935f77d28350fed20d8fb63ec811d6d70aab6e2224",
+      "block_number": 18734077,
+      "timestamp": 1701948035,
+      "chain_id": 1
+    },
+  ]
+  ```
+</CodeGroup>
+
+Because of the rate limit, it took 34 seconds to complete the request; the good news is that Chainstack does not have any rate limit starting from a [paid plan](https://chainstack.com/pricing/), which is recommended if you need really high-performance nodes.
+
+The following is the result of the same request using a premium Chainstack [Global Node](/docs/global-elastic-node) with unlimited RPS:
+
+```
+- source:
+    - network: ethereum
+    - rpc url: https://ethereum-mainnet.core.chainstack.com/
+    - max requests per second: unlimited
+    - max concurrent requests: unlimited
+    - max concurrent chunks: 4
+
+collecting data
+───────────────
+started at 2023-12-07 13:09:24.810
+   done at 2023-12-07 13:09:28.437
+
+collection summary
+──────────────────
+- total duration: 3.627 seconds
+- total chunks: 1
+    - chunks errored:   0 / 1 (0.0%)
+    - chunks skipped:   0 / 1 (0.0%)
+    - chunks collected: 1 / 1 (100.0%)
+- blocks collected: 1,000
+    - blocks per second:     275.7
+    - blocks per minute:  16,540.6
+    - blocks per hour:   992,437.6
+    - blocks per day: 23,818,503.0
+```
+
+As you can see, this is an enormous improvement, almost 90% faster, and this is the power of this Rust-based tool.
+
+This is the Gist of this powerful tool, and you can follow the same principle for the other datasets, but we'll explore a couple more.
+
+### Extracting event logs with `cryo`
+
+Event logs on the blockchain offer invaluable insights into contract interactions and transactions and are one of the most sought-after data types. `cryo` simplifies the extraction of these logs, offering two primary approaches:
+
+1. Utilizing pre-configured event scrapers for standard events.
+2. Fetching custom event logs tailored to specific requirements.
+
+### Using pre-configured event scrapers
+
+`cryo` comes with built-in capabilities to extract standard event logs like ERC-20 and ERC-721 `Transfer` events. This functionality is accessible without needing intricate parameters, significantly streamlining the process.
+
+For example, extracting ERC-20 `Transfer` events can be achieved with a straightforward command:
+
+```
+cryo erc20_transfers --blocks latest --json
+```
+
+<Info>
+  This command will retrieve the`Transfer` events from the latest block in JSON format.
+</Info>
+
+You can specify additional parameters for more targeted data retrieval, such as a specific token address or a range of blocks. For instance, to extract `Transfer` events of the APE token over a range of 500 blocks, the command would be:
+
+```
+cryo erc20_transfers \
+    --address 0x4d224452801ACEd8B2F0aebE155379bb5D594381 \
+    --blocks 18735627:18736127 \
+    --json
+```
+
+The output is structured as a JSON file like the following:
+
+<CodeGroup>
+  ```Json JSON
+  [
+    {
+      "block_number": 18735629,
+      "transaction_index": 127,
+      "log_index": 271,
+      "transaction_hash": "0x652dd336bdcac90f521ebce7f788ac4179db5d736d246d9b4fa6c29ecd911731",
+      "erc20": "0x4d224452801aced8b2f0aebe155379bb5d594381",
+      "from_address": "0x5f65f7b609678448494de4c87521cdf6cef1e932",
+      "to_address": "0xc469b4efd8566f8774437795ece23851a325f661",
+      "value_binary": "0x000000000000000000000000000000000000000000000012574733bb4f6eb2dd",
+      "value_string": "338330445611002671837",
+      "value_f64": 3.383304456110027e20,
+      "chain_id": 1
+    },
+    {
+      "block_number": 18735631,
+      "transaction_index": 157,
+      "log_index": 258,
+      "transaction_hash": "0xa554db46136e23b11cd859ac4d6879e800f57979e847a3d9753e41b8400c5954",
+      "erc20": "0x4d224452801aced8b2f0aebe155379bb5d594381",
+      "from_address": "0x21a31ee1afc51d94c2efccaa2092ad1028285549",
+      "to_address": "0x648e9390d7dbf9ee00e606b0a62e77c58f767a40",
+      "value_binary": "0x0000000000000000000000000000000000000000000003c1fbde01786f130000",
+      "value_string": "17745470000000000000000",
+      "value_f64": 1.774547e22,
+      "chain_id": 1
+    },
+  ]
+  ```
+</CodeGroup>
+
+You can do the same for ERC-721 `Transfers`.
+
+### Extracting custom event logs
+
+`cryo` also allows users to extract custom event logs. This feature is useful for analyzing non-standard events or those specific to a particular smart contract.
+
+For example, to fetch custom events, you can use the `logs` dataset command with specific topics or event signatures. To extract the same `Transfer` events as above using a custom approach, the command would be:
+
+```
+cryo logs \
+    --blocks 18735627:18736127 \
+    --contract 0x4d224452801ACEd8B2F0aebE155379bb5D594381 \
+    --topic0 0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef \
+    --json
+```
+
+Alternatively, you can directly use the event signature:
+
+```
+cryo logs \
+    --blocks 18735627:18736127 \
+    --contract 0x4d224452801ACEd8B2F0aebE155379bb5D594381 \
+    --event-signature "Transfer(address indexed from, address indexed to, uint256 value)" \
+    --json
+```
+
+Consider extracting data about new token pairs created on [SushiSwap V2](https://etherscan.io/address/0xc0aee478e3658e2610c5f7a4a2e1777ce9e4f2ac#code) for a more complex example. The following command accomplishes this for a specific block:
+
+```
+cryo logs \
+    --blocks 18687074 \
+    --contract 0xC0AEe478e3658e2610c5F7A4A2E1777cE9e4f2Ac \
+    --event-signature "PairCreated(address indexed token0, address indexed token1, address pair, uint)" \
+    --json
+```
+
+<Info>
+  The extracted transactions are sorted by block number and log index by default. For more examples and custom event extraction scenarios, refer to the [`cryo` documentation](https://github.com/paradigmxyz/cryo/blob/main/examples/uniswap.sh).
+</Info>
+
+### Beyond data collection
+
+The versatility of `cryo` extends beyond event logs, encompassing various data types inherent to blockchain technology. Each dataset can be customized and extracted based on user-specific requirements, enabling various analysis and research possibilities. Post extraction, the data can be seamlessly integrated into different frameworks or tools for further processing and analysis, offering a comprehensive solution for blockchain data retrieval.
+
+## Conclusion
+
+In this guide, we've journeyed through the remarkable capabilities of `cryo`, a tool that stands out in blockchain data extraction. Cryo offers a seamless and efficient way to access blockchain data, from its intuitive command-line interface to its powerful Rust-based engine.
+
+Whether you're getting into complex application development, embarking on in-depth research, or simply exploring the blockchain landscape, `cryo` proves to be an indispensable ally. Its ability to interact with various blockchain networks and its flexibility in data formatting and extraction ensures that your blockchain data needs are met with precision and ease.
+
+Integrating `cryo` with high-performance RPC endpoints like Chainstack global nodes further elevates its efficiency, providing lightning-fast data retrieval and enhanced reliability. This synergy enables you to harness the full potential of blockchain data, unlocking insights and opportunities that were previously challenging to access.
+
+### About the author
+
+<CardGroup>
+  <Card title="Davide Zambiasi" img="/images/docs/profile_images/1533079085001363457/1VvXp1m0_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on EVM, The Graph protocol, and Starknet
+
+    <Icon icon="laptop"  iconType="solid"/> Helping people understand Web3 and blockchain development
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/soos3d)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/web3Dav3)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/davide-zambiasi/)
+  </Card>
+</CardGroup>

@@ -1,0 +1,159 @@
+---
+title: "Ronin: On-Chain Meta Racing Game"
+---
+
+**TLDR**
+
+* Ronin is an EVM protocol tailored for Web3 gaming, here used to build a meta racing game called *Race the Ronin Chain*.
+* Players deposit $RON, predict parts of block hashes, and win if their predictions match the actual chain blocks over a 50-block race.
+* Computation for determining winners is done off-chain for efficiency, with final results submitted on-chain by the contract owner.
+* The mechanics showcase a blend of on-chain transparency and off-chain checks, making for a fun yet cost-effective Web3 game experiment.
+
+## Introduction
+
+Ronin is an EVM protocol purpose-built to serve the unique needs of the gaming industry. Developed by Sky Mavis, the creators of Axie Infinity, Ronin stands out for its ability to support online games, specifically in the realm of Web3 gaming.
+
+A purpose-built blockchain protocol needs a purpose built blockchain game — and that's what we created here.
+
+The game is called *Race the Ronin Chain*. Here is the [full game repo on Chainstacklabs](https://github.com/akegaviar/race-ronin-chain).
+
+<Warning>
+  ### NFP
+
+  Not for production (NFP) obviously. Feel free to take the source, modify to your needs, and boost the Web3 gaming ecosystem.
+
+  We assume no responsibility for the code. Moreover, this is a very rough unaudited contract.
+</Warning>
+
+**TLDR of the game**
+
+It's a *meta* racing game because you run the game on the system you race on. The premise is very simple:
+
+* Anyone can create a race on the contract
+* A race is a range of 50 blocks
+* A number of players can enter the created race
+* When entering a race, the players commit a up to 50 of 3-character hash values or slots called *predictions*
+* The game mechanics is that if there's a match of one of the committed 3-character values with a 64-character block hash in the range of 50 blocks race range, the player advances one step forward
+* The player that advances the most by the end of the race (i.e. gets the most predictions right), wins
+* There's also other stuff like: when entering a race, each player pays the entrance fee of 1 $RON; the winner gets all of the players' $RON; and the treasury keeps 1% on each win
+
+Interested? Let's run through all the details.
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/) to deploy a Ronin node.
+* [Foundry](https://getfoundry.sh/) to compile, test, and deploy the contract.
+* [web3.py](https://github.com/ethereum/web3.py) for the participation and the winner calculation & submission scripts.
+
+## Quick start
+
+It's all in the repository: [race-ronin-chain](https://github.com/akegaviar/race-ronin-chain).
+
+<Info>
+  ### Solidity 0.8.19 & PUSH0
+
+  Keep the Solidity compiler to 0.8.19 unless the Ronin chain supports PUSH0 when you are reading this. Otherwise you won't be able to deploy the contract.
+</Info>
+
+Assuming you have all the prerequisites satisfied.
+
+### Generate the contract ABI
+
+The one in the repository will work, but if you modify the contract, by far the easiest way to generate the ABI is to run:
+
+<CodeGroup>
+  ```shell Shell
+  forge build --silent && jq '.abi' ./out/RaceRoninChain.sol/RaceRoninChain.json > /root/race-ronin-chain/abi/RaceRoninChain.abi
+  ```
+</CodeGroup>
+
+### Deploy the contract
+
+Ronin is not EIP-1559 compatible, so keep the transactions to legacy.
+
+<CodeGroup>
+  ```shell Shell
+  forge create src/RaceRoninChain.sol:RaceRoninChain --private-key PRIVATE_KEY --constructor-args TREASURY_ADDRESS --legacy
+  ```
+</CodeGroup>
+
+where
+
+* PRIVATE\_KEY — your deployer private key. Important to remember that for the RaceRoninChain contract the message sender is the owner. This means that your will be submitting the race winner from this deployer account (see later in the article).
+* TREASURY\_ADDRESS — the house keeps 1% on each prize distribution, so this where the $RON will go from every race in your house fees.
+
+### Interact with the contract
+
+There are two scripts in the repository in the `python_scripts` directory:
+
+* `enter_race.py` — generates 50 random 3-character predictions for each of the players, starts a race, and enrols the four players in the race
+* `compute_stats_and_submit_winner.py` — does the winner calculation and submits the winner
+
+In each of the scripts, check the commented lines and make sure you provide all the necessary variables like keys, addresses, and Chainstack endpoints for Ronin, of course.
+
+## Game mechanics & other important considerations
+
+There's quite a bit of nuance to this seemingly simple game, so let's do a run-down. Pretty sure there's a lot of uncharted territory too.
+
+The game runs over a course of 50 blocks on the Ronin chain. Players try predicting parts of block hashes that will appear during this span. Each Ronin block comes with a unique hash—a 64-character hexadecimal string. The crux of the game is in forecasting these hash segments correctly.
+
+To participate, players commit to the game by executing a transaction to the contract's `enterRace` function at a specified block number. This commitment not only signifies the start of a new race but also allows for a transparent view of the number of participants, the stakes involved in terms of total $RON, and the kickoff block.
+
+When entering, players also submit their wager—the entry fee in $RON with up to 50 three-character predictions of the block hashes that will appear over the race duration.
+
+As the race progresses, players' positions are determined by how accurately their predictions match the actual block hashes within the race's 50-block duration. A correct prediction, matching a segment of a block's hash, propels a player forward in the race. Conversely, incorrect guesses leave a player lagging.
+
+At the race's conclusion, the game tallies each participant's successful predictions against the block hashes that appeared during the race. The player whose predictions align most closely with the actual block hashes wins. In the event of a tie, the game honors the principle of "first come, first served"—the player who first submitted their predictions is declared the winner, rewarding promptness and deterring mimicry (but not front-running — more on that later).
+
+### Off-chain computation & other considerations
+
+#### Off-chain compute
+
+As I'm sure you noticed, the off-chain winner computation & submission is the most glaring thing about this game, so let's explore it.
+
+Doing an on-chain computation is prohibitively expensive and is straight impossible at scale on any EVM network. This leaves us with the only option to move the winner compute to off-chain.
+
+Here's the current implementation:
+
+* the `compute_stats_and_submit_winner.py` script runs and checks whether the latest race is completed
+* if completed, the script retrieves the block hashes for all 50 blocks from the start block to the end block of the race
+* then the script calculates the winner based on the entered predictions and the actual block hashes
+* the script submits the winner from the contract owner (the deployer)
+* the contract does an on-chain verification of the submitted results and accepts or reverts the transaction. The verification is a check whether the submitted winning address & the full string of the submitted predictions are a part of the player and of this race id.
+
+In the future, it should be worth it moving the off-chain compute to something like [Space and Time's Verifiable Web3 Off-Chain Compute Layer](https://www.spaceandtime.io/blog/verifiable-off-chain-compute-for-smart-contracts) when it's fully available.
+
+For now, however, the bet is on keeping the compute component trusted (as opposed to trustless) in a way that if the players and the community detect foul play, they will abandon the project.
+
+#### Front-running & copy-trading
+
+While copy-trading has a bit of a protection through the "first come, first served" model (discussed earlier), the front-running would still be an issue. On the other hand, these and all the other unexplored mechanics are a part of what makes the game fun.
+
+#### High gas cost
+
+The cost of participation scales with the number of predictions made due to gas fees, which can significantly affect a player's strategy regarding the number of predictions to submit.
+
+For example, a 10 slot prediction will cost you ballpark 350k gas, while a full 50 slot prediction will cost you about 1,300k gas. Submitting more slots increases your chances to win the race, though.
+
+## Conclusion
+
+Explore both the creator and user gaming ideas in the Ronin ecosystem and hopefully your project will end up in the [top Ronin games](https://chainplay.gg/chain/ronin/). There might be a lot of opportunity in that segment.
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

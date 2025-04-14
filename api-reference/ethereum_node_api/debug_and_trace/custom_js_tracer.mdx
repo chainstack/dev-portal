@@ -1,0 +1,117 @@
+---
+title: Custom JS tracing | Ethereum
+---
+
+<Note>
+**Available on customized dedicated nodes only**
+
+Custom JavaScript tracers are available as customized solutions on the [Enterprise plan](https://chainstack.com/pricing/) on [dedicated nodes](/docs/dedicated-node).
+</Note>
+
+
+In the context of Ethereum transactions, custom JavaScript tracing is a method used to filter and extract particular data from the comprehensive data produced during the execution of a transaction inside the Ethereum Virtual Machine (EVM). Custom JavaScript tracers enable customers to concentrate on specific data points pertinent to their needs rather than reviewing the entire transaction trail, which might be a massive quantity of data.
+
+<Note>
+[Pre-built tracers](/api-reference/ethereum-debug-trace-rpc-methods#pre-built-javascript-based-tracers) are also available, but allow for less fine tuning.
+</Note>
+
+
+These JavaScript-written tracers can be constructed using a number of different methods to specify how they interact with transaction data. Users can design unique tracers that meet their needs by giving a JavaScript expression and the tracer option when using one of the tracing methods.
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Developing a custom JavaScript tracer
+
+Transaction traces provide complete information about the EVM status during a transaction's execution, but often users are only interested in a subset of this data. JavaScript trace filters can be used to isolate the required information.
+
+<Note>
+Custom JavaScript tracing is available with any of the tracing methods.
+</Note>
+
+
+When specifying the tracer option in one of the tracing methods, JavaScript-based tracing is enabled. The tracer should resolve to an object with result and fault methods.
+
+There are four additional methods: setup, step, enter, and exit.
+
+* Setup — invoked once at the beginning of the tracer construction. It accepts a single argument, `config`, which is used to pass options to the tracer.
+* Step — a function called for each step of the EVM or when an error occurs. It takes two arguments, `log` and `db`, and is used to trace the specified transaction.
+* Result — a function that returns a JSON-serializable value to the RPC caller. It takes two arguments, `ctx` and `db`.
+* Fault — a function invoked when an error occurs during opcode execution, which was not reported in step. It takes the same arguments as step: `log` and `db`.
+* Enter and exit — invoked on stepping in and out of an internal call, respectively. They are used for `CALL` variants, `CREATE` variants, and transfers implied by a `SELFDESTRUCT`.
+
+<Note>
+Find more details in the [Geth documentation](https://geth.ethereum.org/docs/developers/evm-tracing/custom-tracer#custom-javascript-tracing).
+</Note>
+
+
+## Custom JavaScript tracer example
+
+Here you can find a summary of the steps to create a custom JavaScript tracer and code examples:
+
+1. Choose the appropriate RPC method. Depending on what you want to trace, select the appropriate RPC method, such as `debug_traceTransaction()` for individual transactions.
+2. Define the tracer object. Create a JavaScript object that defines the behavior of the custom tracer. This object should include methods like setup, step, result, fault, enter, and exit. Each of these methods will determine how the tracer interacts with the transaction data during its execution.
+
+   The following tracer logs the gas used at each step during the execution of a transaction:
+
+```javascript tracer
+{
+  gasUsed: [],
+  step: function(log) {
+    this.gasUsed.push(log.getGas());
+  },
+  result: function() {
+    return this.gasUsed;
+  },  
+  fault: function() {}
+}
+```
+
+3. Pass the tracer object to the RPC method. Convert the tracer object to a string and pass it as an argument to the chosen RPC method. The tracer object should be defined within single quotes to ensure it is interpreted as a JavaScript expression.
+
+   For example, using the `debug_traceTransaction()` method with the custom tracer defined above would look like this:
+
+```javascript debug_traceTransaction
+debug.traceTransaction('0x1e60e4b78c1097d01226dca6dad808f1de05efd705670a28ae8d57171c91d4aa', {
+tracer: '{gasUsed: [], step: function(log) { this.gasUsed.push(log.getGas()); }, result: function() { return this.gasUsed; }, fault: function() {}}'
+});
+```
+
+
+### Run the custom tracer with curl
+
+To run a custom JavaScript tracer using curl, you need to make an HTTP POST request to your Ethereum client with the appropriate JSON-RPC payload.
+
+Create a JSON object that includes the JSON-RPC version, method, and tracer object (converted to a string).For example, using the previous tracer example for `the debug_traceTransaction` method:
+
+```shell JSON object
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "debug_traceTransaction",
+  "params": [
+    "0x1e60e4b78c1097d01226dca6dad808f1de05efd705670a28ae8d57171c91d4aa",
+    {
+      "tracer": "{gasUsed: [], step: function(log) { this.gasUsed.push(log.getGas()); }, result: function() { return this.gasUsed; }, fault: function() {}}"
+    }
+  ]
+}
+```
+
+
+The full curl request will look like the following:
+
+```shell Custom tracer request
+curl --location 'YOUR_CHAINSTACK_NODE_URL' \
+--header 'Content-Type: application/json' \
+--data '{"jsonrpc":"2.0","id":1,"method":"debug_traceTransaction","params":["0x1e60e4b78c1097d01226dca6dad808f1de05efd705670a28ae8d57171c91d4aa",{"tracer":"{gasUsed: [], step: function(log) { this.gasUsed.push(log.getGas()); }, result: function() { return this.gasUsed; }, fault: function() {}}" }]}'
+```
+
+
+## Try custom JavaScript tracing yourself

@@ -1,0 +1,217 @@
+---
+title: "Blast: Tracking Automatic, Void, Claimable accounts"
+---
+
+**TLDR**
+* On the Blast L2 network, ETH or stablecoins automatically rebase unless configured otherwise through one of their precompiled contracts.
+* Each account can set its yield mode (AUTOMATIC, VOID, or CLAIMABLE). AUTOMATIC is default, so VOID or CLAIMABLE indicates nonstandard behavior.
+* In this Python example, we filter recent blocks for addresses, then query each address’s yield mode on both USDB and WETH contracts, flagging any VOID or CLAIMABLE.
+* This helps identify accounts intentionally opting out of the default auto-yield or wishing to claim accrued yield separately.
+
+## Main article
+
+Blast is an EVM-compatible L2 protocol with a major modification—ETH and stablecoins bridged over to the Blast network yield natively.
+
+As an example of what this means—if you have your ETH on your address on the Blast network and do nothing, your ETH balance will grow (rebase positively, to be more technical) over time.
+
+Check out the [Blast documentation](https://docs.blast.io/) to understand where the yield is coming from.
+
+For the purposes of this tutorial, we focus purely on the technical part.
+
+There are a few precompiled contracts on Blast that make the network tick. For the full list, see Blastdocs: [Contracts](https://docs.blast.io/building/contracts).
+
+The ones that provide native yield generation are:
+
+* USDB: [0x4300000000000000000000000000000000000003](https://blastscan.io/address/0x4300000000000000000000000000000000000003)
+* WETHRebasing:[0x4300000000000000000000000000000000000004](https://blastscan.io/address/0x4300000000000000000000000000000000000004)
+
+Inspecting these contracts will reveal that each of them has the same `yieldMode` setting:
+
+<CodeGroup>
+  ```javascript Solidity
+  enum YieldMode {
+      AUTOMATIC,
+      VOID,
+      CLAIMABLE
+  }
+  ```
+</CodeGroup>
+
+You can write this setting with the `configure(YieldMode yieldMode` function:
+
+<CodeGroup>
+  ```Text Solidity
+  function configure(YieldMode yieldMode) external returns (uint256) {
+          _configure(msg.sender, yieldMode);
+  ```
+</CodeGroup>
+
+This means that every USDB or WETH token on the Blast network has a yield mode assigned to it:
+
+`AUTOMATIC` — default mode; your USDB or WETH token rebases positively.
+
+`VOID` — your USDB or WETH token does not rebase or accrue claimable yield.
+
+`CLAIMABLE` — your USDB or WETH token does not rebase but accrues claimable yield separately.
+
+ETH or stablecoins bridged to the Blast network get assigned the default `AUTOMATIC` yield mode.
+
+Users can manually set any other (`VOID` or `CLAIMABLE`) mode to their assets by calling the `configure(YieldMode yieldMode` on each of the contracts.
+
+This is all we need to know. This seems like checking the live addresses as they interact on the Blast network for the yield mode setting might raise a flag if it's non-default and could be useful. And this is what we are going to do in this simple tutorial.
+
+We will do a Python script that:
+
+* Identifies active address by extracting the from each new incoming block as `from`.
+* Checks each of the extracted active addresses against the USDB & WETH contracts for their yield setting and prints the result.
+
+All of the code is in [the GitHub repository](https://github.com/chainstacklabs/blast-track-void-claimable).
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/) to deploy a Blast Mainnet node
+* [web3.py](https://web3py.readthedocs.io/)
+
+## Step-by-step
+
+### Get a Blast node
+
+Log in to your [Chainstack account](https://console.chainstack.com/) and get a node endpoint.
+
+### Create the script
+
+Since the both the USDB and the WETH contracts are almost the same, we are going to use the same common ABI for both of them.
+
+Let's first do a script that identifies and prints all active accounts in each new block that have one of the three settings: `AUTOMATIC`, `VOID`, `CLAIMABLE`.
+
+We'll do this to make sure the script works as expected.
+
+<CodeGroup>
+  ```python Python
+  import time
+  from web3 import Web3
+
+  # Connect to Blast node
+  w3 = Web3(Web3.HTTPProvider('CHAINSTACK_NODE'))
+
+  # Contract addresses and the common ABI
+  USDB_ADDRESS = '0x4300000000000000000000000000000000000003'
+  WETH_ADDRESS = '0x4300000000000000000000000000000000000004'
+  COMMON_ABI = [{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"getConfiguration","outputs":[{"internalType":"enum YieldMode","name":"","type":"uint8"}],"stateMutability":"view","type":"function"}]
+
+  # Create contract objects
+  usdb_contract = w3.eth.contract(address=USDB_ADDRESS, abi=COMMON_ABI)
+  weth_contract = w3.eth.contract(address=WETH_ADDRESS, abi=COMMON_ABI)
+
+  # Extract "from" addresses from each new block
+  def handle_block(block_number, rps=25):
+      block = w3.eth.get_block(block_number, full_transactions=True)
+      active_accounts = set(tx['from'] for tx in block.transactions if 'from' in tx)
+      delay = 1 / rps
+
+  # Check yield mode for each active account
+      for account in active_accounts:
+          check_yield_mode(account, usdb_contract, "USDB")
+          check_yield_mode(account, weth_contract, "WETH")
+          time.sleep(delay)
+
+  # Call the getConfiguration function to check the yield mode. 0 = AUTOMATIC, 1 = VOID, 2 = CLAIMABLE
+  def check_yield_mode(account, contract, contract_name):
+      yield_mode = contract.functions.getConfiguration(account).call()
+      if yield_mode == 0:
+          print(f"{account} yieldMode on {contract_name} is AUTOMATIC")
+      elif yield_mode == 1:
+          print(f"{account} yieldMode on {contract_name} is VOID")
+      elif yield_mode == 2:
+          print(f"{account} yieldMode on {contract_name} is CLAIMABLE")
+
+  def main(rps=25):
+      block_filter = w3.eth.filter('latest')
+      while True:
+          for block_number in block_filter.get_new_entries():
+              handle_block(block_number, rps)
+
+  if __name__ == "__main__":
+      main()
+  ```
+</CodeGroup>
+
+where
+
+* CHAINSTACK\_NODE — your Blast node deployed with Chainstack
+* `rps=25` — an RPS setting to make sure you stay within the [limits](/docs/limits).
+
+Running the script will reveal that an overwhelming majority of accounts interact with on the network with the default automatic yield setting.
+
+Let's modify the script to only print the `VOID` and `CLAIMABLE` accounts, which would be a decent enough flag for non-ordinary accounts.
+
+<CodeGroup>
+  ```python Python
+  import time
+  from web3 import Web3
+
+  # Connect to Blast node
+  w3 = Web3(Web3.HTTPProvider('CHAINSTACK_NODE'))
+
+  # Contract addresses and the common ABI
+  USDB_ADDRESS = '0x4300000000000000000000000000000000000003'
+  WETH_ADDRESS = '0x4300000000000000000000000000000000000004'
+  COMMON_ABI = [{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"getConfiguration","outputs":[{"internalType":"enum YieldMode","name":"","type":"uint8"}],"stateMutability":"view","type":"function"}]
+
+  # Create contract objects
+  usdb_contract = w3.eth.contract(address=USDB_ADDRESS, abi=COMMON_ABI)
+  weth_contract = w3.eth.contract(address=WETH_ADDRESS, abi=COMMON_ABI)
+
+  # Extract "from" addresses from each new block
+  def handle_block(block_number, rps=25):
+      block = w3.eth.get_block(block_number, full_transactions=True)
+      active_accounts = set(tx['from'] for tx in block.transactions if 'from' in tx)
+      delay = 1 / rps
+
+  # Check yield mode for each active account
+      for account in active_accounts:
+          check_yield_mode(account, usdb_contract, "USDB")
+          check_yield_mode(account, weth_contract, "WETH")
+          time.sleep(delay)
+
+  # Call the getConfiguration function to check the yield mode. 0 = AUTOMATIC, 1 = VOID, 2 = CLAIMABLE
+  def check_yield_mode(account, contract, contract_name):
+      yield_mode = contract.functions.getConfiguration(account).call()
+      if yield_mode == 1:
+          print(f"{account} yieldMode on {contract_name} is VOID")
+      elif yield_mode == 2:
+          print(f"{account} yieldMode on {contract_name} is CLAIMABLE")
+
+  def main(rps=25):
+      block_filter = w3.eth.filter('latest')
+      while True:
+          for block_number in block_filter.get_new_entries():
+              handle_block(block_number, rps)
+
+  if __name__ == "__main__":
+      main()
+  ```
+</CodeGroup>
+
+## Conclusion
+
+This tutorial guided you through creating a simple Python project that tracks and flags accounts as they come live that have a very uncommon yield mode setting.
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

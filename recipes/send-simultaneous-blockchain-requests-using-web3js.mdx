@@ -1,0 +1,117 @@
+---
+title: "Send simultaneous blockchain requests using web3.js"
+description: "This Recipe shows you how to efficiently send multiple requests to an Ethereum node instead of using a `for` loop by fetching an account balance for the past 500 blocks."
+---
+
+<AccordionGroup>
+<Accordion title="Overview">
+
+This Recipe shows you how to use web3.js and the `Promise.all` method in JavaScript to efficiently fetch the account balance of an address for 500 blocks.
+
+This method is more efficient compared to running a `for` loop.
+</Accordion>
+<Accordion title="Environment setup">
+
+Install [node.js](https://nodejs.org/) in case it is not installed yet.
+
+Create a new directory for your project, then install the web3.js library:
+
+`npm install web3`
+
+</Accordion>
+<Accordion title="Get your Chainstack endpoint">
+
+To run this code, you will need a Chainstack account and an Ethereum archive node.
+
+1. [Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+2. [Deploy a node](https://docs.chainstack.com/docs/manage-your-networks#join-a-public-network).
+3. [View node access and credentials](https://docs.chainstack.com/docs/manage-your-node#view-node-access-and-credentials).
+</Accordion>
+<Accordion title="The code">
+
+This code this script fetches the balance of a given Ethereum address for each of the last 500 blocks and prints the balance and the time taken to fetch all the balances to the console.
+
+- `getBalanceAtBlock(blockNum)`: This asynchronous function is designed to get the balance of the specified Ethereum address at a specific block number. It uses the `web3.eth.getBalance` method to fetch the balance in Wei and then converts it into Ether using `web3.utils.fromWei`. The resulting balance is logged to the console.
+- main(): This is the main function of the script. It starts by getting the current block number on the Ethereum blockchain using web3.eth.getBlockNumber(). It then sets an endBlock which is 500 blocks behind the current block.
+
+The function then creates an array (blockRange) of block numbers from the current block number down to the endBlock. This is done using the Array.from method.
+
+It then gets the balance at each block number in the blockRange using the getBalanceAtBlock function. It does this in parallel using Promise.all and Array.prototype.map.
+
+The function also measures the time taken to fetch all the balances by logging the start and end times and calculating the difference. This time is logged to the console in seconds.
+
+Execution:
+The script calls the main function to start the execution of the script.
+
+In summary, this script fetches the balance of a given Ethereum address for each of the last 500 blocks and prints the balance and the time taken to fetch all the balances to the console.
+
+Using Promise.all to fetch the balances for all blocks in parallel is more efficient than using a loop to fetch them one at a time.
+
+In JavaScript, Promise.all waits for all promises to resolve, and since network requests like fetching data from an Ethereum node are asynchronous and can be done in parallel, it's more time-efficient to use Promise.all to fetch the balances simultaneously, rather than waiting for each request to complete before starting the next one.
+
+</Accordion>
+<Accordion title="Run the code">
+
+Now you can get your endpoint and paste it into the endpoint const. Then you can run it with node YOUR\_SCRIPT\_NAME
+
+The console will log the time needed to execute the function plus the results of the queries.
+
+> The example here only shows a few responses.
+
+</Accordion>
+<Accordion title="Understanding the response">
+
+As you can see in the console, it took about 3 seconds to get the responses for all 500 blocks, which is a significant improvement compared to sending each request using a for loop.
+
+You might notice that the order of the blocks logged in the console is not sequential; this is because when you use `Promise.all` with an array of promises, the promises are all started at approximately the same time, and they will resolve (or reject) as soon as they are done, without any regard for the order in which they were started.
+
+</Accordion>
+</AccordionGroup>
+
+<RequestExample>
+```js index.js
+const Web3 = require("web3");
+const web3 = new Web3(
+  "YOUR_CHAINSTACK_NODE_URL"
+);
+const address = "0x1f9090aaE28b8a3dCeaDf281B0F12828e676c326";
+async function getBalanceAtBlock(blockNum) {
+  const balanceWei = await web3.eth.getBalance(address, blockNum);
+  console.log(
+    `Balance at block ${blockNum}: ${web3.utils.fromWei(
+      balanceWei,
+      "ether"
+    )} ETH`
+  );
+}
+async function main() {
+  let startBlock = await web3.eth.getBlockNumber();
+  startBlock = Number(startBlock);
+  const endBlock = startBlock - 500;
+  const blockRange = Array.from(
+    { length: parseInt(startBlock - endBlock + 1) },
+    (_, i) => startBlock - i
+  );
+  const start = Date.now();
+  await Promise.all(blockRange.map((blockNum) => getBalanceAtBlock(blockNum)));
+  const end = Date.now();
+  console.log(`Time taken: ${(end - start) / 1000} seconds`);
+}
+main();
+```
+</RequestExample>
+
+<ResponseExample>
+```bash
+.
+.
+.
+Balance at block 17792145: 2.451173468263471373 ETH
+Balance at block 17792086: 2.446376092365863362 ETH
+Balance at block 17791996: 2.443936685583078803 ETH
+Balance at block 17792129: 2.451877320253043218 ETH
+Balance at block 17792041: 2.446527070768833423 ETH
+Balance at block 17792006: 2.443603660636301311 ETH
+Time taken: 2.972 seconds
+```
+</ResponseExample>

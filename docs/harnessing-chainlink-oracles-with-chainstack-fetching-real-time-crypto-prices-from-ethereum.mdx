@@ -1,0 +1,224 @@
+---
+title: "Harnessing Chainlink Oracles with Chainstack: Fetching real-time Crypto Prices from Ethereum"
+---
+
+**TLDR**
+* Set up a node.js script using web3.js to connect to Ethereum via Chainstack endpoints.
+* Fetch real-time crypto prices through Chainlink’s AggregatorV3Interface contracts, removing reliance on external APIs.
+* Conversion involves retrieving integer values from the contract and formatting them into human-readable outputs.
+* Call prices at intervals to keep data updated without single-point-of-failure risks.
+
+## Main article
+
+In today's digital age, accessing real-time and reliable cryptocurrency data is crucial for many applications. While many resort to third-party APIs, these can sometimes introduce risks, such as downtime, potential manipulation, or sudden discontinuation of services. Chainlink, a decentralized oracle network, solves this dilemma as a dependable bridge between on-chain and off-chain data. Paired with the robust infrastructure of an Ethereum node hosted by Chainstack, we can further enhance the reliability of our data source.
+
+One advantage of this approach is using decentralized exchange (DeX) oracles, which largely eliminates the risk of relying on single-point-of-failure third-party APIs. This ensures uninterrupted access to critical crypto pricing data and fosters a decentralized ethos in our applications.
+
+In this guide, we'll demonstrate how to harness the power of Chainlink oracles by using a Chainstack Ethereum node to fetch real-time crypto prices from the network, giving you a resilient and dependable data source.
+
+## Setting the scene
+
+For our purpose, we'll use node.js alongside the web3.js library, allowing us to communicate with the Ethereum blockchain. We aim to fetch prices for five cryptocurrencies: BTC, ETH, LINK, BNB, and LTC against USD.
+
+<Info>
+  Check out [Web3 node.js: From zero to a full-fledged project](/docs/web3-nodejs-from-zero-to-a-full-fledged-project) to learn how to set up a node.js project.
+</Info>
+
+### Prerequisites
+
+* [node.js](https://nodejs.org/en/download) library
+* web3.js library
+* Contract addresses of pairs you’re interested in
+* A Chainstack Ethereum node
+
+### Get an Ethereum node
+
+Follow these steps to deploy an Ethereum node:
+
+<Steps>
+	<Step>
+[Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+</Step>
+<Step>
+[Deploy a node](/docs/manage-your-networks#join-a-public-network).
+</Step>
+<Step>
+[View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+</Step>
+</Steps>
+
+### Install web3.js
+
+Create a new project in a directory and open a terminal, then run:
+
+<CodeGroup>
+  ```shell Shell
+  npm i web3
+  ```
+</CodeGroup>
+
+### The code
+
+In the same directory, create a new file named `index.js` and paste the following code:
+
+<CodeGroup>
+  ```javascript index.js
+  const { Web3 } = require("web3");
+
+  const web3 = new Web3(
+  	"YOUR_CHAINSTACK_ENDPOINT"
+  );
+
+  // Object with the smart contracts for the pairs
+  const pairs = {
+  	"BTC / USD": "0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c",
+  	"ETH / USD": "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419",
+  	"LINK / USD": "0x2c1d072e956AFFC0D435Cb7AC38EF18d24d9127c",
+  	"BNB / USD": "0x14e613AC84a31f709eadbdF89C6CC390fDc9540A",
+  	"LTC / USD": "0x6AF09DF7563C363B5763b9102712EbeD3b9e859B",
+  };
+
+  // aggregatorV3Interface ABI
+  const aggregatorV3InterfaceABI = [
+  	{
+  		inputs: [],
+  		name: "decimals",
+  		outputs: [{ internalType: "uint8", name: "", type: "uint8" }],
+  		stateMutability: "view",
+  		type: "function",
+  	},
+  	{
+  		inputs: [],
+  		name: "description",
+  		outputs: [{ internalType: "string", name: "", type: "string" }],
+  		stateMutability: "view",
+  		type: "function",
+  	},
+  	{
+  		inputs: [{ internalType: "uint80", name: "_roundId", type: "uint80" }],
+  		name: "getRoundData",
+  		outputs: [
+  			{ internalType: "uint80", name: "roundId", type: "uint80" },
+  			{ internalType: "int256", name: "answer", type: "int256" },
+  			{ internalType: "uint256", name: "startedAt", type: "uint256" },
+  			{ internalType: "uint256", name: "updatedAt", type: "uint256" },
+  			{ internalType: "uint80", name: "answeredInRound", type: "uint80" },
+  		],
+  		stateMutability: "view",
+  		type: "function",
+  	},
+  	{
+  		inputs: [],
+  		name: "latestRoundData",
+  		outputs: [
+  			{ internalType: "uint80", name: "roundId", type: "uint80" },
+  			{ internalType: "int256", name: "answer", type: "int256" },
+  			{ internalType: "uint256", name: "startedAt", type: "uint256" },
+  			{ internalType: "uint256", name: "updatedAt", type: "uint256" },
+  			{ internalType: "uint80", name: "answeredInRound", type: "uint80" },
+  		],
+  		stateMutability: "view",
+  		type: "function",
+  	},
+  	{
+  		inputs: [],
+  		name: "version",
+  		outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+  		stateMutability: "view",
+  		type: "function",
+  	},
+  ];
+
+  let conversionRate = {};
+
+  async function fetchPrices() {
+  	try {
+  		for (let pair in pairs) {
+  			// Smart contract instance
+  			const priceFeed = new web3.eth.Contract(
+  				aggregatorV3InterfaceABI,
+  				pairs[pair]
+  			);
+
+  			// use eth_call
+  			const roundData = await priceFeed.methods.latestRoundData().call();
+  			// Chainlink returns price data with 8 decimal places for accuracy.
+  			// We divide by 1e8 to convert it to a human-readable format.
+  			const price = Number(roundData.answer) / 1e8;
+  			conversionRate[pair] = price.toFixed(2);
+  		}
+
+  		console.log("Prices fetched:", conversionRate);
+  	} catch (error) {
+  		console.error("Error fetching prices:", error);
+  	}
+  }
+
+  // Fetch prices initially and then at regular intervals
+  fetchPrices();
+  setInterval(fetchPrices, 60 * 1000); // Fetch every minute
+  ```
+</CodeGroup>
+
+Add your Chainstack Ethereum endpoint to `web3`, save and run `node index` in the terminal; the console will display an object with the most up-to-date prices.
+
+<CodeGroup>
+  ```shell Shell
+  Prices fetched: {
+    'BTC / USD': '29385.26',
+    'ETH / USD': '1848.97',
+    'LINK / USD': '7.51',
+    'BNB / USD': '240.95',
+    'LTC / USD': '83.65'
+  }
+  ```
+</CodeGroup>
+
+### Understanding the code
+
+The script starts by importing the `web3` library and creating an instance to an Ethereum node, then the bulk of the logic is as follows:
+
+1. **Specify the Chainlink price feeds**. Ethereum smart contracts represent Chainlink's decentralized price feeds. Each cryptocurrency price feed has a unique contract address. Our script stores these addresses in the `pairs` dictionary with the cryptocurrency pair name as the key. You can find additional price feed contract addresses on Chainlink’s [Price Feed Contract Addresses](https://docs.chain.link/data-feeds/price-feeds/addresses).
+
+2. **Specify the Chainlink price feed contract addresses**.
+
+   Chainlink's decentralized price feeds are represented through smart contracts. Each price feed for a specific cryptocurrency pair is associated with a unique contract address. In our script, these addresses are stored in a dictionary named `pairs`, where the key is the name of the cryptocurrency pair. Refer to Chainlink's [Price Feed Contract Addresses](https://docs.chain.link/data-feeds/price-feeds/addresses) page for additional price feed contract addresses.
+
+3. **The aggregatorV3Interface ABI**.
+
+   We add the `aggregatorV3Interface` ABI required to interact with the smart contract. The ABI outlines the functions in the smart contract so the library knows how to use them.
+
+4. **Interact with Chainlink price feeds**.
+
+   Chainlink price feeds are implemented using the AggregatorV3Interface, which provides several functions for data interaction. Among these functions, `latestRoundData` is the one we use to fetch the latest price information. For a complete reference to the functions and capabilities of the AggregatorV3Interface, you can consult Chainlink's [API Reference](https://docs.chain.link/data-feeds/api-reference) page.
+
+5. **Fetching the Prices**.
+
+   In our `fetchPrices` function, we iterate through the specified pairs, and for each pair:
+
+   * Create an instance of the Chainlink price feed contract using the web3.js library.
+   * Call the `latestRoundData` function to retrieve the most recent price data.
+   * Convert the obtained price to a readable format (divide by `1e8` and round to two decimal places) and store it in our `conversionRate` dictionary.
+   *
+
+6. **Continual data refresh**.
+
+   To ensure we continually have up-to-date price information, we call our `fetchPrices` function every minute using JavaScript's `setInterval` function.
+
+## Conclusion
+
+Following the above steps, you've successfully built a robust and lightweight script to fetch real-time cryptocurrency prices directly from the Ethereum blockchain, eliminating the need for third-party APIs or services. With this approach, you ensure data accuracy and gain unparalleled control over how you fetch and manage this data. Happy coding and trading!
+
+### About the author
+
+<CardGroup>
+  <Card title="Edin Drazevicanin" img="/images/docs/mudOE4f.jpeg">
+    <Icon icon="code"  iconType="solid"/> Technical Support Engineer @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> JUST BUIDL IT!
+
+		[<Icon icon="github"  iconType="brands"/>](https://github.com/0x6564)
+		[<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/edeenn22)
+		[<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/edindr/)
+	</Card>
+</CardGroup>

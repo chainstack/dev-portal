@@ -1,0 +1,553 @@
+---
+title: "Subgraphs: How to Query Uniswap V2 Subgraph"
+---
+
+<Frame>
+<iframe width="100%" height="420" src="https://www.youtube.com/embed/roeuXfdn6jw" title="Creating &amp; querying subgraphs" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+</Frame>
+
+**TLDR**
+
+* Demonstrates how to query real-time and historical liquidity, swaps, volumes, and token price data in Uniswap V2 using a Chainstack elastic subgraph.
+* Offers practical GraphQL queries for common DeFi use cases – e.g., filtering by token pair, setting USD thresholds, fetching daily/hourly volumes, and monitoring top liquidity providers.
+* Provides a Python-based approach to automate subgraph queries, store results, and integrate them into data pipelines or trading dashboards.
+
+## Main article
+
+In this tutorial, we will explore how to query Uniswap V2, an already-deployed elastic subgraph on Chainstack. Elastic subgraphs are a powerful solution for indexing blockchain data. You can access major DeFi protocols such as Uniswap, Curve, and PancakeSwap through elastic subgraphs. No heavy deployment or programming needed.
+
+<Check>
+  ### Query DeFi subgraphs on Chainstack
+
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required. You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Introduction
+
+Chainstack subgraphs simplify the extraction and processing of data from archive nodes, allowing for easy filtering and querying using GraphQL. Without subgraphs, Web3 developers and users would need to aggregate, process, and filter blockchain data themselves, which involves parsing vast amounts of raw transaction data.
+
+We will discuss an elastic subgraph for Uniswap V2. For more information on setting up dedicated custom subgraphs, please refer to our detailed tutorial [here](/docs/dedicated-subgraphs).
+
+## Uniswap V2 subgraph
+
+The Uniswap V2 subgraph is an already-deployed elastic subgraph that monitors and indexes data from Uniswap V2 smart contracts. You can explore the subgraph schema using the Explorer tool on the GraphiQL page of the subgraph, accessible via the GraphQL UI URL. Additionally, the GraphiQL page offers a convenient tool for testing different queries directly in the browser.
+
+<Tip>
+  ### Automated liquidity protocol
+  Uniswap V2 is [an automated liquidity protocol](https://docs.uniswap.org/contracts/v2/concepts/protocol-overview/how-uniswap-works) powered by a constant product formula and implemented in a system of non-upgradeable smart contracts on the Ethereum blockchain.
+
+  Each Uniswap smart contract, or pair, manages a liquidity pool made up of reserves of two ERC-20 tokens.
+
+  Anyone can become a liquidity provider (LP) for a pool by depositing an equivalent value of each underlying token in return for pool tokens. These tokens track pro-rata LP shares of the total reserves, and can be redeemed for the underlying assets at any time.
+</Tip>
+
+According to the schema, we can interact with the following entities, among others:
+
+* Liquidity positions;
+* Pairs;
+* Swaps;
+* Tokens;
+* Transactions.
+
+Additionally, there are several historical data entities that might be useful:
+
+* Liquidity positions snapshots;
+* Hourly and daily pair data;
+* Daily token data.
+
+Each entity contains different sets of parameters, fields and nested entities.
+
+## Querying subgraph
+
+There are multiple ways to query the subgraph. You can use GraphiQL, as mentioned earlier, or the command-line tool `curl`, along with many other HTTP packages or GraphQL clients implemented in various programming languages. For the examples below, we will use the `requests` package, a popular and user-friendly HTTP client library for Python.
+
+We will write a Python function to query the subgraph. GraphQL queries are stored as separate files. You can find all the scripts and queries in the [GitHub repository](https://github.com/chainstacklabs/uniswap-v2-subgraph-queries).
+
+<Info>
+  ### Lowercased addresses
+
+  Note that addresses used in the subgraph are lowercased. Using checksummed addresses or addresses with uppercase letters may result in empty or incorrect outputs.
+</Info>
+
+### Prerequisites
+
+<Steps>
+  <Step>
+    Log in to your [Chainstack account](https://console.chainstack.com/) and add an elastic Uniswap V2 subgraph in the Ethereum Mainnet.
+  </Step>
+
+  <Step>
+    Open your terminal (Command Prompt for Windows or Terminal for macOS/Linux) and run the following command to clone the GitHub repository to your current directory.
+
+   <CodeGroup>
+     ```bash Bash
+     git clone https://github.com/chainstacklabs/uniswap-v2-subgraph-queries .
+     ```
+   </CodeGroup>
+  </Step>
+
+  <Step>
+  Set up your Python virtual environment.
+
+   <CodeGroup>
+     ```bash macOS/Linux
+     python3 -m venv venv
+     source venv/bin/activate
+     ```
+
+     ```Text Windows
+     python -m venv venv
+     venv\Scripts\activate
+     ```
+   </CodeGroup>
+  </Step>
+
+  <Step>
+  With the virtual environment activated, run the following command to install the required dependencies.
+
+   <CodeGroup>
+     ```bash Bash
+     pip install -r requirements.txt
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+  Create the environment variable file (.env) and paste your Chainstack endpoint URL there.
+
+   <CodeGroup>
+     ```python Python
+     SUBGRAPH_URL=<uniswap_v2_subgraph_url>
+     ```
+   </CodeGroup>
+  </Step>
+</Steps>
+
+### Python main.py
+
+Let’s first create a main function that will run all the queries in a loop. We'll start by loading the configuration file (`.env`).
+
+<CodeGroup>
+  ```python Python
+  import os
+  import json
+  import time
+  import requests
+
+  from dotenv import load_dotenv
+
+  # Load environment variables
+  load_dotenv()
+
+  # Constants
+  GRAPHQL_ENDPOINT = os.getenv("SUBGRAPH_URL")
+  QUERIES_DIR = 'Queries'
+  OUTPUTS_DIR = 'Outputs'
+  ```
+</CodeGroup>
+
+In our project, we store queries as separate `.graphql` files in the `Queries` folder. We will read each query file, execute it, and store its result in the `Outputs` folder.
+
+<CodeGroup>
+  ```python Python
+  def main():
+      # Ensure the output directory exists
+      if not os.path.exists(OUTPUTS_DIR):
+          os.makedirs(OUTPUTS_DIR)
+
+      # List all GraphQL query files
+      query_files = [f for f in os.listdir(QUERIES_DIR) if f.endswith('.graphql')]
+      query_files.sort() # ascending order
+
+      # Process each query file
+      for query_file in query_files:
+          query_path = os.path.join(QUERIES_DIR, query_file)
+          output_path = os.path.join(OUTPUTS_DIR, query_file.replace('.graphql', '.json'))
+
+          try:
+              # Read query from a file
+              with open(query_path, 'r') as file:
+                  query = file.read()
+
+              # Execute query
+              start_time = time.time()
+              query_result = requests.post(GRAPHQL_ENDPOINT, json={'query': query}, timeout=40)
+              elapsed_time = time.time() - start_time
+
+              # Save query result
+              with open(output_path, 'w') as file:
+                  json.dump(query_result.json(), file, indent=4)
+
+              print(f"\nSaved results of {query_file} to {output_path}")
+              print(f'Elapsed time: {elapsed_time:.2f} seconds')
+
+          except Exception as e:
+              print(f"\nFailed to execute {query_file}: {e}")
+
+  if __name__ == "__main__":
+      main()
+  ```
+</CodeGroup>
+
+### Meta queries
+
+**Get subgraph details**. We can check the latest block synced to the subgraph by querying `_meta`. Additionally, there is the `deployment` field, which provides us with the unique identifier for the subgraph deployment. Append it to `https://ipfsgw.com/ipfs/` to check the subgraph manifest content. `hasIndexingErrors` indicates where there have been any indexing errors.
+
+<CodeGroup>
+  ```graphql GraphQL
+  {
+    _meta {
+      block {
+        hash
+        number
+        parentHash
+        timestamp
+      }
+      deployment
+      hasIndexingErrors
+    }
+  }
+  ```
+</CodeGroup>
+
+## Queries for traders
+
+### Swaps
+
+**Get latest swaps**. Here, we query the `swaps` entity with a few parameters: `first` to limit the response size, `orderBy` and `orderDirection` to sort swaps by time in descending order.
+
+<CodeGroup>
+  ```graphql GraphQL
+  {
+    swaps(first: 5, orderBy: timestamp, orderDirection: desc) {
+      id
+      transaction {
+        id
+        timestamp
+      }
+      pair {
+        token0 {
+          symbol
+        }
+        token1 {
+          symbol
+        }
+      }
+      amount0In
+      amount1In
+      amount0Out
+      amount1Out
+      amountUSD
+    }
+  }
+  ```
+</CodeGroup>
+
+**Get latest swaps for pair of tokens**. To obtain a pair address, you can call the `getPair` function of the [UniswapV2 Factory Contract](https://etherscan.io/address/0x5c69bee701ef814a2b6a3edd4b1652cb9cc5aa6f#readContract) (no gas is needed). You can also query the subgraph using specific conditions, such as traded pairs with USDC (this will be covered later in the tutorial). Use `where` to filter the results.
+
+<CodeGroup>
+  ```graphql GraphQL
+  {
+    swaps(
+      first: 5
+      orderBy: timestamp
+      orderDirection: desc
+      where: {
+        # WBTC/WETH pair
+        pair_: { id: "0xbb2b8038a1640196fbe3e38816f3e67cba72d940" }
+      }
+    ) {
+      id
+      transaction {
+        id
+        timestamp
+      }
+      pair {
+        token0 {
+          symbol
+        }
+        token1 {
+          symbol
+        }
+      }
+      amount0In
+      amount1In
+      amount0Out
+      amount1Out
+      amountUSD
+    }
+  }
+  ```
+</CodeGroup>
+
+**Get the latest swaps with threshold**. In this case, we need to use the `amountUSD` field. In the Explorer, we can see there is a special field for this called `amountUSD_gte`. This field compares values to see if they are greater than or equal to a specified input.
+
+<CodeGroup>
+  ```graphql GraphQL
+  {
+    swaps(
+      first: 5
+      orderBy: timestamp
+      orderDirection: desc
+      where: { amountUSD_gte: 100000 }
+    ) {
+      id
+      transaction {
+        id
+        timestamp
+      }
+      pair {
+        token0 {
+          symbol
+        }
+        token1 {
+          symbol
+        }
+      }
+      amount0In
+      amount1In
+      amount0Out
+      amount1Out
+      amountUSD
+    }
+  }
+  ```
+</CodeGroup>
+
+### Token prices
+
+**Get token price**. To do this, we need to query the `token` entity with the argument `id` (token address). Since prices are in ETH, we should also include `ethPrice` from the `bundles` entity.
+
+<CodeGroup>
+  ```graphql GraphQL
+  {
+    # WBTC token address
+    token(id: "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599") {
+      id
+      symbol
+      name
+      derivedETH
+    }
+
+    bundles {
+      ethPrice
+    }
+  }
+  ```
+</CodeGroup>
+
+**Get historical token prices**. Here, we can use `tokenDayDatas` , which stores historical data sets for all tokens. Prices are in USD.
+
+<CodeGroup>
+  ```graphql GraphQL
+  {
+    tokenDayDatas(
+      first: 30
+      orderBy: date
+      orderDirection: desc
+      # WBTC token address
+      where: { token_: { id: "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599" } }
+    ) {
+      date
+      token {
+        symbol
+      }
+      priceUSD
+    }
+  }
+  ```
+</CodeGroup>
+
+### Trading volume
+
+**Get hourly trading volume of pair**. There is both daily and hourly data available. For our example, we will check the hourly data for the USDC/WETH pair (`id`) since July 1, 2024 (`hourStartUnix_gte`).
+
+<CodeGroup>
+  ```graphql GraphQL
+  {
+    pairHourDatas(
+      # WBTC/WETH pair
+      where: {
+        pair_: { id: "0xbb2b8038a1640196fbe3e38816f3e67cba72d940" }
+        hourStartUnix_gte: 1719788422
+      }
+      orderBy: hourStartUnix
+      orderDirection: desc
+    ) {
+      hourStartUnix
+      hourlyVolumeToken0
+      hourlyVolumeToken1
+      hourlyVolumeUSD
+      hourlyTxns
+    }
+  }
+  ```
+</CodeGroup>
+
+**Get daily trading volume of a pair**. The same approach for querying daily data. Here, we retreive data for the last 7 days.
+
+<CodeGroup>
+  ```graphql GraphQL
+  {
+    pairDayDatas(
+      # WBTC/WETH pair
+      where: { pairAddress: "0xbb2b8038a1640196fbe3e38816f3e67cba72d940" }
+      orderBy: date
+      orderDirection: desc
+      first: 7
+    ) {
+      date
+      dailyVolumeUSD
+      dailyTxns
+      dailyVolumeToken0
+      dailyVolumeToken1
+    }
+  }
+  ```
+</CodeGroup>
+
+## Queries for liquidity providers
+
+### Pairs
+
+**Get largest pairs**. The largest pairs have the largest reserves converted to USD. Sort by `reserveUSD` in descending order.
+
+<CodeGroup>
+  ```graphql GraphQL
+  {
+    pairs(orderBy: reserveUSD, orderDirection: desc, first: 10) {
+      id
+      createdAtTimestamp
+      createdAtBlockNumber
+      token0 {
+        symbol
+        id
+      }
+      token1 {
+        symbol
+        id
+      }
+      reserveUSD
+      reserveETH
+    }
+  }
+  ```
+</CodeGroup>
+
+**Get recently created pools**. The most recent pools have the highest block number. Sort by `createdAtBlockNumber` in descending order.
+
+<CodeGroup>
+  ```graphql GraphQL
+  {
+    pairs(orderBy: createdAtBlockNumber, orderDirection: desc, first: 10) {
+      id
+      createdAtTimestamp
+      createdAtBlockNumber
+      token0 {
+        symbol
+        id
+      }
+      token1 {
+        symbol
+        id
+      }
+      reserveUSD
+      reserveETH
+    }
+  }
+  ```
+</CodeGroup>
+
+### Liquidity positions and DEX metrics
+
+**Get largest liquidity positions in pair**. We can filter by the `id` of the pair to get data for a specific pair. To find the largest positions, sort by `liquidityTokenBalance` in descending order.
+
+<CodeGroup>
+  ```graphql GraphQL
+  {
+    liquidityPositions(
+      orderBy: liquidityTokenBalance
+      orderDirection: desc
+      first: 10
+      # WBTC/WETH pair address
+      where: { pair_: { id: "0xbb2b8038a1640196fbe3e38816f3e67cba72d940" } }
+    ) {
+      liquidityTokenBalance
+      id
+      pair {
+        token0 {
+          symbol
+        }
+        token1 {
+          symbol
+        }
+        id
+      }
+      user {
+        id
+      }
+    }
+  }
+  ```
+</CodeGroup>
+
+**Get historical data on liquidity positions in pair**. Snapshots store historical data for liquidity positions. Sort by `block` in descending order, filtering for a specific pair.
+
+<CodeGroup>
+  ```graphql GraphQL
+  {
+    liquidityPositionSnapshots(
+      orderBy: timestamp
+      orderDirection: desc
+      where: {
+        # WBTC/WETH pair address
+        pair_: { id: "0xbb2b8038a1640196fbe3e38816f3e67cba72d940" }
+        liquidityTokenBalance_gt: "0"
+      }
+    ) {
+      block
+      liquidityTokenBalance
+      timestamp
+      id
+      user {
+        id
+      }
+      liquidityTokenTotalSupply
+    }
+  }
+  ```
+</CodeGroup>
+
+**Get Uniswap performance**. Uniswap data is accumulated and condensed into daily statistics in the `uniswapDayDatas` entity.
+
+<CodeGroup>
+  ```graphql GraphQL
+  {
+    uniswapDayDatas(first: 10, orderBy: date, orderDirection: desc) {
+      date
+      dailyVolumeETH
+      dailyVolumeUSD
+      totalLiquidityETH
+      totalLiquidityUSD
+    }
+  }
+  ```
+</CodeGroup>
+
+## Conclusion
+
+In this tutorial, we explored various entities such as swaps, tokens, and liquidity positions, and how to query them using GraphQL and Python. Additionally, we provided examples of querying historical data and filtering results based on specific conditions. By following this tutorial, you can effectively interact with and analyze data from Uniswap V2 using Chainstack subgraphs.
+
+### About author
+
+<CardGroup>
+  <Card title="Anton Sauchyk" img="/images/docs/profile_images/1817926677730664448/3nNn0T2p_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="laptop"  iconType="solid"/>Multiple years of software development and Web3 expertise. Creator of the open-source Compare Dashboard for RPC provider performance benchmarking. Core contributor to the DevEx team’s pump.fun trading bot. Author of technical tutorials on EVM blockchains, Solana, TON and Elastic Subgraphs.
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/smypmsa)
+    [<Icon icon="twitter"  iconType="brands"/>](https://x.com/sensuniama)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/anton-sauchyk/)
+  </Card>
+</CardGroup>
+

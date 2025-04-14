@@ -1,0 +1,371 @@
+---
+title: "Web3.js: How to Use the Chainstack Plugin"
+---
+
+**TLDR**
+
+* Seamlessly integrate Chainstack-managed nodes with web3.js using the @chainsafe/web3-plugin-chainstack plugin.
+* Securely authenticate with Chainstack’s API to fetch node details and dynamically build endpoints.
+* Combine web3.js for on-chain interactions with Chainstack’s platform API for node management.
+* Enjoy fewer credentials to manage, simpler environment setups, and robust, high-performance blockchain infrastructure.
+
+## Main article
+
+**Web3.js** is a popular JavaScript library that provides an easy-to-use interface for interacting with Ethereum and other EVM-compatible blockchains. It allows developers to send transactions, interact with smart contracts, and retrieve blockchain data.
+
+On the other hand, **Chainstack** is a powerful platform that provides managed blockchain services, offering reliable and scalable infrastructure for various blockchain networks. By integrating Chainstack with web3.js, developers can leverage the benefits of secure, high-performance nodes with minimal setup and maintenance.
+
+[Chainsafe](https://github.com/ChainSafe), the maintainer of web3.js, recently released a [plugin for Chainstack](https://github.com/ChainSafe/web3-plugin-chainstack). This plugin allows users to easily and securely access their Chainstack nodes and interact with the platform API.
+
+This tutorial will guide you through integrating Chainstack's managed blockchain nodes with web3.js using the Chainstack plugin.
+
+## Prerequisites
+
+Before diving into this tutorial, it is essential to have a basic understanding of the following concepts:
+
+1. **JavaScript**: This tutorial will involve writing and understanding JavaScript code, so familiarity with JavaScript syntax and fundamental programming concepts is necessary.
+2. **Blockchain technology**: A general understanding of blockchain, including concepts such as nodes, transactions, and smart contracts.
+3. **web3.js**: Basic knowledge of web3.js and its purpose in interacting with Ethereum and other EVM-compatible blockchains. If you are new to web3.js, you can find many examples in the [Chainstack API reference](/api-reference/ethereum_node_api/blocks_info/eth_blockNumber).
+
+**Tools and libraries**
+
+To follow along with this tutorial, ensure you have the following tools and libraries installed on your system:
+
+1. **Node.js**: Node.js is a JavaScript runtime that allows you to run JavaScript code on the server side. You can download and install Node.js from the [official website](https://nodejs.org/).
+
+2. **npm (Node Package Manager)**: npm is included with Node.js and is used to manage packages and dependencies for your Node.js projects. You can verify the installation by running the following commands in your terminal:
+
+   <CodeGroup>
+     ```bash Shell
+     node -v
+     npm -v
+     ```
+   </CodeGroup>
+
+3. **web3.js** and the **Chainstack plugin**: This JavaScript library provides an interface for interacting with the Ethereum blockchain. You can install it using npm, create a new project, and run:
+
+   ```
+   npm i web3 @chainsafe/web3-plugin-chainstack
+   ```
+
+Then, Create a new file named `index.js`.
+
+We'll also need a Chainstack node and API key.
+
+<Info>
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required. You can sign up with your GitHub, X, Google, or Microsoft account.
+</Info>
+
+<CardGroup>
+  <Card title="Create an API key" href="/docs/guide-get-the-most-out-of-the-chainstack-platform-api#create-and-safeguard-your-api-keys" icon="angle-right" horizontal />
+</CardGroup>
+
+Once you have met these prerequisites, you will be ready to set up your development environment and start integrating Chainstack with web3.js.
+
+<Info>
+  Check out our guide on how to set up a Web3 Node.js project: [Web3 node.js: From zero to a full-fledged project](/docs/web3-nodejs-from-zero-to-a-full-fledged-project).
+</Info>
+
+## Connect to a Chainstack node
+
+At this point, we can start coding; the project will be very basic but will show you how to use your Chainstack node and platform API.
+
+### Import web3 and authentication
+
+The first step, like in many web3 libraries, is to import the packages and create a provider instance; in this case, we'll use the **Password-protected access and credentials** from where you deploy your Chainstack node; in this example, I'm using a Base mainnet [Global Node](/docs/global-elastic-node).
+
+This is how you do it, and it's straightforward:
+
+<CodeGroup>
+  ```javascript Javascript
+  import { Web3 } from "web3";
+  import { ChainstackPlugin } from "@chainsafe/web3-plugin-chainstack";
+
+  const web3 = new Web3();
+
+  // RPC auth plus API key
+  const userAuth = {
+    username: "USERNAME",
+    password: "PASSWORD",
+    apiKey: "API_KEY",
+  };
+
+  // Use the base URL here; in this case, it's for Base manner.
+  const chainstackPlugin = new ChainstackPlugin(
+    "https://base-mainnet.core.chainstack.com",
+    userAuth
+  );
+
+  web3.registerPlugin(chainstackPlugin);
+  ```
+</CodeGroup>
+
+The provider instance is set at this point, and we can use the `web3.js` library as we normally do. Here is an example of fetching the `chain_id`:
+
+<CodeGroup>
+  ```javascript Javascript
+  async function main() {
+    const result = await web3.eth.getChainId();
+    console.log(result);
+  }
+
+  main();
+  ```
+</CodeGroup>
+
+Giving this result:
+
+```
+Chain ID fetched: 8453
+```
+
+Find more examples of how to use `web3.js` in the [Chainstack API docs](/api-reference/ethereum_node_api/blocks_info/eth_blockNumber).
+
+<Info>
+  Note that you might receive the following warning in the console:
+
+  `NOTE: web3.js is running without provider. You need to pass a provider in order to interact with the network!`
+
+  But you can ignore it.
+</Info>
+
+## Interact with the Chainstack platform API
+
+Chainstack offers a unique feature, the [platform API](/api-reference/platform-api-getting-started); this means you can use a Chainstack API key to interact with your projects and nodes, fetch data about them, and even deploy nodes. The web3.js plugin integrates some of the platform API endpoints to get data.
+
+Where we create the `web3` instance, we include a Chainstack API key; this key is used to interact with the platform API, so you can use the regular `web3` instance:
+
+```
+const userAuth = {
+  username: "USERNAME",
+  password: "PASSWORD",
+  apiKey: "API_KEY",
+};
+```
+
+Let's explore some of them and how to use them.
+
+### Fetch your Chainstack organization
+
+```
+async function main() {
+  // Fetch the Chainstack organization based on the API key.
+  const org = await web3.chainstack.getOrganization();
+  console.log(org);
+}
+
+main();
+```
+
+The result will be like this:
+
+```
+{ id: 'RG-XXX-XXX', name: 'david' }
+```
+
+### Fetch your projects
+
+You can get details about the projects you created in the Chainstack console:
+
+```
+async function main() {
+  const projects = await web3.chainstack.getProjects();
+  console.log(projects.results);
+}
+
+main();
+```
+
+With a similar result:
+
+```
+[
+  {
+    id: 'PR-XXX-XXX',
+    name: 'gm',
+    description: '',
+    type: 'public',
+    networks: 1,
+    creator: {
+      id: 'UR-XXX-XXX-XXX',
+      email: 'user@email.com',
+      first_name: '',
+      last_name: '',
+      organization: [Object]
+    },
+    created_at: '2024-01-25T13:20:25.431049Z'
+  }
+]
+```
+
+### Get networks info
+
+Now, this endpoint can be used in your projects to dynamically fetch the endpoints you need. This endpoint returns information on all the networks you deployed. For example, if you re-deploy a node in the network or add a new one, you can fetch the endpoints from the API instead of manually finding them in the console.
+
+<CodeGroup>
+  ```javascript Javascript
+  async function main() {
+    const networks = await web3.chainstack.getNetworks();
+    console.log(networks.results);
+  }
+
+  main();
+  ```
+</CodeGroup>
+
+This will return:
+
+```
+[
+  {
+    id: 'NW-XXX-XXX-X',
+    name: 'Base Mainnet',
+    project: 'PR-XXX-XXX',
+    protocol: 'base',
+    status: 'ok',
+    configuration: { network: 'base-mainnet' },
+    details: {},
+    nodes: [ [Object] ],
+    created_at: '2024-05-20T21:25:49.743468Z',
+    creator: {
+      id: 'UR-173-258-070',
+      email: 'user@email.com',
+      first_name: '',
+      last_name: '',
+      organization: [Object]
+    }
+  }
+]
+```
+
+As you can see, it includes a `nodes` object, and that is where you'll find all the data on your nodes. You can extract the node's data like this:
+
+<CodeGroup>
+  ```javascript Javascript
+  async function main() {
+    const networks = await web3.chainstack.getNetworks();
+    const networkResults = networks.results;
+
+    networkResults.forEach((network) => {
+      console.log(`Network: ${network.name}`);
+      console.log(`Nodes:`);
+
+      network.nodes.forEach((node) => {
+        // console.log(node) // Enable this log to see all the fields.
+        console.log(`Node ID: ${node.id}`);
+        console.log(`Node name: ${node.name}`);
+        console.log(`Node Status: ${node.status}`);
+        console.log(`Node base endpoint: ${node.details.https_endpoint}`);
+        console.log(`Node base key: ${node.details.auth_key}`);
+        console.log(
+          `Full endpoint: ${node.details.https_endpoint}/${node.details.auth_key}`
+        );
+        console.log(`--------`);
+      });
+    });
+  }
+
+  main();
+  ```
+</CodeGroup>
+
+This will return all your node information:
+
+```
+Network: Base Mainnet
+Nodes:
+Node ID: ND-XXX-XXX-XXX
+Node name: Base Chainstack Global
+Node Status: running
+Node base endpoint: https://base-mainnet.core.chainstack.com
+Node base key: AUTH_KEY
+Full endpoint: https://base-mainnet.core.chainstack.com/AUTH_KEY
+```
+
+Now, you can use this info to fetch endpoints every time dynamically. Here is an example implementation:
+
+<Info>
+  This example reconstructs the full endpoint to use in a `web3` instance, but you can also fetch the `username` and `password` to use in `userAuth` for the Chainstack plugin directly like in the first example.
+</Info>
+
+<CodeGroup>
+  ```javascript Javascript
+  import { Web3 } from "web3";
+  import { ChainstackPlugin } from "@chainsafe/web3-plugin-chainstack";
+
+  // Auth
+  const userAuth = {
+    apiKey: "API_KEY",
+  };
+
+  // Create a plugin instance
+  const chainstackPlugin = new ChainstackPlugin(userAuth);
+  web3.registerPlugin(chainstackPlugin);
+
+  async function main() {
+    // Fetch the networks
+    const networks = await web3.chainstack.getNetworks();
+    const networkResults = networks.results;
+
+    let fullEndpoint = "";
+
+    // Find and construct the full endpoint from the first available node
+    for (const network of networkResults) {
+      if (network.nodes && network.nodes.length > 0) {
+        const node = network.nodes[0];
+        const httpsEndpoint = node.details.https_endpoint;
+        const authKey = node.details.auth_key;
+        fullEndpoint = `${httpsEndpoint}/${authKey}`;
+
+        console.log(`Network: ${network.name}`);
+        console.log(`Node ID: ${node.id}`);
+        console.log(`Full endpoint: ${fullEndpoint}`);
+        console.log("--------");
+
+        break; // Exit the loop after finding the first valid node
+      }
+    }
+
+    if (fullEndpoint) {
+      // Create a new web3 instance using the full endpoint
+      const web3 = new Web3(fullEndpoint);
+
+      try {
+        // Perform an operation using the new web3 instance
+        const chainId = await web3.eth.getChainId();
+        console.log(`Chain ID: ${chainId}`);
+      } catch (error) {
+        console.error("Error performing web3 operation:", error);
+      }
+    } else {
+      console.error("No valid nodes found to construct the endpoint.");
+    }
+  }
+
+  main().catch(console.error);
+  ```
+</CodeGroup>
+
+This now ensures your endpoint is always correct, and you have fewer chances to expose it. This is the result:
+
+<CodeGroup>
+  ```shell Shell
+  Network: Base Mainnet
+  Node ID: ND-XXX-XXX-XXX
+  Full endpoint: https://base-mainnet.core.chainstack.com/AUTH_KEY
+  --------
+  Chain ID: 8453
+  ```
+</CodeGroup>
+
+### More endpoints
+
+The web3.js plugin implements more endpoints; the full list is on the [GitHub repository](https://github.com/ChainSafe/web3-plugin-chainstack?tab=readme-ov-file#features). The Chainstack [Recipes](/recipes) provide more examples of using the Platform API.
+
+<Info>
+  Create a `.env` files with all your endpoints: [Create a .env file with all your Chainstack endpoints with JavaScript](/recipes/create-a-env-file-with-all-your-chainstack-endpoints-with-javascript).
+</Info>
+
+## Conclusion
+
+Integrating Chainstack's managed blockchain nodes with web3.js using the Chainstack plugin allows you to leverage secure, high-performance infrastructure with minimal setup and maintenance. Following this tutorial, you have learned how to set up your development environment, authenticate with Chainstack, and use the platform API to interact with your nodes dynamically. This integration ensures you can efficiently manage and use your blockchain resources, making your development process smoother and more robust.
