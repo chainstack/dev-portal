@@ -1,0 +1,381 @@
+---
+title: "Make Your DApp More Reliable with Chainstack"
+---
+
+**TLDR**
+
+* Explains how Chainstack’s global node feature can boost your DApp’s reliability by balancing traffic automatically based on user location.
+* Demonstrates a JavaScript load balancer script using multiple Chainstack endpoints, distributing requests across different regions to avoid single-point failures.
+* Shows examples with both web3.js and ethers.js, detailing how to fail over to the next endpoint if one fails.
+* Concludes that both global nodes and custom load-balancing approaches help ensure your blockchain app can handle high traffic and unexpected downtimes.
+
+## Main article
+
+Every developer wants the most reliable DApp. In this guide, we'll explore how to use multiple Chainstack nodes using load balancer logic to make your DApp more performant and reliable. Think of it as a well-coordinated team where the workload is evenly distributed, ensuring efficiency and eliminating any single point of failure. Whether you're a seasoned developer or a newcomer to the blockchain scene, this step-by-step guide will provide practical knowledge to enhance your applications. So, let's get started and dive into the world of efficient blockchain application management.
+
+This guide will show you how using a Chainstack global node can make your DApp more reliable and also how to use multiple Chainstack RPC nodes to create a load balancer in JavaScript.
+
+## What is a load balancer
+
+In simplest terms, a load balancer is a technology that distributes network or application traffic across multiple servers or nodes, in our case. Imagine you're at a busy intersection; a load balancer is the one directing traffic, ensuring that no single server gets overwhelmed with too many requests. This way, it helps to optimize resource use, maximize throughput, minimize response time, and avoid system overload. In blockchain applications, a load balancer can help distribute incoming requests evenly across multiple nodes, ensuring your application runs smoothly and efficiently. So, it's a pretty handy tool in your blockchain toolkit.
+
+## Global Nodes
+
+Chainstack provides [Global Nodes](/docs/global-elastic-node), but how can they help you make your DApp more reliable, and how do they differ from [Trader Nodes](/docs/trader-node)?
+
+[Trader Nodes](/docs/trader-node) represent traditional endpoints where users can select from various available locations. While this provides considerable flexibility, it also comes with certain limitations. For instance, there is less redundancy if the node encounters issues, and users may experience varying performance levels. This variation can occur if, for example, an application sends requests to the node from the client, which the user's location can influence.
+
+On the other hand, global nodes function as load-balanced nodes that direct requests to the nearest available location for a specific protocol based on the caller's location. This design ensures efficient service access for users worldwide by routing requests optimally.
+
+The main advantages of global nodes are the following:
+
+* **Enhanced load balancing**—global nodes include a large load balancer that can switch nodes if one fails or lags by more than 40 blocks, thus ensuring uninterrupted service.
+* **Reduced latency**—by distributing traffic to the nearest endpoint, the global node reduces latency, leading to faster transactions and improved user experience.
+* **Global reach**—Anyone from any location can access global nodes. These nodes direct users to the endpoints nearest to their location, maximizing service availability and responsiveness.
+* **High availability**—Global nodes are designed to be 99.95% available. This ensures that your DApp continues to run with minimal interruptions.
+* **Instant deployment** — unlike trader nodes, which take 3-6 minutes to deploy, the global node is ready in seconds. This leads to significant time savings.
+
+<Info>
+  Check modes and protocols available for [globa nodes](/docs/global-elastic-node).
+</Info>
+
+Opting for a global node is generally the preferred choice. However, what if you require a protocol or mode that isn't currently supported? For such cases, we can BUIDL a simple load-balancing script using JavaScript.
+
+## JavaScript load balancer project
+
+This project will be a simple implementation using node.js, with examples using `web3.js` and `ethers.js`. Therefore, it's essential to ensure a well-configured development environment before proceeding. Go over our node.js setup guide for Web3 projects, [Web3 node.js: From zero to a full-fledged project](/docs/web3-nodejs-from-zero-to-a-full-fledged-project), if you are starting from zero.
+
+### Prerequisites
+
+For this project, make sure you have the following:
+
+* node.js V18
+* web3.js
+* ethers.js
+
+<Info>
+  Install the web3.js library with `npm i web3`.
+
+  Install the ethers.js library with `npm i ethers`.
+</Info>
+
+### The logic of the project
+
+In this simple project, we are trying to create a basic load balancer; in this case, we'll use multiple Chainstack trader nodes and alternate them between requests to spread the load between them.
+
+It's important to remember that this is only proof of concept and will require further optimization for deployment in a production environment.
+
+Let's deploy three Ethereum trader nodes in three locations to set things up.
+
+<Info>
+  Learn how to [deploy a node with Chainstack](/docs/manage-your-node).
+</Info>
+
+This configuration guarantees global coverage, and the use of various hosting providers adds an extra layer of redundancy. This is the power of the geo-distributed infrastructure provided by Chainstack.
+
+<Info>
+  Remeber that the deployments of multiple nodes is available starting from a [paid plan](https://chainstack.com/pricing/).
+</Info>
+
+### Coding the load balancer
+
+Now that you have access to three RPC nodes, it's time to store them in a `.env` file located in your project's root directory. If you haven't already, install the `dotenv` package using the command `npm i dotenv`.
+
+This approach helps us manage sensitive information, preventing accidental pushes to a version control platform.
+
+<CodeGroup>
+  ```Text .env
+  VIRGINIA_RPC="YOUR_VIRGNIA_CHAINSTACK_ENDPOINT"
+  LONDON_RPC="YOUR_LONDON_CHAINSTACK_ENDPOINT"
+  SINGAPORE_RPC="YOUR_SINGAPORE_CHAINSTACK_ENDPOINT"
+  ```
+</CodeGroup>
+
+After configuring the endpoints, create a new `index.js` file and insert the following code.
+
+For illustrative purposes, we're employing a fairly straightforward use case. The script executes the `eth_getBlockByNumber` method every 10 seconds to fetch details of the latest block. Notably, each request is served by a different endpoint.
+
+### Web3.js example
+
+<CodeGroup>
+  ```javascript web3.js
+  const {Web3} = require("web3");
+  require("dotenv").config();
+
+  // Initialize RPCs from environment variables
+  const RPC_NODES = {
+    web3Virginia: process.env.VIRGINIA_RPC,
+    web3London: process.env.LONDON_RPC,
+    web3Singapore: process.env.SINGAPORE_RPC,
+  };
+
+  // Create Web3 instances for each RPC
+  const web3Instances = {};
+  for (const [key, url] of Object.entries(RPC_NODES)) {
+    web3Instances[key] = new Web3(url);
+  }
+
+  // Array of keys to cycle through
+  const keys = Object.keys(web3Instances);
+
+  // Counter to keep track of the current Web3 instance
+  let counter = 0;
+
+  async function getBlock(blockNumber) {
+    // Select the current Web3 instance
+    const key = keys[counter];
+    const web3 = web3Instances[key];
+
+    console.log(`Using ${key} RPC`);
+
+    // Start the timer
+    console.time("getBlock");
+
+    try {
+      // Try to get the latest block
+      const block = await web3.eth.getBlock(blockNumber, false);
+
+      // Extract some fields to keep the response cleaner
+      const blockSummary = {
+        blockNumber: block.number,
+        blockHash: block.hash,
+        parentHash: block.parentHash,
+        size: block.size,
+      };
+
+      console.log(blockSummary);
+    } catch (error) {
+      // Log the error
+      console.error(`Error fetching block: ${error.message}`);
+
+      // Increment the counter and reset it if it's larger than the array length
+      counter = (counter + 1) % keys.length;
+
+      // Retry the request on the next Web3 instance
+      console.log("Retrying request on next RPC...");
+      return getBlock(blockNumber);
+    }
+
+    // End the timer and log the time
+    console.timeEnd("getBlock");
+
+    // Increment the counter and reset it if it's larger than the array length
+    counter = (counter + 1) % keys.length;
+  }
+
+  // Call getBlock every 10 seconds
+  console.log("Running load balanced script...");
+  setInterval(() => getBlock("latest"), 10000);
+  ```
+</CodeGroup>
+
+### Ethers.js example
+
+<CodeGroup>
+  ```javascript ethers.js
+  const ethers = require('ethers');
+  require('dotenv').config();
+
+  // Initialize RPC nodes from environment variables
+  const RPC_NODES = {
+    ethersVirginia: process.env.VIRGINIA_RPC,
+    ethersLondon: process.env.LONDON_RPC,
+    ethersSingapore: process.env.SINGAPORE_RPC,
+  };
+
+  // Create ethers providers for each RPC URL
+  const providers = {};
+  for (const [key, url] of Object.entries(RPC_NODES)) {
+    providers[key] = new ethers.JsonRpcProvider(url);
+  }
+
+  // Keys to cycle through providers
+  const keys = Object.keys(providers);
+  let counter = 0; // Counter to keep track of the current provider
+
+  // Function to get the latest block using the current provider
+  const getBlock = async () => {
+    const key = keys[counter];
+    const provider = providers[key];
+    console.log(`Using ${key} RPC`);
+
+    console.time("getBlock"); // Start timing the operation
+    try {
+      // Fetch the latest block information
+      const blockByNumber = await provider.send("eth_getBlockByNumber", ["latest", false]);
+          // Extract some fields to keep the response cleaner
+          const blockSummary = {
+            blockNumber: blockByNumber.number,
+            blockHash: blockByNumber.hash,
+            parentHash: blockByNumber.parentHash,
+            size: blockByNumber.size,
+          };
+      console.log(blockSummary);
+    } catch (error) {
+      // If there's an error, log it and move to the next provider
+      console.error(`Error fetching block: ${error.message}`);
+      counter = (counter + 1) % keys.length; // Increment and wrap the counter if necessary
+      console.log("Retrying request on next RPC...");
+      return getBlock(); // Retry with the next provider
+    }
+    console.timeEnd("getBlock"); // End timing the operation
+
+    counter = (counter + 1) % keys.length; // Move to the next provider for the next call
+  };
+
+  // Start the process and call getBlock every 10 seconds
+  console.log("Running load-balanced script with ethers.js...");
+  setInterval(getBlock, 2000);
+  ```
+</CodeGroup>
+
+### Code breakdown
+
+Let's go over what we are doing in the code step by step.
+
+#### Initialize the Web3 instances
+
+<CodeGroup>
+  ```javascript Javascript
+  // Initialize RPCs from environment variables
+  const RPC_NODES = {
+    web3Virginia: process.env.VIRGINIA_RPC,
+    web3London: process.env.LONDON_RPC,
+    web3Singapore: process.env.SINGAPORE_RPC,
+  };
+
+  // Create Web3 instances for each RPC
+  const web3Instances = {};
+  for (const [key, url] of Object.entries(RPC_NODES)) {
+    web3Instances[key] = new Web3(url);
+  }
+
+  // Array of keys to cycle through
+  const keys = Object.keys(web3Instances);
+
+  // Counter to keep track of the current Web3 instance
+  let counter = 0;
+  ```
+</CodeGroup>
+
+* **Initialize RPC URLs from environment variables**. The script sets up an object named `RPC_NODES` that maps the variables of the Web3 instances to their respective RPC URLs, which are fetched from environment variables. This is mostly done so we can print in the console which variable we are using each time we send a request.
+* **Create Web3 instances for each RPC**. The script creates a new Web3 instance for each RPC URL and stores them in the `web3Instances` object. This object's keys are the instances' names, and the values are the instances themselves. This way, the instances are all created at once when the script is started; this logic also keeps the code more maintainable as you only need to edit the `RPC_NODES` object if you want to add or remove endpoints.
+* **Set up an array of keys and a counter**. The keys array contains the keys of the `web3Instances` object and the counter variable keep track of the current Web3 instance.
+
+#### Call the function to get the latest block details
+
+<CodeGroup>
+  ```javascript Javascript
+  async function getBlock(blockNumber) {
+    // Select the current Web3 instance
+    const key = keys[counter];
+    const web3 = web3Instances[key];
+
+    console.log(`Using ${key} RPC`);
+
+    // Start the timer
+    console.time("getBlock");
+
+    try {
+      // Try to get the latest block
+      const block = await web3.eth.getBlock(blockNumber, false);
+
+      // Extract some fields to keep the response cleaner
+      const blockSummary = {
+        blockNumber: block.number,
+        blockHash: block.hash,
+        parentHash: block.parentHash,
+        size: block.size,
+      };
+
+      console.log(blockSummary);
+    } catch (error) {
+      // Log the error
+      console.error(`Error fetching block: ${error.message}`);
+
+      // Increment the counter and reset it if it's larger than the array length
+      counter = (counter + 1) % keys.length;
+
+      // Retry the request on the next Web3 instance
+      console.log("Retrying request on next RPC...");
+      return getBlock(blockNumber);
+    }
+
+    // End the timer and log the time
+    console.timeEnd("getBlock");
+
+    // Increment the counter and reset it if it's larger than the array length
+    counter = (counter + 1) % keys.length;
+  }
+  ```
+</CodeGroup>
+
+This asynchronous function fetches the latest block from the Ethereum blockchain using one of the Web3 instances. It selects the Web3 instance based on the counter, starts a timer, fetches the block, logs some information about the block, stops the timer and logs the elapsed time, and finally increments the counter (or resets it if it's larger than the number of Web3 instances).
+
+This function also incorporates an error handling mechanism. Specifically, if an endpoint becomes unavailable, the script will not halt. Instead, it will promptly switch to the next RPC to continue making requests, increasing reliability.
+
+The following part then calls the function every 10 seconds:
+
+<CodeGroup>
+  ```javascript Javascript
+  // Call getBlock every 10 seconds
+  console.log("Running load balanced script...");
+  setInterval(() => getBlock("latest"), 10000);
+  ```
+</CodeGroup>
+
+### Run the code
+
+Now to run the code, use the `node index.js` command in your terminal; the script will start and call the function every 10 seconds.
+
+Here is an example of what the response looks like:
+
+```
+Running load balanced script...
+Using web3Virginia RPC
+{
+  blockNumber: 17629512,
+  blockHash: '0xcf1535e6f7b84ba51e8ebb9bbf09be7f5caf99f6fc3ac063a5563be02d93f32f',
+  parentHash: '0x7f812fd3d738b91c053a058d8bbc73fba839143f924f63371285545b35b7b460',
+  size: 60657
+}
+getBlock: 573.178ms
+Using web3London RPC
+{
+  blockNumber: 17629513,
+  blockHash: '0x1243ec3a24465f01758cdf0bb40f02a64964832a47972fcb26fef488293392a7',
+  parentHash: '0xcf1535e6f7b84ba51e8ebb9bbf09be7f5caf99f6fc3ac063a5563be02d93f32f',
+  size: 24745
+}
+getBlock: 650.523ms
+Using web3Singapore RPC
+{
+  blockNumber: 17629514,
+  blockHash: '0x3a44d78b3c02e209ad671d6fa113b8e6ff4bfeafe8ee416573f4af668ac1fbed',
+  parentHash: '0x1243ec3a24465f01758cdf0bb40f02a64964832a47972fcb26fef488293392a7',
+  size: 50705
+}
+getBlock: 1.768s
+```
+
+Note how each request uses a different endpoint, and the execution times accurately reflect their respective locations. The Virginia endpoint, the closest to my location, provides a quicker response, while Singapore, the furthest, takes a bit longer.
+
+## Conclusion
+
+In this guide, we explored the robustness that Chainstack's global nodes can bring to your DApp. Additionally, we went into the creation of a load-balanced script using web3.js. This script not only distributes the load across various endpoints in different regions but also ensures redundancy, thereby enhancing the reliability and performance of your application.
+
+### About the author
+
+<CardGroup>
+  <Card title="Davide Zambiasi" img="/images/docs/profile_images/1533079085001363457/1VvXp1m0_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on EVM, The Graph protocol, and Starknet
+
+    <Icon icon="laptop"  iconType="solid"/> Helping people understand Web3 and blockchain development
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/soos3d)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/web3Dav3)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/davide-zambiasi/)
+  </Card>
+</CardGroup>

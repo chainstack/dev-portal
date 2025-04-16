@@ -1,0 +1,568 @@
+---
+title: "Web3 node.js: From Zero to a Full-Fledged Project"
+
+---
+
+* Discusses how to set up a Node.js environment (via nvm) for smooth version management and package handling (via npm).
+* Covers Web3.js usage, project structure tips, and key security practices like environment variable storage and address checksums.
+* Emphasizes robust error handling, test coverage (Mocha, Chai, Truffle), and CI/CD integration for safer, production-grade DApps.
+* Concludes with suggestions on gas optimization, deployment practices, and monitoring/logging strategies to maintain a reliable Web3 project.
+
+## Main article
+
+This is an in-depth guide outlining the best practices for establishing a Web3 [node.js](https://nodejs.org/en) project. Our focus will primarily be on the Ethereum blockchain; however, the core principles discussed are applicable to other blockchains and non-Web3 projects as well.
+
+## Setting up a node.js project
+
+Using the ideal Node version based on your project and its dependencies, it’s a key step to consider. Using a tool like [Node Version Manager](https://github.com/nvm-sh/nvm) (nvm), managing node.js versions becomes easy, reducing the potential for version-related issues and enhancing the overall development experience.
+
+### Managing your environment
+
+nvm is a robust tool that serves as a comprehensive solution for managing multiple active node.js versions. This open-source tool allows developers to install, update, switch between, and manage different versions of node.js in their development environment. It facilitates maintaining control over your node.js environment, which is essential to ensure compatibility across diverse systems and to prevent conflicts between projects with differing node.js version requirements.
+
+nvm provides several key functionalities:
+
+* Multiple version management — it enables the installation of multiple node.js versions on the same machine, accommodating the needs of different projects requiring various node.js versions.
+* Easy version switching — nvm allows for effortless swapping between different installed node.js versions, enabling compatibility testing on multiple node.js versions.
+* Version isolation — each node.js version installed via nvm operates independently, ensuring that global packages, npm installations, and configurations are specific to each version and thus eliminating potential conflicts.
+* Version-specific installations — nvm supports the installation of specific node.js versions, catering to projects with particular version requirements for optimal performance and compatibility.
+* Default version setting — you can set a default node.js version to be used in every new terminal session, streamlining your workflow if you primarily work with a specific version.
+
+Here is a brief guide on how to install and use nvm:
+
+<CodeGroup>
+  ```shell Shell
+  # Installing NVM
+  curl -o- <https://raw.githubusercontent.com/nvm-sh/nvm/v0.34.0/install.sh> | bash
+
+  # Installing a specific version of Node.js
+  nvm install 14.15.1
+
+  # Utilizing the installed version
+  nvm use 14.15.1
+  ```
+</CodeGroup>
+
+### Node version manager quick reference guide
+
+Here's a quick reference guide for some of the most common nvm commands:
+
+<CodeGroup>
+  ```shell Shell
+  # Installing NVM
+  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.34.0/install.sh | bash
+
+  # Checking the installed NVM version
+  nvm --version
+
+  # Installing a specific version of Node.js
+  nvm install <version>
+
+  # Installing the latest Node.js version
+  nvm install node
+
+  # Using a specific installed version
+  nvm use <version>
+
+  # Using the latest installed version
+  nvm use node
+
+  # Setting a version as the default for new sessions
+  nvm alias default <version>
+
+  # Listing installed Node.js versions
+  nvm ls
+
+  # Checking the version of Node.js currently in use
+  node -v
+
+  # Uninstalling a specific Node.js version
+  nvm uninstall <version>
+  ```
+</CodeGroup>
+
+### Managing your packages
+
+A package manager, like [npm](https://www.npmjs.com/) or [Yarn](https://yarnpkg.com/), is a programming tool that automates the process of installing, upgrading, configuring, and removing software packages in a consistent manner.
+
+In this article, we’ll consider npm as it is more widely adopted.
+
+#### Initialize a Node project using npm
+
+To initialize a new node.js project with npm use the following command:
+
+<CodeGroup>
+  ```shell Shell
+  npm init -y
+  ```
+</CodeGroup>
+
+The `-y` flag is a convenient option that automatically responds 'yes' to all the prompts presented by npm during the initialization of a new project. If you prefer to provide individual responses to these prompts, which typically include details such as the project's name, description, repository URL, and others, you can simply omit the `-y` flag.
+
+When initiating a node.js project with the `npm init` command, you're preparing the project to use npm, Node's default package manager. This command creates a `package.json` file in your project directory, which stores important metadata about your project. This includes the name and version of your application, description, entry point, test command, git repository, keywords, author, and license.
+
+Additionally, the `package.json` file manages project dependencies by listing all Node modules/packages installed via `npm install`, and it allows for the creation of scripts to automate tasks such as starting your application or running tests.
+
+Here's an example of what a `package.json` file might look like after running `npm init`:
+
+<CodeGroup>
+  ```json package.json
+
+  {
+    "name": "my-dapp",
+    "version": "1.0.0",
+    "description": "A basic Node.js web3 application.",
+    "main": "index.js",
+    "scripts": {
+      "start": "node index.js",
+      "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "author": "Your Name",
+    "license": "MIT",
+    "dependencies": {
+      "web3": "^1.8.2"
+    }
+  }
+  ```
+</CodeGroup>
+
+### Project structure
+
+A well-structured project directory is essential for maintaining the readability and scalability of your codebase, making it easier for both you and others to understand, navigate, and simplifying maintenance and modules adding in the log run.
+
+Here is an example of a clean project structure:
+
+<CodeGroup>
+  ```bash Bash
+  Project
+  │   .gitignore
+  │   package.json
+  │   README.md
+  │
+  └───src
+  │   │
+  │   └───contracts
+  │   │
+  │   └───lib
+  │   │
+  │   └───routes
+  │   │
+  │   └───utils
+  │
+  └───test
+  ```
+</CodeGroup>
+
+* `/src` — houses all source code, the core of your project. It's the main directory for development.
+* `/contracts` — stores Ethereum smart contract (.sol) files; used for defining the rules of transactions within your blockchain project.
+* `/lib` — contains library scripts. These scripts provide reusable functionalities and reduce code duplication.
+* `/routes` — holds server route files. They map URLs to specific functions that handle HTTP requests and responses.
+* `/utils` — stores utility scripts and helper functions. These generally simplify complex tasks and improve code readability.
+* `/test` — houses testing scripts. These validate your code's functionality and help maintain software quality.
+* `.gitignore` — lists files/folders that git should ignore. Helps prevent unwanted files (e.g., temporary files, logs) from being versioned.
+* `package.json` — manages package dependencies and scripts. It's a manifest file for node.js projects that provides project metadata.
+* `README.md` — contains project documentation. A good README explains what the project does, how to use it, and other pertinent information.
+
+## web3.js library best practices
+
+web3.js is a JavaScript library that allows developers to interact with a local or remote Ethereum node using HTTP, IPC, or WebSocket. It provides a complete set of tools to work with the Ethereum blockchain and its associated functionalities like smart contracts, accounts, and transactions.
+
+<Info>
+  Find examples of how to use [Web3 libraries in the Chainstack API documentation](/api-reference/web3-libraries).
+</Info>
+
+web3.js is widely used, so let’s go over some best practices here.
+
+### 1: Versioning
+
+Install the latest stable version of web3.js, which has the most recent features and security patches:
+
+<CodeGroup>
+  ```shell Shell
+  npm install web3
+  ```
+</CodeGroup>
+
+You can also install a specific version of a library by specifying the version in the install command:
+
+<CodeGroup>
+  ```shell Shell
+  npm install web3@1.8.2
+  ```
+</CodeGroup>
+
+### 2: Connection to Ethereum node
+
+Connect to an Ethereum node using the Web3 provider. In this example, we're connecting to a Chainstack node.
+
+<CodeGroup>
+  ```js JavaScript
+  const Web3 = require("web3");
+
+  // Use your Chainstack endpoint URL
+  const NODE_URL = "YOUR_CHAINSTACK_ENDPOINT";
+
+  // This line establishes a connection instance
+  const web3 = new Web3(NODE_URL);
+  ```
+</CodeGroup>
+
+The following example shows how to retrieve the latest block numbers using web3.js:
+
+<CodeGroup>
+  ```js JavaScript
+  const Web3 = require("web3");
+  const NODE_URL = "YOUR_CHAINSTACK_ENDPOINT";
+  const web3 = new Web3(NODE_URL);
+
+  async function getLatestBlockNumber() {
+    const block = await web3.eth.getBlockNumber();
+    console.log(`Latest block: ${block}`);
+  }
+
+  getLatestBlockNumber()
+  ```
+</CodeGroup>
+
+<Info>
+  Explore more blockchain APIs and Web3 libraries examples in the [Chainstack API documentation](/api-reference/ethereum-getting-started).
+</Info>
+
+### 3: Error handling
+
+It is imperative to implement effective error handling during blockchain interactions to ensure smooth operation and troubleshoot potential issues.
+
+Let's consider a scenario where we're fetching the gas price, a common operation in Ethereum transactions. Proper error handling, in this case, can greatly enhance the robustness of your application. Here's an illustrative example:
+
+<CodeGroup>
+  ```js JavaScript
+  async function fetchGasPrice() {
+      try {
+        const gasPrice = await web3.eth.getGasPrice();
+        console.log(`Base fee: ${gasPrice}`)
+
+        return gasPrice;
+      } catch (error) {
+          console.error(`Failed to get gas price due to an error: ${error}`);
+
+        // Fallback to a default gas price if the fetch fails.
+        const defaultGasPrice = web3.utils.toWei('50', 'gwei');
+
+        console.log(`Using default gas price: ${defaultGasPrice}`);
+        return defaultGasPrice;
+      }
+    }
+
+    fetchGasPrice()
+  ```
+</CodeGroup>
+
+This code includes a fallback to a default gas price when the fetch operation fails. This allows the application to continue running even when the gas price fetch fails.
+
+## Coding best practices
+
+### 1: Promises and async/await
+
+web3.js operations are asynchronous. Use promises and async/await syntax for handling these operations. Here's an example of fetching an account's balance:
+
+<CodeGroup>
+  ```js JavaScript
+  const Web3 = require("web3");
+  const NODE_URL = "YOUR_CHAINSTACK_ENDPOINT";
+  const web3 = new Web3(NODE_URL);
+
+  async function getBalance(address, block) {
+    const balance = await web3.eth.getBalance(address, block)
+    console.log(balance)
+  	return balance
+   }
+
+   getBalance("0xCb6Ed7E78d27FDff28127F9CbD61d861F09a2324", "latest" )
+  ```
+</CodeGroup>
+
+The `async` and `await` keywords in the code are used to handle asynchronous operations in a more readable and cleaner way. The function `getBalance` is marked as `async`, making it return a `Promise`. Within this function, `await` is used to pause execution until the `web3.eth.getBalance(address, block)` Promise resolves, effectively waiting for the balance of an Ethereum address at a specific block to be retrieved from the blockchain. Once this value is obtained, it's logged into the console. This makes the asynchronous code appear as though it's synchronous, simplifying its structure and readability.
+
+### 2: Gas optimization
+
+Gas optimization is crucial in Ethereum transactions. Always estimate gas before sending transactions:
+
+<CodeGroup>
+  ```js JavaScript
+  const myContract = new web3.eth.Contract(abi, contractAddress);
+
+  async function estimateGas(data) {
+    const gasAmount = await myContract.methods.myMethod(data).estimateGas({ from: myAccount });
+    return gasAmount;
+  }
+  ```
+</CodeGroup>
+
+### 3: Confirmation blocks
+
+Wait for enough block confirmations before considering a transaction final. The number of confirmations depends on the level of security you require.
+
+<CodeGroup>
+  ```js JavaScript
+  web3.eth.sendTransaction({
+    from: senderAddress,
+    to: receiverAddress,
+    value: web3.utils.toWei("1", "ether")
+  })
+  .on('confirmation', (confirmationNumber, receipt) => {
+    if (confirmationNumber >= 3) {
+      console.log('Transaction is confirmed');
+    }
+  })
+  .on('error', console.error);
+  ```
+</CodeGroup>
+
+### 4: Event listening
+
+Events are used for monitoring contract state changes. Always listen to 'error' events on your subscriptions.
+
+<CodeGroup>
+  ```js JavaScript
+  myContract.events.MyEvent({
+    filter: {}, // Using an empty filter object will retrieve all events
+    fromBlock: 0
+  }, (error, event) => console.log(event))
+  .on('error', console.error);
+  ```
+</CodeGroup>
+
+<Info>
+  Learn more about retrieving events by reading [Tracking some Bored Apes: The Ethereum event logs tutorial](/docs/tracking-some-bored-apes-the-ethereum-event-logs-tutorial).
+</Info>
+
+## Security best practices
+
+When developing applications on the blockchain, it's crucial to prioritize security. This is not only to protect your assets but also to ensure the integrity and reliability of your application. Here are some key areas to consider:
+
+### 1: Private key management
+
+Private keys should never be exposed in your code or version control systems. Use environment variables or secure vault services.
+
+<CodeGroup>
+  ```js JavaScript
+  # .env file
+  PRIVATE_KEY=YOUR_PRIVATE_KEY
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```jsx jsx
+  // In your code
+  require('dotenv').config();
+  const privateKey = process.env.PRIVATE_KEY;
+  ```
+</CodeGroup>
+
+<Info>
+  Check out our extensive guide, [How to store your Web3 DApp secrets: Guide to environment variables](/docs/how-to-store-your-web3-dapp-secrets-guide-to-environment-variables). This guide goes deep into how to avoid exposing keys and endpoints in the frontend.
+</Info>
+
+### 2: Address checksums
+
+Ethereum addresses come with built-in checksums to prevent transactions from being sent to the wrong addresses. Always validating and using checksum addresses is a best practice that can prevent costly mistakes.
+
+A checksum in the context of an Ethereum address is a form of error detection that's built into the address itself. It's used to detect errors that may have been introduced during its transmission or storage.
+
+Ethereum addresses are typically shown as a 40-character hexadecimal string. While Ethereum addresses are not case-sensitive, a certain case format is used to encode some redundancy into the address, allowing for error checking. This format is known as the ICAP (international bank account number) format.
+
+<CodeGroup>
+  ```js JavaScript
+  async function addressCheck() {
+      const address = '0xae2Fc483527B8EF99EB5D9B44875F005ba1FaE13';
+
+      if (web3.utils.isAddress(address)) {
+          // The address is valid
+          const checksumAddress = web3.utils.toChecksumAddress(address);
+
+          if (address === checksumAddress) {
+            console.log('The address is checksummed correctly');
+          } else {
+            console.error('The address is not checksummed correctly');
+          }
+        } else {
+          console.error('Invalid address');
+        }
+    }
+
+    addressCheck()
+  ```
+</CodeGroup>
+
+### 3: Smart contract interaction
+
+Always validate the ABI and contract addresses before interacting with them.
+
+<CodeGroup>
+  ```js JavaScript
+  if (web3.utils.isAddress(contractAddress) && Array.isArray(abi)) {
+    const myContract = new web3.eth.Contract(abi, contractAddress);
+  } else {
+    console.error('Invalid contract address or ABI');
+  }
+  ```
+</CodeGroup>
+
+### 4: Rate limits and throttling
+
+When using services like Chainstack, keep the rate limits in mind. Implement retry logic or request throttling as necessary.
+
+<CodeGroup>
+  ```js JavaScript
+  const axios = require('axios');
+  const retry = require('async-retry')
+
+  async function getBlockNumber() {
+    return retry(async bail => {
+      try {
+        const response = await axios.get('https://nd-123-456-789.p2pify.com', {
+          headers: { 'Authorization': 'Basic ' + Buffer.from('YOUR-PROJECT-ID:YOUR-PROJECT-SECRET').toString('base64') }
+        });
+        return response.data.result;
+      } catch (error) {
+        console.error(`Failed to get block number: ${error}`);
+        if (error.response && error.response.status === 429) {
+          bail(new Error('Too many requests, throttling...'));
+          return;
+        }
+        throw error;
+      }
+    }, {
+      retries: 5,
+      minTimeout: 3000
+    });
+  }
+  ```
+</CodeGroup>
+
+## Testing best practices
+
+### 1: Unit testing
+
+Use libraries like Mocha/Chai for unit testing.
+
+<CodeGroup>
+  ```js JavaScript
+  const assert = require('chai').assert;
+
+  describe('Array', function() {
+    describe('#indexOf()', function() {
+      it('should return -1 when the value is not present', function() {
+        assert.equal([1, 2, 3].indexOf(4), -1);
+      });
+    });
+  });
+  ```
+</CodeGroup>
+
+### 2: Smart contract testing
+
+Use libraries like Truffle to write tests for your smart contracts.
+
+<CodeGroup>
+  ```js JavaScript
+  const MyContract = artifacts.require('MyContract');
+
+  contract('MyContract', (accounts) => {
+    it('should do something', async () => {
+      const myContractInstance = await MyContract.deployed();
+      // Test myContractInstance methods...
+    });
+  });
+  ```
+</CodeGroup>
+
+### 3: Test coverage
+
+Strive for high test coverage. Tools like Istanbul can be used for coverage reports.
+
+<CodeGroup>
+  ```js JavaScript
+  # Install nyc
+  npm install --save-dev nyc
+
+  # Add a test script in package.json
+  "scripts": {
+    "test": "nyc mocha"
+  }
+  ```
+</CodeGroup>
+
+### 4: Continuous integration
+
+Use CI tools like Jenkins or Travis CI to automate testing and deployment processes. Here's a sample `.travis.yml` file for a node.js project:
+
+<CodeGroup>
+  ```yaml yaml
+  language: node_js
+  node_js:
+    - "14"
+  cache:
+    directories:
+      - "node_modules"
+  script:
+    - npm test
+  ```
+</CodeGroup>
+
+## Deployment best practices
+
+### 1: Environment variables
+
+Use different environment variables for different stages of your deployment (dev, test, prod). Tools like `dotenv` can help manage environment variables.
+
+### 2. Minification
+
+Use tools like [Webpack](https://webpack.js.org/) or [Babel](https://babeljs.io/) to transpile and minify your code for production.
+
+<CodeGroup>
+  ```js JavaScript
+  // webpack.config.js
+  module.exports = {
+    mode: 'production',
+    entry: './src/index.js',
+    output: {
+      filename: 'main.js',
+      path: path.resolve(__dirname, 'dist'),
+    },
+  };
+  ```
+</CodeGroup>
+
+### 3: Monitoring
+
+Set up monitoring and logging services for your application. Tools like [Winston](https://github.com/winstonjs/winston) can be used for logging in node.js applications.
+
+<CodeGroup>
+  ```js JavaScript
+  const winston = require('winston');
+
+  const logger = winston.createLogger({
+    level: 'info',
+    format: winston.format.json(),
+    defaultMeta: { service: 'user-service' },
+    transports: [
+      new winston.transports.File({ filename: 'error.log', level: 'error' }),
+      new winston.transports.File({ filename: 'combined.log' }),
+    ],
+  });
+
+  logger.error('Error log');
+  logger.warn('Warn log');
+  logger.info('Info log');
+  logger.verbose('Verbose log');
+  logger.debug('Debug log');
+  logger.silly('Silly log');
+  ```
+</CodeGroup>
+
+## Conclusion
+
+This document provides a comprehensive guide on best practices for establishing a Web3 node.js project, with a primary focus on the EVM blockchains. The topics covered include setting up a node.js project using tools like nvm and npm, creating a well-structured project directory, using the web3.js library to interact with Ethereum nodes, following coding best practices, ensuring security, testing the application, and deploying the project.
+
+

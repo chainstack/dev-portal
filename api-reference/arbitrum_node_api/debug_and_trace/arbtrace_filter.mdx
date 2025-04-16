@@ -1,0 +1,136 @@
+---
+title: arbtrace_filter | Arbitrum
+openapi: /openapi/arbitrum_node_api/debug_and_trace/arbtrace_filter.json POST /66f812de2a6724a75a51f60dd6f2a154
+---
+
+Arbitrum API method that allows to retrieve internal transaction data by defining a specific filter object. This method is a powerful tool for gaining insight into the intricate operations of complex transactions, particularly those associated with smart contracts. It provides you with the capability to seamlessly access all internal transactions connected to a particular address within a predefined block range.
+
+<Note>
+Learn how to [deploy a node](/docs/debug-and-trace-apis#arbitrum) with the debug and trace API methods enabled.
+</Note>
+
+<Warning>
+Blocks older than 22,207,815th were added to the chain before Nitro migration and cannot be queried with Geth methods. Starting from block 22,207,815, Arbitrum migrated to Nitro which made Geth `debug_*` methods available for newer blocks.
+
+Use the `arbtrace_filter` method for calling blocks prior to 22,207,815.
+</Warning>
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `object` — the filter object used for specifying the following filter criteria:
+  + `fromBlock` — (optional) specifies the starting block from which to retrieve data.
+  + `toBlock` — (optional) specifies the ending block until which data should be retrieved.
+  + `fromaddress` — (optional) array of addresses of the senders from which the transactions should be filtered.
+  + `toaddress` — (optional) array of addresses of the receivers to which the transactions should be filtered.
+  + `after` — (optional) specifies the offset trace number to start retrieving traces.
+  + `count` — (optional) specifies the number of traces to display in a batch.
+
+## Response
+
+* `array` — represents the block traces, which consist of the following fields (note that all return types are hexadecimal representations unless otherwise stated):
+* `action` — represents the `ParityTrace` object, which provides details on the following:
+  + `from` — indicates the address of the sender.
+  + `callType` — specifies the type of method used, such as `call` or `delegatecall`.
+  + `gas` — represents the gas provided by the sender, encoded in hexadecimal.
+  + `input` — contains the data sent along with the transaction.
+  + `to` — specifies the address of the receiver.
+  + `value` — indicates the value sent with this transaction, encoded as an integer in hexadecimal.
+* `blockHash` — provides the hash of the block where this transaction was included.
+* `blockNumber` — represents the block number in which this transaction was included.
+* `result` — refers to the `ParityTraceResult` object, which includes the following information:
+  + `gasUsed` — represents the amount of gas used by this specific transaction alone.
+  + `output` — contains the value returned by the contract call. It includes the actual value sent by the `RETURN` method. If the `RETURN` method was not executed, the output is empty bytes.
+* `subtraces` — represents the traces of contract calls made by the transaction.
+* `traceAddress` — specifies the list of addresses where the call executed, including the address of the parents and the order of the current sub-call.
+* `transactionHash` — refers to the hash of the transaction.
+* `transactionPosition` — indicates the position of the transaction.
+* `type` — specifies the type of method used, such as `call` or `create`.
+
+## `arbtrace_filter` code examples
+
+<CodeGroup>
+```javascript web3.js
+const Web3 = require("web3");
+const NODE_URL = "YOUR_CHAINSTACK_ENDPOINT";
+const web3 = new Web3(NODE_URL);
+
+// Define the arbtrace_filter custom method
+web3.extend({
+    property: 'arbtrace',
+    methods: [{
+      name: 'filter',
+      call: 'arbtrace_filter',
+      params: 1
+    }]
+  });
+  
+  async function arbtraceFilter() {
+    const filterParams = {
+      fromBlock: '0x152dd40',
+      toBlock: '0x152dd42',
+      fromAddress : ["0x9e6ef7f75ad88d4edb4c9925c94b769c5b0d6281"]
+    };
+  
+    const result = await web3.arbtrace.filter(filterParams);
+    console.log(result);
+  }
+  
+  arbtraceFilter();
+```
+
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "YOUR_CHAINSTACK_ENDPOINT";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const arbtraceFilter = async () => {
+    const filter = {
+        "fromBlock": "0x152dd40",
+        "toBlock": "0x152dd42",
+        "fromaddress": ["0x9e6ef7f75ad88d4edb4c9925c94b769c5b0d6281"],
+      };
+
+    const traces = await provider.send("arbtrace_filter", [filter]);
+    console.log(traces);
+};
+
+arbtraceFilter();
+```
+
+```python web3.py
+from web3 import Web3  
+node_url = "YOUR_CHAINSTACK_ENDPOINT" 
+web3 = Web3.HTTPProvider(node_url)
+
+filter = {
+        "fromBlock": "0x152dd40",
+        "toBlock": "0x152dd42",
+        "fromaddress": ["0x9e6ef7f75ad88d4edb4c9925c94b769c5b0d6281"],
+      };
+
+response = web3.provider.make_request('arbtrace_filter', [filter])
+print(response)
+```
+</CodeGroup>
+
+
+## Use case
+
+The `arbtrace_filter` method on the Arbitrum blockchain allows you to retrieve detailed traces of smart contract execution. Think of traces as a step-by-step account of what happens when a smart contract is called or interacts with other contracts.
+
+With this method, you can specify filter criteria, such as the range of blocks you're interested in. When you invoke the `arbtrace_filter` method, it returns traces that match your criteria.
+
+Traces are useful for various purposes. For example, you can debug smart contract transactions by analyzing the sequence of function calls, state changes, and events emitted during execution. This helps you identify and fix issues in your contract's logic.
+
+Traces also provide insights into gas consumption, allowing you to optimize gas usage in your contracts by identifying gas-intensive operations.
+
+## Try the `arbtrace_filter` RPC method yourself

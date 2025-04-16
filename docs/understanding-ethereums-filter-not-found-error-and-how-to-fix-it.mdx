@@ -1,0 +1,254 @@
+---
+title: "Understanding Ethereum's \"Filter not found\" Error and How to Fix it"
+---
+
+**TLDR**
+* Filters let you retrieve specific blockchain data with minimal overhead.
+* The "Filter Not Found" error often occurs due to filter expiration, node restarts, or manual deletion.
+* Proper error handling, automated filter recreation, or alternative data retrieval (eth\_getLogs) can reduce this issue.
+* Always manage filter lifecycles in your code to ensure reliable and robust dApp performance.
+
+## Introduction
+
+EVM-compatible blockchains, such as Ethereum, BNB Smart Chain, Polygon, and others are decentralized networks that store vast amounts of data. Filters are one of the ways developers can retrieve some of this data.
+
+<Info>
+  Find an example of the [logs filter](/api-reference/ethereum_node_api/logs_and_events/eth_newFilter) in the API reference.
+</Info>
+
+## What are filters?
+
+In EVM-compatible blockchains, filters play a crucial role in data retrieval. They are queries or conditions set by developers to monitor specific events on the blockchain. For instance, a developer might set a filter to watch for a specific token transfer event or function call in a smart contract.
+
+Filters are especially useful because blockchains are continuously growing ledgers, and sifting through all the data manually or programmatically without filters would be inefficient. Using filters, developers can efficiently pinpoint the event they are interested in without parsing through irrelevant information.
+
+## The role of `eth_getFilterChanges` method
+
+The `eth_getFilterChanges` method is a standard RPC call used across EVM-compatible blockchains. Its primary purpose is to retrieve changes or updates that occurred concerning a previously set filter. In simpler terms, once a filter is set to watch for a specific event, the `eth_getFilterChanges` method can fetch any new occurrences. Learn more about [eth\_getFilterChanges](/api-reference/ethereum_node_api/filter_handling/eth_getFilterChanges).
+
+However, developers might occasionally encounter the "Filter Not Found" error while working with this method.
+
+## The "Filter Not Found" error explained
+
+The "Filter Not Found" error is a common issue developers encounter when working with filters on EVM-compatible blockchains. This error arises when the system cannot locate the specified filter ID during a query. Several reasons can trigger this error:
+
+* **Filter expiration**. Filters are not permanent. They have a lifespan and can expire after a certain period of inactivity, usually 5 minutes. Once a filter expires, querying it will result in the "Filter Not Found" error.
+* **Node restarts**. If the blockchain node is restarted, the filters created before the restart might be lost. Subsequent queries to these filters will then yield the error.
+* **Manual deletion**. Filters can be manually removed using specific methods like \`\`. If a filter is uninstalled and then queried, it will naturally result in the error.
+* **State pruning**. Some nodes, for optimization purposes, might prune or remove older states, including filters, to save space. This can also lead to an error when querying a pruned filter.
+
+Understanding the root cause of the "Filter Not Found" error is crucial. It helps developers take appropriate corrective actions, whether recreating the filter, ensuring longer filter lifespans, or maintaining node stability.
+
+## Reproducing the "Filter Not Found" error
+
+Let’s go over the steps to reproduce this error so we can understand it better.
+
+### Step 1. Create a filter
+
+Start by creating a filter; in this case, we’ll use the `eth_newBlockFilter` method. This filter watches for new blocks on the blockchain.
+
+<CodeGroup>
+  ```bash cURL
+  curl --request POST \
+       --url YOUR_CHAINSTACK_ENDPOINT/ \
+       --header 'accept: application/json' \
+       --header 'content-type: application/json' \
+       --data '
+  {
+    "jsonrpc": "2.0",
+    "method": "eth_newBlockFilter",
+    "id": 1
+  }
+  '
+  ```
+</CodeGroup>
+
+This will return a filter ID:
+
+<CodeGroup>
+  ```bash Bash
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": "0x0700000000000000ab622e24d29ffa1f"
+  }
+  ```
+</CodeGroup>
+
+### Step 2. Use `eth_getFilterChanges`
+
+After creating the filter, you can use `eth_getFilterChanges`, passing the filter ID to retrieve changes matching the filter's criteria:
+
+<CodeGroup>
+  ```bash cURL
+  curl --request POST \
+       --url YOUR_CHAINSTACK_ENDPOINT/ \
+       --header 'accept: application/json' \
+       --header 'content-type: application/json' \
+       --data '
+  {
+    "jsonrpc": "2.0",
+    "method": "eth_getFilterChanges",
+    "params": [
+      "0x0700000000000000ab622e24d29ffa1f"
+    ],
+    "id": 1
+  }
+  '
+  ```
+</CodeGroup>
+
+This is usually called "polling" the filter and will return changes between polls, in this case, the hashes of new blocks:
+
+<CodeGroup>
+  ```bash Bash
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": [
+      "0x4a25e03a0dd4070e80f261e24fbd9d345f67e327989dc302c2d3e78ff32199cb",
+      "0x837d4321129cea26fa2f17972bbbdad1e3d737bc8ea78d78fddefbeeb47a7f39",
+      "0x48f84d66d5b824da7c97c1f1d67ff346a24d7076acc8a96ab3b1a2ede7f22419"
+    ]
+  }
+  ```
+</CodeGroup>
+
+### Step 3. Delay or inactivity
+
+The "Filter Not Found" error often occurs when there is a delay between creating the filter and using `eth_getFilterChanges`.
+
+Ethereum nodes keep filters for 5 minutes, according to the [Go Ethereum (Geth) GitHub page](https://github.com/ethereum/go-ethereum/blob/36874b63a1b56eed2b8e4b47ccea0337920b84b8/eth/filters/filter_system.go). If you wait too long to check for changes, or a situation listed in the previous paragraph happens, the filter may no longer exist, returning `Filter Not Found`.
+
+## How to handle filters
+
+In EVM-compatible blockchain development, errors are a common occurrence. The way these errors are handled can make a significant difference in the robustness and reliability of your applications. The "Filter Not Found" error, while prevalent, can be managed effectively with the right strategies.
+
+There are several recommended solutions using web3.py. Let us look at both of them further.
+
+### Solution 1. Immediate change retrieval with error handling
+
+After setting up a filter, it's essential to fetch the changes using the `get_filter_changes` method from web3.py immediately. Implementing error handling at this stage can prevent potential issues:
+
+<CodeGroup>
+  ```python Python
+  from web3 import Web3
+  import time
+  # Initialize web3 connection
+  node_url = "YOUR_CHAINSTACK_ENDPOINT"
+  web3 = Web3(Web3.HTTPProvider(node_url))
+
+  def get_new_blocks():
+      try:
+          blocks_filter = web3.eth.filter('latest')
+          return blocks_filter
+      except Exception as e:
+          print(e)
+
+  blocks = get_new_blocks()
+  filter_id = blocks.filter_id
+  print('Filter ID:', filter_id)
+
+  # Fetch changes and handle potential errors
+  try:
+      time.sleep(12) # Wait 12 seconds for higher chances of changes.
+      changes = web3.eth.get_filter_changes(filter_id)
+
+      print(changes)
+      # Process the changes accordingly
+  except ValueError as error:
+      if "filter not found" in str(error).lower():
+          # Gracefully address the "Filter Not Found" error
+          print("The filter seems to have expired or is non-existent. Consider recreating it.")
+          # Optionally, you can recreate the filter or take alternative measures
+      else:
+          # Address other potential errors
+          print(f"Encountered an error during change retrieval: {error}")
+  ```
+</CodeGroup>
+
+In the provided code, the `try-except` block is instrumental in identifying and managing errors during the `get_filter_changes` invocation. By examining the error message for `filter not found`, we can specifically address this error. For other discrepancies, a generic error message aids in debugging.
+
+### Solution 2. Automated filter recreation
+
+If a filter is found to have expired or is missing, an effective strategy is to automate its recreation within the error-handling logic. This involves invoking `new_filter` once more and preserving the new filter ID:
+
+<CodeGroup>
+  ```python Python
+  if "filter not found" in str(error).lower():
+      print("The filter appears to have expired or is missing. Initiating filter recreation...")
+      new_filter_id = get_new_blocks()
+      print(f"Successfully generated a new filter with ID: {new_filter_id.filter_id}")
+      # Proceed to process changes using the new_filter_id
+  else:
+      # Address other potential errors
+      print(f"Encountered an error during change retrieval: {error}")
+  ```
+</CodeGroup>
+
+By incorporating this proactive approach to error handling, you can ensure the smooth operation of your EVM-compatible applications using `web3.py`.
+
+### Solution 3. Persistent filter monitoring
+
+Instead of creating a filter and checking it only once, you can set up a loop that continuously monitors the filter for changes. If the filter expires or is removed, you can detect it immediately and take corrective action.
+
+<CodeGroup>
+  ```python Python
+  import time
+
+  interval = 30
+
+  def monitor_filter(filter_id, interval=10):
+      while True:
+          try:
+              changes = web3.eth.get_filter_changes(filter_id)
+              if changes:
+                  # Process the changes
+                  print(changes)
+              time.sleep(interval)
+          except ValueError as error:
+              if "filter not found" in str(error).lower():
+                  print("Filter expired or removed. Recreating...")
+                  filter_id = get_new_blocks().filter_id
+              else:
+                  print(f"Error: {error}")
+  ```
+</CodeGroup>
+
+### Solution 4. Use event logs instead of filters
+
+If you are trying to filter logs, instead of relying solely on filters, you can use the [eth\_getLogs](/api-reference/ethereum_node_api/logs_and_events/eth_getLogs) method to get historical data. This method is especially useful if you're interested in past events or transactions.
+
+### Solution 5. Backup filters on multiple nodes
+
+You can create the same filter on multiple nodes by accessing several endpoints. This redundancy ensures that you can still retrieve data from another node if one of them fails or the filter is removed from one node.
+
+### Solution 6. Regularly refresh filters
+
+Instead of waiting for a filter to expire, proactively refresh or recreate filters regularly. This approach ensures that your filters are always active and reduces the chances of encountering the "Filter Not Found" error.
+
+### Solution 7. Implement comprehensive logging
+
+Incorporate detailed logging into your application. Logging all interactions with the blockchain and any errors that arise, you can quickly diagnose issues, understand their root causes, and implement fixes.
+
+## Conclusion
+
+Connecting to a dependable node is paramount to ensure seamless interaction with a blockchain network. Nodes prone to frequent restarts or experiencing intermittent downtimes can disrupt the functionality of filters.
+
+Always verify the filter ID when invoking `eth_getFilterChanges`. Each filter possesses a unique ID, and discrepancies in using the correct ID will inevitably trigger the "Filter Not Found" error.
+
+Ethereum's inherent design includes a brief filter expiration duration. While this can be a source of the "Filter Not Found" error, adept error handling can substantially reduce its adverse effects, paving the way for a resilient Ethereum-based application.
+
+### About the author
+
+<CardGroup>
+  <Card title="Alexander Zamiatin" img="/images/docs/a/AIfuS84">
+    <Icon icon="code"  iconType="solid"/> Technical Support Engineer @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> Helping people with Chainstack and buidling in Web3
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/dwampa)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/AlexZamiatin)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/azamiatin/)
+  </Card>
+</CardGroup>

@@ -1,0 +1,538 @@
+---
+title: "ethers.js ChainstackProvider: How to BUIDL a Multi-chain Wallet Balance Aggregator"
+---
+
+**TLDR**
+
+* `ChainstackProvider` in ethers.js lets you connect to multiple blockchains (Ethereum, Polygon, Arbitrum, etc.) with minimal setup.
+* This Next.js DApp demonstrates fetching wallet balances from multiple chains via a simple API endpoint using ChainstackProvider for each network.
+* Keeping providers on the backend helps protect your endpoints, with the frontend only calling your API endpoint.
+* Easily scale to more EVM chains or extend functionality by adjusting the provider config and adding UI elements.
+
+## Main article
+
+ethers.js recently added support for `ChainstackProvider`. This allows you to leverage Chainstack nodes in ethers out of the box. This tutorial will guide you through setting up a Next.js project, integrating ethers.js with `ChainstackProvider` building a fully functional DApp that cretrieves wallet balances from multiple blockchain networks.
+
+<Info>
+  Learn more about `ChainstackProvider` and the supported chains on the [ethers ChainstackProvider Documentation](/api-reference/ethersjs-chainstackprovider).
+</Info>
+
+### What is ethers.js?
+
+ethers.js is a JavaScript library designed to interact with EVM blockchains. It provides a lightweight and easy-to-use API for connecting to various blockchains, making transactions, interacting with smart contracts, and handling cryptographic functions. Due to its simplicity, flexibility, and robust features, Ethers.js is popular among developers, making it a go-to choice for building Ethereum-based applications.
+
+## Prerequisites
+
+Spinning up a DApp with `ChainstackProvider` is so simple that you only need an IDE and Node.js installed. Install Node.js from the [official website](https://nodejs.org/en) if you don't have it yet.
+
+<Info>
+  Find the repository for this DApp on the [Chainstack Labs GitHub](https://github.com/chainstacklabs/ethers-chainstackprovider-demo-nextjs) and see a functioning and deployed version of the DApp: [Multi-chain wallet balance aggregator DApp](https://ethers-chainstackprovider-demo-nextjs.vercel.app/)
+</Info>
+
+At this stage, let's go ahead and set up the Next.js project; create a new directory for your DApp and run the command to initialize Next.js:
+
+```
+npx create-next-app@14.2.3
+```
+
+This project uses Next 14; select the following options during the setup:
+
+```
+✔ What is your project named? … balances
+✔ Would you like to use TypeScript? … No
+✔ Would you like to use ESLint? … Yes
+✔ Would you like to use Tailwind CSS? … Yes
+✔ Would you like to use `src/` directory? … Yes
+✔ Would you like to use App Router? (recommended) … Yes
+? Would you like to customize the default import alias (@/*)? › No
+```
+
+Then, move into the newly created project and install the ethers library. To have access to the `ChainstackProvider` you need to at least ethers `V6.12.0`.
+
+```
+npm i ethers
+```
+
+At this point, you are ready to code.
+
+## How to use ethers.js' `ChainstackProvider`?
+
+Let's briefly talk about the `ChainstackProvider`. It provides a very convenient way to spin up DApps and prototypes but keep in mind that the endpoints used are heavily throttled and will not be suitable for a production environment. The good news is that `ChainstackProvider` supports your own Chainstack nodes as well; you just need to deploy a [Global Node](/docs/global-elastic-node) from the Chainstack console and initialize the provider with the node authorization key.
+
+Follow these steps to sign up on Chainstack, deploy a node, and find your endpoint credentials:
+
+<CardGroup>
+  <Card title="Sign up with Chainstack" href="https://console.chainstack.com/user/account/create" icon="angle-right" horizontal />
+  <Card title="Deploy a node" href="/docs/manage-your-networks#join-a-public-network" icon="angle-right" horizontal />
+  <Card title="View node access and credentials" href="/docs/manage-your-node#view-node-access-and-credentials" icon="angle-right" horizontal />
+</CardGroup>
+
+<Info>
+  You must deploy a Global Node to use the authorization key in `ChainstackProvider`.
+</Info>
+
+Once deployed, your node RPC ULR will look like this:
+
+> [https://ethereum-mainnet.core.chainstack.com/AUTH\_KEY](https://ethereum-mainnet.core.chainstack.com/AUTH_KEY)
+
+Now you can add the `AUTH_KEY` to the `ChainstackProvider` instance:
+
+<CodeGroup>
+  ```javascript ethers
+  const ethers = require("ethers");
+
+  // Create a ChainstackProvider instance for Ethereum mainnet
+  const chainstack = new ethers.ChainstackProvider("mainnet", "AUTH_KEY");
+  ```
+</CodeGroup>
+
+<Info>
+  Check out the supported chains on the [ethers ChainstackProvider Documentation](/api-reference/ethersjs-chainstackprovider).
+</Info>
+
+## Project overview
+
+### Core DApp functionality
+
+1. **Address input**: Users enter an Ethereum wallet address into a text field.
+2. **Fetch balances**: Upon submitting the address, the DApp communicates with a backend API to fetch the wallet balances from various blockchain networks.
+3. **Display results**: The DApp displays the retrieved balances in a user-friendly format.
+
+To achieve this functionality, ywork with two main components:
+
+1. **Frontend UI (page.js)**:
+
+   * This file handles the user interface, including the input field for the wallet address and the button to trigger the balance check.
+   * It also displays the fetched balances and handles loading and error states.
+
+2. **Backend API (route.js)**:
+
+   * This file manages the logic for connecting to your blockchain networks using ChainstackProvider.
+   * It defines an API endpoint the frontend can call to fetch the balances.
+   * Since you use the backend to communicate with a chain, you don't expose any endpoints on the front end, preserving good security practices.
+
+Focusing on these two components streamlines the development process and demonstrates the simplicity of integrating ethers.js with `ChainstackProvider` in a Next.js project.
+
+## The front-end code
+
+Let's first work on the UI. Once your project is initialized, go to `...src/app/page.js` and paste the following code:
+
+<CodeGroup>
+  ```javascript page.js
+  "use client";
+  import { useState } from "react";
+  import { ethers } from "ethers";
+
+  export default function Home() {
+    const [walletAddress, setWalletAddress] = useState("");
+    const [balances, setBalances] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+
+    const handleCheckBalances = async () => {
+      if (!ethers.isAddress(walletAddress)) {
+        setError("Invalid Ethereum address");
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+      setBalances(null); // Clear previous balances
+      try {
+        const response = await fetch(`/api/balances`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ walletAddress }),
+        });
+        if (!response.ok) throw new Error("Failed to fetch balances");
+        const data = await response.json();
+        setBalances(data);
+      } catch (err) {
+        setError(err.message);
+      }
+      setLoading(false);
+    };
+
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white py-4">
+        <h1 className="text-4xl font-bold mb-4">Chainstack Powered</h1>
+        <h2 className="text-2xl mb-4">Multi-chain Wallet Balance Aggregator</h2>
+        <h3 className="text-lg mb-4">
+          This simple DApp uses the <code>ChainstackProvider</code> from ether.js
+          to interact with those chains.
+        </h3>
+        <h4 className="text-lg mb-4">
+          Learn more about the <code>ChainstackProvider</code> from ether.js on
+          the{" "}
+          <a
+            href="https://docs.chainstack.com/reference/ethersjs-chainstackprovider"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-500 hover:underline"
+          >
+            Chainstack documentation
+          </a>
+          .
+        </h4>
+
+        <div className="w-full max-w-md bg-gray-800 p-6 rounded-lg shadow-md">
+          <input
+            type="text"
+            placeholder="Enter Wallet Address"
+            value={walletAddress}
+            onChange={(e) => setWalletAddress(e.target.value)}
+            className="w-full p-2 mb-4 border rounded bg-gray-700 border-gray-600 text-white"
+          />
+          <button
+            onClick={handleCheckBalances}
+            className="w-full p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            disabled={!walletAddress || loading}
+          >
+            {loading ? "Checking..." : "Check Balances"}
+          </button>
+          {error && <p className="text-red-500 mt-4">{error}</p>}
+          {balances && (
+            <div className="mt-4">
+              <p>
+                <strong>Ethereum:</strong>{" "}
+                {parseFloat(balances.ethereum).toFixed(5)} ETH
+              </p>
+              <p>
+                <strong>Polygon:</strong>{" "}
+                {parseFloat(balances.polygon).toFixed(5)} MATIC
+              </p>
+              <p>
+                <strong>BNB Smart Chain:</strong>{" "}
+                {parseFloat(balances.bnb).toFixed(5)} BNB
+              </p>
+              <p>
+                <strong>Arbitrum:</strong>{" "}
+                {parseFloat(balances.arbitrum).toFixed(5)} ETH
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+  ```
+</CodeGroup>
+
+### Breakdown of `page.js`
+
+The `page.js` file is responsible for the user interface of your DApp. It allows users to input their Ethereum wallet address and fetches the wallet balances from multiple blockchain networks by interacting with your backend API. Here’s a simple breakdown of the important parts:
+
+#### Import required modules
+
+<CodeGroup>
+  ```javascript Javascript
+  "use client";
+  import { useState } from "react";
+  import { ethers } from "ethers";
+  ```
+</CodeGroup>
+
+You import `useState` from React for managing state within the component and `ethers` from the ethers.js library to validate Ethereum addresses.
+
+#### State management
+
+<CodeGroup>
+  ```javascript Javascript
+  const [walletAddress, setWalletAddress] = useState("");
+  const [balances, setBalances] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  ```
+</CodeGroup>
+
+You define several state variables:
+
+* `walletAddress` to store the user-inputted wallet address.
+* `balances` to store the fetched balances.
+* `loading` to indicate the loading state while fetching data.
+* `error` to display any errors that occur during the fetching process.
+
+#### Handle balance check
+
+<CodeGroup>
+  ```javascript Javascript
+  const handleCheckBalances = async () => {
+    if (!ethers.isAddress(walletAddress)) {
+      setError("Invalid Ethereum address");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setBalances(null); // Clear previous balances
+    try {
+      const response = await fetch(`/api/balances`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ walletAddress }),
+      });
+      if (!response.ok) throw new Error("Failed to fetch balances");
+      const data = await response.json();
+      setBalances(data);
+    } catch (err) {
+      setError(err.message);
+    }
+    setLoading(false);
+  };
+  ```
+</CodeGroup>
+
+This function handles the balance-checking process and calls the API that uses ethers and the `ChainstackProvider`, you take care of that in the following section:
+
+1. **Validation**: Checks if the input is a valid Ethereum address.
+2. **Loading state**: Sets the loading state to true and clears previous balances and errors.
+3. **API interaction**: Sends a `POST` request to the `/api/balances` endpoint with the wallet address.
+4. **Response handling**: Processes the response, updating the `balances` state or sets an error message if the request fails.
+5. **Loading state**: Resets the loading state to false after the request completes.
+
+#### User interface
+
+<CodeGroup>
+  ```javascript Javascript
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white py-4">
+      <h1 className="text-4xl font-bold mb-4">Chainstack Powered</h1>
+      <h2 className="text-2xl mb-4">Multi-chain Wallet Balance Aggregator</h2>
+      <h3 className="text-lg mb-4">
+        This simple DApp uses the <code>ChainstackProvider</code> from ether.js
+        to interact with those chains.
+      </h3>
+      <h4 className="text-lg mb-4">
+        Learn more about the <code>ChainstackProvider</code> from ether.js on
+        the{" "}
+        <a
+          href="https://docs.chainstack.com/reference/ethersjs-chainstackprovider"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-500 hover:underline"
+        >
+          Chainstack documentation
+        </a>
+        .
+      </h4>
+
+      <div className="w-full max-w-md bg-gray-800 p-6 rounded-lg shadow-md">
+        <input
+          type="text"
+          placeholder="Enter Wallet Address"
+          value={walletAddress}
+          onChange={(e) => setWalletAddress(e.target.value)}
+          className="w-full p-2 mb-4 border rounded bg-gray-700 border-gray-600 text-white"
+        />
+        <button
+          onClick={handleCheckBalances}
+          className="w-full p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          disabled={!walletAddress || loading}
+        >
+          {loading ? "Checking..." : "Check Balances"}
+        </button>
+        {error && <p className="text-red-500 mt-4">{error}</p>}
+        {balances && (
+          <div className="mt-4">
+            <p>
+              <strong>Ethereum:</strong>{" "}
+              {parseFloat(balances.ethereum).toFixed(5)} ETH
+            </p>
+            <p>
+              <strong>Polygon:</strong>{" "}
+              {parseFloat(balances.polygon).toFixed(5)} MATIC
+            </p>
+            <p>
+              <strong>BNB Smart Chain:</strong>{" "}
+              {parseFloat(balances.bnb).toFixed(5)} BNB
+            </p>
+            <p>
+              <strong>Arbitrum:</strong>{" "}
+              {parseFloat(balances.arbitrum).toFixed(5)} ETH
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+  ```
+</CodeGroup>
+
+The UI consists of:
+
+* A header with titles and descriptions.
+* An input field for the wallet address.
+* A button to trigger the balance check.
+* Conditional rendering to display errors or balances.
+
+This simple breakdown focuses on the key functionality: interacting with the backend API to fetch and display wallet balances. Next, you get into the backend logic in `route.js` to understand how the balances are retrieved from multiple blockchain networks using ChainstackProvider.
+
+## The backend API
+
+Now let's work on the heart of the DApp, the API endpoint using the `ChainstackProvider` to fetch data from the chains.
+
+In `src/app` create a new directory for the API route. The final path will be `...src/app/api/balances/route.ts`.
+
+Create each directory, `api`, `balances`, and then the `route.js` file in it. Once you have `route.js` paste this code into it:
+
+<CodeGroup>
+  ```javascript route.ts
+  const ethers = require("ethers");
+
+  const providers = {
+    ethereum: new ethers.ChainstackProvider("mainnet"),
+    polygon: new ethers.ChainstackProvider("matic"),
+    bnb: new ethers.ChainstackProvider("bnb"),
+    arbitrum: new ethers.ChainstackProvider("arbitrum"),
+  };
+
+  async function getBalance(network, walletAddress) {
+    const provider = providers[network];
+    const balance = await provider.getBalance(walletAddress);
+    return ethers.formatEther(balance); // Convert balance from wei to ether
+  }
+
+  async function getAllBalances(walletAddress) {
+    const balances = {};
+    for (const network in providers) {
+      balances[network] = await getBalance(network, walletAddress);
+    }
+    return balances;
+  }
+
+  export async function POST(req) {
+    const { walletAddress } = await req.json();
+
+    if (!walletAddress) {
+      return new Response(
+        JSON.stringify({ error: "Wallet address is required" }),
+        { status: 400 }
+      );
+    }
+
+    try {
+      const balances = await getAllBalances(walletAddress);
+      return new Response(JSON.stringify(balances), { status: 200 });
+    } catch (error) {
+      console.error("Error fetching balances:", error);
+      return new Response(JSON.stringify({ error: "Internal Server Error" }), {
+        status: 500,
+      });
+    }
+  }
+  ```
+</CodeGroup>
+
+### Breakdown of `route.ts`
+
+The `route.ts` file handles the backend logic for your DApp. It interacts with multiple blockchain networks using `ChainstackProvider` to fetch the wallet balances. Here’s a detailed breakdown of the important parts of the code:
+
+#### Import ethers.js
+
+<CodeGroup>
+  ```javascript Javascript
+  const ethers = require("ethers");
+  ```
+</CodeGroup>
+
+You import the ethers library, which provides the necessary tools to interact with Ethereum and other blockchain networks.
+
+#### Initialize providers
+
+<CodeGroup>
+  ```javascript Javascript
+  // Initialize a provider for each supported chain
+  const providers = {
+    ethereum: new ethers.ChainstackProvider("mainnet"),
+    polygon: new ethers.ChainstackProvider("matic"),
+    bnb: new ethers.ChainstackProvider("bnb"),
+    arbitrum: new ethers.ChainstackProvider("arbitrum"),
+  };
+  ```
+</CodeGroup>
+
+You create an object `providers` that holds instances of `ChainstackProvider` for each supported blockchain network. This allows you to connect to Ethereum, Polygon, BNB Smart Chain, and Arbitrum networks.
+
+#### Fetch balance for a single network
+
+<CodeGroup>
+  ```javascript Javascript
+  async function getBalance(network, walletAddress) {
+    const provider = providers[network];
+    const balance = await provider.getBalance(walletAddress);
+    return ethers.formatEther(balance); // Convert balance from wei to ether
+  }
+  ```
+</CodeGroup>
+
+The `getBalance` function takes a network name and a wallet address as parameters. It uses the corresponding provider to fetch the balance of the given wallet address and converts the balance from `wei` to `ether` using `ethers.formatEther`.
+
+#### Fetch balances for all networks
+
+<CodeGroup>
+  ```javascript Javascript
+  async function getAllBalances(walletAddress) {
+    const balances = {};
+    for (const network in providers) {
+      balances[network] = await getBalance(network, walletAddress);
+    }
+    return balances;
+  }
+  ```
+</CodeGroup>
+
+The `getAllBalances` function takes a wallet address as a parameter. It iterates over all the networks defined in the `providers` object, fetches the balance for each network using the `getBalance` function, and stores the results in the `balances` object.
+
+#### Handle the POST request
+
+<CodeGroup>
+  ```javascript Javascript
+  export async function POST(req) {
+    const { walletAddress } = await req.json();
+
+    if (!walletAddress) {
+      return new Response(
+        JSON.stringify({ error: "Wallet address is required" }),
+        { status: 400 }
+      );
+    }
+
+    try {
+      const balances = await getAllBalances(walletAddress);
+      return new Response(JSON.stringify(balances), { status: 200 });
+    } catch (error) {
+      console.error("Error fetching balances:", error);
+      return new Response(JSON.stringify({ error: "Internal Server Error" }), {
+        status: 500,
+      });
+    }
+  }
+  ```
+</CodeGroup>
+
+The `POST` function handles incoming POST requests to your API endpoint:
+
+1. **Parse the request**: It extracts the `walletAddress` from the request body.
+2. **Validate**: If the `walletAddress` is missing; it returns a 400 status with an error message.
+3. **Fetch balances**: It calls the `getAllBalances` function to fetch the balances for all networks.
+4. **Return the response**: It returns the balances with a 200 status if successful. If an error occurs, it logs it and returns a 500 status with an error message.
+
+The `route.ts` file handles the backend logic for your DApp. It connects to multiple blockchain networks using the`ChainstackProvider` to fetch the wallet balances and returns the results to the front end. This is a good way to keep your endpoints secure, as the front end does not call the RPC node directly but calls something similar to a proxy server instead.
+
+## Run the DApp
+
+And now you have a complete DApp; it was indeed super easy with the `ChainstackProvider`. Now, to run it, simply start the development server:
+
+```
+npm run dev
+```
+
+Your DApp is now running on `http://localhost:3000`. You can use this address to test it: `0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE`.
+
+## Conclusion
+
+In this tutorial, you've walked through creating a multi-chain wallet balance aggregator DApp using Ethers.js and `ChainstackProvider`. By integrating these powerful tools into a Next.js project, you've seen for yourself how easy it is to fetch and display wallet balances from multiple blockchain networks. This project showcases the simplicity and efficiency of using ChainstackProvider to interact with various blockchain networks, making it an excellent choice for developers looking to build decentralized applications.

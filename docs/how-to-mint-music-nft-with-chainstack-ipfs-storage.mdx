@@ -1,0 +1,1691 @@
+---
+title: "How to Mint a Music NFT: Dropping Fire Tunes with Chainstack IPFS Storage"
+
+---
+
+* Creates a Music NFT using a custom ERC721 contract (via OpenZeppelin Wizard) with metadata pointing to audio and cover files on IPFS
+* Deploys contract with Hardhat to testnet; verifies it on Etherscan
+* Pins the audio and cover image plus NFT metadata using Chainstack IPFS Storage
+* Mints the NFT from your wallet, allowing you to see your music NFT on MetaMask/OpenSea with embedded audio
+
+## Main article
+
+In the digital age, artists are constantly seeking innovative ways to share, monetize, and protect their work. Enter the world of non-fungible tokens (NFTs)—a revolutionary way for musicians to create, sell, and own their masterpieces. As the music industry evolves, NFTs are becoming the driving force behind a paradigm shift in how artists generate income and maintain control over their creations.
+
+The music industry has always been a hotbed of innovation and change, from vinyl records to streaming services. Now, the advent of blockchain technology and the rise of NFTs are opening up an entirely new frontier for musicians and music enthusiasts alike. With the potential to revolutionize how we create, own, and trade music, NFTs are rapidly becoming an essential tool for artists looking to embrace the digital era.
+
+But how does one go about minting a music NFT? If you've been wondering about this very question, you've come to the right place. In this comprehensive guide, we'll walk you through the process step by step, demystifying the world of music NFTs and empowering you to join the revolution. So, whether you're an aspiring musician, a dedicated collector, or simply curious about this exciting new development, read on and get ready to make some noise in the NFT space.
+
+## How to mint a music NFT?
+
+Minting NFTs through coding can be slightly more challenging than relying on a marketplace platform to handle the process for you. However, it provides you with greater flexibility and allows you to engage with the core mechanics of minting. Let’s explore how you can get started:
+
+## Step 1: Get started with the basics
+
+### 1.1: Obtain a node endpoint
+
+Running your own node can be a time-consuming process. Instead, you can quickly and effortlessly deploy a node with Chainstack, saving both time and effort. To get started, visit the Chainstack website, [create a free account](/docs/manage-your-account), deploy a Sepolia node, and obtain its HTTPS endpoint.
+
+Don’t worry about your testnet choice, the code base in this tutorial is structured in a way that will allow you to switch between Sepolia, and Mainnet freely, without having to rewrite everything. If you're unsure about the process, follow the steps in our easy-to-understand [quickstart guide](/docs/manage-your-networks#join-a-public-network).
+
+### 1.2: Install core dependencies
+
+If you haven't installed [node.js](https://nodejs.org/en/download) yet, go ahead and do so. Once that's done, you'll need to set up a workspace for your codebase. Create a new directory in your preferred location and initialize your node.js project by entering the following commands in your CLI (command line interface):
+
+<CodeGroup>
+  ```shell CLI
+  npm init -y
+  ```
+</CodeGroup>
+
+<Info>
+  The `-y` flag indicates that all the default values should be used without prompting the user for input.
+</Info>
+
+And while you’re still on the topic of initializing your project, go ahead and do so for git, in case you haven’t done that already. To make this happen, [download and install git](https://git-scm.com/downloads), if it’s not present on your system yet, then execute the following in a freshly run CLI instance:
+
+<CodeGroup>
+  ```shell CLI
+  git init
+  ```
+</CodeGroup>
+
+Next, install the Hardhat library with the `web3` and `hardhat-verify` plugins, which will provide you with the functionality required to interact with your node, as well as verify your deployed contract:
+
+<CodeGroup>
+  ```shell CLI
+  npm install --save-dev @nomiclabs/hardhat-web3 'web3' @nomicfoundation/hardhat-verify
+  ```
+</CodeGroup>
+
+After the installation is complete, initialize your Hardhat project for JavaScript with:
+
+<CodeGroup>
+  ```shell CLI
+  npx hardhat
+  ```
+</CodeGroup>
+
+Once the initialization is complete, you will find a `hardhat.config.js` file in your project `root`. Open it and replace the contents with the following:
+
+<CodeGroup>
+  ```javascript hardhat.config.js
+  // Process dependencies
+  require("@nomiclabs/hardhat-web3");
+  require("@nomicfoundation/hardhat-verify");
+  ```
+</CodeGroup>
+
+### 1.3: Securely store your secrets
+
+To securely store all values, which are best left away from prying eyes, such as your `endpoint` you'll utilize a `.env` file. But before you set off to create such a file, go ahead and install the `dotenv` package using `npm` via CLI:
+
+<CodeGroup>
+  ```shell CLI
+  npm i dotenv
+  ```
+</CodeGroup>
+
+With the package installed, create a `.env` file in your project root and transfer over your endpoint URL there as the first key-value pair. If you want to use all three Ethereum networks (Sepolia, and Mainnet) you can set it up like so:
+
+<CodeGroup>
+  ```bash .env
+  SEPOLIA="YOUR_SEPOLIA_ENDPOINT"
+  MAINNET="YOUR_MAINNET_ENDPOINT"
+  ```
+</CodeGroup>
+
+This makes it possible for you to load the `SEPOLIA`, or `MAINNET` value from your `.env` file in any script in your project that has the `dotenv` dependency processed appropriately.
+
+So, go ahead and break the ice by adding `require('dotenv').config();` in your `hardhat.config.js` script as early as possible. Referencing `dotenv` before any and all other dependencies prevents possible conflicts, which may arise due to an inappropriate loading order.
+
+Proceed by initializing each network with its corresponding endpoint in `hardhat.config.js` as the values for the `url` keys, using the dotenv `process.env` method. You can also set a `PRIVATE_KEY` value for the `accounts` keys already, considering you will be getting a new one in the next section. Here’s how your `hardhat.config.js` should look like, once you’ve set everything up correctly:
+
+<CodeGroup>
+  ```javascript hardhat.config.js
+  // Process dependencies
+  require("dotenv").config();
+  require("@nomiclabs/hardhat-web3");
+  require("@nomicfoundation/hardhat-verify");
+
+  // Define Hardhat settings
+  module.exports = {
+    solidity: "0.8.17",
+    networks: {
+      mainnet: {
+        url: process.env.MAINNET,
+        accounts: [process.env.PRIVATE_KEY]
+      },
+      sepolia: {
+        url: process.env.SEPOLIA,
+        accounts: [process.env.PRIVATE_KEY]
+      },
+      sepolia: {
+        url: process.env.SEPOLIA,
+        accounts: [process.env.PRIVATE_KEY]
+      },
+    },
+  };
+  ```
+</CodeGroup>
+
+Before you continue, however, it is crucial to remember that you should NEVER upload your `.env` file to any public repository, as it will serve as a container for all your sensitive information moving forward.
+
+Apart from your endpoint URL, you will also store things like your private key inside the `.env` file, which could expose your entire wallet if leaked.
+
+Having this in mind, go ahead and create a `.gitignore` file if you don’t have one already, so you can add `.env` to it before you publish. Refer to the following example for how you can do that:
+
+<CodeGroup>
+  ```bash .gitignore
+  # dotenv environment variables file
+  .env
+  .env.test
+  ```
+</CodeGroup>
+
+### 1.4: Create a new wallet and fund it
+
+Once the initialization is complete, create a new `/scripts` directory and add a new `wallet.js` file in it. When you’ve created the new script, include the following lines of code to initialize the necessary dependencies:
+
+<CodeGroup>
+  ```javascript scripts/wallet.js
+  // Process dependencies
+  require('dotenv').config()
+  require("@nomiclabs/hardhat-web3");
+  ```
+</CodeGroup>
+
+Next, you will need to set up a function to create your wallet. To do this, you can use the web3.js method `web3.eth.accounts.create();`, just make sure you return the `address` and `privateKey` values at the end of your `async` function:
+
+<CodeGroup>
+  ```javascript scripts/wallet.js
+  // Create a new wallet then return the address and private key
+  const createWallet = async () => {
+      const wallet = web3.eth.accounts.create();
+      return [wallet.address, wallet.privateKey];
+  }
+  ```
+</CodeGroup>
+
+Once entered, you will also need to create another `async` function that will fund your wallet with testnet ETH from the [Chainstack faucet](https://faucet.chainstack.com). To do this you will first need to take care of a few things:
+
+1. [Create a Chainstack API key](/api-reference/platform-api-getting-started#create-api-key) and copy it, which will be similar to `Bearer y0urChainstackAPIkeyHer3`, then store it in your `.env` file as `CHAINSTACK`:
+
+   <CodeGroup>
+     ```shell .env
+     CHAINSTACK="Bearer YOUR_CHAINSTACK_API_KEY"
+     ```
+   </CodeGroup>
+
+2. Install axios library to be able to send HTTP requests to the faucet:
+
+   <CodeGroup>
+     ```shell Shell
+     npm i axios
+     ```
+   </CodeGroup>
+
+3. Require `axios` at the end of your `wallet.js` dependencies like so:
+
+   <CodeGroup>
+     ```javascript scripts/wallet.js
+     // Process dependencies
+     require('dotenv').config()
+     require("@nomiclabs/hardhat-web3");
+     const axios = require('axios');
+     ```
+   </CodeGroup>
+
+With that taken care of, you can move forward with your `fundWallet` function, by adding `address` and `apiKey` as its required parameters. Next, create a new `const` called `apiUrl`, add the faucet API URL, and place `${network.name}` at the end of it to be able to select the right testnet version:
+
+<CodeGroup>
+  ```javascript scripts/wallet.js
+  // Fund the wallet using the Chainstack faucet
+  const fundWallet = async (address, apiKey) => {
+      const apiUrl = `https://api.chainstack.com/v1/faucet/${network.name}`;
+  }
+  ```
+</CodeGroup>
+
+<Info>
+  Using the Hardhat `network.name` variable allows you to switch between networks with the `--network` parameter whenever you are running a particular script with Hardhat.
+</Info>
+
+Hopping back to your `fundWallet` function, it is time for you to close it off with a `try-catch` loop that will contain your `axios` request to the Chainstack faucet. Inside the `try` part of the loop, add a new `const` called `response`, where you will set the `axios` settings and return the response:
+
+<CodeGroup>
+  ```javascript scripts/wallet.js
+  // Fund the wallet using the Chainstack faucet
+  const fundWallet = async (address, apiKey) => {
+      const apiUrl = `https://api.chainstack.com/v1/faucet/${network.name}`;
+
+      try {
+          const response = await axios.post(apiUrl, { address }, {
+              headers: {
+                  'Authorization': apiKey,
+                  'Content-Type': 'application/json',
+              },
+          });
+          return response.data;
+      }
+  ```
+</CodeGroup>
+
+This creates a `POST` request to the Chainstack faucet `apiURL` with your `address`, your `apiKey` as the `Authorization` header, and `application/json` as the `Content-Type`.
+
+And with the `try` part of the loop taken care of, you can wrap up the entire thing by catching and then throwing an `error`, should it occur. Here’s how your `wallet.js` script should look like at this point:
+
+<CodeGroup>
+  ```javascript scripts/wallet.js
+  // Process dependencies
+  require('dotenv').config()
+  require("@nomiclabs/hardhat-web3");
+  const axios = require('axios');
+
+  // Create a new wallet then return the address and private key
+  const createWallet = async () => {
+      const wallet = web3.eth.accounts.create();
+      return [wallet.address, wallet.privateKey];
+  }
+
+  // Fund the wallet using the Chainstack faucet
+  const fundWallet = async (address, apiKey) => {
+      const apiUrl = `https://api.chainstack.com/v1/faucet/${network.name}`;
+
+      try {
+          const response = await axios.post(apiUrl, { address }, {
+              headers: {
+                  'Authorization': apiKey,
+                  'Content-Type': 'application/json',
+              },
+          });
+          return response.data;
+      } catch (error) {
+          throw error;
+      }
+  };
+  ```
+</CodeGroup>
+
+But hey, hang on a minute! There is still something missing from your `wallet.js` script—some of the variables are not set yet and neither are the calls that will run the two functions you have set. So, go ahead and create them but do so in a new `async` function called `main`.
+
+And while you’re at it, why not add some visual feedback to make it easy for you to process their results. Since there is little new to learn with this function, let’s straight up recap with the full `wallet.js` script until now:
+
+<CodeGroup>
+  ```javascript scripts/wallet.js
+  // Process dependencies
+  require('dotenv').config()
+  require("@nomiclabs/hardhat-web3");
+  const axios = require('axios');
+
+  // Create a new wallet then return the address and private key
+  const createWallet = async () => {
+      const wallet = web3.eth.accounts.create();
+      return [wallet.address, wallet.privateKey];
+  }
+
+  // Fund the wallet using the Chainstack faucet
+  const fundWallet = async (address, apiKey) => {
+      const apiUrl = `https://api.chainstack.com/v1/faucet/${network.name}`;
+
+      try {
+          const response = await axios.post(apiUrl, { address }, {
+              headers: {
+                  'Authorization': apiKey,
+                  'Content-Type': 'application/json',
+              },
+          });
+
+          return response.data;
+      } catch (error) {
+          throw error;
+      }
+  };
+
+  // Main function to generate a new wallet and fund it using the Chainstack faucet
+  const main = async () => {
+      try {
+
+          // Config for the Faucet API call
+          const apiKey = process.env.CHAINSTACK;
+
+          console.log('\nAttempting to generate new wallet...\n')
+          const [address, privateKey] = await createWallet();
+
+          console.log(`Created new wallet with address: ${address}\n`);
+          console.log(`New private key: ${privateKey} === KEEP IT SAFE ===\n`);
+          console.log(`Copy the following and replace the "WALLET" and "PRIVATE_KEY" lines in your ".env" file:\n\nWALLET="${address}" \nPRIVATE_KEY="${privateKey}"\n`);
+          console.log(`Sending ${network.name} faucet request for address ${address}...\n`);
+          const fundResponse = await fundWallet(address, apiKey);
+  				console.log(`Successfully funded ${address} on ${network.name} for ${fundResponse.amountSent}ETH.\n\nView transaction on Etherscan: ${fundResponse.transaction}\n`);
+      } catch (error) {
+          console.error('An error occurred:', error.response.data);
+      }
+  }
+
+  // Don't forget to run the main function!
+  main();
+  ```
+</CodeGroup>
+
+With the `wallet.js` script fully set up, the time has come for you to launch it via CLI using Hardhat:
+
+<CodeGroup>
+  ```shell CLI
+  # Sepolia
+  npx hardhat run scripts/wallet.js --network sepolia
+  ```
+</CodeGroup>
+
+You will get the following response if you have the additional visual feedback applied:
+
+<CodeGroup>
+  ```shell CLI
+  Attempting to generate new wallet...
+
+  Created new wallet with address: 0x13a310e3FfAa420D317F4d51C85225FDEB8e6eAd
+
+  New private key: 0x70472ba98ccf4ab019cbd3f1124dd3cc95a46cd60f8465ba67e3163914287576 === KEEP IT SAFE ===
+
+  Copy the following and replace the "WALLET" and "PRIVATE_KEY" lines in your ".env" file:
+
+  WALLET="0x13a310e3FfAa420D317F4d51C85225FDEB8e6eAd"
+  PRIVATE_KEY="0x70472ba98ccf4ab019cbd3f1124dd3cc95a46cd60f8465ba67e3163914287576"
+
+  Sending sepolia faucet request for address 0x13a310e3FfAa420D317F4d51C85225FDEB8e6eAd...
+
+  Successfully funded 0x13a310e3FfAa420D317F4d51C85225FDEB8e6eAd on sepolia for 0.5ETH.
+
+  View transaction on Etherscan: https://sepolia.etherscan.io/tx/0x2827d3886ca45b63f2692caf3189fef67128825eaebc5c9ab0f6e7184deaf73a
+  ```
+</CodeGroup>
+
+Congrats, you have now created a wallet and funded it successfully with the Chainstack faucet!
+
+Your next step is to enter the two keys into your `.env` file as values for the `WALLET` and `PRIVATE_KEY` keys. You can also use a pre-existing wallet address with the appropriate private key attached to it, by setting them in your `.env` file instead.
+
+### 1.5: Verify your wallet balance
+
+Now it's time to verify if your balance has been updated. Create a new file named `balance.js` within the `/scripts` directory and copy over the first two dependencies from your `wallet.js` script, without adding the one for `axios`.
+
+Then, create a new `address` constant and set its value to the `WALLET` you just copied in your `.env` file, using `process.env.WALLET`:
+
+<CodeGroup>
+  ```javascript scripts/balance.js
+   // Process dependencies
+  require('dotenv').config();
+  require("@nomiclabs/hardhat-web3");
+
+  // Initialize your wallet address
+  const address = process.env.WALLET;
+  ```
+</CodeGroup>
+
+With that taken care of, go ahead and create an asynchronous function that will use the `address` constant as a parameter and within it call the web3.js `getBalance` method.
+
+Since it will take more time for your node to process this request than that of executing the rest of the function's code locally, make sure you add `await` prior to the method:
+
+<CodeGroup>
+  ```javascript scripts/balance.js
+  // Define your get balance function
+  const getbal = async (address) => {
+
+    // Call the web3.js getBalance method
+    const balance = await web3.eth.getBalance(address);
+  };
+  ```
+</CodeGroup>
+
+In doing so you will prevent the rest of the code from processing before the method's promise is resolved once a response is returned.
+
+By default, the `getBalance` method will return a very barebones balance value in wei, so go ahead and add some extra visual feedback by calling the web3.js `fromWei` method to convert the wei output to ETH units.
+
+Once ready, go ahead and wrap things up by calling your `getbal`function with the `address` parameter at the end of your script:
+
+<CodeGroup>
+  ```javascript scripts/balance.js
+  // Process dependencies
+  require('dotenv').config();
+  require("@nomiclabs/hardhat-web3");
+
+  // Initialize your wallet address
+  const address = process.env.WALLET;
+
+  // Define your get balance function
+  const getbal = async (address) => {
+
+    // Call the web3.js getBalance method
+    const balance = await web3.eth.getBalance(address);
+
+    // Return your wallet balance in Wei and ETH on the selected network
+    console.log(`\nChecking ${network.name} balance for address: ${address}...\n\nYour balance is: ${balance}Wei\nThis amounts to: ${web3.utils.fromWei(balance)}ETH\n`);
+  };
+
+  // Don't forget to run your get balance function!
+  getbal(address);
+  ```
+</CodeGroup>
+
+Once you’re ready, go ahead and run the script via Hardhat in CLI using the `--network` parameter:
+
+<CodeGroup>
+  ```shell CLI
+  npx hardhat run scripts/balance.js --network $NETWORK
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```shell CLI
+  Checking sepolia balance for address: 0x13a310e3FfAa420D317F4d51C85225FDEB8e6eAd...
+
+  Your balance is: 500000000000000000Wei
+  This amounts to: 0.5ETH
+  ```
+</CodeGroup>
+
+## Step 2: Prepare and deploy the smart contract
+
+### 2.1: Draft an NFT smart contract
+
+Now that you've completed all the necessary preparations, it's time to create your smart contract. While this might seem intimidating at first, you can rest easy knowing that [OpenZeppelin](https://www.openzeppelin.com/) provides pre-built, security-audited contract templates.
+
+The cherry on top? You can [use their wizard](https://wizard.openzeppelin.com/#erc721) to create a customized contract that perfectly fits your needs. For our sample project, we will be using the following settings:
+
+<Frame caption="Figure 1:  music NFT project settings">
+  <img src="https://files.readme.io/d683f38-my-first-music-nft-openzeppelin-wizard.png" />
+
+  [OpenZeppelin Contract Wizard](https://wizard.openzeppelin.com/#erc721)
+</Frame>
+
+Aside from the name and symbol, which are quite self-explanatory, we'll include a `Mintable` option with `Auto Increment Ids` enabled. This feature allows privileged accounts (e.g., your account) to mint new tokens, which can represent new additions to your collection.
+
+We also need to enable the `URI Storage` option, as it allows us to attach media files like images to our NFTs. Additionally, we'll incorporate the `Ownable` option to enable administrative actions.
+
+While there are more parameters available in the wizard, they fall outside the scope of this tutorial. However, don't hesitate to experiment with them if you wish to explore additional functionalities beyond the basic ones we've implemented so far.
+
+Finally, ensure that the OpenZeppelin dependencies are available in your project by installing its `contracts` library with the following:
+
+<CodeGroup>
+  ```shell CLI
+  npm i @openzeppelin/contracts
+  ```
+</CodeGroup>
+
+### 2.2: Compile the minter smart contract
+
+With your contract ready, copy the code from the OpenZeppelin wizard into a new file, such as `MyMusicNFT.sol`, or click **Download** in the top-right corner. Then, create a new directory called `contracts` in your project `root` and place your smart contract in it.
+
+<Info>
+  Hardhat automatically compiles a new contract when it needs it, without additional input from your end but you can also do that manually using `npx hardhat compile`. This will compile all contracts located in the `contracts` directory, so if you have more than one, they will all be process accordingly.
+</Info>
+
+Before you move forward with deploying your compiled contract, however, there are some things to take care of first:
+
+1. Create an [Etherscan account](https://etherscan.io/register) and [API key](https://etherscan.io/myapikey), so you can verify the contract once it is deployed.
+
+2. Save the API key in your `.env` file as value for the `ETHERSCAN` key:
+
+   <CodeGroup>
+     ```shell .env
+     SEPOLIA="YOUR_SEPOLIA_ENDPOINT"
+     MAINNET="YOUR_MAINNET_ENDPOINT"
+     CHAINSTACK="Bearer YOUR_CHAINSTACK_API_KEY"
+     WALLET="YOUR_WALLET_ADDRESS"
+     PRIVATE_KEY="YOUR_WALLET_PRIVATE_KEY"
+     ETHERSCAN="YOUR_ETHERSCAN_API_KEY"
+     ```
+   </CodeGroup>
+
+3. Create a `deploy.js` script in your `/scripts` directory and add the following:
+
+   <CodeGroup>
+     ```javascript scripts/deploy.js
+     // Process dependencies
+     require('dotenv').config();
+     require("@nomiclabs/hardhat-web3");
+     require("@nomicfoundation/hardhat-verify");
+     const fs = require('fs');
+     const path = require('path');
+     const address = process.env.WALLET;
+     const privKey = process.env.PRIVATE_KEY;
+     ```
+   </CodeGroup>
+
+Apart from referencing the hardhat-verify library you installed earlier, there are two packages you haven’t encountered in this tutorial yet—`fs` and `path`, both of which ship by default with node.js.
+
+The former, `fs`, is a file system module, that allows you to interact with local files, while the latter is used for handling and transforming file paths.
+
+As the next step, create a few constants called `contractName`, `artifactPath`, `contractArtifact`, `contractABI`, and `contractBIN`. The first one will be used by Hardhat to determine which contract you will be interacting with, while the second and third to locate and read the compiled contract artifact. This artifact contains your smart contract’s `ABI` and its `bytecode` , or `BIN`.
+
+<Info>
+### ABI an BIN
+
+  The application binary interface (ABI) facilitates interaction between software modules, translating Solidity contract calls for Ethereum's Virtual Machine (EVM) and decoding transaction data. On the other hand, bytecode (BIN) is the binary output of Solidity code and consists of machine-readable instructions including one-byte "opcodes", hence the name.
+</Info>
+
+The artifact, containing your smart contract’s `ABI` and `BIN` is automatically generated when you compile it with Hardhat as `/artifacts/contracts/YourContractName.sol/YourContractName.json`, where `YourContractName` is the name of your contract. In this tutorial’s case, it is `MyFirstMusicNFT`, so go ahead and set the `contractName` constant's value to your smart contract's actual name.
+
+To help your code discover the location of the artifact, you can use the `path.resolve` method with `__dirname` as the first parameter, and the JSON path mentioned in the paragraph above, preceded by `..` to indicate the parent directory.
+
+<Info>
+### About `__dirname`
+
+  In node.js, `__dirname` is an environment variable that gives the absolute path to the directory of the currently running file. Unlike `./`, which denotes the current directory of a file, or `../`, which refers to its parent directory, `__dirname` always points to the precise directory where the executing file resides.
+</Info>
+
+Then, go ahead and read the JSON file with the `fs.readFileSync` method as the first parameter but make sure you have set `utf-8` as the encoding type in the second. Lastly, pass the entire thing as a JSON object by wrapping it with `JSON.parse`. Here’s how this part of your script should look like:
+
+<CodeGroup>
+  ```javascript scripts/deploy.js
+  // Process dependencies
+  require('dotenv').config();
+  require("@nomiclabs/hardhat-web3");
+  require("@nomicfoundation/hardhat-verify");
+  const fs = require('fs');
+  const path = require('path');
+  const address = process.env.WALLET;
+  const privKey = process.env.PRIVATE_KEY;
+
+  // Replace 'MyFirstMusicNFT' with your contract's name.
+  const contractName = 'MyFirstMusicNFT';
+
+  // Find the compiled smart contract to get the ABI and bytecode
+  const artifactPath = path.resolve(__dirname, `../artifacts/contracts/${contractName}.sol/${contractName}.json`);
+  const contractArtifact = JSON.parse(fs.readFileSync(artifactPath, 'utf-8'));
+  const contractABI = contractArtifact.abi;
+  const contractBIN = contractArtifact.bytecode;
+  ```
+</CodeGroup>
+
+### 2.3: Deploy your smart contract
+
+Next, it's time for you to put together the rest of the `deploy.js` script by adding a new function to handle the actual deployment process.
+
+To do that, define a fresh asynchronous `main` function first and create a new contract object constant `contractNFT` by calling the web3.js `Contract` method with `contractABI` and `address` as parameters, respectively.
+
+Then, deploy the `contractNFT` contract object as a constant `contractTX` transaction object by applying the `deploy` method to it with a `data` parameter set to `contractBIN`.
+
+<CodeGroup>
+  ```javascript scripts/deploy.js
+  // Create asynchronous function to deploy your contract
+  async function main() {
+    console.log(`\nAttempting to deploy the ${contractName} contract on ${network.name} from: ${address}\n`);
+    // Create new contract object
+    const contractNFT = new web3.eth.Contract(contractABI, address);
+
+    // Deploy contract object as a transaction
+    const contractTX = await contractNFT.deploy({
+
+      // Set transaction data as the contract bytecode
+      data: contractBIN,
+    });
+  }
+  ```
+</CodeGroup>
+
+Once you've set this up, proceed by creating a function to estimate the gas of the contract deployment transaction `contractTX`. To do that, just slap the web3.js `estimateGas` method at the back of the `contractTX` object, and add some relevant visual feedback.
+
+Then, continue by calling the web3.js `signTransaction` method with two parameters, the first being an object, and the second—`privKey`. Compose the object parameter using the key `from` set to `address`, `data` as `contractTX` with the `encodeABI` method applied to it, and `gasCost` as value for the`gas` one as the third.
+
+<CodeGroup>
+  ```javascript scripts/deploy.js
+  // Estimate the gas costs needed to process the transaction
+    const gasCost = await contractTX.estimateGas((err, gas) => {
+      if (!err) console.log(`Estimated gas: ${gas}...`);
+      else console.error(`Error estimating gas: ${err}...`);
+    });
+
+    // Sign the transaction
+    const createTransaction = await web3.eth.accounts.signTransaction({
+
+      // Define transaction parameters
+      from: address,
+      data: contractTX.encodeABI(),
+      gas: gasCost,
+    },
+      privKey
+    );
+  ```
+</CodeGroup>
+
+With this taken care of, your next step is to ask for a receipt with a `createReceipt` constant with value calling the web3.js `sendSignedTransaction` method with a single parameter, preceded by an `await` operator.
+
+Set the `createTransaction` constant as a value for it, apply the `rawTransaction` method to it, and then add some visual feedback to display the receipt as the closing statement for the entire `deploy` function. Don't forget to run it either!
+
+<CodeGroup>
+  ```javascript scripts/deploy.js
+  // Return transaction receipt
+    const createReceipt = await web3.eth.sendSignedTransaction(
+      createTransaction.rawTransaction
+    );
+
+    // Log contract address from receipt
+    console.log(`\nContract successfully deployed on ${network.name} at: ${createReceipt.contractAddress} \n\nCopy the following line to your ".env" file:\n\n${network.name.toUpperCase()}_CONTRACT="${createReceipt.contractAddress}"\n`);
+  ```
+</CodeGroup>
+
+Now, it’s time to verify your contract with Hardhat after it has been deployed. But considering it takes roughly 5 blocks of confirmations before you are able to do that, let’s set up a function to wait for the appropriate time before launching the verification.
+
+The function in itself just checks the current block using the web3.js `getBlockNumber` method in a given interval, so just copy over the following outside the `main` function loop:
+
+<CodeGroup>
+  ```javascript scripts/deploy.js
+  // Wait for `n` blocks function
+  async function waitForBlocks(n) {
+
+    // Get the latest block number
+    let latestBlockNumber = await web3.eth.getBlockNumber();
+    console.log(`Current block number: ${latestBlockNumber}...`);
+
+    // Calculate the block number to wait for
+    let targetBlockNumber = latestBlockNumber + n;
+    console.log(`Waiting until block number: ${targetBlockNumber}...`);
+
+    // Check for the right block at a given interval
+    return new Promise((resolve) => {
+      let interval = setInterval(async () => {
+        latestBlockNumber = await web3.eth.getBlockNumber();
+        console.log(`Checked latest block number: ${latestBlockNumber}...`);
+
+        // Check if the current block number matches the one to wait for
+        if (latestBlockNumber >= targetBlockNumber) {
+          clearInterval(interval);
+          console.log(`Target block reached: ${latestBlockNumber}...\n`);
+          resolve();
+        }
+      }, 5000);  // Set polling interval as per your need.
+    });
+  }
+  ```
+</CodeGroup>
+
+Last, you need to set up the verification function itself, so create a new asynchronous `verifyContract` function and inside it call the `waitForBlocks` and `run("verify:verify")`, while waiting for them to execute first.
+
+Make sure to also add the `address` and `constructorArguments` parameters, with `createReceipt.contractAddress` as value for the former and a blank array `[]` as one for the latter:
+
+<CodeGroup>
+  ```javascript scripts/deploy.js
+  // Verify the contract
+    async function verifyContract() {
+      console.log("Verifying contract in 5 blocks...\n");
+
+      // Wait for 5 blocks before running verification
+      await waitForBlocks(5);
+      await run("verify:verify", {
+        address: createReceipt.contractAddress,
+        constructorArguments: [],
+      });
+      console.log("\nContract deployed and verified!\n");
+    }
+    verifyContract();
+  }
+  ```
+</CodeGroup>
+
+That's it! Now all you have to do is run the `deploy.js` script via CLI with `npx hardhat run scripts/deploy.js --network $NETWORK` to have your very own smart contract deployed on the testnet of your choice.
+
+But still, the steps that led you here were indeed a tad bit more complex than what you had done so far in this tutorial, so let's recap by reviewing the entire deploy script's code:
+
+<CodeGroup>
+  ```javascript scripts/deploy.js
+  // Process dependencies
+  require('dotenv').config();
+  require("@nomiclabs/hardhat-web3");
+  require("@nomicfoundation/hardhat-verify");
+  const fs = require('fs');
+  const path = require('path');
+  const address = process.env.WALLET;
+  const privKey = process.env.PRIVATE_KEY;
+
+  // Replace 'MyFirstMusicNFT' with your contract's name.
+  const contractName = 'MyFirstMusicNFT';
+
+  // Find the compiled smart contract to get the ABI and bytecode
+  const artifactPath = path.resolve(__dirname, `../artifacts/contracts/${contractName}.sol/${contractName}.json`);
+  const contractArtifact = JSON.parse(fs.readFileSync(artifactPath, 'utf-8'));
+  const contractABI = contractArtifact.abi;
+  const contractBIN = contractArtifact.bytecode;
+
+  // Create asynchronous function to deploy your contract
+  async function main() {
+    console.log(`\nAttempting to deploy the ${contractName} contract on ${network.name} from: ${address}\n`);
+    // Create new contract object
+    const contractNFT = new web3.eth.Contract(contractABI, address);
+
+    // Deploy contract object as a transaction
+    const contractTX = await contractNFT.deploy({
+
+      // Set transaction data as the contract bytecode
+      data: contractBIN,
+    });
+
+    // Estimate the gas costs needed to process the transaction
+    const gasCost = await contractTX.estimateGas((err, gas) => {
+      if (!err) console.log(`Estimated gas: ${gas}...`);
+      else console.error(`Error estimating gas: ${err}...`);
+    });
+
+    // Sign the transaction
+    const createTransaction = await web3.eth.accounts.signTransaction({
+
+      // Define transaction parameters
+      from: address,
+      data: contractTX.encodeABI(),
+      gas: gasCost,
+    },
+      privKey
+    );
+
+    // Return transaction receipt
+    const createReceipt = await web3.eth.sendSignedTransaction(
+      createTransaction.rawTransaction
+    );
+
+    // Log contract address from receipt
+    console.log(`\nContract successfully deployed on ${network.name} at: ${createReceipt.contractAddress} \n\nCopy the following line to your ".env" file:\n\n${network.name.toUpperCase()}_CONTRACT="${createReceipt.contractAddress}"\n`);
+
+    // Verify the contract
+    async function verifyContract() {
+      console.log("Verifying contract in 5 blocks...\n");
+
+      // Wait for 5 blocks before running verification
+      await waitForBlocks(5);
+      await run("verify:verify", {
+        address: createReceipt.contractAddress,
+        constructorArguments: [],
+      });
+      console.log("\nContract deployed and verified!\n");
+    }
+    verifyContract();
+  }
+
+  // Wait for `n` blocks function
+  async function waitForBlocks(n) {
+
+    // Get the latest block number
+    let latestBlockNumber = await web3.eth.getBlockNumber();
+    console.log(`Current block number: ${latestBlockNumber}...`);
+
+    // Calculate the block number to wait for
+    let targetBlockNumber = latestBlockNumber + n;
+    console.log(`Waiting until block number: ${targetBlockNumber}...`);
+
+    // Check for the right block at a given interval
+    return new Promise((resolve) => {
+      let interval = setInterval(async () => {
+        latestBlockNumber = await web3.eth.getBlockNumber();
+        console.log(`Checked latest block number: ${latestBlockNumber}...`);
+
+        // Check if the current block number matches the one to wait for
+        if (latestBlockNumber >= targetBlockNumber) {
+          clearInterval(interval);
+          console.log(`Target block reached: ${latestBlockNumber}...\n`);
+          resolve();
+        }
+      }, 5000);  // Set polling interval as per your need.
+    });
+  }
+
+  // Don't forget to run your main function! Add error handling too
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+  ```
+</CodeGroup>
+
+Congratulations! Should you have followed the steps so far correctly, your first NFT contract is now live on the testnet of your choice! With that milestone achieved, it is time to define the metadata properties of your NFT prior to minting.
+
+## Step 3: Pin the metadata and mint your NFTs
+
+### 3.1: Getting started with Chainstack IPFS Storage
+
+Before you can mint any NFT, you will first need to pin all relevant media files to the Interplanetary File System (IPFS). Thanks to this, you won't have to rely on the availability of any centralized provider, instead having it permanently accessible. In IPFS, uploading is adding a file to the network, while pinning is ensuring its persistent availability by preventing its removal on a specific node.
+
+To make the entire process a real walk in the park, you can use Chainstack IPFS Storage, which will provide a seamless interface and API for you to do that. You can use the interface to create the bucket and folder that you need to pin the files manually, or follow this process to do so via the API:
+
+1. Sign in to your Chainstack account via the [console](https://console.chainstack.com/) and select **IPFS Storage** from the navigation on the left.
+2. Click the **Create bucket** and enter a name of your choice.
+3. Inside the bucket, click **New folder** with a name of your choice.
+4. Open the folder and bucket and examine the URL in the address bar for each of them.
+5. Copy the bucket ID starting with `BUCK`, for example, `BUCK-1337-8085-1337`.
+6. Copy the folder ID starting with `FOLD`, for example, `FOLD-1337-8085-1337`.
+7. Paste the three values in your `.env` file for the `BUCKET_ID`, `FOLDER_ID`, and `CHAINSTACK` keys like so:
+
+<CodeGroup>
+  ```bash .env
+  BUCKET_ID="BUCK-1337-8085-1337"
+  FOLDER_ID="FOLD-1337-8085-1337"
+  ```
+</CodeGroup>
+
+### 3.2: Pin your NFT media with Chainstack IPFS Storage
+
+With the prerequisites taken care of, it is time for you to pin the media files with Chainstack IPFS Storage. In the [tutorial repo](https://github.com/petarsrepo/music-nft-minter-tutorial-repo), you will find a tutorial audio file and cover image in the `src` directory that you can use freely to test the waters.
+
+Should you prefer to pin them with Chainstack IPFS Storage via the interface manually, you can do so already and jump to the next step, where you will set up the JSON metadata. Otherwise, it is time for you to create a new `pin.js` file to do that via the API.
+
+To get started with the new pin script, process the dependencies first. You will need the dotenv, fs, axios, and the FormData packages, the latter of which you can install with the following command:
+
+<CodeGroup>
+  ```shell CLI
+  npm install form-data
+  ```
+</CodeGroup>
+
+Here's how the start of the script should look like:
+
+<CodeGroup>
+  ```javascript scripts/pin.js
+  // Process dependencies
+  require('dotenv').config();
+  const fs = require('fs');
+  const axios = require('axios');
+  const FormData = require('form-data');
+  ```
+</CodeGroup>
+
+Next, define the location of the media files you will be pinning with Chainstack IPFS Storage via the API like so:
+
+<CodeGroup>
+  ```javascript scripts/pin.js
+  // Define the media files to be pinned with Chainstack IPFS Storage
+  const content = [
+    {
+      file: fs.createReadStream("./src/(Tutorial) My First Music NFT Cover.png"),
+      title: "(Tutorial) My First Music NFT Cover.png"
+    },
+    {
+      file: fs.createReadStream("./src/(Tutorial) PetarISFire - Chainstackwave.mp3"),
+      title: "(Tutorial) PetarISFire - Chainstackwave.mp3"
+    }
+  ];
+  ```
+</CodeGroup>
+
+Once ready, it is time for you to define a new asynchronous `addFiles` function as a constant with `source` and `single = false` as the two parameters it seeks:
+
+<CodeGroup>
+  ```javascript scripts/pin.js
+  // Define a function to pin files with Chainstack IPFS Storage
+  const addFiles = async (source, single = false) => {
+  }
+  ```
+</CodeGroup>
+
+The second parameter `single = false` will serve to differentiate between pinning single and multiple files, as the API URLs for them are not the same. Set up the differentiation in the code like so:
+
+<CodeGroup>
+  ```javascript scripts/pin.js
+    // Differentiate between pinning single and multiple files
+    const url = single
+      ? "https://api.chainstack.com/v1/ipfs/pins/pinfile"
+      : "https://api.chainstack.com/v1/ipfs/pins/pinfiles";
+  ```
+</CodeGroup>
+
+Next, define a new `data` constant with a value equal to `new FormData()` and follow up with an if-else statement, checking for the state of the `single` parameter:
+
+<CodeGroup>
+  ```javascript scripts/pin.js
+    // Define the pin metadata
+    const data = new FormData();
+    if (single) {
+  } else {
+  }
+  ```
+</CodeGroup>
+
+Inside the `if` statement, add some visual feedback to display which file you are attempting to pin by using the `JSON.stringify` method with the `source[0].title` value. Afterward, add the `bucket_id`, `folder_id`, `file`, and `title` to the `data` object via the `append` method.
+
+You can load the `bucket_id` and `folder_id` values from your `.env` file by setting them as the first parameter for the `append` method and using `process.env.BUCKET_ID` and `process.env.FOLDER_ID`, respectively as the second.
+
+In turn, do so for the `file` and `title` values but referencing `source[0].file` and `source[0].title` accordingly:
+
+<CodeGroup>
+  ```javascript scripts/pin.js
+    // Define the pin metadata
+    const data = new FormData();
+    if (single) {
+      console.log('Attempting to pin ' + JSON.stringify(source[0].title) + ' with Chainstack IPFS Storage...');
+      data.append('bucket_id', process.env.BUCKET_ID);
+      data.append('folder_id', process.env.FOLDER_ID);
+      data.append('file', source[0].file);
+      data.append('title', source[0].title);
+    } else {
+    }
+  ```
+</CodeGroup>
+
+The process is relatively similar for the `else` part of the statement, the only difference being that you need to use the `forEach` method to make sure all entries are referenced correctly:
+
+<CodeGroup>
+  ```javascript scripts/pin.js
+    // Define the pin metadata
+    const data = new FormData();
+    if (single) {
+      console.log('Attempting to pin ' + JSON.stringify(source[0].title) + ' with Chainstack IPFS Storage...');
+      data.append('bucket_id', process.env.BUCKET_ID);
+      data.append('folder_id', process.env.FOLDER_ID);
+      data.append('file', source[0].file);
+      data.append('title', source[0].title);
+    } else {
+      source.forEach((file) => {
+        console.log('Attempting to pin ' + JSON.stringify(file.title) + ' with Chainstack IPFS Storage...');
+        data.append('bucket_id', process.env.BUCKET_ID);
+        data.append('folder_id', process.env.FOLDER_ID);
+        data.append('file', file.file);
+        data.append('title', file.title);
+      });
+    }
+  ```
+</CodeGroup>
+
+Once ready, proceed by creating a new `config` constant, which will set up the `axios` configuration. Here you will also make a reference to your Chainstack API authorization token in a fashion similar to this:
+
+<CodeGroup>
+  ```javascript scripts/pin.js
+    // Define the Axios configuration
+    const config = {
+      method: 'POST',
+      url: url,
+      headers: {
+        "Content-Type": 'multipart/form-data;',
+        "Authorization": process.env.CHAINSTACK,
+        ...data.getHeaders()
+      },
+      data: data
+    };
+  ```
+</CodeGroup>
+
+Next, create a new `response` constant which will store the `axios` response, once again differentiating between single and multiple files:
+
+<CodeGroup>
+  ```javascript scripts/pin.js
+    // Store the Axios response
+    const response = await axios(config);
+    if (single) {
+      console.log(`File successfully pinned with Chainstack IPFS Storage with public ID: ${response.data.id}\\n`);
+      return JSON.stringify(response.data.id);
+    } else {
+      const pubIDs = response.data.map((item) => item.id);
+      console.log(`Files successfully pinned with Chainstack IPFS Storage with public IDs: ${pubIDs.join(', ')}\\n`);
+      return pubIDs;
+    }
+  };
+  ```
+</CodeGroup>
+
+With the `addFiles` function successfully set up, it is time to do so for the `findCIDs` one. Its purpose will be to obtain the content IDs (CIDs) of the files you have pinned, which are unique identifiers that allow universal access via any IPFS client.
+
+So, go ahead and create it as an asynchronous function by defining a new `findCIDs` constant and set `fileID` and `single = false` as the two parameters it would accept. Then, proceed by removing possible excess characters like so:
+
+<CodeGroup>
+  ```javascript scripts/pin.js
+  // Define a function to find CIDs for files pinned with Chainstack IPFS Storage
+  const findCIDs = async (fileID, single = false) => {
+    if (single) {
+      fileID = fileID.replace(/"/g, '');
+      fileID = [fileID];
+    }
+  }
+  ```
+</CodeGroup>
+
+It is quite possible that the `CID` will not be ready when your script moves on to find them, so let's set up a redundancy process that will automatically retry the search.
+
+Start by defining a new `maxRetries` constant, as well as a `retryTimeout` one, setting the former's value to `5` and the latter to `22000`. Simply put, this will make the function retry for a maximum of 3 times with an 11-second timeout between each retry.
+
+Next, create an `if-else` statement with the `!single` parameter in the `if` part. Inside it, create a new `cid` and `name` temporary array variables. After that, create a `for` loop that will use the `push` method to store the CID and title values of the freshly pinned files:
+
+<CodeGroup>
+  ```javascript scripts/pin.js
+    // Define the maximum retries and the timeout between retries
+    const maxRetries = 5;
+    const retryTimeout = 22000;
+
+    if (!single) {
+      let cid = [];
+      let name = [];
+
+      // Loop through all the pinned files
+      for (var i = 0; i < fileID.length; i++) {
+
+        // Get the CID and filename for the file
+        const result = await findCIDs(fileID[i], true);
+        cid.push(result[0]);
+        name.push(result[1]);
+      }
+
+      // Print the CIDs found and return the cid and name values
+      console.log('All CIDs found:' + cid + '\\n');
+      return [cid, name];
+    } else {
+    }
+  ```
+</CodeGroup>
+
+The rest of the function follows a similar logic but additionally features the retry loop, the axios configuration, as well as some error-checking code. Here's how the entire `findCIDs` function should look like in the end:
+
+<CodeGroup>
+  ```javascript scripts/pin.js
+  // Define a function to find CIDs for files pinned with Chainstack IPFS Storage
+  const findCIDs = async (fileID, single = false) => {
+    if (single) {
+      fileID = fileID.replace(/"/g, '');
+      fileID = [fileID];
+    }
+
+    // Define the maximum retries and the timeout between retries
+    const maxRetries = 3;
+    const retryTimeout = 11000;
+
+    if (!single) {
+      let cid = [];
+      let name = [];
+
+      // Loop through all the pinned files
+      for (var i = 0; i < fileID.length; i++) {
+
+        // Get the CID and filename for the file
+        const result = await findCIDs(fileID[i], true);
+        cid.push(result[0]);
+        name.push(result[1]);
+      }
+
+      // Print the CIDs found and return the cid and name values
+      console.log('All CIDs found:' + cid + '\\n');
+      return [cid, name];
+    } else {
+      let cid;
+      let name;
+      let retries = 0;
+
+      // Set up the retry loop
+      while (retries < maxRetries) {
+        try {
+          console.log('Attempting to find CID using public ID: ' + fileID + ' with Chainstack IPFS Storage...');
+
+          // Define the Axios configuration
+          const url = "https://api.chainstack.com/v1/ipfs/pins/" + fileID;
+          var config = {
+            method: 'GET',
+            url: url,
+            headers: {
+              "Content-Type": 'text/plain',
+              "Authorization": process.env.CHAINSTACK,
+            },
+          };
+
+          // Store the Axios response
+          const response = await axios(config);
+          console.log('CID found:' + response.data.cid + ' Filename: ' + response.data.title + '\\n');
+
+          cid = response.data.cid;
+          name = response.data.title;
+
+          // Throw an error if the cid and name values are not valid
+          if (cid != null && cid !== 'error' && name != null && name !== 'error') {
+            break;
+          } else {
+
+            // Throw an error if the CID and filename are not valid
+            throw new Error('CID or name values are not valid.');
+          }
+        } catch (error) {
+          console.error(`Error in findCIDs: ${error.message}. Attempting to retry...\\n`);
+
+          // Retry after the timeout if unsuccessful
+          retries++;
+          await new Promise((resolve) => setTimeout(resolve, retryTimeout));
+        }
+      }
+      return [cid, name];
+    }
+  };
+  ```
+</CodeGroup>
+
+Once the CIDs are successfully fetched with the previous function, you will need to write them to a JSON file along with the rest of the metadata of your NFT. Said JSON file will then be used to mint an NFT with the appropriate contents.
+
+So, go ahead and create a new asynchronous `writeJSON` function as a constant with the `pinCID` and `pinName` parameters as the ones it should accept.
+
+Create new temporary `audioIPFS` and `coverIPFS` variables and then an `if-else` statement with `pinCID && pinName` as its parameters.
+
+Inside the `if` statement, create a `for` loop which will piece together the appropriate URLs of your media pins:
+
+<CodeGroup>
+  ```javascript scripts/pin.js
+  // Define a function to write the metadata to a .json file
+  const writeJSON = async (pinCID, pinName) => {
+    let audioIPFS;
+    let coverIPFS;
+    if (pinCID && pinName) {
+      for (var i = 0; i < pinName.length; i++) {
+        if (pinName[i].includes('mp3')) {
+          audioIPFS = "https://ipfsgw.com/ipfs/" + pinCID[i];
+        } else {
+          coverIPFS = "https://ipfsgw.com/ipfs/" + pinCID[i];
+        }
+      }
+    }
+  }
+  ```
+</CodeGroup>
+
+In this tutorial, the URLs are pieced together using the Chainstack IPFS Storage gateway `ipfsgw.com` which will make your pins available faster, however, it is generally recommended to use `ipfs://` for truly universal access, even if it takes much longer to propagate this way.
+
+That being said, finish off the rest of the function by writing the metadata you collected earlier to a JSON file in the `src` directory. The entire `writeJSON` function should be set up in a fashion similar to this:
+
+<CodeGroup>
+  ```javascript scripts/pin.js
+  // Define a function to write the metadata to a .json file
+  const writeJSON = async (pinCID, pinName) => {
+    let audioIPFS;
+    let coverIPFS;
+    if (pinCID && pinName) {
+      for (var i = 0; i < pinName.length; i++) {
+        if (pinName[i].includes('mp3')) {
+          audioIPFS = "https://ipfsgw.com/ipfs/" + pinCID[i];
+        } else {
+          coverIPFS = "https://ipfsgw.com/ipfs/" + pinCID[i];
+        }
+      }
+
+      // Write the metadata to the file ./src/NFTmetadata.json
+      fs.writeFileSync('./src/NFTmetadata.json', JSON.stringify({
+        "description": "My first music NFT mint.",
+        "external_url": "https://chainstack.com/nfts/",
+        "image": coverIPFS,
+        "animation_url": audioIPFS,
+        "name": "PetarISFire - Chainstackwave"
+      }));
+
+      let jsonMeta;
+      if (fs.existsSync('./src/NFTmetadata.json')) {
+        jsonMeta = {
+          file: fs.createReadStream('./src/NFTmetadata.json'),
+          title: "NFTmetadata.json"
+        };
+      }
+      return jsonMeta;
+    }
+  };
+  ```
+</CodeGroup>
+
+Lastly, create a new asynchronous `pinNFT` function that will queue all the relevant functions in the correct order to have your media files and metadata JSON ready for minting:
+
+<CodeGroup>
+  ```javascript scripts/pin.js
+  // Define the main function that executes all necessary functions to pin the NFT metadata
+  const pinNFT = async () => {
+    try {
+      const ids = await addFiles(content);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+
+      const [pinCID, pinName] = await findCIDs(ids);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+
+      const jsonMeta = await writeJSON(pinCID, pinName);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+
+      const id = await addFiles([jsonMeta], true);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+
+      const jsonCID = await findCIDs(id, true);
+      console.log('NFT metadata successfully pinned with Chainstack IPFS Storage!\\n');
+      console.log('Copy this URL and set it as value for the "metadata" variable in the "mint.js" script file:\\n' + 'https://ipfsgw.com/ipfs/' + jsonCID);
+    } catch (error) {
+      console.error('Error during NFT pinning:', error.message);
+    }
+  };
+
+  //Don't forget to call the main function!
+  pinNFT();
+  ```
+</CodeGroup>
+
+That's it! You should now have a fully working script that will pin your media files, write the relevant metadata to JSON, pin said JSON, and have everything ready for minting automatically, even if it takes a couple of retries to do so.
+
+Don't forget to run the `pin.js` script via CLI, so you can watch the fireworks!
+
+<Warning>
+### If the script returns Error during NFT pinning: Request failed with status code 400 as response.
+
+  If you encounter this error, there is some degree of duplication with existing files you have pinned previously.
+
+  To resolve it, you must either set new filenames and titles for the interrupted pins, or delete the previous ones.
+
+  Do note that once you delete them, any previously minted NFTs using them as source for metadata will no longer display correctly and will be left as blank containers permanently.
+</Warning>
+
+And considering this has been the most complex script you have set up until now (and the rest of the tutorial), it is certainly wise to recap with the full `pin.js` code:
+
+<CodeGroup>
+  ```javascript scripts/pin.js
+  // Process dependencies
+  require('dotenv').config();
+  const fs = require('fs');
+  const axios = require('axios');
+  const FormData = require('form-data');
+
+  // Define the media files to be pinned
+  const content = [
+    {
+      file: fs.createReadStream("./src/(Tutorial) My First Music NFT Cover.png"),
+      title: "(Tutorial) My First Music NFT Cover.png"
+    },
+    {
+      file: fs.createReadStream("./src/(Tutorial) PetarISFire - Chainstackwave.mp3"),
+      title: "(Tutorial) PetarISFire - Chainstackwave.mp3"
+    }
+  ];
+
+  // Define a function to pin files with Chainstack IPFS Storage
+  const addFiles = async (source, single = false) => {
+
+    // Differentiate between pinning single and multiple files
+    const url = single
+      ? "https://api.chainstack.com/v1/ipfs/pins/pinfile"
+      : "https://api.chainstack.com/v1/ipfs/pins/pinfiles";
+
+    // Define the pin metadata
+    const data = new FormData();
+    if (single) {
+      console.log('Attempting to pin ' + JSON.stringify(source[0].title) + ' with Chainstack IPFS Storage...');
+      data.append('bucket_id', process.env.BUCKET_ID);
+      data.append('folder_id', process.env.FOLDER_ID);
+      data.append('file', source[0].file);
+      data.append('title', source[0].title);
+    } else {
+      source.forEach((file) => {
+        console.log('Attempting to pin ' + JSON.stringify(file.title) + ' with Chainstack IPFS Storage...');
+        data.append('bucket_id', process.env.BUCKET_ID);
+        data.append('folder_id', process.env.FOLDER_ID);
+        data.append('file', file.file);
+        data.append('title', file.title);
+      });
+    }
+
+    // Define the Axios configuration
+    const config = {
+      method: 'POST',
+      url: url,
+      headers: {
+        "Content-Type": 'multipart/form-data;',
+        "Authorization": process.env.CHAINSTACK,
+        ...data.getHeaders()
+      },
+      data: data
+    };
+
+    // Store the Axios response
+    const response = await axios(config);
+    if (single) {
+      console.log(`File successfully pinned with Chainstack IPFS Storage using public ID: ${response.data.id}\\n`);
+      return JSON.stringify(response.data.id);
+    } else {
+      const pubIDs = response.data.map((item) => item.id);
+      console.log(`Files successfully pinned with Chainstack IPFS using public IDs: ${pubIDs.join(', ')}\\n`);
+      return pubIDs;
+    }
+  };
+
+  // Define a function to find CIDs for files uploaded to IPFS
+  const findCIDs = async (fileID, single = false) => {
+    if (single) {
+      fileID = fileID.replace(/"/g, '');
+      fileID = [fileID];
+    }
+
+    // Define the maximum retries and the timeout between retries
+    const maxRetries = 3;
+    const retryTimeout = 11000;
+
+    if (!single) {
+      let cid = [];
+      let name = [];
+
+      // Loop through all the uploaded files
+      for (var i = 0; i < fileID.length; i++) {
+
+        // Get the CID and filename for the file
+        const result = await findCIDs(fileID[i], true);
+        cid.push(result[0]);
+        name.push(result[1]);
+      }
+
+      // Print the CIDs found and return the cid and name values
+      console.log('All CIDs found:' + cid + '\\n');
+      return [cid, name];
+    } else {
+      let cid;
+      let name;
+      let retries = 0;
+
+      // Set up the retry loop
+      while (retries < maxRetries) {
+        try {
+          console.log('Attempting to find CID via public ID: ' + fileID + ' on Chainstack IPFS...');
+
+          // Define the Axios configuration
+          const url = "https://api.chainstack.com/v1/ipfs/pins/" + fileID;
+          var config = {
+            method: 'GET',
+            url: url,
+            headers: {
+              "Content-Type": 'text/plain',
+              "Authorization": process.env.CHAINSTACK,
+            },
+          };
+
+          // Store the Axios response
+          const response = await axios(config);
+          console.log('CID found:' + response.data.cid + ' Filename: ' + response.data.title + '\\n');
+
+          cid = response.data.cid;
+          name = response.data.title;
+
+          // Throw an error if the cid and name values are not valid
+          if (cid != null && cid !== 'error' && name != null && name !== 'error') {
+            break;
+          } else {
+
+            // Throw an error if the CID and filename are not valid
+            throw new Error('CID or name values are not valid.');
+          }
+        } catch (error) {
+          console.error(`Error in findCIDs: ${error.message}. Attempting to retry...\\n`);
+
+          // Retry after the timeout if unsuccessful
+          retries++;
+          await new Promise((resolve) => setTimeout(resolve, retryTimeout));
+        }
+      }
+      return [cid, name];
+    }
+  };
+
+  // Define a function to write the metadata to a .json file
+  const writeJSON = async (uploadCID, uploadName) => {
+    let audioIPFS;
+    let coverIPFS;
+    if (uploadCID && uploadName) {
+      for (var i = 0; i < uploadName.length; i++) {
+        if (uploadName[i].includes('mp3')) {
+          audioIPFS = "https://ipfsgw.com/ipfs/" + uploadCID[i];
+        } else {
+          coverIPFS = "https://ipfsgw.com/ipfs/" + uploadCID[i];
+        }
+      }
+
+      // Write the metadata to the file ./src/NFTmetadata.json
+      fs.writeFileSync('./src/NFTmetadata.json', JSON.stringify({
+        "description": "My first music NFT mint.",
+        "external_url": "https://chainstack.com/nfts/",
+        "image": coverIPFS,
+        "animation_url": audioIPFS,
+        "name": "PetarISFire - Chainstackwave"
+      }));
+
+      let jsonMeta;
+      if (fs.existsSync('./src/NFTmetadata.json')) {
+        jsonMeta = {
+          file: fs.createReadStream('./src/NFTmetadata.json'),
+          title: "NFTmetadata.json"
+        };
+      }
+      return jsonMeta;
+    }
+  };
+
+  // Define the main function that executes all necessary functions to upload the NFT metadata
+  const uploadNFT = async () => {
+    try {
+      const ids = await addFiles(content);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+
+      const [uploadCID, uploadName] = await findCIDs(ids);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+
+      const jsonMeta = await writeJSON(uploadCID, uploadName);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+
+      const id = await addFiles([jsonMeta], true);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+
+      const jsonCID = await findCIDs(id, true);
+      console.log('NFT metadata successfully uploaded to Chainstack IPFS!\\n');
+      console.log('Copy this URL and set it as value for the "metadata" variable in the "mint.js" script file:\\n' + 'https://ipfsgw.com/ipfs/' + jsonCID);
+    } catch (error) {
+      console.error('Error during NFT upload:', error.message);
+    }
+  };
+
+  //Don't forget to call the main function!
+  uploadNFT();
+  ```
+</CodeGroup>
+
+### 3.3: Create the script for minting
+
+By the time you reach this step, you should have successfully pinned your NFT media files with Chainstack IPFS Storage, and have their CIDs referenced in a JSON file that was also pinned there.
+
+The JSON file must contain an `image` key to store the NFT cover, an `animation_url` one for the audio file, `name` for the track title, and optionally a `description`, as well as an `external_url` for a link to your profile for example. It should look similar to this:
+
+<CodeGroup>
+  ```Json JSON
+  {
+    "description": "My first music NFT mint.",
+    "external_url": "https://chainstack.com/nfts/",
+    "image": "https://ipfsgw.com/ipfs/QmfVBC87qZyn81Z68ntCkTNehQwdEFr3ZPCnVDTXjENxUT",
+    "animation_url": "https://ipfsgw.com/ipfs/QmPv19dddmwp8BcoaxFmqZjhsps9wKVNubyYtpT2htxfTd",
+    "name": "PetarISFire - Chainstackwave"
+  }
+  ```
+</CodeGroup>
+
+If that is indeed the case, you can move forward by creating a new `mint.js` file inside the `scripts` directory for the minting script. Begin by processing the dependencies for the `dotenv`, `hardhat-web3`, and `fs` modules.
+
+Proceed by initializing your wallet address, private key, deployed smart contract ABI, and JSON metadata URL, as well as the appropriate deployed contract address for each network via a simple `if` loop:
+
+<CodeGroup>
+  ```javascript scripts/mint.js
+  // Process dependencies
+  require('dotenv').config();
+  require("@nomiclabs/hardhat-web3");
+  const fs = require('fs');
+  const path = require('path');
+
+  // Initialize your wallet address and private key
+  const address = process.env.WALLET;
+  const privKey = process.env.PRIVATE_KEY;
+
+  // Initialize your deployed smart contract address for the selected network
+  let contractAdrs;
+  if (network.name == 'sepolia') {
+    const contractENV = process.env.SEPOLIA_CONTRACT
+    contractAdrs = contractENV;
+  } else if (network.name == 'sepolia') {
+    const contractENV = process.env.SEPOLIA_CONTRACT;
+    contractAdrs = contractENV;
+  } else {
+    const contractENV = process.env.MAINNET_CONTRACT;
+    contractAdrs = contractENV;
+  }
+
+  // Replace 'MyFirstMusicNFT' with your contract's name.
+  const contractName = 'MyFirstMusicNFT';
+
+  // Find the compiled smart contract to get the ABI
+  const artifactPath = path.resolve(__dirname, `../artifacts/contracts/${contractName}.sol/${contractName}.json`);
+  const contractArtifact = JSON.parse(fs.readFileSync(artifactPath, 'utf-8'));
+  const contractABI = contractArtifact.abi;
+
+  // Initialize the JSON metadata URL
+  const metadata = "https://ipfsgw.com/ipfs/QmX5mrBWukdWVByxnoUS4GJTysVBFjjoVg1fgSjExNV7Dd"
+  ```
+</CodeGroup>
+
+Then, create a new contract object and set the interactions origin to the **owner address**. This is crucial for the successful execution of the script, as earlier you set up the contract to allow minting only from the **owner address**. Without the correct `from` parameter it will return an error.
+
+<CodeGroup>
+  ```javascript scripts/mint.js
+  // Create a new contract object and set interactions origin to the owner address
+  const contractObj = new web3.eth.Contract(contractABI, contractAdrs, {
+    from: address,
+  });
+  ```
+</CodeGroup>
+
+Next, create a gas estimation function like the one in the `scripts/deploy.js` using the web3.js `estimateGas` method with the `safeMint` method of your contract as its target:
+
+<CodeGroup>
+  ```javascript scripts/mint.js
+  // Define a gas estimation function
+  const gasEstimate = async () => {
+    return await contractObj.methods.safeMint(address, metadata).estimateGas();
+  };
+  ```
+</CodeGroup>
+
+With that taken care of, move forward by defining a new asynchronous `startMint` function as a constant. Inside it, start by adding some visual feedback for the mint address target and the estimate response like so:
+
+<CodeGroup>
+  ```javascript scripts/mint.js
+  // Define a minting function
+  const startMint = async () => {
+    console.log(`\nAttempting to mint on ${network.name} to: ${address}...\n`);
+
+    // Estimate the gas costs needed to process the transaction
+    const gasCost = await contractObj.methods.safeMint(address, metadata).estimateGas((err, gas) => {
+      if (!err) console.log(`Estimated gas: ${gas}...\n`);
+      else console.error(`Error estimating gas: ${err}...\n`);
+    });
+  }
+  ```
+</CodeGroup>
+
+Continue the function by defining the transaction details and signing it with the web3.js `signTransaction` method, using as the first parameter an object with the `address` value for the `from` key, the `contractAdrs` one for `to`.
+
+Then, for `data`, call the contract object's `safeMint` method with the `encodeABI` method attached to it, and `gas` set to `gasCost`. Use the `privKey` constant as the second parameter for a final result like this:
+
+<CodeGroup>
+  ```javascript scripts/mint.js
+  // Define the transaction details and sign it
+    const mintTX = await web3.eth.accounts.signTransaction(
+      {
+        from: address,
+        to: contractAdrs,
+        data: contractObj.methods.safeMint(address, metadata).encodeABI(),
+        gas: gasCost,
+      },
+      privKey,
+    );
+  ```
+</CodeGroup>
+
+Lastly, make sure you get the transaction receipt by creating a `createReceipt` function like the following and call the `startMint` function to truly make the mix complete:
+
+<CodeGroup>
+  ```javascript scripts/mint.js
+  // Process dependencies
+  require('dotenv').config();
+  require("@nomiclabs/hardhat-web3");
+  const fs = require('fs');
+  const path = require('path');
+
+  // Initialize your wallet address and private key
+  const address = process.env.WALLET;
+  const privKey = process.env.PRIVATE_KEY;
+
+  // Initialize your deployed smart contract address for the selected network
+  let contractAdrs;
+  if (network.name == 'sepolia') {
+    const contractENV = process.env.SEPOLIA_CONTRACT
+    contractAdrs = contractENV;
+  } else if (network.name == 'sepolia') {
+    const contractENV = process.env.SEPOLIA_CONTRACT;
+    contractAdrs = contractENV;
+  } else {
+    const contractENV = process.env.MAINNET_CONTRACT;
+    contractAdrs = contractENV;
+  }
+
+  // Replace 'MyFirstMusicNFT' with your contract's name.
+  const contractName = 'MyFirstMusicNFT';
+
+  // Find the compiled smart contract to get the ABI
+  const artifactPath = path.resolve(__dirname, `../artifacts/contracts/${contractName}.sol/${contractName}.json`);
+  const contractArtifact = JSON.parse(fs.readFileSync(artifactPath, 'utf-8'));
+  const contractABI = contractArtifact.abi;
+
+  // Initialize the JSON metadata URL
+  const metadata = "https://ipfsgw.com/ipfs/QmX5mrBWukdWVByxnoUS4GJTysVBFjjoVg1fgSjExNV7Dd"
+
+  // Create a new contract object and set interactions origin to the owner address
+  const contractObj = new web3.eth.Contract(contractABI, contractAdrs, {
+    from: address,
+  });
+
+  // Define a minting function
+  const startMint = async () => {
+    console.log(`\nAttempting to mint on ${network.name} to: ${address}...\n`);
+
+    // Estimate the gas costs needed to process the transaction
+    const gasCost = await contractObj.methods.safeMint(address, metadata).estimateGas((err, gas) => {
+      if (!err) console.log(`Estimated gas: ${gas}...\n`);
+      else console.error(`Error estimating gas: ${err}...\n`);
+    });
+
+    // Define the transaction details and sign it
+    const mintTX = await web3.eth.accounts.signTransaction(
+      {
+        from: address,
+        to: contractAdrs,
+        data: contractObj.methods.safeMint(address, metadata).encodeABI(),
+        gas: gasCost,
+      },
+      privKey,
+    );
+
+    // Get transaction receipt
+    const createReceipt = await web3.eth.sendSignedTransaction(mintTX.rawTransaction);
+
+    // Provide appropriate network for Etherscan link
+    if (network.name !== 'mainnet'){
+    console.log(`NFT successfully minted on ${network.name} with hash: ${createReceipt.transactionHash}\n\nView the transaction on Etherscan: https://${network.name}.etherscan.io/tx/${createReceipt.transactionHash}\n`);
+    } else {
+      console.log(`NFT successfully minted on ${network.name} with hash: ${createReceipt.transactionHash}\n\nView the transaction on Etherscan: https://etherscan.io/tx/${createReceipt.transactionHash}\n`);
+    }
+  };
+
+  // Don't forget to run the main function!
+  startMint();
+  ```
+</CodeGroup>
+
+Congratulations! After running the `mint.js` script with Hardhat using `npx hardhat run scripts/mint.js --network NETWORK_NAME`, you should now have minted the first music NFT in your collection!
+
+To add more NFTs, simply follow the process to create a new JSON file with different parameters and rerun the relevant functions, making sure to select the appropriate JSON file for the metadata variable in the `mint.js` function.
+
+### 3.4: View your NFTs on MetaMask and OpenSea
+
+If you've managed to complete the previous steps, this one should be quite simple. Begin by opening your MetaMask wallet or [downloading it](https://metamask.io/download/) if you haven't already. Log in and choose the Sepolia network at the top.
+
+Click the icon in the top right corner (not the MetaMask logo) and select **Import Account**. Opt for **Private Key**, as that's how you initially set up your address, and paste it into the designated field.
+
+Afterward, head to the **NFTs** tab and select **Import NFTs** at the bottom. Paste your music NFT contract’s address into the first field, and the token ID in the next. If it’s your first mint the token ID will be 0.
+
+Finish the process by clicking **Add**, and there you have it—your music NFT is now visible in MetaMask!
+
+<Frame caption="Figure 2: Music NFT on MetaMask; Source:">
+  <img src="/images/docs/478a2f5-my-first-music-nft-metamask.png" />
+</Frame>
+  [Etherscan](https://goerli.etherscan.io/token/0x7d8c7C54d98D533Af176DE1a0e280898E55537eb)
+
+Unfortunately, MetaMask does not permit you to play the audio associated with your music NFT. To accomplish this, visit OpenSea, specifically the [Sepolia Testnet version found here](https://testnets.opensea.io/). Use MetaMask to log in, and once successful, hover over your avatar and click **Profile**.
+
+You should see your music NFT; click on it to reveal its details. If the featured image only shows a small preview, click on it once more and then a third time to open it in full screen, so your tune starts playing.
+
+<Frame caption="Figure 3: Music NFT on OpenSea; Source:">
+  <img src="/images/docs/61ec277-my-first-music-nft-opensea.png" />
+</Frame>
+  [OpenSea Goerli](https://testnets.opensea.io/assets/goerli/0x7d8c7c54d98d533af176de1a0e280898e55537eb/0)
+## Access the tutorial repo
+
+To make it even easier for you to follow and implement the concepts discussed in this tutorial, we have prepared a comprehensive code repository for your convenience. The repo contains all the necessary files, code snippets, and resources used throughout the tutorial.
+
+You can access the full tutorial code at its [dedicated GitHub repo here](https://github.com/chainstacklabs/music-nft-minter-tutorial-repo).
+
+Feel free to download or clone the repository, and use it as a reference while working through the tutorial. This will help you save time and ensure that you have a complete understanding of the concepts presented.
+
+## Bringing it all together
+
+With all of this taken care of, you have successfully dipped your feet and managed to explore the fascinating world of minting music NFTs. And thanks to this, you now have established a step-by-step process on how to create, deploy, and manage your very own digital music collectibles.
+
+By leveraging blockchain technology, artists and collectors like yourself can take full advantage of this new avenue for monetization, creative expression, and secure ownership.
+
+As you embark on your music NFT journey, remember that the possibilities are endless. Experiment with different parameters and smart contract functionalities to create NFTs that not only represent your unique artistic vision but also offer value to your audience.
+
+Whether you're an established musician or an emerging talent, music NFTs can open doors to new opportunities and reshape the way you engage with and appreciate the art of sound.
+
+So go ahead, take the leap, and begin minting your very own music NFTs. Share your creations with the world, and witness the transformative power of this cutting-edge technology in the ever-evolving music industry. Happy minting!
+
+### About the author
+
+<CardGroup>
+  <Card title="Petar Stoykov" img="https://pbs.twimg.com/profile_images/1565444249784565761/J6viLLoe_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/> Senior Copywriter @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> Writes on Ethereum, NFTs, and underlying technology
+
+    <Icon icon="laptop"  iconType="solid"/> I BUIDL tutorials insightful so your dev experience can be delightful.
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/petarsrepo)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/petarcopyrock)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/pstoykov/)
+  </Card>
+</CardGroup>

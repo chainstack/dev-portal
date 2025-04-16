@@ -1,0 +1,502 @@
+---
+title: "Expanding Your Blockchain Horizons: The eth_getBlockReceipts Emulator"
+---
+
+**TLDR**
+* Demonstrates building a stand-in for the eth\_getBlockReceipts method (available natively on Erigon and newer Geth versions) using the eth\_getBlockByNumber and eth\_getTransactionReceipt calls on any EVM chain.
+* Uses Node.js and web3.js to fetch all transaction receipts for a specified block, grouping them into a single array – effectively replicating the one-call convenience of eth\_getBlockReceipts.
+* Highlights the parsing of receipt logs for more user-friendly output and includes a helper function to selectively extract specific fields (e.g. gasUsed) from each receipt.
+* Offers a practical solution to unify transaction + receipt data retrieval on clients that lack the native eth\_getBlockReceipts endpoint.
+
+## Main article
+
+The `eth_getBlockReceipts` method is a powerful tool in the Ethereum ecosystem that offers a window into the inner workings of the network. Retrieving the receipts of all transactions within a block provides insight into the status and outcome of each transaction. Whether you're developing a decentralized exchange, a contract auditing tool, or just curious about the Ethereum network, the `eth_getBlockReceipts` method is an essential resource that can help you uncover the details and outcomes of transactions on the blockchain. It's like having an x-ray of the Ethereum network, revealing what's happening beneath the surface and providing a clear picture of the network's activity.
+
+The caveat is that this method is only available by querying nodes running the [Erigon client](/docs/protocols-clients). This guide will show you how you can emulate this method in essentially any EVM-compatible network, even if the node is not running on Erigon.
+
+Read the [Erigon vs. Geth](https://chainstack.com/ethereum-clients-geth-and-erigon/) guide to get a better understanding of these two popular Ethereum clients.
+
+This article is code-centered, and you should read the [Uncovering the power of eth\_getBlockReceipts](/docs/uncovering-the-power-of-ethgetblockreceipts) guide to have more theory insights.
+
+<Info>
+  ### Update on eth_getBlockReceipts
+
+  As of September 2023, the `eth_getBlockReceipts` method is also available on the Geth client from V [1.13.0](https://github.com/ethereum/go-ethereum/releases/tag/v1.13.0).
+</Info>
+
+## Prerequisites
+
+To start with a JavaScript development project, you'll need to install `node.js`, a powerful JavaScript runtime environment that enables developers to run JavaScript code outside a web browser. For this project, it's recommended to use at least version 16. You can [download it from their website](https://nodejs.org/en/download/).
+
+With `node.js` installed, you're ready to start using JavaScript. However, you'll need access to a blockchain node to query the data. Here's where Chainstack comes in to save the day. Simply follow these steps to sign up and deploy your own blockchain node with Chainstack for free:
+
+<CardGroup>
+  <Card title="Sign up with Chainstack" href="https://console.chainstack.com/user/account/create" icon="angle-right" horizontal />
+  <Card title="Deploy a node" href="/docs/manage-your-networks#join-a-public-network" icon="angle-right" horizontal />
+  <Card title="View node access and credentials" href="/docs/manage-your-node#view-node-access-and-credentials" icon="angle-right" horizontal />
+</CardGroup>
+
+<Info>
+  ### Disclaimer
+
+  This tool was developed and tested using an Avalanche endpoint, but you can choose any EVM-compatible network.
+</Info>
+
+## The project
+
+Now that you have all the tools required, you are ready to create your `eth_getBlockReceipt` emulator.
+
+## Initialize an npm project
+
+An npm (Node Package Manager) project is a software project managed using the `npm` platform. npm is the default package manager for the JavaScript runtime environment node.js and is needed to manage the dependencies and packages used in a project.
+
+At the heart of an `npm` project is the `package.json` file, a blueprint that outlines the packages and dependencies your project requires. This file acts as a roadmap, guiding npm in managing your project's dependencies.
+
+`npm` makes it easy for developers to share and reuse code, and its vast library of packages can be easily installed and used in any project. This allows developers to focus on writing their own code and let `npm` manage external dependencies.
+
+To initialize an `npm` project, open your terminal in the root directory of your project and run the following command:
+
+<CodeGroup>
+  ```bash Shell
+  npm init
+  ```
+</CodeGroup>
+
+This command will prompt a few questions, answer them, and it will create a `package.json` file. Note that these answers do not affect the functionality of your project, so don’t stress too much about what you input.
+
+You can also run the command with the `-y` flag, which will skip all questions.
+
+<CodeGroup>
+  ```bash Shell
+  npm init -y
+  ```
+</CodeGroup>
+
+You have now created an `npm` project and are ready to start development.
+
+## Install the dependencies
+
+As previously mentioned, creating this tool requires some npm packages. Specifically the `dotenv` and `web3` packages.
+
+During development, we used the following versions:
+
+* dotenv ^16.0.3
+* web3 ^1.8.1
+
+Install those packages by running the following:
+
+<CodeGroup>
+  ```bash Shell
+  npm i web3 dotenv
+  ```
+</CodeGroup>
+
+[web3.js](https://web3js.readthedocs.io/en/v1.8.2/) is a tool for interacting with an EVM-compatible blockchain, while dotenv is a package for managing configuration settings in a secure and convenient manner. Together, these two packages provide a powerful and flexible toolkit for developing DApps.
+
+## The code
+
+This `eth_getBlockReceipt` emulator will be developed on a single JavaScript file, so go ahead and create a file named `index.js` in the root directory of your project.
+
+The tool will do the following:
+
+* Create a provider instance and import packages.
+* Generate an eth\_getBlockReceipt-like object with a function.
+* Loop into the object and extract specific fields with a function.
+* Run the program with the main function.
+
+### Import packages and create a provider instance
+
+The first step of any tool using the web3.js library is to import the necessary packages and create a provider instance. So add the following code at the top of your `index.js` file.
+
+<CodeGroup>
+  ```js index.js
+  const Web3 = require("web3");
+  require('dotenv').config();
+
+  // Create provider instance
+  const NODE_URL = process.env.CHAINSTACK_NODE_URL;
+  const web3 = new Web3(NODE_URL);
+  ```
+</CodeGroup>
+
+This creates a `web3` instance that can access a high-level API for interacting with a blockchain; essentially, it’s your connection to the blockchain node.
+
+This tool uses an environment variable to import the node URL to keep sensitive information safe, so it is more difficult to inadvertently share it.
+
+This is done using the `dotenv` package. Create a file named `.env` in the root directory and create a variable holding your Chainstack node URL.
+
+<CodeGroup>
+  ```js .env
+  CHAINSTACK_NODE_URL="YOUR_ENDPOINT_URL_HERE"
+  ```
+</CodeGroup>
+
+<Warning>
+  It is important that the environment variable has the same name as the variable imported in the `index.js` file.
+</Warning>
+
+### Generate an eth\_getBlockReceipt-like object
+
+Now, let’s start working on the bulk of the logic for this project. Create a new `async` function named `getBlockReceipts` which takes two parameters: the `provider` and the target `block` for retrieving receipts.
+
+Then paste the following code into the `index.js` file:
+
+<CodeGroup>
+  ```js index.js
+  async function getBlockReceipts(provider, block) {
+
+      const extractTransactions = await provider.eth.getBlock(block, false)
+
+      let receipts = [];
+      for (const transaction of extractTransactions.transactions) {
+
+          // Get the transaction receipt
+          const txReceipt = await web3.eth.getTransactionReceipt(transaction);
+
+          for (let log of txReceipt.logs) {
+              let logData = {
+                  address: log.address,
+                  topics: log.topics,
+                  data: log.data,
+                  blockNumber: log.blockNumber,
+                  transactionHash: log.transactionHash,
+                  transactionIndex: log.transactionIndex,
+                  blockHash: log.blockHash,
+                  logIndex: log.logIndex,
+                  removed: log.removed,
+                  id: log.id
+              }
+              txReceipt.logs = logData;
+          }
+
+          // replace the original logs array with the logData
+          receipts.push(txReceipt);
+      }
+
+      return receipts;
+  }
+  ```
+</CodeGroup>
+
+Let’s go over the logic here.
+
+The first step is to retrieve all of the transactions hashed from the desired block. This can be achieved by utilizing the [`eth_getBlockByNumber`](/api-reference/ethereum_node_api/blocks_info/eth_getBlockByNumber) method from the Ethereum JSON-RPC API. When calling this method, set the *full transactions* flag to `false` to ensure that only the transaction hashes are returned in an array format.
+
+The transaction hashes retrieved in this step will be stored in the `extractTransactions` constant for further processing.
+
+<CodeGroup>
+  ```js JavaScript
+  const extractTransactions = await provider.eth.getBlock(block, false)
+  ```
+</CodeGroup>
+
+The next step will loop through the array of hashes and call the [`eth_getTransactionReceipt`](/api-reference/ethereum_node_api/transaction_info/eth_getTransactionReceipt) method on each hash, do some parsing, and store the result in an array called `receipts`.
+
+<CodeGroup>
+  ```js JavaScript
+  let receipts = [];
+      for (const transaction of extractTransactions.transactions) {
+
+          // Get the transaction receipt
+          const txReceipt = await web3.eth.getTransactionReceipt(transaction);
+
+          for (let log of txReceipt.logs) {
+              let logData = {
+                  address: log.address,
+                  topics: log.topics,
+                  data: log.data,
+                  blockNumber: log.blockNumber,
+                  transactionHash: log.transactionHash,
+                  transactionIndex: log.transactionIndex,
+                  blockHash: log.blockHash,
+                  logIndex: log.logIndex,
+                  removed: log.removed,
+                  id: log.id
+              }
+              txReceipt.logs = logData;
+          }
+
+          // replace the original logs array with the logData
+          receipts.push(txReceipt);
+      }
+  ```
+</CodeGroup>
+
+The second loop for `(let log of txReceipt.logs)` will extract the logs data and replace the `logs object` from the original receipt. This step aims to provide a more user-friendly representation of the logs data. Without this processing, the `logs` data in the transaction receipt would only be returned as an array of objects, `[object, object]`, which may require additional steps from the end-user to extract the relevant information.
+
+By replacing the original logs object with the `logData` object, the final response includes a more intuitive representation of the log data, eliminating the need for additional processing.
+
+Once all the logs in the transaction receipt have been processed, the code proceeds to the next iteration of the loop and repeats the same process for the next transaction.
+
+The final step pushes the unpacked transaction receipt into the `receipts` array, and after all of the transactions have been processed, the function returns the `receipts` array.
+
+### Support function to isolate fields
+
+This script also includes a support function called `getElement` which takes the receipts array returned by `getBlockReceipts` and the name of a field as the input parameters.
+
+Paste the following function into the `index.js` file.
+
+<CodeGroup>
+  ```js index.js
+  // Extract a specific field and return an array
+  async function getElement(receipts, field) {
+      return receipts.map(receipt => receipt[field]);
+  }
+  ```
+</CodeGroup>
+
+The function returns an array that contains the values of the specified field from each object in the `receipts` array. This is achieved through the `map` method, which iterates over each element in the `receipts` array and returns the specified field's value for that element.
+
+In essence, the `getElement` function provides a convenient way to extract a specific field from a collection of objects and returns the extracted values as an array.
+
+For example:
+
+<CodeGroup>
+  ```js JavaScript
+  const logData = await getElement(receipts, 'gasUsed');
+
+  // Response = [ 396022, 1442653, 664107 ]
+  ```
+</CodeGroup>
+
+### Main function and full code
+
+The final step of the script is the `main()` function, which runs the full code and demonstrates the logic.
+
+Paste the following at the bottom of the file.
+
+<CodeGroup>
+  ```js index.js
+  async function main() {
+      const blockNumber = 25792736;
+
+  		// Retrieve the transactions receipts
+      const receipts = await getBlockReceipts(web3, blockNumber);
+      console.log(receipts);
+
+      // Use the getElement function to extract a specific field from each receipt.
+      const logData = await getElement(receipts, 'to');
+      console.log(logData);
+  }
+
+  main();
+  ```
+</CodeGroup>
+
+This function can be seen as the execution of the program where:
+
+* A block number is specified as input to the function.
+* The `getBlockReceipts` function is invoked within the function.
+* The results of the `getBlockReceipts` function are output to the console.
+* The second part of the function calls the `getElement` function.
+* The `to` field is extracted from each receipt using the `getElement` function.
+
+### Full code
+
+The previous sections show the script broken down into all its components to make it easier to understand.
+
+Here, you can find the full code:
+
+<CodeGroup>
+  ```js index.js
+  const Web3 = require("web3");
+  require('dotenv').config();
+
+  // Create provider instance
+  const NODE_URL = process.env.CHAINSTACK_NODE_URL;
+  const web3 = new Web3(NODE_URL);
+
+  // Create receipts object
+  async function getBlockReceipts(provider, block) {
+
+      // Extract the transactions from the block
+      const extractTransactions = await provider.eth.getBlock(block, false)
+
+      let receipts = [];
+      for (const transaction of extractTransactions.transactions) {
+
+          // Get the transaction receipt
+          const txReceipt = await web3.eth.getTransactionReceipt(transaction);
+
+  				// Parse the logs information
+          for (let log of txReceipt.logs) {
+              let logData = {
+                  address: log.address,
+                  topics: log.topics,
+                  data: log.data,
+                  blockNumber: log.blockNumber,
+                  transactionHash: log.transactionHash,
+                  transactionIndex: log.transactionIndex,
+                  blockHash: log.blockHash,
+                  logIndex: log.logIndex,
+                  removed: log.removed,
+                  id: log.id
+              }
+              txReceipt.logs = logData;
+          }
+
+          // replace the original logs array with the logData
+          receipts.push(txReceipt);
+      }
+
+      return receipts;
+  }
+
+  // Extract a specific field and return an array
+  async function getElement(receipts, field) {
+      return receipts.map(receipt => receipt[field]);
+  }
+
+  async function main() {
+      const blockNumber = 25792736;
+      const receipts = await getBlockReceipts(web3, blockNumber);
+      console.log(receipts);
+
+      // Use the getElement function to extract a specific field from each receipt.
+      const logData = await getElement(receipts, 'to');
+      console.log(logData);
+  }
+
+  main();
+  ```
+</CodeGroup>
+
+## Run the program
+
+Save the file and run the program by executing the following command:
+
+<CodeGroup>
+  ```bash Shell
+  node index
+  ```
+</CodeGroup>
+
+If this program is run on block `25792736` on the Avalanche mainnet, the response will be the following:
+
+<CodeGroup>
+  ```bash Shell
+  [
+    {
+      blockHash: '0x451155957eee73e4ea17edd5a26e4aeaff30cc828b2a4a81f2197d7d980cd00e',
+      blockNumber: 25792736,
+      contractAddress: null,
+      cumulativeGasUsed: 396022,
+      effectiveGasPrice: 27500000000,
+      from: '0x6e752dcb0acb921c1fa446992c590a28661f27ca',
+      gasUsed: 396022,
+      logs: {
+        address: '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7',
+        topics: [Array],
+        data: '0x0000000000000000000000000000000000000000000000027eaff286463ffb12',
+        blockNumber: 25792736,
+        transactionHash: '0x3708f39015b7816a156d0fc24ab7f658bcac130ebdd63e62ae93b9c8093ad41e',
+        transactionIndex: 0,
+        blockHash: '0x451155957eee73e4ea17edd5a26e4aeaff30cc828b2a4a81f2197d7d980cd00e',
+        logIndex: 10,
+        removed: false,
+        id: 'log_e7f37c48'
+      },
+      logsBloom: '0x00000000000000000020000000000001000000040000000020000000000000000000000000400040004000000000000100000000000020020000420000200000040080000000080800000008000000008000000000400000000000000408020000000011000008400000000000004000000000000000040000000010000800010008000002000000080000000000080000000010000000000000000000000000020400000000000000000000000004000000000000004100000000000000000080000002021004000000000001000000000000000000008000001802000000000010000000000004000400000008000000000000000200020000000000000100',
+      status: true,
+      to: '0x1111111254eeb25477b68fb85ed929f73a960582',
+      transactionHash: '0x3708f39015b7816a156d0fc24ab7f658bcac130ebdd63e62ae93b9c8093ad41e',
+      transactionIndex: 0,
+      type: '0x0'
+    },
+    {
+      blockHash: '0x451155957eee73e4ea17edd5a26e4aeaff30cc828b2a4a81f2197d7d980cd00e',
+      blockNumber: 25792736,
+      contractAddress: null,
+      cumulativeGasUsed: 1838675,
+      effectiveGasPrice: 26500000000,
+      from: '0x0d6c6017b639c3ee31c79f8a300acd5cbd1ab866',
+      gasUsed: 1442653,
+      logs: {
+        address: '0x83a283641C6B4DF383BCDDf807193284C84c5342',
+        topics: [Array],
+        data: '0x00000000000000000000000000000000000000000000003291a743cf2f536ff5',
+        blockNumber: 25792736,
+        transactionHash: '0x182eab9950cf7d6711222a437331995e9484b15126abd575c529bda13cc26017',
+        transactionIndex: 1,
+        blockHash: '0x451155957eee73e4ea17edd5a26e4aeaff30cc828b2a4a81f2197d7d980cd00e',
+        logIndex: 15,
+        removed: false,
+        id: 'log_98091197'
+      },
+      logsBloom: '0x00000000000000000000000000040000001000000000000000000000000000000080001008020000000000000040800000000000000000000000000000000000000040000000000000000008020000000000000000000000000000000000008000000000000008000000008010020001000000000000000000000110000000000000000000020000100000000000080000000090000000000000000000002800000000008000000000000040000000000000000000000010000000020400000000040002000000000000000000000000200000010000100000000080000000000000040000040000008000800000000000000000002000000000000000000000',
+      status: true,
+      to: '0x0efc8ef83d7318121449e9c5dbdf7135bcc1fa90',
+      transactionHash: '0x182eab9950cf7d6711222a437331995e9484b15126abd575c529bda13cc26017',
+      transactionIndex: 1,
+      type: '0x2'
+    },
+    {
+      blockHash: '0x451155957eee73e4ea17edd5a26e4aeaff30cc828b2a4a81f2197d7d980cd00e',
+      blockNumber: 25792736,
+      contractAddress: null,
+      cumulativeGasUsed: 2502782,
+      effectiveGasPrice: 26500000000,
+      from: '0xab1d3dd66e0f0799d09ca530c30e8f0b90d87f85',
+      gasUsed: 664107,
+      logs: {
+        address: '0xc8cEeA18c2E168C6e767422c8d144c55545D23e9',
+        topics: [Array],
+        data: '0x0000000000000000000000000000000000000000000000034f3202e0e51db900',
+        blockNumber: 25792736,
+        transactionHash: '0x9cdcd3970e0666dabbbdbc386425f1760830087215be4b495c7a4d4a27a596a7',
+        transactionIndex: 2,
+        blockHash: '0x451155957eee73e4ea17edd5a26e4aeaff30cc828b2a4a81f2197d7d980cd00e',
+        logIndex: 40,
+        removed: false,
+        id: 'log_a3adc356'
+      },
+      logsBloom: '0x000080002000000000000000000000000080001000004000000000000001010200000000000080000000000002000000000000000000000000040000002400000001000000000000000000080000000000000000008400100000000080008000000004000200000000000000000008000000000000080000000000100000000100400010800000000000000000000000000000010000000000000800000000800200000000000000000000000000000000000200000000000002000040000000000400020000000000000000000200010000000000000000000000000000600001100c0000000000000000000004000000200000040000400000000000000000',
+      status: true,
+      to: '0xc8ceea18c2e168c6e767422c8d144c55545d23e9',
+      transactionHash: '0x9cdcd3970e0666dabbbdbc386425f1760830087215be4b495c7a4d4a27a596a7',
+      transactionIndex: 2,
+      type: '0x2'
+    }
+  ]
+  [
+    '0x1111111254eeb25477b68fb85ed929f73a960582',
+    '0x0efc8ef83d7318121449e9c5dbdf7135bcc1fa90',
+    '0xc8ceea18c2e168c6e767422c8d144c55545d23e9'
+  ]
+  ```
+</CodeGroup>
+
+## Conclusion
+
+In conclusion, this script effectively leverages the power of the Web3 library and its methods.
+
+With this function, you can now use `eth_getBlockReceipts` even if your node is not running the Erigon client. At the same time, you just learned that, if a specific method is not available, you can always build it yourself.
+
+<Info>
+  ### See also
+
+  <CardGroup>
+    <Card title="Tracking some Bored Apes: The Ethereum event logs tutorial" href="/docs/tracking-some-bored-apes-the-ethereum-event-logs-tutorial" icon="angle-right" horizontal />
+    <Card title="Uncovering the power of eth\_getBlockReceipts" href="/docs/uncovering-the-power-of-ethgetblockreceipts" icon="angle-right" horizontal />
+    <Card title="Deep dive into Merkle proofs and eth\_getProof" href="/docs/deep-dive-into-merkle-proofs-and-eth-getproof-ethereum-rpc-method" icon="angle-right" horizontal />
+    <Card title="Geth vs Erigon: Deep dive into RPC methods on Ethereum clients" href="/docs/geth-vs-erigon-deep-dive-into-rpc-methods-on-ethereum-clients" icon="angle-right" horizontal />
+    <Card title="Ethereum logs tutorial series: Logs and filters" href="/docs/ethereum-logs-tutorial-series-logs-and-filters" icon="angle-right" horizontal />
+  </CardGroup>
+</Info>
+
+### About the author
+
+
+<CardGroup>
+  <Card title="Davide Zambiasi" img="/images/docs/profile_images/1533079085001363457/1VvXp1m0_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on EVM, The Graph protocol, and Starknet
+
+    <Icon icon="laptop"  iconType="solid"/> Helping people understand Web3 and blockchain development
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/soos3d)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/web3Dav3)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/davide-zambiasi/)
+  </Card>
+</CardGroup>

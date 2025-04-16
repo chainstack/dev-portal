@@ -1,0 +1,339 @@
+---
+title: "Solana's getTokenLargestAccounts RPC Method: How to View Top SLP Holder Distribution"
+---
+
+**TLDR**
+
+* `getTokenLargestAccounts` retrieves the top 20 largest SPL token accounts in one request.
+* Useful for distribution analysis, showing holders’ addresses and token balances.
+* Covered examples in cURL, JavaScript, and Python, including a real-life data visualization scenario.
+* Ideal for developers, analysts, or anyone needing quick insights into token distribution on Solana.
+
+## Main article
+
+Understanding the distribution and dynamics of token holdings is crucial for developers, analysts, and investors alike. Within the Solana ecosystem, a high-performance blockchain designed for fast and scalable decentralized apps and marketplaces, the `getTokenLargestAccounts` method emerges as a pivotal tool for gleaning insights into the distribution of SPL (Solana Program Library) Tokens.
+
+The `getTokenLargestAccounts` RPC method offers a window into the Solana blockchain, allowing users to retrieve information about the 20 largest accounts for a specific SPL Token in one go, making it one of the most efficient methods for token distribution analysis.
+
+This guide is designed to walk you through the essentials of the `getTokenLargestAccounts` method, from understanding its parameters and responses to implementing basic examples in JavaScript. Python, and exploring real-life use cases. Let’s start with the basics first.
+
+## Get a Solana RPC endpoint
+
+Before diving into the practical applications of the `getTokenLargestAccounts` method, you must ensure access to a Solana node. Chainstack provides a seamless and effective platform to deploy and manage Solana nodes. Here's how you get started:
+
+<Steps>
+  <Step>
+    [Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+  </Step>
+  <Step>
+    [Deploy a node](/docs/manage-your-networks#join-a-public-network).
+  </Step>
+  <Step>
+    [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+  </Step>
+</Steps>
+
+## `getTokenLargestAccounts` RPC method
+
+The `getTokenLargestAccounts` method stands as an integral part of the Solana blockchain's suite of RPC calls, designed specifically for identifying the major token holders of any given SPL Token. This method is instrumental for those seeking to analyze token distribution, providing a clear view of top token accounts at a glance.
+
+**Method structure:**
+
+* **Endpoint**: It directly targets the `getTokenLargestAccounts` endpoint within the Solana JSON RPC API, facilitating an efficient query process for retrieving SPL Token holder information.
+
+* **Parameters**:
+
+  * **Token Mint public key**: This parameter requires the public key of the token's mint to identify the specific SPL Token. The public key must be provided in a base-58 encoded string format.
+
+  * **Config (optional)**: An optional configuration object that can include:
+
+    * **`finalized`**: Targets the latest block recognized as finalized by a supermajority, offering the highest level of data reliability.
+    * **`confirmed`**: Queries the most recent block voted on by a supermajority, balancing speed with a reasonable level of certainty.
+    * **`processed`**: Provides data from the most recent block in the node's ledger, prioritizing real-time information over completeness.
+
+**cURL example**:
+
+A simple way to test `getTokenLargestAccounts` is by using `cURL`. Run the following command to retrieve the top 20 holders of the [Ray token](https://solscan.io/token/4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R) at the `finalized` commitment:
+
+<CodeGroup>
+  ```shell Shell
+  curl YOUR_CHAINSTACK_ENDPOINT -X POST -H "Content-Type: application/json" -d '
+    {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "getTokenLargestAccounts",
+      "params": [
+        "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+        {
+          "commitment": "finalized"
+        }
+      ]
+    }
+  '
+  ```
+</CodeGroup>
+
+**Response structure**:
+
+The response from this method is a structured JSON object containing:
+
+* **`jsonrpc`**: Indicates the JSON RPC version used for the query.
+
+* **`result`**: The core component of the response, which includes:
+
+  * **`value`**: An array of objects, each representing one of the top 20 largest token accounts, with fields such as:
+
+    * **`address`**: The base58 encoded string of the token account's address.
+    * **`amount`**: The token balance of the account, represented as a string of u64, not adjusted for decimals.
+    * **`decimals`**: The number of decimal places for the token, aiding in accurately representing the amount.
+    * **`uiAmountString`**: The token balance adjusted for decimals, providing a more user-friendly representation of the amount.
+
+The response will look similar to the following example:
+
+<CodeGroup>
+  ```shell Shell
+  "jsonrpc": "2.0",
+      "result": {
+          "context": {
+              "apiVersion": "1.17.17",
+              "slot": 245539306
+          },
+          "value": [
+              {
+                  "address": "DmKR61BQk5zJTNCK9rrt8fM8HrDH6DSdE3Rt7sXKoAKb",
+                  "amount": "138590933138157",
+                  "decimals": 6,
+                  "uiAmount": 138590933.138157,
+                  "uiAmountString": "138590933.138157"
+              },
+              {
+                  "address": "fArUAncZwVbMimiWv5cPUfFsapdLd8QMXZE4VXqFagR",
+                  "amount": "126223990000046",
+                  "decimals": 6,
+                  "uiAmount": 126223990.000046,
+                  "uiAmountString": "126223990.000046"
+              },
+  .
+  .
+  .
+  ```
+</CodeGroup>
+
+## Integrate `getTokenLargestAccounts` into JavaScript and Python projects
+
+`cURL` is an excellent tool for initial tests, but DApps demand more sophisticated frameworks. JavaScript and Python, two of the most widely used languages in blockchain development, offer the robustness and flexibility required for such tasks. This section showcases the development workflow by guiding you through the setup process and providing practical examples in both languages.
+
+### Prerequisites
+
+Before proceeding, ensure you have Node.js installed for JavaScript development and Python 3 for Python. A Solana RPC endpoint from Chainstack is also necessary for the tasks ahead.
+
+<Info>
+  For a comprehensive tutorial on setting up Node.js projects, visit **[Web3 Node.js: From Zero to a Full-fledged Project](/docs/web3-nodejs-from-zero-to-a-full-fledged-project)**.
+</Info>
+
+### JavaScript setup and usage
+
+1. **Install the Solana Web3.js library**:
+
+   Interacting with the Solana blockchain requires the Solana Web3.js library. Install it using `npm`:
+
+   <CodeGroup>
+     ```shell Shell
+     npm install @solana/web3.js
+     ```
+   </CodeGroup>
+
+2. **JavaScript example**:
+
+   <CodeGroup>
+     ```javascript Javascript
+     const { Connection, PublicKey } = require('@solana/web3.js');
+
+     async function fetchTokenLargestAccounts() {
+         const connection = new Connection('YOUR_CHAINSTACK_ENDPOINT');
+         const tokenMintPublicKey = new PublicKey('4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R');
+
+         const largestAccounts = await connection.getTokenLargestAccounts(tokenMintPublicKey, 'finalized');
+         console.log(largestAccounts);
+     }
+
+     fetchTokenLargestAccounts().catch(error => console.error('Error fetching token largest accounts:', error));
+     ```
+   </CodeGroup>
+
+   Remember to replace `'YOUR_CHAINSTACK_ENDPOINT'` with your specific Solana endpoint. Executing this script will yield results similar to those obtained through `cURL` but in a format that's easier to process and analyze.
+
+### Python setup and usage
+
+1. **Install the Solana.py library**:
+
+   To interact with Solana's JSON RPC API in Python, install the necessary library using `pip`:
+
+   <Info>
+     It is highly recommended to create a new Python virtual environment for this project; create one with `python3 -m venv solana-project`, then activate it with `source/solana-project/bin/activate`.
+   </Info>
+
+<CodeGroup>
+  ```shell Shell
+  pip install solana cachetools
+  ```
+</CodeGroup>
+
+1. **Python example**:
+
+<CodeGroup>
+  ```python Python
+  from solana.rpc.api import Client
+  from solders.pubkey import Pubkey
+
+  solana_client = Client("YOUR_CHAINSTACK_ENDPOINT")
+  token_mint_public_key = Pubkey.from_string("4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R")
+
+  largest_accounts = solana_client.get_token_largest_accounts(token_mint_public_key)
+
+  # Display raw response
+  #print(largest_accounts)
+
+  # Display the information in a nicer format
+  print("Largest SPL Token Accounts:\n")
+
+  # Accessing slot and api version
+  slot = largest_accounts.context.slot
+  api_version = getattr(largest_accounts.context, 'api_version', 'Unknown')
+
+  # Print the data in a nice format
+  print(f"Slot: {slot}\nAPI Version: {api_version}\n")
+
+  for account in largest_accounts.value:
+      address = account.address
+      ui_amount = account.amount.ui_amount
+      decimals = account.amount.decimals
+      amount = account.amount.amount
+      print(f"Address: {address}\nAmount: {ui_amount} (Decimals: {decimals}, Raw: {amount})\n")
+  ```
+</CodeGroup>
+
+After updating `'YOUR_CHAINSTACK_ENDPOINT'`, this script includes some processing to display the result in a more friendly way.
+
+By following these examples, you can effectively employ the `getTokenLargestAccounts` method in both JavaScript and Python to simplify the integration of this functionality into blockchain applications or data analyses significantly.
+
+## `getTokenLargestAccounts` use cases
+
+Having explored the fundamentals, setup, and theoretical application of the `getTokenLargestAccounts` method within the Solana ecosystem, we now pivot to a practical, real-life use case that demonstrates the method's utility in action.
+
+This section will guide you through a Python project designed to fetch and visualize the distribution of SPL Token holdings among the largest accounts. This real-world application bridges the gap between theoretical knowledge and practical implementation, showcasing how developers can utilize Solana's blockchain data to generate insightful visualizations.
+
+### Project overview
+
+This project aims to visually represent the token balances held by the top 20 largest accounts of a specific SPL Token. By doing so, analysts, developers, and investors can better understand token distribution. Visualization plays a key role in data analysis, allowing for quick identification of patterns, outliers, and concentrations of token holdings.
+
+### Script structure
+
+The provided Python script is structured into several key functions, each designed to fulfill a specific role in the process of data fetching and visualization:
+
+1. **Configuration**:
+   * Sets up the Solana RPC endpoint and the public key of the SPL Token, whose largest accounts we wish to analyze. This project uses the Raydium token as an example.
+2. **`fetch_largest_accounts` function**:
+   * This function communicates with the Solana blockchain via the `get_token_largest_accounts` method of the Solana Python client. It retrieves data on the 20 largest accounts holding the specified SPL Token, focusing on the finalized state for reliability.
+3. **`plot_token_balances` function**:
+   * Utilizes the `matplotlib` library to plot the token balances of the largest accounts. It creates a bar chart where each bar represents the token balance of an account, providing a visual comparison across the top holders. Account addresses are used as labels on the x-axis, with their corresponding token balances displayed on the y-axis. The y-axis labels are formatted for readability, showing large numbers in a concise format.
+4. **`main` function**:
+   * Orchestrates the process by initializing the Solana client with the specified RPC endpoint, converting the token mint public key string into a usable object, and then calling the `fetch_largest_accounts` function. It extracts the necessary information from the response (addresses and UI amounts) and passes it to the `plot_token_balances` function for visualization.
+
+### Script code
+
+Create a new Python project; use the same virtual environment created for the previous example. If you don’t have it installed yet, install `matplotlib` with:
+
+<CodeGroup>
+  ```shell Shell
+  pip install matplotlib
+  ```
+</CodeGroup>
+
+Then create a new file named `[main.py](http://main.py)` and paste the following code:
+
+<CodeGroup>
+  ```python Python
+  from solana.rpc.api import Client
+  from solders.pubkey import Pubkey
+  import matplotlib.pyplot as plt
+  import matplotlib.ticker as ticker
+
+  # Configuration
+  SOLANA_RPC_ENDPOINT = "YOUR_CHAINSTACK_ENDPOINT"
+  TOKEN_MINT_PUBLIC_KEY = "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R" # Ray Token in this example
+
+  def fetch_largest_accounts(solana_client, token_mint_public_key):
+      """
+      Fetches the 20 largest accounts for a specific SPL Token.
+      """
+      print("Fetching the 20 largest SPL Token accounts...")
+      largest_accounts = solana_client.get_token_largest_accounts(token_mint_public_key, 'finalized')
+      print("Data fetched successfully.")
+      return largest_accounts
+
+  def plot_token_balances(addresses, ui_amounts):
+      """
+      Plots the token balances for the largest accounts.
+      """
+      print("Plotting token balances...")
+      x_pos = range(len(addresses))
+      plt.figure(figsize=(10, 8))
+      plt.bar(x_pos, ui_amounts, color='skyblue')
+      plt.xticks(x_pos, addresses, rotation=90)
+
+      formatter = ticker.FuncFormatter(lambda x, pos: '{:,.0f}'.format(x))
+      plt.gca().yaxis.set_major_formatter(formatter)
+
+      plt.xlabel('Account Addresses')
+      plt.ylabel('Token Balance')
+      plt.title('Top 20 SPL Token Account Balances')
+      plt.tight_layout()
+      plt.show()
+      print("Plotting completed.")
+
+  def main(solana_rpc_endpoint, token_mint_public_key_str):
+      solana_client = Client(solana_rpc_endpoint)
+      token_mint_public_key = Pubkey.from_string(token_mint_public_key_str)
+
+      largest_accounts = fetch_largest_accounts(solana_client, token_mint_public_key)
+      addresses = [str(account.address) for account in largest_accounts.value]
+      ui_amounts = [account.amount.ui_amount for account in largest_accounts.value]
+
+      plot_token_balances(addresses, ui_amounts)
+
+  if __name__ == "__main__":
+      print("Starting the SPL Token analysis script...")
+      main(SOLANA_RPC_ENDPOINT, TOKEN_MINT_PUBLIC_KEY)
+      print("Script execution completed.")
+  ```
+</CodeGroup>
+
+Make sure you’ve set your Solana endpoint in `SOLANA_RPC_ENDPOINT` before you run the script with:
+
+<CodeGroup>
+  ```bash Bash
+  python3 main.py
+  ```
+</CodeGroup>
+
+## Conclusion
+
+This comprehensive guide has taken you through the journey of understanding and using the `getTokenLargestAccounts` method within the Solana ecosystem, a tool of paramount importance for developers, investors, and analysts alike. From setting up a Solana RPC endpoint with Chainstack to diving deep into the method's structure and integrating it into development projects to a hands-on, real-life application, we've explored the multifaceted utility of this method in unlocking insights into SPL Token distribution.
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

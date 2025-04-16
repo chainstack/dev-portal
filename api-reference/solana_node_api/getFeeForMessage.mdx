@@ -1,0 +1,108 @@
+---
+title: getFeeForMessage | Solana
+openapi: /openapi/solana_node_api/getFeeForMessage.json POST /9de47db917d4f69168e3fed02217d15b
+---
+
+# Solana `getFeeForMessage` method
+
+The Solana `getFeeForMessage` method returns the fee in lamports that the cluster will charge to process the given message.
+
+This method provides the cost of processing a message based on the current fee schedule. It is useful for estimating the cost of a transaction before it is submitted to the network.
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `message` — the message to calculate the fee for.
+
+## Response
+
+* `value` — the fee in lamports that the cluster will charge to process the message.
+
+## Use case
+
+A practical use case for `getFeeForMessage` is to estimate the cost of a transaction before it is submitted to the network. This can be useful for wallets or other applications that need to display or make use of this information.
+
+Here's a script to generate the message data for the 1 SOL transfer:
+
+<CodeGroup>
+```Text JavaScript
+const web3 = require('@solana/web3.js');
+
+async function createSerializedTransaction() {
+    const connection = new web3.Connection(web3.clusterApiUrl('mainnet-beta'));
+
+    let transaction = new web3.Transaction().add(
+        web3.SystemProgram.transfer({
+            fromPubkey: new web3.PublicKey('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM'),
+            toPubkey: new web3.PublicKey('A6132mRJy5zRmGsCCRbMsrbynuB9MRVgo3n6D5j49dBh'),
+            lamports: web3.LAMPORTS_PER_SOL // This transfers 1 SOL.
+        })
+    );
+
+    transaction.feePayer = transaction.instructions[0].keys[0].pubkey; // Set fee payer as the sender
+    transaction.recentBlockhash = (await connection.getRecentBlockhash()).blockhash;
+
+    // Serialize only the message part of the transaction
+    return transaction.serializeMessage().toString('base64');
+}
+
+createSerializedTransaction().then(serializedMessage => {
+    console.log(serializedMessage);
+    // Use this output as the parameter in your getFeeForMessage call
+});
+```
+
+```python Python
+from solana.rpc.async_api import AsyncClient
+from solana.transaction import Transaction
+from solders.system_program import TransferParams, transfer
+from solders.pubkey import Pubkey
+import asyncio
+
+async def create_serialized_transaction():
+    async with AsyncClient("https://api.mainnet-beta.solana.com") as client:
+        # Create the transfer instruction
+        transfer_instruction = transfer(
+            TransferParams(
+                from_pubkey=Pubkey.from_string("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"),
+                to_pubkey=Pubkey.from_string("A6132mRJy5zRmGsCCRbMsrbynuB9MRVgo3n6D5j49dBh"),
+                lamports=1000000000  # 1 SOL in lamports
+            )
+        )
+
+        transaction = Transaction().add(transfer_instruction)
+
+        transaction.fee_payer = Pubkey.from_string("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM")
+
+        recent_blockhash = await client.get_latest_blockhash()
+        transaction.recent_blockhash = recent_blockhash.value.blockhash
+
+        return transaction.compile_message()
+
+async def get_fee_for_message(serialized_message):
+    async with AsyncClient("https://api.mainnet-beta.solana.com") as client:
+        response = await client.get_fee_for_message(serialized_message)
+        return response.value
+
+async def main():
+    serialized_message = await create_serialized_transaction()
+    print("Serialized Message:", serialized_message)
+
+    fee = await get_fee_for_message(serialized_message)
+    print(f"Fee for the message: {fee} lamports")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+</CodeGroup>
+
+
+## Try the `getFeeForMessage` RPC method yourself

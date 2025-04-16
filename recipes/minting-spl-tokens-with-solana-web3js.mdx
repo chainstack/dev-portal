@@ -1,0 +1,179 @@
+---
+title: "Minting SPL tokens with solana-web3.js"
+description: "Leveraging solana-web3.js and spl-token to mint 1000 SPL tokens on Solana."
+---
+
+<AccordionGroup>
+<Accordion title="Overview">
+
+solana-web3.js (`@solana/web3.js`) is a powerful library that exists as a key tool within the typical Solana developer's tech stack.
+
+Having already covered sending a simple transaction with solana-web3.js, we're going to dive into a slightly more complex task: **Minting an SPL token natively in solana-web3.js**
+</Accordion>
+<Accordion title="Environment setup">
+
+If you haven't already, ensure node.js is installed.
+
+You'll need to install three main dependencies here:
+
+1. `@solana/web3.js`, self-explanatory, this is what you'll be using to connect and interact with Solana.
+2. `@solana/spl-token` for interacting with the Solana token program.
+3. `bs58` for converting a traditional string private key to a `Uint8Array` in the account definition process.
+
+```js index.js
+const solanaWeb3 = require('@solana/web3.js');
+const splToken = require('@solana/spl-token');
+const bs58 = require("bs58");
+```
+</Accordion>
+<Accordion title="Connecting to Solana">
+
+To connect to the Solana blockchain, like any other Web3 application, you'll need to create a master variable with an RPC endpoint.
+
+We've defined this in a variable called `connection`, and passed in both a Chainstack HTTPS Solana endpoint and a Chainstack WSS Solana endpoint. To retrieve these, do the following:
+
+<Steps>
+  <Step>
+    Navigate to the Chainstack console
+  </Step>
+  <Step>
+    Deploy a Solana mainnet node
+  </Step>
+  <Step>
+    Open the newly deployed node
+  </Step>
+  <Step>
+    Copy the corresponding HTTPS & WSS endpoints
+  </Step>
+  <Step>
+  Paste them into your `Connection` constructor
+  </Step>
+</Steps>
+```js index.js
+const connection = new solanaWeb3.Connection("CHAINSTACK_HTTPS_ENDPOINT", {wsEndpoint:"CHAINSTACK_WSS_ENDPOINT"});
+```
+</Accordion>
+<Accordion title="Importing a wallet">
+
+We'll now need a funded Solana wallet. You can either import an existing one, as we do here, or create a fresh one with `solanaWeb3.Keypair.generate()`.
+
+For importing an existing wallet, you'll need to leverage the `fromSecretKey` function on `Keypair`. Within this function, you'll need to pass in your private key converted to a `Uint8Array`, which can be achieved through using `bs58.decode` in a new `Uint8Array`.
+
+```js index.js
+const walletKeyPair = solanaWeb3.Keypair.fromSecretKey(new Uint8Array(bs58.decode(process.env.PRIVATE_KEY)));
+```
+</Accordion>
+<Accordion title="Preparing the mint">
+
+To build the mint in preparation for pushing it to Solana, we'll need to use `splToken.createMint`. Within this snippet, it's been saved to a variable called `mint`.
+
+Within `createMint`, we've passed the following parameters:
+
+1. `connection`, our previously defined connection to Solana that leverages Chainstack.
+2. `walletKeyPair`, the previously defined object containing both your public and private key.
+3. `walletKeyPair.publicKey`, specifically pulling the public key from the `walletKeyPair` object.
+4. `null`, this is the `freezeAuthority` parameter, which can either be `null` or a public key.
+5. `9`, the decimal place location for the token being minted.
+6. `undefined`, filling in an optional `keypair` parameter.
+7. `{}`, filling in an optional transaction confirmation instruction parameter.
+8. `splToken.TOKEN_PROGRAM_ID` for filling in the `programId` parameter.
+
+```js index.js
+  const mint = await splToken.createMint(
+    connection,
+    walletKeyPair,
+    walletKeyPair.publicKey,
+    null,
+    9,
+    undefined,
+    {},
+    splToken.TOKEN_PROGRAM_ID,
+  );
+```
+</Accordion>
+<Accordion title="Creating the token account">
+
+We'll now need to create a corresponding token account for our SPL token. This can be done through the `getOrCreateAssociatedTokenAccount` function.
+
+Within this function, we've used the following parameters:
+
+1. `connection`, our previously defined connection to Solana that leverages Chainstack.
+2. `walletKeyPair`, the previously defined object containing both your public and private key.
+3. `mint`, the previously defined mint object derived from the `createMint` function.
+4. `walletKeyPair.publicKey`, specifically pulling the public key from the `walletKeyPair` object.
+
+```js index.js
+  const tokenAccount = await splToken.getOrCreateAssociatedTokenAccount(
+    connection,
+    walletKeyPair,
+    mint,
+    walletKeyPair.publicKey,
+  );
+```
+</Accordion>
+<Accordion title="Minting the tokens">
+
+For the last step, we'll need to take the `mint` object, and the `tokenAccount` object and actually mint the SPL tokens.
+
+In this snippet, we're calling the `mintTo` function alone without variable assignment. Within this function, we're using the following variables:
+
+1. `connection`, our previously defined connection to Solana that leverages Chainstack.
+2. `walletKeyPair`, the previously defined object containing both your public and private key, this is our payer.
+3. `mint`, the previously defined mint object derived from the `createMint` function.
+4. `tokenAccount.address`, this is the address of the associated token account we made; this is being used as the destination address.
+5. `walletKeyPair.publicKey` is the public key of our wallet, specifically being used here as the minting authority.
+6. `1000000000000`, the number of tokens being minted. In this case, this'll result in 1000 tokens being minted, due to the previous decimal configuration of `9`.
+
+```js index.js
+  await splToken.mintTo(
+    connection,
+    walletKeyPair,
+    mint,
+    tokenAccount.address,
+    walletKeyPair.publicKey,
+    1000000000000,
+  )
+```
+</Accordion>
+</AccordionGroup>
+
+<RequestExample>
+```js index.js
+const solanaWeb3 = require('@solana/web3.js');
+const splToken = require('@solana/spl-token');
+const bs58 = require("bs58");
+
+async function main() {
+
+  const connection = new solanaWeb3.Connection("CHAINSTACK_HTTPS_ENDPOINT", {wsEndpoint:"CHAINSTACK_WSS_ENDPOINT"});
+
+  const walletKeyPair = solanaWeb3.Keypair.fromSecretKey(new Uint8Array(bs58.decode(process.env.PRIVATE_KEY)));
+
+  const mint = await splToken.createMint(
+    connection,
+    walletKeyPair,
+    walletKeyPair.publicKey,
+    null,
+    9,
+    undefined,
+    {},
+    splToken.TOKEN_PROGRAM_ID,
+  );
+
+  const tokenAccount = await splToken.getOrCreateAssociatedTokenAccount(
+    connection,
+    walletKeyPair,
+    mint,
+    walletKeyPair.publicKey,
+  );
+
+  await splToken.mintTo(
+    connection,
+    walletKeyPair,
+    mint,
+    tokenAccount.address,
+    walletKeyPair.publicKey,
+    1000000000000,
+  )
+```
+</RequestExample>

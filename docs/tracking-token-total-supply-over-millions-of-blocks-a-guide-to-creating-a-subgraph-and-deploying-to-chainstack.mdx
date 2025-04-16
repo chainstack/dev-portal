@@ -1,0 +1,254 @@
+---
+title: "Tracking token total supply over millions of blocks: A guide to creating a subgraph and deploying to Chainstack"
+---
+
+**TLDR**
+
+* Demonstrates how to track a token’s total supply by capturing mint and burn events (transfers from/to the zero address) via a subgraph.
+* Provides the configuration for subgraph manifest, schema, and mapping code to record each total supply change at the block level.
+* Uses The Graph protocol on Chainstack Subgraphs for indexing large block ranges efficiently.
+* Includes instructions for building, deploying, and querying the subgraph for historical total supply data.
+
+## Main article
+
+In the evolving landscape of blockchain and cryptocurrency, tracking and analyzing data is crucial. One of the most insightful data points for ERC20 tokens is the total supply, which reflects the number of tokens in circulation. The Graph protocol offers an efficient way to query this data through a tool known as a "subgraph". In this article, we will guide you through creating a subgraph that tracks and saves the **`totalSupply`** of a specific token (e.g., USDT token on Ethereum - [0xdac17f958d2ee523a2206206994597c13d831ec7](https://etherscan.io/address/0xdac17f958d2ee523a2206206994597c13d831ec7)) over a million blocks.
+
+## **Getting started with subgraph development**
+
+### **Setting up your environment**
+
+The first step in creating a subgraph is to set up your development environment. This involves installing the Graph CLI. Open your terminal and execute:
+
+<CodeGroup>
+  ```bash Bash
+  npm install -g @graphprotocol/graph-cli
+  ```
+</CodeGroup>
+
+### **Initializing your subgraph**
+
+Once the Graph CLI is installed, you can initialize your subgraph project with the following command:
+
+<CodeGroup>
+  ```bash Bash
+  graph init --allow-simple-name
+  ```
+</CodeGroup>
+
+Answer the questions from the cli the following way:
+
+<CodeGroup>
+  ```bash Bash
+  ✔ Protocol · ethereum
+  ✔ Product for which to initialize · hosted-service
+  ✔ Subgraph name · erc20_historical_total_supply
+  ✔ Directory to create the subgraph in · erc20_historical_total_supply
+  ? Ethereum network …
+  ✔ Ethereum network · mainnet
+  ✔ Contract address · 0xdac17f958d2ee523a2206206994597c13d831ec7
+  ✔ Fetching ABI from Etherscan
+  ✖ Failed to fetch Start Block: Failed to fetch contract creation transaction hash
+
+  ✔ Start Block · 4634747
+  ✔ Contract Name · Contract
+  ✔ Index contract events as entities (Y/n) · true
+  ```
+</CodeGroup>
+
+The command line utility will create a subgraph template project for you. Here we’ve chosen the start block as a block of the smart contract deployment.
+
+## **Crafting the subgraph manifest**
+
+The heart of your subgraph is the manifest file, named **`subgraph.yaml`**. This file defines the data sources and how your subgraph interacts with the blockchain. For tracking an ERC20 token’s **`totalSupply`**, your manifest file would be structured as follows:
+
+<CodeGroup>
+  ```yaml YAML
+  specVersion: 0.0.5
+  schema:
+    file: ./schema.graphql
+  dataSources:
+    - kind: ethereum
+      name: Contract
+      network: mainnet
+      source:
+        address: "0xdac17f958d2ee523a2206206994597c13d831ec7"
+        abi: Contract
+        startBlock: 17640663
+      mapping:
+        kind: ethereum/events
+        apiVersion: 0.0.7
+        language: wasm/assemblyscript
+        entities:
+          - TotalSupply
+        abis:
+          - name: Contract
+            file: ./abis/Contract.json
+        eventHandlers:
+          - event: Transfer(indexed address,indexed address,uint256)
+            handler: handleTransfer
+        file: ./src/contract.ts
+  ```
+</CodeGroup>
+
+## **Defining the GraphQL schema**
+
+Your subgraph will store and query data according to a GraphQL schema. In our case, the schema (**`schema.graphql`**) for the total supply might look like this:
+
+<CodeGroup>
+  ```graphql GraphQL
+  type TotalSupply @entity(immutable: true) {
+    id: Bytes!
+    value: BigInt!
+    blockNumber: BigInt!
+  }
+  ```
+</CodeGroup>
+
+## **Implementing the mapping logic**
+
+The mapping file (**`mapping.ts`**) contains the logic for processing blockchain events. Here’s an example of how you might handle **`Transfer`** events to update the total supply:
+
+<CodeGroup>
+  ```tsx tsx
+  import { Transfer } from "../generated/Contract/Contract"
+  import { TotalSupply } from "../generated/schema"
+  import { BigInt, Address } from "@graphprotocol/graph-ts"
+  import { Contract } from "../generated/Contract/Contract"
+
+  export function handleTransfer(event: Transfer): void {
+    let zeroAddress = Address.fromString("0x0000000000000000000000000000000000000000")
+    if (event.params.from.equals(zeroAddress) || event.params.to.equals(zeroAddress)) {
+      let totalSupply = new TotalSupply(event.transaction.hash.concatI32(event.logIndex.toI32()))
+
+      let contract = Contract.bind(event.address)
+      let totalSupplyResult = contract.try_totalSupply()
+      if (!totalSupplyResult.reverted) {
+        totalSupply.value = totalSupplyResult.value
+        totalSupply.blockNumber = event.block.number
+        totalSupply.save()
+      }
+
+    }
+  }
+  ```
+</CodeGroup>
+
+Here we process each Transfer event and filtering by the transfers with zero address as a sender or receiver because these actions are related to mints and burns changing the actual total supply of the token.
+
+## **Building and deploying your subgraph**
+
+After setting up these files, you can build and deploy your subgraph with the following commands.
+
+<CodeGroup>
+  ```bash Bash
+  graph codegen
+  graph build
+
+  graph deploy --node https://api.graph-ams.p2pify.com/940a577dc77637743ce420baed763b62/deploy --ipfs https://api.graph-ams.p2pify.com/940a577dc77637743ce420baed763b62/ipfs erc20_subgraph
+  ```
+</CodeGroup>
+
+Replace **`<ACCESS_TOKEN>`** with your access token from Chainstack Subgraphs hosting. Also before this action you need to add an elastic subgraph via the platform UI.
+
+### **Querying the subgraph for the token total supply over a range of blocks**
+
+Once your subgraph is deployed and running, querying the data it indexes becomes a crucial part of extracting meaningful insights. Specifically, if you're interested in analyzing the **`totalSupply`** of a token over a range of blocks, you'll utilize the Graph QL API provided by The Graph Protocol. This section will guide you through the process of querying your subgraph to retrieve **`totalSupply`** data across a specified block range.
+
+### Understanding the query structure
+
+To query a subgraph, you can choose from either of the following **Subgraph query** options in the subgraph details page:
+
+* **Query URL** — use this URL to query in the CLI.
+* **GraphQL UI URL** — use this URL to query in the GraphQL UI.
+
+GraphQL queries are structured to allow you to request exactly what you need. In the context of our subgraph, we are interested in fetching the **`totalSupply`** along with the **`blockNumber`** for a range of blocks. The basic structure of such a query would be:
+
+<CodeGroup>
+  ```bash Bash
+  {
+    totalSupplies(
+      orderBy: blockNumber,
+      orderDirection: desc
+    ) {
+      value
+      blockNumber
+    }
+  }
+  ```
+</CodeGroup>
+
+The response of the GraphQL interface will look like
+
+<CodeGroup>
+  ```bash Bash
+  {
+    "data": {
+      "totalSupplies": [
+        {
+          "value": "60109970000000",
+          "blockNumber": "5747917"
+        },
+        {
+          "value": "60109502104300",
+          "blockNumber": "5839244"
+        },
+        {
+          "value": "60109502104300",
+          "blockNumber": "5869105"
+        },
+        {
+          "value": "60109502104300",
+          "blockNumber": "6125686"
+        },
+        {
+          "value": "60109502104300",
+          "blockNumber": "6906187"
+        },
+        {
+          "value": "60109502104300",
+          "blockNumber": "6941942"
+        }
+      ]
+    }
+  }
+  ```
+</CodeGroup>
+
+So that one can see the totalSupplies for each block where it has been changed.
+
+## **Conclusion**
+
+Creating a subgraph with Chainstack Subgraphs is a powerful way to access and analyze blockchain data efficiently. By following the steps outlined in this guide, you can track the total supply of an ERC20 token over a vast number of blocks, unlocking valuable insights into its distribution and circulation. This is just the beginning; the potential applications of subgraphs in blockchain data analysis are vast and varied, limited only by your imagination and the specifics of your project.
+
+## Tutorials you may like
+
+This is a tutorials collection that will help you to use your subgraphs to the fullest. Before you start, make sure you learn the basics of [Chainstack Subgraphs](/docs/subgraphs-introduction).
+
+Explore how you can interact with subgraphs by following our series:
+
+<CardGroup>
+  <Card title="A beginner’s guide to getting started with The Graph" href="/docs/subgraphs-tutorial-a-beginners-guide-to-getting-started-with-the-graph" icon="angle-right" horizontal />
+  <Card title="Deploying a Lido subgraph with Chainstack" href="/docs/subgraphs-tutorial-deploying-a-lido-subgraph-with-chainstack" icon="angle-right" horizontal />
+  <Card title="Explaining subgraph schemas" href="/docs/subgraphs-tutorial-working-with-schemas" icon="angle-right" horizontal />
+  <Card title="Debugging subgraphs with a local Graph Node" href="/docs/subgraphs-tutorial-debug-subgraphs-with-a-local-graph-node" icon="angle-right" horizontal />
+  <Card title="Indexing ERC-20 token balance" href="/docs/subgraphs-tutorial-indexing-erc-20-token-balance" icon="angle-right" horizontal />
+  <Card title="Indexing Uniswap data" href="/docs/subgraphs-tutorial-indexing-uniswap-data" icon="angle-right" horizontal />
+  <Card title="Fetching subgraph data using JS" href="/docs/subgraphs-tutorial-fetching-subgraph-data-using-javascript" icon="angle-right" horizontal />
+  <Card title="Writing a subgraph to get the friend.tech real-time trading data" href="/docs/writing-a-subgraph-to-get-the-friendtech-real-time-trading-data" icon="angle-right" horizontal />
+</CardGroup>
+
+### About the author
+
+<CardGroup>
+  <Card title="Kirill Balakhonov" img="/images/docs/u/44712112.png" >
+    <Icon icon="code"  iconType="solid"/>Product Lead @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on Ethereum and Graph protocol
+
+    <Icon icon="laptop"  iconType="solid"/> Majored in Data Science and Product Management
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/balakhonoff)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/balakhonoff)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/kirill-balakhonov/)
+  </Card>
+</CardGroup>

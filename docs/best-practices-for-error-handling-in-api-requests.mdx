@@ -1,0 +1,203 @@
+---
+title: "Best Practices for Error Handling in API Requests"
+---
+
+**TLDR**
+
+* Explains how Chainstack’s global node feature can boost your DApp’s reliability by balancing traffic automatically based on user location.
+* Demonstrates a JavaScript load balancer script using multiple Chainstack endpoints, distributing requests across different regions to avoid single-point failures.
+* Shows examples with both web3.js and ethers.js, detailing how to fail over to the next endpoint if one fails.
+* Concludes that both global nodes and custom load-balancing approaches help ensure your blockchain app can handle high traffic and unexpected downtimes.
+
+## Main article
+
+In the world of API requests, error handling is not just a best practice—it's a necessity. Effectively handling HTTP status codes is crucial for ensuring smooth and reliable communication between clients and servers. Whether you're a seasoned developer or just starting out, understanding how to automate the retrieval of response codes from any request can help you build more robust applications, implement effective retry logic, and create comprehensive error backlogs. This guide will walk you through the best practices for error handling in API requests, with a focus on handling HTTP status codes and implementing retry logic.
+
+### Importance of handling HTTP status codes
+
+HTTP status codes are the server's way of telling the client about the status of the operation it requested. They play a vital role in API requests as they can indicate success, failure, or need for further action. By properly handling these status codes, you can ensure your application responds appropriately to each possible outcome of an API request. This can significantly enhance the user experience and the overall performance of your application.
+
+### Overview of HTTP status codes
+
+HTTP status codes are grouped into five major categories, each representing a specific class of responses. These include:
+
+* **1xx** (informational) — the request has been received and understood, and the client should continue the process.
+* **2xx** (success) — the action was successfully received, understood, and accepted.
+* **3xx** (redirection) — the client must take additional action to complete the request.
+* **4xx** (client errors) — the request contains bad syntax or cannot be fulfilled.
+* **5xx** (server errors) — the server failed to fulfill an apparently valid request.
+
+Understanding these status codes and how to handle them is the first step toward effective error handling in API requests. In the following sections, we'll dive deeper into how to retrieve and handle these status codes in your Python code and how to implement a retry logic for temporary failures.
+
+## Practical example
+
+Before we can handle HTTP status codes, we first need to know how to retrieve them. In Python, this can be done using the `status_code` attribute of the response object. This attribute holds the status code that the server returned for the HTTP request. 
+
+Let's consider a scenario where we're interested in getting the logs of the latest block. We can do this using the following Python code:
+
+<CodeGroup>
+  ```python Python
+  import json
+  import requests
+
+  node_url = 'YOUR_CHAINSTACK_ENDPOINT'
+
+  headers = {
+      "Content-Type": "application/json"
+  }
+  payload = {
+      "jsonrpc": "2.0",
+      "method": "eth_getLogs",
+      "params": [
+          {
+              "fromBlock": "latest",
+              "toBlock": "latest",
+          }
+      ],
+      "id": 1
+  }
+
+  response = requests.post(node_url, headers=headers, json=payload)
+  print(response.text)
+  ```
+</CodeGroup>
+
+If the above code is successfully run, it will output the logs for the latest block. This means that the response code received by the client (you, who made the request) was equal to 200. To retrieve the response code of the request presented above, we can simply use the following:
+
+<CodeGroup>
+  ```python Python
+  # Considering this request:
+  response = requests.post(node_url, headers=headers, json=payload)
+
+  # Here's how we can get the response code for such request:
+  response_code = response.status_code
+  print('status code:', response_code)
+  ```
+</CodeGroup>
+
+This will store the HTTP status code of the response in the `response_code` variable. Now that we know how to retrieve the status code of a response, we can move on to handling these codes and analyzing error responses.
+
+### Analyzing error responses
+
+In addition to dealing with response codes, it's also important to analyze other information in the response to understand and deal with errors. This can be particularly useful when the server returns a 4xx or 5xx status code, indicating a client or server error.
+
+For instance, let's consider a possible response for a `eth_getLogs` request that contains an error content in the output:
+
+```
+{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"failed to get logs for block #192001 (0xa388fd..65beb8)"}}
+```
+
+In this case, the server returned a JSON object with an `error` field, which contains further information about the error that occurred. We can extract this information in our Python code like this:
+
+```
+response = requests.post(node_url, headers=headers, json=payload)
+response_code = response.status_code
+print('status code:', response_code)
+
+if response_code == 200:
+    response_data = json.loads(response.text)
+    if 'error' in response_data:
+        error_content = response_data['error']
+        print('Error:', error_content)
+```
+
+In this code, we first check if the response's status code is 200, indicating a successful request. If it is, we parse the JSON content of the response and check if it contains an `error` field. If it does, we store the content of this field in the `error_content` variable. This information can be used to implement a retry logic and keep a record of whenever those errors happen in time.
+
+### Importance of implementing retry logic
+
+Incorporating retry logic into your code can significantly enhance the reliability of your application. By leveraging the tools and techniques we have discussed, you can implement a retry mechanism that automatically handles temporary failures and retries the request when necessary. This can reduce the impact of temporary failures on you, increase system availability, and ensure data integrity. In the worst-case scenario, this enables you to keep track of the errors you face with precise timestamps for such incidents.
+
+Implementing retry logic is particularly important when dealing with 5xx server errors. These errors indicate a problem with the server and are often temporary. By implementing a retry logic, your application can automatically retry the request after a short delay, giving the server a chance to recover. This can significantly improve the user experience by reducing the number of failed requests the user has to deal with.
+
+### Implementing retry logic in code
+
+Now that we understand the importance of implementing retry logic let's dive into how to implement it in our Python code. Our retry logic aims to automatically retry the request when a temporary failure occurs. This can be a 5xx server error, a connection error, or any other type of error that we deem temporary.
+
+Here's an example of how to implement retry logic in Python using both the response code and error messages to determine when to retry a request:
+
+```
+import json
+import time
+import requests
+
+node_url = 'YOUR_CHAINSTACK_ENDPOINT'
+headers = { "Content-Type": "application/json" }
+payload = {
+    "jsonrpc": "2.0",
+    "method": "eth_getLogs",
+    "params": [ {"fromBlock": "latest", "toBlock": "latest"} ],
+    "id": 1
+}
+
+# Max retries
+retries = 5
+delay = 1 # Seconds
+
+def get_logs():
+    for i in range(retries):
+        response = requests.post(node_url, headers=headers, json=payload)
+
+        if response.status_code != 200:
+            print(f"Request failed with status code {response.status_code}. Retrying attempt {i+1}...")
+            time.sleep(delay)
+            continue
+
+        response_data = json.loads(response.text)
+
+        if 'error' in response_data:
+            print(f"There was an error in attempt {i+1}: {response_data['error']}")
+            time.sleep(delay)
+            continue
+
+        logs = response_data.get("result", [])
+
+        if len(logs) > 0:
+            block_number = int(logs[0]['blockNumber'], 16)
+            print(f"Block number from eth_getLogs call: {block_number} in attempt {i+1}")
+            print('Processing the event logs...')
+            return
+
+        print(f"Result is empty for this block in attempt {i+1}")
+        time.sleep(delay)
+
+get_logs()
+```
+
+The retry logic is governed by a for loop that runs up to a predefined maximum number of attempts (the `retries` variable). For each iteration of the loop, which represents an attempt to fetch the logs, the code performs the following steps:
+
+1. A `POST` request is sent to the Ethereum node with the defined headers and payload.
+2. If the HTTP status code of the response is not 200 (indicating a successful request), the code prints a message indicating that the request failed and the current attempt number. Then, it waits for the specified delay period (the `delay` variable) before proceeding to the next iteration of the loop. This delay provides a pause before retrying, which can be helpful in cases where the server might be temporarily overloaded or experiencing other transient issues.
+3. If the status code is 200 (indicating a successful request), the response is parsed into JSON format and checked for an `error` key. If `error` is present, the code prints a message with the error details and the current attempt number, waits for the specified delay period, and proceeds to the next iteration of the loop. This handles cases where the request was technically successful, but the response indicates an error condition that might be resolved with a retry.
+4. If there's no `error` key in the response but the `result` is empty, the code prints a message indicating this fact and the current attempt number, waits for the specified delay period, and proceeds to the next iteration of the loop. This handles situations where the request was successful and didn't result in an error but didn't provide any logs to process.
+
+If the function hasn't returned by the end of the loop (meaning it hasn't successfully processed a set of logs), it will have retried the request the maximum number of times. At this point, the function will exit, and the code will continue, effectively giving up on fetching logs after exhausting all the allowed attempts.
+
+### Using response code and error messages in retry logic
+
+As you can see in the above example, we use both the response code and error messages in our retry logic. The response code allows us to determine whether the request was successful, while the error messages provide more detailed information about what went wrong.
+
+By using both of these pieces of information, we can make our retry logic more intelligent and effective. For example, we can decide to retry the request immediately if the error message indicates a temporary problem with the server or wait for a longer delay if the error message indicates a more serious problem.
+
+In addition, by logging the error messages, we can keep a record of the errors that occurred, which can be useful for debugging and improving our application.
+
+## Common problems and gotchas
+
+While handling HTTP status codes and implementing retry logic can significantly improve the reliability of your application, there are a few common problems and gotchas that you should be aware of.
+
+### Importance of effective retry logics and robust error backlogs
+
+Another common problem is the lack of effective retry logic and robust error backlogs. Without these, your application may not be able to recover from temporary failures, resulting in poor user experience and potential data loss.
+
+An effective retry logic should take into account the nature of the error and adjust its behavior accordingly. For example, if the error is temporary (such as a 5xx server error), the retry logic should wait for a short delay before retrying the request. If the error is permanent (such as a 4xx client error), the retry logic should not retry the request and should log the error and notify the user.
+
+A robust error backlog, on the other hand, can help you keep track of the errors that occur in your application, allowing you to debug and fix issues more effectively. It can also provide valuable insights into the performance and reliability of your application, helping you identify areas for improvement.
+
+## Conclusion
+
+Handling HTTP status codes and implementing retry logic are crucial aspects of working with API requests. They ensure smooth and reliable communication between clients and servers and enhance your applications' overall performance and resilience. As the volume and complexity of data continue to increase, the importance of these practices cannot be overstated.
+
+Remember, the key to effective error handling is understanding the different types of HTTP status codes and how to handle them. This includes knowing how to retrieve these codes, analyze error responses, and implement robust retry logic. By doing so, you can build applications that are capable of handling temporary failures and maintaining data integrity, even in the face of increasing data volume and complexity.
+
+However, it's also important to be aware of the common challenges and gotchas associated with these practices. This includes dealing with the constantly growing data in Web3, implementing effective retry logic, and maintaining robust error backlogs. By being aware of these challenges and knowing how to handle them, you can ensure that your applications remain reliable and resilient, no matter what comes their way.
+
+In conclusion, while error handling in API requests can be complex, it's an essential skill for any developer working with APIs. By following the best practices outlined in this guide, you can ensure that your applications are well-equipped to handle any errors that may occur, resulting in a better user experience and a more reliable application.

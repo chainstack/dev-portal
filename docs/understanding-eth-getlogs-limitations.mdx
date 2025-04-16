@@ -1,0 +1,314 @@
+---
+title: "Understanding eth_getLogs Limitations"
+---
+
+**TLDR**
+
+* `eth_getLogs` is a powerful method to retrieve Ethereum logs but can strain node resources if not managed properly.
+* Always adhere to your network’s recommended block range limit and paginate larger queries to avoid timeout errors.
+* Apply relevant filters (topics, contract addresses) to minimize data retrieval overhead.
+* For production use, combine best practices like smaller query ranges, pagination, and efficient filtering to ensure reliable and scalable log fetching.
+
+## Main article
+
+As decentralized applications (DApps) continue to evolve and scale, the efficient management of Ethereum logs has become crucial in Web3 development. One of the common ways to access Ethereum logs is via the `eth_getLogs` RPC method. This method provides an essential tool for querying past events in Ethereum-based blockchains. However, understanding its limitations and the optimal ways to use it can significantly enhance your DApp performance and reliability.
+
+## About `eth_getLogs`
+
+The `eth_getLogs` method is an Ethereum JSON-RPC endpoint used to query logs based on a `filter` object from the Ethereum blockchain. It can be used directly or indirectly through libraries like web3.js or ethers.js that provide convenient wrappers. This function is crucial for auditing and retrieving past events emitted by smart contracts.
+
+<Info>
+
+  Learn more about `eth_getLogs` and how you can retrieve emitted events from [Tracking some Bored Apes: The Ethereum event logs tutorial](/docs/tracking-some-bored-apes-the-ethereum-event-logs-tutorial).
+</Info>
+
+## Block range limitations
+
+While `eth_getLogs` is a powerful tool, it's crucial to understand its limitations, particularly when working with different EVM-compatible chains, as these networks often have different constraints. The `eth_getLogs` method allows you to select a range of blocks to get events from and is important to exercise proper management.
+
+In general, `eth_getLogs` is a very resource-intensive method and although Chainstack does not pose any arbitrary limitation, some blockchain clients do, and a very large block range can impact your node’s performance.
+
+Below you can find the block range limitations for the `eth_getLogs` that we recommend in order to maintain a good balance between node and application performance.
+
+<Info>
+  ### Range limits based on subscription plan
+  
+  These figures mean that the difference between the `fromBlock` and `toBlock` parameters should not exceed the given block range when querying logs.
+
+  The ranges allowed change based on the plan you are on:
+
+  * **Developer** plan — 100 blocks
+  * **Growth** plan — 10,000 blocks
+  * **Business** plan — 10,000 blocks
+  * **Enterprise** — 10,000 blocks. Customization available on request.
+</Info>
+
+Cronos and Harmony have hard limits set by their respective blockchain clients. You will receive an error if you try to query a bigger range than the following:
+
+* Cronos — 10,000 blocks.
+* Harmony — 1,024 blocks.
+
+Even if your subscription plan allows for an **unlimited** range, it's best practice to limit the range of blocks you are querying in a single request to prevent issues such as timeout errors or overly large responses. Here are some recommended block ranges per request for various networks:
+
+* Ethereum — 5,000 blocks.
+* Polygon — 3,000 blocks.
+* BNB Smart Chain — 5,000 blocks.
+* Avalanche — 100,000 blocks.
+* Fantom — 5,000 blocks.
+* Arbitrum — 10,000 blocks.
+* Aurora — 10,000 blocks.
+* Gnosis — 10,000 blocks.
+
+These limitations are particularly important when working with popular smart contracts on busy blockchains, as they can return a large amount of data.
+
+## Best practices when using `eth_getLogs`
+
+While using `eth_getLogs`, consider these best practices to ensure efficient and reliable log data retrieval.
+
+### Limit the block range
+
+Stay within the block range limits for the specific network you are working with. This practice reduces the likelihood of receiving an oversized response or a timeout error due to a long query.
+
+### Paginate queries
+
+If you need to retrieve logs over a range that exceeds the network's limit, split your request into multiple queries. This method is similar to pagination in traditional APIs.
+
+The following is an example using web3.js:
+
+<CodeGroup>
+  ```javascript Javascript
+  const Web3 = require("web3");
+  const NODE_URL = "YOUR_CHAINSTACK_ENDPOINT";
+  const web3 = new Web3(NODE_URL);
+
+  async function getLogs() {
+    const startBlock = 14204533;
+    const endBlock = 15204533;
+    const range = 5000;
+    const address = '0x4d224452801ACEd8B2F0aebE155379bb5D594381';
+    const topics = ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'];
+
+    for (let i = startBlock; i <= endBlock; i += range) {
+      const fromBlock = i;
+      const toBlock = Math.min(i + range - 1, endBlock);
+
+      const filter = {
+        fromBlock,
+        toBlock,
+        address,
+        topics
+      };
+
+      const logs = await web3.eth.getPastLogs(filter);
+      console.log(logs);
+    }
+  }
+
+  getLogs();
+  ```
+</CodeGroup>
+
+This example retrieves the `Transfer` events from the first one million blocks after the deployment of the [ApeCoin](https://etherscan.io/address/0x4d224452801aced8b2f0aebe155379bb5d594381) smart contract in chunks of 5,000 blocks.
+
+### Efficiently filter logs
+
+Retrieving logs from a blockchain can result in a large amount of data, especially when dealing with a busy network or a large number of blocks. Applying filters to your queries is important to manage this effectively and avoid unnecessary processing unless you are trying to retrieve all the events at once.
+
+A filter is a set of criteria that you specify when making a request for logs. The blockchain node will then only return the logs that match these criteria, reducing the amount of data returned and making the query more efficient.
+
+<Info>
+  ### Further reading
+
+  Read [Tracking some Bored Apes: The Ethereum event logs tutorial](/docs/tracking-some-bored-apes-the-ethereum-event-logs-tutorial) to learn more about the `eth_getLogs` method and [How to properly encode topics for eth\_getLogs recipe](/recipes/how-to-properly-encode-topics-for-eth_getlogs-1) on how to encode the filter parameters.
+</Info>
+
+For example, if you're only interested in a specific type of event, such as `Transfer` events, you can specify this in your filter. The node will then only return logs for `Transfer` events, ignoring all others.
+
+Similarly, if you're only interested in events from a particular address, you can specify this address in your filter. The node will then only return logs that involve this address, ignoring events from all other addresses.
+
+Using filters effectively can significantly reduce the amount of data you need to handle, making your application more efficient and responsive.
+
+## Real-world example
+
+Let’s take it a step further and show an example of how we can fetch and store `Transfer` event logs from the [BAYC](https://etherscan.io/token/0xbc4ca0eda7647a8ab7c2061c2e118a18a936f13d) smart contract. This project stores event logs in a MongoDB instance. This is a good starting point for creating your own BAYC API.
+
+### Prerequisites
+
+* node.js
+* MongoDB Atlas account with database setup and dedicated account to it
+* [Chainstack Ethereum node](/docs/manage-your-networks#join-a-public-network)
+
+### Setup
+
+For this example, we will be using node.js, so let’s set up a project:
+
+<CodeGroup>
+  ```shell Shell
+  npm init -y
+  ```
+</CodeGroup>
+
+<Info>
+  Check out [Web3 node.js: From zero to a full-fledged project](/docs/web3-nodejs-from-zero-to-a-full-fledged-project) to learn best practices when working with node.js.
+</Info>
+
+As the next step, we should install dependencies:
+
+<CodeGroup>
+  ```shell Shell
+  npm install web3 dotenv mongodb
+  ```
+</CodeGroup>
+
+Now we can create `.env` and `main.js` files and fill in the following information:
+
+<CodeGroup>
+  ```jsx .env
+  MONGODB_CONNECTION_STRING="YOUR_MONGO_DB_CONNECTION"
+  CHAINSTACK_URL="YOUR_CHAINSTACK_ENDPOINT"
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```javascript main.js
+  require("dotenv").config();
+  const Web3 = require("web3");
+  const MongoClient = require("mongodb").MongoClient;
+
+  async function connectToMongoDB(connectionString) {
+  	const client = new MongoClient(connectionString);
+  	try {
+  		await client.connect();
+  		console.log("Connected to MongoDB");
+  		return client;
+  	} catch (err) {
+  		console.error(`Failed to connect to MongoDB: ${err}`);
+  		return null;
+  	}
+  }
+
+  // Connect to your Chainstack Ethereum node
+  console.log("Connecting to Ethereum node...");
+  const web3 = new Web3(
+  	new Web3.providers.HttpProvider(process.env.CHAINSTACK_URL)
+  );
+  console.log("Connected to Ethereum node");
+
+  // Set the BAYC contract address
+  const contractAddress = "0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D"; // BAYC contract address
+
+  // BAYC contract was created at this block
+  const startBlock = 12686718;
+  const batch_size = 5000; // Stay within Ethereum network limits
+
+  // Connect to MongoDB
+  connectToMongoDB(process.env.MONGODB_CONNECTION_STRING).then(async (client) => {
+  	if (client) {
+  		const db = client.db("BAYC");
+  		const collection = db.collection("bayc-logs");
+
+  		// Get latest block number
+  		console.log("Fetching latest block number...");
+  		const endBlock = await web3.eth.getBlockNumber();
+  		console.log(`Latest block number is ${endBlock}`);
+
+  		// Query logs in batches
+  		for (let i = startBlock; i < endBlock; i += batch_size) {
+  			const toBlock = Math.min(i + batch_size - 1, endBlock);
+
+  			try {
+  				console.log(`Fetching events from block ${i} to ${toBlock}...`);
+  				/*
+                  We can use getPastLogs or getPastEvents
+                  getPastLogs return raw data, getPastEvents will do some formatting on the data returned
+                  */
+  				const logs = await web3.eth.getPastLogs({
+  					fromBlock: web3.utils.toHex(i),
+  					toBlock: web3.utils.toHex(toBlock),
+  					address: contractAddress,
+  					topics: [web3.utils.keccak256("Transfer(address,address,uint256)")],
+  				});
+  				console.log(
+  					`Fetched ${logs.length} logs from block ${i} to ${toBlock}`
+  				);
+
+  				// Process logs and store them in MongoDB
+  				for (let log of logs) {
+  					await collection.insertOne(log);
+  					console.log(`Stored log ${log.id} in MongoDB`);
+  				}
+
+  				console.log(`Stored logs from block ${i} to ${toBlock} in MongoDB`);
+  			} catch (err) {
+  				console.error(
+  					`Error fetching logs from block ${i} to ${toBlock}: ${err}`
+  				);
+  			}
+  		}
+
+  		client.close();
+  	}
+  });
+  ```
+</CodeGroup>
+
+Once we have the files ready, we can run the script with the following command:
+
+<CodeGroup>
+  ```shell Shell
+  node main.js
+  ```
+</CodeGroup>
+
+If you set up everything properly, you will see the following output:
+
+<CodeGroup>
+  ```jsx jsx
+  ❯ node main.js
+  Connecting to Ethereum node...
+  Connected to Ethereum node
+  Connected to MongoDB
+  Fetching latest block number...
+  Latest block number is 17401394
+  Fetching events from block 12686718 to 12691717...
+  Fetched 183 logs from block 12686718 to 12691717
+  Stored log log_5b71b7bd in MongoDB
+  Stored log log_22da2c2a in MongoDB
+  Stored log log_6c6c5129 in MongoDB
+  Stored log log_9b606429 in MongoDB
+  Stored log log_de39154c in MongoDB
+  Stored log log_a49334ff in MongoDB
+  ...
+  ...
+  Stored logs from block 12686718 to 12691717 in MongoDB
+  Fetching events from block 12691718 to 12696717...
+  Fetched 125 logs from block 12691718 to 12696717
+  Stored log log_e19237a9 in MongoDB
+  Stored log log_7611f848 in MongoDB
+  Stored log log_a8e6d7b7 in MongoDB
+  Stored log log_999b2ede in MongoDB
+  Stored log log_2f4fb9f4 in MongoDB
+  Stored log log_51054a82 in MongoDB
+  ...
+  ...
+  ```
+</CodeGroup>
+
+Congratulations, you just set up your own data-processing script!
+
+## Conclusion
+
+Understanding the nuances and best practices of using `eth_getLogs` is vital for efficiently working with Ethereum logs and enhancing your DApp performance. Being mindful of block range limitations and implementing methods to optimize log retrieval will provide a robust foundation for handling log data in a Web3 environment.
+
+### About the author
+
+<CardGroup>
+  <Card title="Edin Drazevicanin" img="/images/docs/juOi73j.png">
+    <Icon icon="code"  iconType="solid"/> Technical Support Engineer @ Chainstack
+
+    <Icon icon="github"  iconType="brands"/> [0x6564](https://github.com/0x6564)
+
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/edeenn22)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/edindr/)
+  </Card>
+</CardGroup>

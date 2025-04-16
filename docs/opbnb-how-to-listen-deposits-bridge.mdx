@@ -1,0 +1,231 @@
+---
+title: "opBNB: How to Listen to Deposits on the opBNB Bridge"
+---
+
+**TLDR**
+* opBNB is a Layer 2 scalability solution for the BNB Smart Chain built on the Optimism OP Stack.
+* The opBNB Bridge contract emits `DepositFinalized` events whenever deposits from BNB Chain occur.
+* This tutorial shows how to listen for these deposit events using ethers.js, enabling real-time tracking of cross-chain activity.
+* By monitoring transaction hashes and deposit details, developers can interact directly with the opBNB ecosystem.
+
+## Main article
+
+opBNB is an EVM-compatible Layer 2 scalable network that brings unique features. Developed as an extension of the Binance Smart Chain (BNB Chain) ecosystem, opBNB aims to provide high-performance blockchain solutions. It leverages the bedrock version of the Optimism OP Stack to offer a Layer 2 scaling solution for the BNB Smart Chain.
+
+The opBNB network enhances scalability by offloading transaction processing and resource usage from the BNB Smart Chain while posting data to the underlying mainnet. This approach enables high throughput and low fees, making opBNB an attractive choice for developers and users.
+
+One of the key components of opBNB is the opBNB Bridge, which facilitates the secure transfer of assets between BNB Chain and opBNB. This bridge is essential for those who need to move assets while maintaining the benefits of both networks. Users interact with the opBNB network by depositing funds from BNB and using applications and contracts on opBNB.
+
+This tutorial will guide you through setting up a listener for deposit events on the opBNB Bridge. You can then capture deposit events and extract relevant transaction data. Understanding how to monitor and interact with these on-chain events is crucial for developers leveraging opBNB's capabilities.
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/) to deploy an opBNB Mainnet node
+* [Node.js](https://nodejs.org/en)
+* ether.js
+
+## Step-by-step
+
+### Get an opBNB node
+
+Log in to your [Chainstack account](https://console.chainstack.com/) and deploy a node.
+
+### Create a new ethers project
+
+Once you have Node.js installed, create a new project in a new directory.
+
+```
+npm init --yes
+```
+
+This will create a new project and a `package.json` file. You can then install the ethers library.
+
+```
+npm i ethers
+```
+
+<Info>
+  Learn more about Node projects for Web3 by reading [Web3 node.js: From zero to a full-fledged project](/docs/web3-nodejs-from-zero-to-a-full-fledged-project).
+</Info>
+
+### Create the script
+
+Now that the project is set, create a new file named `index.js`.
+
+With this DApp, we listen to the `DepositFinalized` event on the opBNB Bridge smart contract, `0x4200000000000000000000000000000000000010` in this case. This even is emitted when a deposit is made, you can use this data to monitor activity.
+
+Note that this address is a proxy contract. To find the contract event to use in the code, check the actual bridge contract: [0xc0d3c0d3c0d3c0d3c0d3c0d3c0d3c0d3c0d30010](https://opbnbscan.com/address/0xc0d3c0d3c0d3c0d3c0d3c0d3c0d3c0d3c0d30010?view=contract_code\&p=1\&tab=Contract#F7#L58). The event is defined in the contract as the following:
+
+<CodeGroup>
+  ```sol L2StandardBridge.sol
+  event DepositFinalized(
+      address indexed l1Token,
+      address indexed l2Token,
+      address indexed from,
+      address to,
+      uint256 amount,
+      bytes extraData
+  );
+  ```
+</CodeGroup>
+
+Paste the following code.
+
+<CodeGroup>
+  ```javascript Javascript
+  const { ethers } = require("ethers");
+
+  // Connect to your opBNB node
+  const provider = new ethers.JsonRpcProvider(
+    "YOUR_CHAINSTACK_NODE"
+  );
+
+  // Define the contract ABI
+  const abi = [
+    "event DepositFinalized(address indexed l1Token, address indexed l2Token, address indexed from, address to, uint256 amount, bytes extraData)",
+  ];
+
+  // Define the contract address
+  const contractAddress = "0x4200000000000000000000000000000000000010";
+
+  // Create a contract instance
+  const contract = new ethers.Contract(contractAddress, abi, provider);
+
+  // Define the event filter (optional: add any specific filters if required)
+  const filter = contract.filters.DepositFinalized();
+
+  console.log("Listening for DepositFinalized events on the opBNB Bridge...");
+
+  // Listen for the event
+  contract.on(filter, (event) => {
+    console.log("Deposit Finalized Event:");
+    console.log(`Transaction Hash: ${event.log.transactionHash}`);
+    console.log(
+      `Explorer link: https://opbnbscan.com/tx/${event.log.transactionHash}`
+    );
+    console.log(`From: ${event.args[2]}`); // from
+    console.log(`Amount: ${ethers.formatEther(event.args[4].toString())} BNB`); // amount
+
+    console.log(
+      "------------------------------------------------------------------------------------------"
+    );
+  });
+  ```
+</CodeGroup>
+
+where
+
+* `YOUR_CHAINSTACK_NODE` — your opBNB node endpoint
+
+## Code breakdown
+
+Here's a brief breakdown explaining the code step-by-step:
+
+<Steps>
+  <Step title="Importing Ethers.js Library">
+  The code starts by importing the Ethers.js library, which is essential for interacting with the Ethereum network and its derivatives like opBNB.
+  </Step>
+  <Step title="Connecting to the opBNB Node">
+  Using a JSON-RPC provider, it connects to an opBNB node. Replace `"YOUR_CHAINSTACK_NODE"` with your actual Chainstack node URL.
+
+<CodeGroup>
+  ```javascript Javascript
+  const { ethers } = require("ethers");
+
+  // Connect to your opBNB node
+  const provider = new ethers.JsonRpcProvider(
+    "YOUR_CHAINSTACK_NODE"
+  );
+  ```
+</CodeGroup>
+  </Step>
+  <Step title="Defining the Contract ABI">
+  The ABI (Application Binary Interface) is defined for the `DepositFinalized` event. This ABI tells Ethers.js how to interpret the event data.
+
+<CodeGroup>
+  ```javascript Javascript
+  // Define the contract ABI
+  const abi = [
+    "event DepositFinalized(address indexed l1Token, address indexed l2Token, address indexed from, address to, uint256 amount, bytes extraData)",
+  ];
+  ```
+</CodeGroup>
+  </Step>
+  <Step title="Specifying the Contract Address">
+  The address of the opBNB Bridge contract is specified. This address points to the smart contract on the opBNB network that emits the `DepositFinalized` events.
+
+<CodeGroup>
+  ```javascript Javascript
+  // Define the contract address
+  const contractAddress = "0x4200000000000000000000000000000000000010";
+  ```
+</CodeGroup>
+  </Step>
+  <Step title="Creating a Contract Instance">
+  The contract address, ABI, and provider are used to create an instance of the contract. This instance allows interaction with the contract and listening for events.
+
+<CodeGroup>
+  ```javascript Javascript
+  // Create a contract instance
+  const contract = new ethers.Contract(contractAddress, abi, provider);
+  ```
+</CodeGroup>
+  </Step>
+  <Step title="Defining the Event Filter">
+  A filter for the `DepositFinalized` event is defined. If needed, this filter can be customized to listen for specific events based on additional parameters.
+
+<CodeGroup>
+  ```javascript Javascript
+  // Define the event filter (optional: add any specific filters if required)
+  const filter = contract.filters.DepositFinalized();
+  ```
+</CodeGroup>
+  </Step>
+  <Step title="Handling the Event">
+  The script sets up an event listener that triggers when a `DepositFinalized` event is detected.
+
+   * **Logging Event Details**: It logs the event details, such as the transaction hash, which can be used to view the transaction on the opBNB block explorer.
+   * **Extracting Event Data**: The `from` address and the `amount` of BNB deposited are extracted from the event arguments and logged. The amount is formatted to be readable in BNB units.
+
+<CodeGroup>
+  ```javascript Javascript
+  // Listen for the event
+  contract.on(filter, (event) => {
+    console.log("Deposit Finalized Event:");
+    console.log(`Transaction Hash: ${event.log.transactionHash}`);
+    console.log(
+      `Explorer link: https://opbnbscan.com/tx/${event.log.transactionHash}`
+    );
+    console.log(`From: ${event.args[2]}`); // from
+    console.log(`Amount: ${ethers.formatEther(event.args[4].toString())} BNB`); // amount
+
+    console.log(
+      "------------------------------------------------------------------------------------------"
+    );
+  });
+  ```
+</CodeGroup>
+  </Step>
+</Steps>
+
+The script listens for `DepositFinalized` events on the opBNB Bridge and prints relevant details to the console whenever such an event is emitted by the smart contract.
+
+## Conclusion
+
+By following this tutorial, you have successfully set up a listener for `DepositFinalized` events on the opBNB Bridge. This allows you to capture and analyze deposit events in real-time, providing valuable insights into the activity on the opBNB network.
+
+### About the author
+
+<CardGroup>
+  <Card title="Davide Zambiasi" img="/images/docs/profile_images/1533079085001363457/1VvXp1m0_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on EVM, The Graph protocol, and Starknet
+
+    <Icon icon="laptop"  iconType="solid"/> Helping people understand Web3 and blockchain development
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/soos3d)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/web3Dav3)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/davide-zambiasi/)
+  </Card>
+</CardGroup>

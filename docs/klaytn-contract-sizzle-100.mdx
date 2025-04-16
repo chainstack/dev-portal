@@ -1,0 +1,134 @@
+---
+title: "Kaia (ex. Klaytn): Contract Sizzle 100"
+---
+
+**TLDR**
+
+* This tutorial shows how to scan recent blocks on Klaytn Mainnet to find the top 3 most interacted-with contracts.
+* It uses web3.py, checks if addresses are contracts by retrieving bytecode, and caches results for efficiency.
+* A heap is used to store and retrieve the top 3 busiest contracts, and the script supports multithreading.
+* Can be adapted for analytics, alerts, or bot flows leveraging real-time contract interaction data.
+
+## Main article
+
+Klaytn is an EVM-compatible protocol with a few modifications. Check the Klaytn docs for a full break-down on the compatibility: [Ethereum Compatibility](https://docs.klaytn.foundation/docs/learn/transactions/ethereum/).
+
+In this tutorial, we'll build a quick Python project called Contract Sizzle 100. Contract Sizzle 100 prints the top 3 hottest contracts on the Klaytn Mainnet (aka Cypress Network) over the past 100 blocks.
+
+The way it works is very simple: the script ingests each new incoming block from the Klaytn Mainnet, extracts all contract interactions, counts them and prints the top3 contracts that had the most interactions.
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/) to deploy a Klaytn Mainnet node
+* [web3.py](https://web3py.readthedocs.io/)
+
+## Step-by-step
+
+### Get a Klaytn node
+
+Log in to your [Chainstack account](https://console.chainstack.com/) and deploy a node.
+
+### Create the script
+
+A few details on the implementation.
+
+How do you actually identify the contract addresses? One easy way is to:
+
+1. Retrieve off the network each block with all transactions in the block.
+2. Extract the `to:` address.
+3. Check if the extracted address is a contract by doing an `eth_getCode` to the address.
+
+This process in Python, however, can be slow, so let's optimize it a bit:
+
+* After doing an `eth_getCode` to an extracted address, cache the results so that if we get this address again, we don't do a `eth_getCode` to it as we already know this is a contract address.
+* Multithread the script by using our tutorial [Mastering multithreading in Python for Web3 requests: A comprehensive guide](/docs/mastering-multithreading-in-python-for-web3-requests-a-comprehensive-guide).
+
+Here's the final script:
+
+<CodeGroup>
+  ```python Python
+  from web3 import Web3
+  from collections import defaultdict
+  import heapq
+  from concurrent.futures import ThreadPoolExecutor
+
+  # Connect to a Klaytn node
+  w3 = Web3(Web3.HTTPProvider('CHAINSTACK_NODE'))
+
+  # Data structure to hold the count of interactions per contract
+  contract_interactions = defaultdict(int)
+
+  # Priority queue to maintain top 3 contracts
+  top_contracts = []
+
+  # Cache for storing contract check results
+  is_contract_cache = {}
+
+  def is_contract(address):
+      if address not in is_contract_cache:
+          code = w3.eth.get_code(address)
+          is_contract = code != '0x'
+          is_contract_cache[address] = is_contract
+      return is_contract_cache[address]
+
+  def process_block(block_number):
+      print(f"Processing block {block_number}")
+      block = w3.eth.get_block(block_number, full_transactions=True)
+      for tx in block.transactions:
+          if tx.to and is_contract(tx.to):
+              contract_interactions[tx.to] += 1
+
+  # Main loop to process 100 blocks
+  def main():
+      latest_block = w3.eth.block_number
+      print("Starting to process blocks...")
+      with ThreadPoolExecutor(max_workers=10) as executor:
+          executor.map(process_block, range(latest_block - 100, latest_block))
+
+      # Identify top 3 contracts
+      for contract, interactions in contract_interactions.items():
+          heapq.heappush(top_contracts, (interactions, contract))
+          if len(top_contracts) > 3:
+              heapq.heappop(top_contracts)
+
+      # Print top 3 contracts
+      print("Top contracts:", top_contracts)
+      while top_contracts:
+          interactions, contract = heapq.heappop(top_contracts)
+          print(f'Contract {contract} had {interactions} interactions')
+
+  if __name__ == '__main__':
+      try:
+          main()
+      except Exception as e:
+          print(f"An error occurred: {e}")
+  ```
+</CodeGroup>
+
+where
+
+* CHAINSTACK\_NODE — your Klaytn node deployed with Chainstack
+* `max_workers=10` — set to however parallel threads you feel is reasonable. Make sure don't hit the limits: [Limits](/docs/limits).
+
+## Conclusion
+
+This tutorial guided you through creating a basic setup to live-track the hottest contract on the Klaytn Network. There are many fun ways you can use it as basis to build upon — from passing the data to a Twitter bot account to setting up your own alerts or bot flow.
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

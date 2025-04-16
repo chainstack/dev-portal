@@ -1,0 +1,184 @@
+---
+title: "Solana: Listening to pump.fun Token Mint Using Only logsSubscribe"
+---
+**TLDR**
+* This script captures newly created pump.fun tokens by subscribing solely to program logs (logsSubscribe).
+* On seeing the “Create” instruction, it decodes the token name, symbol, URI, mint address, bonding curve address, and user, then computes the associated bonding curve address.
+* This eliminates the need for extra RPC calls (like blockSubscribe or getTransaction), giving real-time data to enable fast sniping of newly minted tokens.
+* Compare it with blockSubscribe in separate scripts to see which offers quicker event detection in your setup.
+
+## Main article
+
+<Info>
+  ### V2 of the pump.fun bot
+
+  V2 of the pump.fun bot is in active development based on your feedback. It's an improved and usable version right from the start.
+
+  Use the [refactored/main-v2](https://github.com/chainstacklabs/pump-fun-bot/tree/refactored/main-v2) branch. And feel free to provide feedback through Issues.
+</Info>
+
+This guide shows you how to listen for pump.fun token creation events in real time using only the [logsSubscribe](/api-reference/logssubscribe-solana) method.
+
+In the [pump-fun-bot repository](https://github.com/chainstacklabs/pump-fun-bot), there is the `learning-examples/listen_new_direct_full_details.py` script demonstrates how to capture the new token’s name, symbol, mint address, user (creator), bonding curve address, and associated bonding curve address—no methods like [blockSubscribe](/api-reference/blocksubscribe-solana) extra RPC calls like [getTransaction](/api-reference/solana_node_api/getTransaction) are required.
+
+There's difference in speed in how `blockSubscribe` and `logsSubscribe` work. Also, `blockSubscribe` is available on all Chainstack plans, but with other providers, it may not be available on the free tier plans or even lower tier paid plans.
+
+There is also difference in how `blockSubscribe` and `logsSubscribe` work, hence this article and example.
+
+* `blockSubscribe` — extracts and decodes transactions as the are streamed in the blocks produced. And the script in the bot decodes them on the fly. This means that we get all the necessary data to do our sniping using the `blockSubscribe` method.
+* `logsSubscribe` — only prints the pump.fun program logs, in our case—for token mints. The problem is we can get and decode from the logs the new token’s name, symbol, mint address, user (creator), and bonding curve address. But the logs do not contain the associated bonding curve address, which we need to do a sniping/buying transaction.
+
+The script discussed in this article and that is the `learning-examples/listen_new_direct_full_details.py` script solves the issue by computing the associated bonding curve address from the bonding curve address on the fly and prints it. This way it makes it possible to snipe tokens on pump.fun using the `logsSubscribe` method only. which in general has better availability across providers and may work faster for you.
+
+## How it works
+
+* The script subscribes to Solana logs mentioning the pump.fun program (`PUMP_PROGRAM`).
+
+* Whenever the program logs an `Instruction: Create` event, the script looks at the `Program data:` line in the logs.
+
+* It decodes the data on-the-fly and extracts:
+
+  * The token name
+  * The token symbol
+  * The token URI
+  * The token mint address
+  * The bonding curve address
+  * The user (creator) address
+
+* It then computes the associated bonding curve address (similar to how an associated token account is derived) via `Pubkey.find_program_address()`.
+
+By using `logsSubscribe`, you can get new token details almost immediately, which is especially handy if you want to “snipe” tokens the moment they are created.
+
+<Check>
+  ### Get you own node endpoint today
+
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+  You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Prerequisites
+
+1. A Solana WebSocket endpoint (e.g., from Chainstack).
+2. Python 3.8+ with the required dependencies installed:
+   <CodeGroup>
+     ```shell Shell
+     pip install -r requirements.txt
+     ```
+   </CodeGroup>
+3. A properly configured `config.py` file that includes your WebSocket endpoint (`WSS_ENDPOINT`).
+
+## Usage
+
+1. Run:
+
+   <CodeGroup>
+     ```bash Bash
+     python listen_new_direct_full_details.py
+     ```
+   </CodeGroup>
+
+2. Watch the console for output like this:
+
+   <CodeGroup>
+     ```text text
+     Listening for new token creations from program: 6EF8rrecthR5...
+     Subscription response: {"jsonrpc":"2.0","result":{"subscription":...}}
+
+     Signature: 5TYqzsc...
+     name: MyToken
+     symbol: MYTK
+     uri: https://arweave.net/...
+     mint: 8cYMHFE...
+     bondingCurve: 6GUb...
+     user: Hwz3...
+     Associated Bonding Curve: 5YvN...
+     ##########################################################################################
+     ```
+   </CodeGroup>
+
+## Script overview
+
+1. **Subscribe to logs** Uses `logsSubscribe` to monitor logs referencing the pump.fun program ID.
+
+2. **Look for “Program log: Instruction: Create”** When that shows in the logs, the script checks subsequent logs for `Program data:` lines.
+
+3. **Decode and parse** The script decodes the base64-encoded `Program data:` and extracts:
+
+   * **name** (token name)
+   * **symbol** (token symbol)
+   * **uri** (metadata URI)
+   * **mint** (the newly minted token address)
+   * **bondingCurve** (the bonding curve address)
+   * **user** (the token creator)
+
+   It then calculates the associated bonding curve address via:
+
+   <CodeGroup>
+     ```python Python
+     derived_address, _ = Pubkey.find_program_address(
+         [
+             bytes(bonding_curve),
+             bytes(TOKEN_PROGRAM_ID),
+             bytes(mint),
+         ],
+         ATA_PROGRAM_ID
+     )
+     ```
+   </CodeGroup>
+
+4. **Print details** Outputs the transaction signature, plus the fields noted above, along with the computed associated bonding curve.
+
+Because we rely on logs only, we do not need extra calls like `getTransaction`. This approach is ideal if you want to immediately act on the new token creation events in your trading or monitoring workflows.
+
+## Compare performance
+
+You can run:
+
+<CodeGroup>
+  ```shell Shell
+  python listen_create_from_blocksubscribe.py
+  ```
+</CodeGroup>
+
+alongside:
+
+<CodeGroup>
+  ```shell Shell
+  python listen_new_direct_full_details.py
+  ```
+</CodeGroup>
+
+to see which one delivers the event data faster in your environment.
+
+## Next steps
+
+* Integrate this script’s output into your buy/sell logic to snipe tokens right as they are created.
+* Optionally use a separate script or your own logic to monitor the token price (via the bonding curve) to decide when to buy or sell.
+
+With `logsSubscribe` alone, you can get the essential details for any new pump.fun token almost instantly.
+
+See also:
+
+<CardGroup>
+  <Card title="Solana: Creating a trading and sniping pump.fun bot" href="/docs/solana-creating-a-pumpfun-bot" icon="angle-right" horizontal />
+  <Card title="Solana: Listening to pump.fun migrations to Raydium" href="/docs/solana-listening-to-pumpfun-migrations-to-raydium" icon="angle-right" horizontal />
+</CardGroup>
+
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

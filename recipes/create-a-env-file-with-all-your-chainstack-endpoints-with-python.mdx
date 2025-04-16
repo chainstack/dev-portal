@@ -1,0 +1,387 @@
+---
+title: "Create a .env file with all your Chainstack endpoints with Python."
+description: "Learn how to automatically generate a .env file listing all your Chainstack endpoints with Python."
+---
+
+<AccordionGroup>
+  <Accordion title="Overview" >
+
+Chainstack provides a robust API that enables you to retrieve data about your projects and endpoints efficiently. This short tutorial will use the [list all nodes](https://docs.chainstack.com/reference/chainstack-platform-api-list-all-nodes) API.
+
+This API allows you to seamlessly extract a comprehensive list of nodes associated with your account. Additionally, we will demonstrate how to automate the creation of a .env file with the fetched data.
+
+Note that this script is designed for EVM compatible chains.
+
+</Accordion>
+<Accordion title="Prerequisites" >
+
+You will need a Chainstack account with an API and Python
+
+- Get a [Chainstack API key](https://docs.chainstack.com/reference/platform-api-getting-started#create-api-key)
+- [Deploy a node](https://docs.chainstack.com/docs/manage-your-node)
+
+</Accordion>
+<Accordion title="Environment setup" >
+
+To successfully set up your project environment, follow these steps:
+<Steps>
+<Step title="Create a New Python Virtual Environment" >
+	This isolated environment ensures that your project dependencies do not interfere with the global Python setup. Use the following command in your terminal:
+	```bash Bash
+	python3 -m venv get_endpoints
+	```
+	This command creates a new virtual environment named `get_endpoints`.
+</Step>
+<Step title="Activate the Virtual Environment" >
+	To activate the environment, run:
+	```bash Bash
+	source get_endpoints/bin/activate
+	```
+	After activation, you will notice that the terminal prompt is prefixed with `(get_endpoints)`, indicating that the virtual environment is active.
+</Step>
+<Step title="Install Required Packages" >
+	Within the activated environment, install the necessary packages using pip. For this project, you need `python-dotenv` for managing environment variables and `web3` for interacting with EVM blockchains:
+	```bash Bash
+	pip install python-dotenv web3
+	```
+</Step>
+</Steps>
+</Accordion>
+<Accordion title="Environment variables" >
+
+It's important to store your Chainstack API key securely. For this purpose, in your project's root directory, create a `.env` file, which will hold sensitive configuration details like API keys, away from your main codebase.
+
+Here's how you can set it up:
+
+<Steps>
+<Step title="Navigate to Your Project's Root Directory" >
+	Ensure you're in the root directory of your project, where your main application files reside.
+</Step>
+<Step title="Create a `.env` File" >
+	In this directory, create a new file named `.env`. This file is commonly used to store environment variables.
+</Step>
+<Step title="Add Your Chainstack API Key" >
+	Open the `.env` file with a text editor and insert the following line:
+	```bash env
+	CHAINSTACK_API_KEY="YOUR_API_KEY"
+	```
+	Replace `YOUR_API_KEY` with your actual Chainstack API key.
+</Step>
+</Steps>
+</Accordion>
+<Accordion title="The script" >
+
+Now that you've set up your environment, the next step involves creating a Python script.
+
+Follow these instructions:
+
+<Steps>
+<Step title="Creating a New Python File in the Root Directory" >
+	Create a new Python file in your project's root directory (the same location where you created the `.env` file). You can name this file `get_endpoints.py`.
+
+This naming convention indicates the file's purpose, which is to retrieve endpoint data.
+
+</Step>
+<Step title="Adding Code to the Python File" >
+	After creating `get_endpoints.py`, open it in your preferred code editor. You are now ready to add the necessary code. Paste the Python script.
+</Step>
+</Steps>
+</Accordion>
+<Accordion title="Understanding the code" >
+
+This Python script is designed to interact with the Chainstack API, retrieve blockchain node information, and create a configuration file with these details.
+</Accordion>
+<Accordion title="Environment Setup" >
+
+1. **Environment Setup and Logging**:
+	- The script starts by loading environment variables from a `.env` file, particularly the `CHAINSTACK_API_KEY`. This approach is a security best practice, keeping sensitive information from the source code.
+	- Logging is initialized for recording the script’s activities, errors, and informational messages, which is crucial for monitoring and debugging.
+
+```python get_endpoints.py
+import requests
+import os
+import logging
+from dotenv import load_dotenv
+from web3 import Web3
+from typing import Optional, Dict, Any
+
+# Load environment variables
+load_dotenv()
+
+# Constants
+CHAINSTACK_API_KEY = os.getenv('CHAINSTACK_API_KEY')
+OUTPUT_FILE_NAME = 'rpc.env'
+
+# Initialize logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+```
+</Accordion>
+<Accordion title="Get data from the API" >
+
+2. **Fetching Data from Chainstack API**:
+	- The `fetch_chainstack_data` function makes a GET request to the Chainstack API using the provided API key. It retrieves information about the blockchain nodes on your account.
+	- If successful, the function logs the number of items fetched and returns the data; otherwise, it logs an error and returns `None`.
+
+```python get_endpoints.py
+def fetch_chainstack_data(api_key: str) -> Optional[Dict[str, Any]]:
+    """Fetch data from Chainstack API."""
+    url = "https://api.chainstack.com/v1/nodes/"
+    headers = {
+        "accept": "application/json",
+        "authorization": f"Bearer {api_key}"
+    }
+
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        logging.info(f"Fetched {len(data.get('results', []))} items from Chainstack.")
+        return data
+    except requests.RequestException as e:
+        logging.error(f"Failed to fetch data from Chainstack: {e}")
+        return None
+```
+</Accordion>
+<Accordion title="Process the response" >
+
+3. **Processing Chainstack Data**:
+	- `process_chainstack_item` takes an item from the Chainstack data and extracts important details like ID, name, and endpoint information. This function is vital for organizing and simplifying the raw API data.
+
+You can use this data as you wish.
+
+```python get_endpoints.py
+def process_chainstack_item(item: Dict[str, Any]) -> Dict[str, str]:
+    """Process a single item from Chainstack data."""
+    logging.debug(f"Processing item: {item['name']} with ID {item['id']}")
+    return {
+        'id': item['id'],
+        'name': item['name'],
+        'details': item['details'],
+        'http_endpoint': item['details'].get('https_endpoint'),
+        'auth_key': item['details'].get('auth_key'),
+        'configuration': item['configuration'],
+        'client': item['configuration'].get('client')
+    }
+```
+</Accordion>
+<Accordion title="Test the endpoints" >
+
+4. **Web3 Connection Test**:
+	- The `connect_to_web3` function attempts to establish a connection to a Web3 endpoint. This step is crucial for verifying the functionality of the blockchain nodes as they are built from the HTTPS endpoint, and the AUTH key is fetched from the API.
+	- It logs a successful connection or warns if it fails, providing valuable feedback about each endpoint's status.
+
+Note that non-EVM endpoints or improperly formatted ones will not work and will show a warning. This is a point you can build on and improve.
+
+```python get_endpoints.py
+def connect_to_web3(reconstructed_endpoint: str) -> bool:
+    """Connect to a Web3 endpoint."""
+    logging.debug(f"Attempting to connect to Web3 endpoint: {reconstructed_endpoint}")
+    try:
+        w3 = Web3(Web3.HTTPProvider(reconstructed_endpoint))
+        if w3.is_connected():
+            chain_id = w3.eth.chain_id
+            logging.info(f"Connected to {reconstructed_endpoint} with chain ID: {chain_id}")
+            return True
+        else:
+            logging.warning(f"Failed to connect to {reconstructed_endpoint}")
+    except Exception as e:
+        logging.error(f"An error occurred while connecting to {reconstructed_endpoint}: {e}")
+    return False
+```
+</Accordion>
+<Accordion title="Write the .env file" >
+
+5. **Data Sanitization and .env File Creation**:
+	- `sanitize_name` ensures that the names of the endpoints are formatted correctly to be used as environment variable keys in the .env file.
+	- `create_env_file` writes the endpoint URLs into a .env file, making them easily accessible and usable in other project parts. This file serves as a central configuration point, enhancing the modularity and scalability of the system.
+
+
+```python get_endpoints.py
+def sanitize_name(name: str) -> str:
+    """Sanitize the endpoint name for use as an environment variable key."""
+    return name.replace(" ", "_").replace("-", "_").replace("/", "_").upper()
+
+
+def create_env_file(endpoint_info_dict: Dict[str, Dict[str, str]], filename: str = OUTPUT_FILE_NAME) -> None:
+    """Create a .env file from the endpoint info dictionary."""
+    logging.info(f"Preparing to write {len(endpoint_info_dict)} endpoints to .env file.")
+    with open(filename, 'w') as file:
+        for endpoint, info in endpoint_info_dict.items():
+            sanitized_name = sanitize_name(info['name'])
+            file.write(f'{sanitized_name}_URL="{endpoint}"\n')
+        logging.info(f".env file created successfully at {filename}.")
+```
+</Accordion>
+<Accordion title="Main flow" >
+
+6. **Main Execution Flow**:
+	- The `main` function orchestrates the entire process: checking the API key, fetching and processing data, testing endpoints, and creating the .env file.
+	- It ensures each step is executed in sequence and handles the absence of data or API keys, making the script robust and user-friendly.
+
+```python get_endpoints.py
+def main() -> None:
+    """Main function to orchestrate the process."""
+    logging.info("Starting main process.")
+    if not CHAINSTACK_API_KEY:
+        logging.error("Chainstack API key not found.")
+        return
+
+    json_data = fetch_chainstack_data(CHAINSTACK_API_KEY)
+    if not json_data:
+        return
+
+    endpoint_info_dict = {}
+    for item in json_data.get('results', []):
+        data = process_chainstack_item(item)
+        reconstructed_endpoint = f"{data['http_endpoint']}/{data['auth_key']}"
+        if connect_to_web3(reconstructed_endpoint):
+            endpoint_info_dict[reconstructed_endpoint] = {'name': data['name']}
+
+    if endpoint_info_dict:
+        create_env_file(endpoint_info_dict)
+    else:
+        logging.info("No endpoint information to write to .env file.")
+    logging.info("Main process completed.")
+
+if __name__ == "__main__":
+    main()
+```
+</Accordion>
+<Accordion title="Outcome" >
+
+Executing this script will efficiently process and validate your Chainstack endpoints. It identifies those endpoints that successfully return a chain ID, indicating their active and functional status. These validated endpoints are then neatly recorded into a `.env` file.
+
+With this setup, you gain a streamlined and organized method to access and utilize all your Chainstack endpoints.
+
+This approach simplifies endpoint management and enhances the overall efficiency of your interactions with Chainstack services.
+
+Note that non-EVM endpoints or improperly formatted ones will not work and will show a warning. This is a point you can build on and improve.
+</Accordion>
+</AccordionGroup>
+
+<RequestExample>
+```python get_endpoints.py
+import requests
+import os
+import logging
+from dotenv import load_dotenv
+from web3 import Web3
+from typing import Optional, Dict, Any
+
+# Load environment variables
+load_dotenv()
+
+# Constants
+CHAINSTACK_API_KEY = os.getenv('CHAINSTACK_API_KEY')
+OUTPUT_FILE_NAME = 'rpc.env'
+
+# Initialize logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+def fetch_chainstack_data(api_key: str) -> Optional[Dict[str, Any]]:
+    """Fetch data from Chainstack API."""
+    url = "https://api.chainstack.com/v1/nodes/"
+    headers = {
+        "accept": "application/json",
+        "authorization": f"Bearer {api_key}"
+    }
+
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        logging.info(f"Fetched {len(data.get('results', []))} items from Chainstack.")
+        return data
+    except requests.RequestException as e:
+        logging.error(f"Failed to fetch data from Chainstack: {e}")
+        return None
+
+def process_chainstack_item(item: Dict[str, Any]) -> Dict[str, str]:
+    """Process a single item from Chainstack data."""
+    logging.debug(f"Processing item: {item['name']} with ID {item['id']}")
+    return {
+        'id': item['id'],
+        'name': item['name'],
+        'details': item['details'],
+        'http_endpoint': item['details'].get('https_endpoint'),
+        'auth_key': item['details'].get('auth_key'),
+        'configuration': item['configuration'],
+        'client': item['configuration'].get('client')
+    }
+
+def connect_to_web3(reconstructed_endpoint: str) -> bool:
+    """Connect to a Web3 endpoint."""
+    logging.debug(f"Attempting to connect to Web3 endpoint: {reconstructed_endpoint}")
+    try:
+        w3 = Web3(Web3.HTTPProvider(reconstructed_endpoint))
+        if w3.is_connected():
+            chain_id = w3.eth.chain_id
+            logging.info(f"Connected to {reconstructed_endpoint} with chain ID: {chain_id}")
+            return True
+        else:
+            logging.warning(f"Failed to connect to {reconstructed_endpoint}")
+    except Exception as e:
+        logging.error(f"An error occurred while connecting to {reconstructed_endpoint}: {e}")
+    return False
+
+def sanitize_name(name: str) -> str:
+    """Sanitize the endpoint name for use as an environment variable key."""
+    return name.replace(" ", "_").replace("-", "_").replace("/", "_").upper()
+
+
+def create_env_file(endpoint_info_dict: Dict[str, Dict[str, str]], filename: str = OUTPUT_FILE_NAME) -> None:
+    """Create a .env file from the endpoint info dictionary."""
+    logging.info(f"Preparing to write {len(endpoint_info_dict)} endpoints to .env file.")
+    with open(filename, 'w') as file:
+        for endpoint, info in endpoint_info_dict.items():
+            sanitized_name = sanitize_name(info['name'])
+            file.write(f'{sanitized_name}_URL="{endpoint}"\n')
+        logging.info(f".env file created successfully at {filename}.")
+
+def main() -> None:
+    """Main function to orchestrate the process."""
+    logging.info("Starting main process.")
+    if not CHAINSTACK_API_KEY:
+        logging.error("Chainstack API key not found.")
+        return
+
+    json_data = fetch_chainstack_data(CHAINSTACK_API_KEY)
+    if not json_data:
+        return
+
+    endpoint_info_dict = {}
+    for item in json_data.get('results', []):
+        data = process_chainstack_item(item)
+        reconstructed_endpoint = f"{data['http_endpoint']}/{data['auth_key']}"
+        if connect_to_web3(reconstructed_endpoint):
+            endpoint_info_dict[reconstructed_endpoint] = {'name': data['name']}
+
+    if endpoint_info_dict:
+        create_env_file(endpoint_info_dict)
+    else:
+        logging.info("No endpoint information to write to .env file.")
+    logging.info("Main process completed.")
+
+if __name__ == "__main__":
+    main()
+```
+</RequestExample>
+
+<ResponseExample>
+```bash
+2024-01-09 17:50:27,635 - INFO - Starting main process.
+2024-01-09 17:50:29,556 - INFO - Fetched 9 items from Chainstack.
+2024-01-09 17:50:30,707 - INFO - Connected to https://nd-422-757-666.p2pify.com/ with chain ID: 1
+2024-01-09 17:50:33,324 - INFO - Connected to https://nd-828-700-214.p2pify.com/ with chain ID: 137
+2024-01-09 17:50:34,953 - WARNING - Failed to connect to https://nd-418-459-126.p2pify.com/
+2024-01-09 17:50:36,296 - INFO - Connected to https://nd-000-364-211.p2pify.com/ with chain ID: 42161
+2024-01-09 17:50:38,214 - WARNING - Failed to connect to https://nd-326-444-187.p2pify.com/
+2024-01-09 17:50:40,403 - INFO - Connected to https://nd-500-249-268.p2pify.com/ with chain ID: 100
+2024-01-09 17:50:41,948 - INFO - Connected to https://nd-363-550-219.p2pify.com/ with chain ID: 1101
+2024-01-09 17:50:42,927 - INFO - Connected to https://nd-954-882-037.p2pify.com/ with chain ID: 42161
+2024-01-09 17:50:43,607 - WARNING - Failed to connect to https://starknet-mainnet.core.chainstack.com/
+2024-01-09 17:50:43,607 - INFO - Preparing to write 6 endpoints to .env file.
+2024-01-09 17:50:43,608 - INFO - .env file created successfully at rpc.env.
+2024-01-09 17:50:43,608 - INFO - Main process completed.
+```
+</ResponseExample>

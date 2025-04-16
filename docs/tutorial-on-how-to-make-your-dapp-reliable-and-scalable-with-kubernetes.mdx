@@ -1,0 +1,631 @@
+---
+title: "Scaling Your DApp with Kubernetes: A Comprehensive Guide"
+---
+
+**TLDR**
+* Kubernetes is a container orchestration platform that simplifies deploying, scaling, and managing applications through features like self-healing and load balancing.
+* Pods are the fundamental units of Kubernetes, but deploying a single pod via the CLI isn’t scalable; that’s why Deployments with YAML manifests are crucial for versioning, rollbacks, and scaling.
+* Services expose Pods to external traffic and can be paired with a LoadBalancer (like Linode’s NodeBalancer) to ensure high availability and efficient traffic distribution.
+* By using environment variables in manifests, you can dynamically configure containerized applications (e.g., an Express.js DApp) across multiple Pods in a cluster.
+
+## Introduction: Understanding Kubernetes and its importance for reliability and scalability
+
+In today's fast-paced digital landscape, deploying and managing applications isn't just about pushing code to a server. It's about deploying, scaling, and managing applications to ensure high availability, fault tolerance, and seamless user experience. This is where Kubernetes comes into play.
+
+### What is Kubernetes?
+
+Kubernetes, often abbreviated as k8s, is an open-source container orchestration platform designed to automate containerized applications' deployment, scaling, and management. Originating from Google, Kubernetes has become the de facto standard for container orchestration and is maintained by the Cloud Native Computing Foundation (CNCF).
+
+<Info>
+  The name "Kubernetes" has its roots in Greek, where it means **helmsman** or **pilot**. The name is very fitting as just as a skilled helmsman navigates a ship through turbulent seas, Kubernetes steers your applications through the challenges of scaling, fault tolerance, and resource management.
+</Info>
+
+#### Why use Kubernetes for reliability?
+
+1. **High availability**. Kubernetes ensures your application is available when your users need it. It does this by distributing application instances across multiple nodes in the cluster, automatically replacing failed instances, and rescheduling them to healthy nodes.
+
+2. **Self-healing**. Kubernetes can detect when a pod or service is unhealthy and automatically replace it without human intervention. This ensures system degradation is handled proactively, maintaining the application's reliability.
+
+3. **Rollback and versioning**. Mistakes happen. Kubernetes allows you to roll back to previous stable versions of your application, ensuring you can quickly revert in case of failure.
+
+#### Why use Kubernetes for scalability?
+
+1. **Horizontal scaling**. With just a simple command or based on CPU usage or other metrics, Kubernetes can automatically scale the number of pod replicas up or down. This is crucial for applications that experience varying loads.
+
+2. **Load balancing**. Kubernetes automatically distributes network traffic across multiple pods, ensuring no single pod is overwhelmed with too much load. This is key for applications that require high concurrency.
+
+3. **Resource optimization**. Kubernetes allows you to specify how much CPU and memory each container needs, which helps in utilizing underlying resources more efficiently. This is particularly useful for multi-tenant environments where resource optimization is critical.
+
+By leveraging Kubernetes, organizations can build applications that are not only reliable but also scalable. It provides a robust framework that accommodates the complexities and demands of modern-day applications, allowing developers to focus more on building features that add business value rather than worrying about operational challenges.
+
+## Condensed glossary of key Kubernetes terms
+
+To help you navigate through this guide, here's a glossary of essential Kubernetes terms that are directly related to the concepts discussed:
+
+* Pod — the smallest deployable unit in Kubernetes, usually hosting a single container.
+* Node — a worker machine in a Kubernetes cluster where pods are scheduled.
+* Cluster — a set of nodes managed by a master node, forming the computing environment for Kubernetes.
+* Kubectl — the command-line interface for interacting with a Kubernetes cluster.
+* Deployment — a configuration that manages the state and scaling of a set of identical pods.
+* Service — an abstraction that defines a logical set of pods and policies for accessing them, often via a load balancer.
+* Load balancer — a service that distributes network traffic across multiple pods.
+* Namespace — a virtual cluster within a Kubernetes cluster used for isolating resources.
+* ConfigMap — an object used to store non-confidential configuration data in key-value pairs.
+* kubeconfig — a configuration file for accessing one or more Kubernetes clusters.
+
+## The project
+
+This starter guide will walk you through deploying and managing applications in a Kubernetes cluster hosted on [Linode](https://cloud.linode.com/dashboard). We'll focus on deploying a Docker image of a simple Express.js server, which is the backbone of our example application.
+
+### About the example DApp
+
+The example [DApp](https://github.com/soos3d/get-started-with-kubernetes/blob/main/index.js) is a straightforward Express.js server that exposes an API endpoint for fetching Ethereum balances using a Chainstack node. It's written in JavaScript and uses the web3.js library to interact with the Ethereum blockchain. The server is configured to listen on a port defined by an environment variable and uses rate-limiting to control the number of API requests. This makes it an excellent candidate for understanding how to manage environment variables and configurations in a Kubernetes deployment.
+
+Find the repository with the server app and the k8s scripts on GitHub:
+
+* [Kubernetes starter](https://github.com/chainstacklabs/get-started-with-kubernetes)
+
+## Prerequisites
+
+* Install [kubectl](https://kubernetes.io/docs/tasks/tools/), the k8s CLI interface.
+* Deploy a [k8s cluster on Linode](https://www.linode.com/docs/products/compute/kubernetes/get-started/) and get the `kubeconfig` file.
+
+<Info>
+  Once you deploy the k8s cluster on Linode, find the `kubeconfig` file and either download it into the projects directory or copy its content and paste it into a new file named `kubeconfig.yaml`.
+</Info>
+
+## Initiating the project
+
+This project doesn't require you to write any code, as we'll leverage a pre-built Docker image available on Docker Hub. You have two options for getting started:
+
+1. Clone the repository. Clone the repository into a new directory on your local machine to check the server code and Kubernetes scripts.
+2. Create an Empty project. If you focus solely on deployment, create an empty directory. This will serve as the workspace where we'll add necessary Kubernetes scripts.
+
+Once you've chosen your path, open a terminal window in the project's directory. From here, we'll primarily be using the `kubectl` command-line interface to interact with our Kubernetes cluster.
+
+## The `kubeconfig` file
+
+In Kubernetes, the `kubeconfig.yaml` file is a configuration file that stores the information required for connecting to one or more Kubernetes clusters. This file is essential for using `kubectl`, the CLI tool for interacting with Kubernetes clusters. The file contains various data types, such as cluster details, user credentials, and context information, which enable secure communication between your local machine and the Kubernetes API server.
+
+### Components of a `kubeconfig.yaml` file
+
+Here, we'll go over the basic parts of the `kubeconfig` file, which you will find on Linode after you deploy the cluster.
+
+#### `apiVersion and kind`
+
+These fields specify the API version and the kind of Kubernetes object the file represents. For `kubeconfig` files, the `kind` is usually set to `Config`.
+
+<CodeGroup>
+  ```yaml kubeconfig.yaml
+  apiVersion: v1
+  kind: Config
+  ```
+</CodeGroup>
+
+#### `clusters`
+
+This contains information about one or more clusters. Each entry typically includes the cluster name, API server URL, and the certificate authority data used to validate the server's certificate.
+
+<CodeGroup>
+  ```yaml kubeconfig.yaml
+  clusters:
+    - name: my-cluster
+      cluster:
+        server: https://api-server-url:port
+        certificate-authority-data: base64-encoded-ca-cert
+  ```
+</CodeGroup>
+
+#### `users`
+
+This section contains the credentials for authenticating to the cluster. It can include a username and password, client certificates, or even tokens.
+
+<CodeGroup>
+  ```yaml kubeconfig.yaml
+  users:
+    - name: my-user
+      user:
+        client-certificate: /path/to/cert.crt
+        client-key: /path/to/cert.key
+  ```
+</CodeGroup>
+
+#### `contexts`
+
+`Contexts` are combinations of clusters and users, along with an optional namespace. They define the environment in which `kubectl` commands are run.
+
+<CodeGroup>
+  ```yaml kubeconfig.yaml
+  contexts:
+    - name: my-context
+      context:
+        cluster: my-cluster
+        user: my-user
+        namespace: my-namespace
+  ```
+</CodeGroup>
+
+#### `current-context`
+
+This field specifies which context should be used by default when running `kubectl` commands. It should match one of the context names defined in the `contexts` section.
+
+<CodeGroup>
+  ```yaml kubeconfig.yaml
+  current-context: my-context
+  ```
+</CodeGroup>
+
+## How `kubeconfig` works
+
+When you run a `kubectl` command, the tool looks for a `kubeconfig` file in a default location, usually `~/.kube/config`, although you can specify a different file using the `--kubeconfig` flag. `kubectl` uses the `current-context` to determine which cluster to connect to and which credentials to use for authentication.
+
+### Example `kubeconfig.yaml`
+
+Here's a simplified example:
+
+<CodeGroup>
+  ```yaml kubeconfig.yaml
+  apiVersion: v1
+  kind: Config
+  clusters:
+    - name: my-cluster
+      cluster:
+        server: https://api-server-url:port
+        certificate-authority-data: base64-encoded-ca-cert
+  users:
+    - name: my-user
+      user:
+        client-certificate: /path/to/cert.crt
+        client-key: /path/to/cert.key
+  contexts:
+    - name: my-context
+      context:
+        cluster: my-cluster
+        user: my-user
+        namespace: my-namespace
+  current-context: my-context
+  ```
+</CodeGroup>
+
+Understanding the `kubeconfig.yaml` file is crucial for effectively managing Kubernetes clusters, especially when dealing with multiple clusters or switching between user credentials.
+
+Now, in your project's directory, where the `kubeconfig.yaml` file is, run:
+
+<CodeGroup>
+  ```shell Shell
+  export KUBECONFIG=kubeconfig.yaml
+  ```
+</CodeGroup>
+
+This command sets the `KUBECONFIG` environment variable to point to the `kubeconfig.yaml` file. This environment variable informs the `kubectl` CLI to find the configuration file that contains all the necessary details for connecting to a Kubernetes cluster.
+
+You can run the following commands to see some info:
+
+<CodeGroup>
+  ```shell Shell
+  kubectl get nodes
+  ```
+</CodeGroup>
+
+This will give you the nodes details.
+
+<CodeGroup>
+  ```shell Shell
+  kubectl cluster-info
+  ```
+</CodeGroup>
+
+This will give info about the cluster, including the master connection URL.
+
+## Create a pod running a Docker image
+
+In Kubernetes, a pod is the smallest deployable unit and is the basic building block for orchestrating containerized applications. A pod encapsulates one or more containers, storage resources, a unique network IP, and options that govern how the containers should run.
+
+In this case, the pod is where the Express server will run.
+
+### Key characteristics of pods
+
+* **Multi-container support**. A pod can host multiple tightly coupled containers that need to share resources efficiently. These containers are scheduled together and run on the same node.
+* **Shared network and storage**. Containers in the same pod share the same IP address, port space, and storage, allowing easy communication and data sharing between containers.
+* **Lifecycle**. Pods have a defined lifecycle, similar to containers. They can be in a pending, running, succeeded, or failed state.
+* **Immutability**. Once created, you cannot change the specification of a running pod. To make changes, you must delete the existing pod and create a new one with the modified specifications.
+* **Configuration and secrets**. Pods can be configured using `ConfigMaps` and `Secrets`, which can be mounted as files or exposed as environment variables.
+* **Resource allocation**. You can specify resource limits and requests for the containers in a pod, which helps the Kubernetes scheduler place the pod on a node with sufficient resources.
+* **Labels and annotations**. Metadata in the form of labels and annotations can be attached to pods for identification and to add contextual information.
+
+### Typical use cases
+
+* Single-container pods. Even if you only have one container, using a pod allows you to conform to Kubernetes' operational model.
+* Multi-container pods. When you have tightly coupled application components that need to share resources efficiently, you can place them in the same pod.
+* Init containers. These special containers run before the application container, set up the necessary environment, or perform other pre-run tasks.
+
+### Example pod YAML configuration
+
+Here's a simple example of a pod configuration in YAML format:
+
+<CodeGroup>
+  ```yaml yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: my-pod
+    labels:
+      app: my-app
+  spec:
+    containers:
+      - name: my-container
+        image: my-image
+        ports:
+          - containerPort: 80
+  ```
+</CodeGroup>
+
+### Deploying a pod using a Docker image
+
+In this section, we'll walk through deploying your first Kubernetes pod. A pod is the smallest deployable unit in a Kubernetes cluster and can contain one or more containers. We'll use a pre-built Docker image I uploaded to Docker Hub for this example.
+
+* [Server's Docker image](https://hub.docker.com/r/soos3d/addressbalance/tags)
+
+#### Why use a pre-built Docker image?
+
+Using a pre-built Docker image simplifies the deployment process, as you don't have to build the image yourself. It's especially useful for quick deployments and testing. The image we're using, `soos3d/addressbalance:latest`, contains all the code and dependencies needed to run our application.
+
+At this point, let's keep in mind that this app requires an Ethereum RPC node URL and port number as environment variables. Let's use Chainstack to get an RPC node URL:
+
+1. [Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+2. [Deploy a node](/docs/manage-your-networks#join-a-public-network).
+3. [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+
+Get the RPC URL to use as an environment variable using the `--env` flag. Now, in the terminal, run the following command:
+
+<CodeGroup>
+  ```shell Shell
+  kubectl run addressbalance --image=soos3d/addressbalance:latest --port=80 --env="ETHEREUM_RPC_URL=YOUR_CHAINSTACK_ENDPOINT" --env="PORT=3333"
+  ```
+</CodeGroup>
+
+### Command breakdown
+
+The basic syntax for deploying a pod with an environment variable using `kubectl run` is as follows:
+
+<CodeGroup>
+  ```shell Shell
+  kubectl run [POD_NAME] --image=[IMAGE]:[TAG] --env="[KEY]=[VALUE]"
+  ```
+</CodeGroup>
+
+#### `kubectl run addressbalance`
+
+This part of the command instructs Kubernetes to create a new pod named `addressbalance`.
+
+#### `--image=soos3d/addressbalance:latest`
+
+Specifies the Docker image to use for the pod. The `latest` tag indicates that we want to use the most recent version of this image.
+
+#### `--port=80`
+
+This flag sets the port on which the container will listen for incoming traffic, mapping it to port 80.
+
+#### `--env="ETHEREUM_RPC_URL=YOUR_CHAINSTACK_ENDPOINT"`
+
+This flag sets an environment variable named `ETHEREUM_RPC_URL` in the container. The value for this variable is set to the Ethereum RPC URL. Environment variables are used for configuration settings that shouldn't be hard-coded into the application.
+
+#### `--env="PORT=3333"`
+
+Similarly, this flag sets another environment variable named `PORT` with the value `3333`. The application uses this to know which port to run on or listen to internally.
+
+The `--env` flags allow you to inject environment variables into your container, which can then be accessed by the application running inside it. This is useful for passing in configuration settings or other dynamic values your application needs to function correctly.
+
+#### Verifying the deployment
+
+After running the above command, you'll want to ensure that the pod has been successfully created and is running as expected. To do this, use the following command:
+
+<CodeGroup>
+  ```shell Shell
+  kubectl get pods
+  ```
+</CodeGroup>
+
+The output should resemble:
+
+<CodeGroup>
+  ```bash Bash
+  NAME            READY   STATUS    RESTARTS   AGE
+  addressbalance  1/1     Running   0          4m34s
+  ```
+</CodeGroup>
+
+#### What does the output mean?
+
+* `NAME` — the name of the pod, which in this case is `addressbalance`.
+* `READY` — indicates the number of containers in the pod that are ready. `1/1` means one out of one container is ready.
+* `STATUS` — shows the current status of the pod. `Running` means the pod has been successfully deployed and is running.
+* `RESTARTS` — indicates how many times the container within the pod has been restarted. A value of `0` means no restarts have occurred.
+* `AGE` — shows how long the pod has been running since its creation.
+
+Congratulations, you've just deployed your first pod in your Kubernetes cluster!
+
+You can also use the `describe` command to get more info; this will also show the environment where you can see if the environment variables are correctly set:
+
+<CodeGroup>
+  ```shell Shell
+  kubectl describe pod addressbalance
+  ```
+</CodeGroup>
+
+If the pod's status indicates an error or unexpected behavior, you can diagnose the issue using the Kubernetes' logging capabilities. Use the following command to view the logs and gain insights into what might be causing the problem:
+
+<CodeGroup>
+  ```shell Shell
+  kubectl logs addressbalance
+  ```
+</CodeGroup>
+
+## Use a deployment file to deploy multiple pods
+
+While deploying a single pod via the CLI is straightforward and effective for simple use cases, it's not the most scalable or manageable approach for deploying multiple identical pods. To handle such scenarios more efficiently, Kubernetes offers the concept of a deployment, defined through a manifest file.
+
+A Kubernetes deployment manifest is a structured YAML or JSON file that outlines the desired state, behavior, and characteristics of a collection of interchangeable pods. This manifest acts as an architectural blueprint, guiding Kubernetes on instantiating, updating, and managing these pods to ensure the cluster's actual state aligns with the desired configuration.
+
+By leveraging deployment manifests, you not only gain more control over the lifecycle of your pods but also benefit from additional features like versioning, rollbacks, and scaling. It's a more methodical and robust way to manage pod deployments, mainly when dealing with complex or large-scale applications.
+
+### Why use deployment manifests?
+
+1. **Versioning and rollbacks**. Deployments allow you to update the pod template and roll back to previous versions, making application updates and rollbacks smooth and manageable.
+2. **Scaling**. You can quickly scale your application up or down by changing the number of replicas in the deployment manifest and reapplying it.
+3. **Self-healing**. If a pod crashes or is terminated, the deployment controller will automatically create a new pod to maintain the desired number of replicas.
+4. **Load balancing**. Deployments work well with Kubernetes Services, which can distribute traffic to the pods the deployment manages.
+5. **Consistency**. By defining the desired state in a file, you can version-control it and ensure that the same configuration is used in different environments (e.g., dev, staging, production).
+6. **Automation**. Deployment manifests can be managed through CI/CD pipelines, allowing for automated testing, deployment, and scaling of applications.
+7. **Resource efficiency**. Deployments help optimize resource usage by distributing pods across nodes based on resource requirements and other constraints.
+
+Kubernetes deployment manifests offer a declarative way to manage your containerized applications' lifecycle, scalability, and update strategy, making operating complex systems at scale easier.
+
+In your project's directory, create a new file named `server_deployment.yaml`; note that you can name it however you want, then paste the following:
+
+<CodeGroup>
+  ```yaml server_deployment.yaml
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: addressbalance
+  spec:
+    replicas: 4
+    selector:
+      matchLabels:
+        app: addressbalance
+    template:
+      metadata:
+        labels:
+          app: addressbalance
+      spec:
+        containers:
+          - name: addressbalance-container
+            image: soos3d/addressbalance:latest
+            ports:
+              - containerPort: 3333
+            env:
+              - name: ETHEREUM_RPC_URL
+                value: "YOUR_CHAINSTACK_NODE_URL"
+              - name: PORT
+                value: "3333"
+  ```
+</CodeGroup>
+
+### Understanding Kubernetes deployment manifest
+
+#### General configuration
+
+* `apiVersion: apps/v1` — specifies the API version to use for creating this deployment object.
+* `kind: Deployment` — indicates that the Kubernetes object being defined is a deployment.
+
+#### Metadata
+
+* `metadata` — contains metadata like the name (`addressbalance`) and labels (`app: addressbalance`) for the deployment.
+
+#### Specification
+
+* `spec` — specifies the desired state of the deployment.
+
+  * `replicas: 4` — indicates that 4 replicas (instances) of the pod should be running.
+
+  * `selector` — defines how to identify the pods that belong to this deployment using the label `app: addressbalance`.
+
+  * `template` — describes the pod template for the replicas.
+
+    * `metadata` — specifies the labels that should be applied to each pod created by this deployment.
+
+    * `spec` — describes the containers that should be part of each pod.
+
+      * `containers` — lists the containers to run within the pod.
+
+        * `name: addressbalance-container` — names the container.
+        * `image: soos3d/chatgpt_server:latest` — specifies the container image to use.
+        * `imagePullPolicy: Always` — ensures that the image is always pulled from the registry, even if it already exists locally.
+        * `ports` — specifies that the container should listen on port 3333, the port set up for the server.
+        * `env` — this section is used to define environment variables for the container. Each environment variable is represented as a key-value pair. In this example, two environment variables are set: `ETHEREUM_RPC_URL` and `PORT`. These variables can be accessed by the application running inside the container and are often used for configuration settings that should not be hard-coded.
+
+This deployment manifest will create 4 replicas of a pod, each running a container based on the `soos3d/addressbalance:latest` image and listening on port 3333. The deployment will manage the lifecycle of these pods, ensuring that 4 instances are always running. If any pod fails or is terminated, a new one will be created to maintain the desired state.
+
+Run the deployment with this command:
+
+<CodeGroup>
+  ```shell Shell
+  kubectl apply -f server_deployment.yaml
+  ```
+</CodeGroup>
+
+Using `kubectl get pods` will now show the 5 pods running, the 4 we just deployed, plus the first one deployed manually.
+
+<CodeGroup>
+  ```bash Shell
+  kubectl get pods
+  NAME                              READY   STATUS    RESTARTS   AGE
+  addressbalance                    1/1     Running   0          28m
+  addressbalance-7bfb4f6587-bqr7b   1/1     Running   0          167m
+  addressbalance-7bfb4f6587-chnhk   1/1     Running   0          77m
+  addressbalance-7bfb4f6587-vzdqc   1/1     Running   0          167m
+  addressbalance-7bfb4f6587-wqtwn   1/1     Running   0          77m
+  ```
+</CodeGroup>
+
+Use the get deployments command to see the deployments:
+
+<CodeGroup>
+  ```shell Shell
+  kubectl get deployments
+  ```
+</CodeGroup>
+
+It will display:
+
+<CodeGroup>
+  ```bash Shell
+  NAME             READY   UP-TO-DATE   AVAILABLE   AGE
+  addressbalance   4/4     4            4           168m
+  ```
+</CodeGroup>
+
+You can edit the deployment manifest if you want to change something, such as the number of replicas:
+
+<CodeGroup>
+  ```shell Shell
+  kubectl edit deployment addressbalance
+  ```
+</CodeGroup>
+
+## Adding a load balancer for external access
+
+To make your application accessible from outside the Kubernetes cluster, you'll need to set up a load balancer. This component will distribute incoming network traffic across multiple pods, ensuring high availability and reliability.
+
+Linode offers a built-in load balancer service, so we'll set that one up.
+
+### Creating a service manifest for the load balancer
+
+The service manifest will specify the type of service as `LoadBalancer`, the ports to forward, and other configurations specific to Linode's load balancer.
+
+Create a YAML file named `server_loadbalance.yaml` and paste the following:
+
+<CodeGroup>
+  ```yaml server_loadbalance.yaml
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: addressbalance-service
+    annotations:
+      service.beta.kubernetes.io/linode-loadbalancer-throttle: "4"
+    labels:
+      app: addressbalance
+  spec:
+    type: LoadBalancer
+    ports:
+      - name: http
+        protocol: TCP
+        port: 80
+        targetPort: 3333
+    selector:
+      app: addressbalance
+    sessionAffinity: None
+  ```
+</CodeGroup>
+
+Let's go over what's happening here.
+
+#### `apiVersion: v1`
+
+This specifies the API version to use for creating this service object. The `v1` version is the stable version for service objects in Kubernetes.
+
+#### `kind: Service`
+
+This indicates that the defined Kubernetes object is a service that exposes applications inside your cluster to the outside world or for internal communication between pods.
+
+#### `metadata`
+
+This section contains metadata for the service.
+
+* `name: addressbalance-service` — the name of the service. This is how you will refer to the service within your cluster.
+* `annotations` — annotations are arbitrary metadata you can use for your purposes but are not used to identify the object.
+  * [`service.beta.kubernetes.io/linode-loadbalancer-throttle`]()`: "4"` — this is a Linode-specific annotation that controls the throttle settings for the load balancer. This sets the client connection throttle to limit the number of new connections per second from the same client IP to 4 and can go up to 20. This is useful for controlling the rate at which a single client can make new connections to your service, which can be particularly important for mitigating certain types of denial-of-service attacks or for managing resources effectively.
+* `labels` — key-value pairs that are used to identify the service.
+  * `app: addressbalance` — this label specifies that the service is part of the `addressbalance` application.
+
+#### `spec`
+
+This section specifies the desired state of the service.
+
+* `type: LoadBalancer` — this specifies that the service will be exposed via a load balancer.
+
+* `ports` — this array specifies the network ports on which the service will accept traffic.
+
+  * `name: http` — the name of the port (for reference).
+  * `protocol: TCP` — the network protocol to use (TCP/UDP).
+  * `port: 80` — the port on which the service will listen for incoming traffic.
+  * `targetPort: 3333` — the port on the pod to which traffic will be forwarded.
+
+* `selector` — this specifies the labels that must be present on a pod to receive traffic from this service.
+  * `app: addressbalance` — only pods with this label will receive traffic from this service.
+
+* `sessionAffinity: None` — this specifies that the service will not try to send all requests from a single client to the same pod.
+
+Use the command to deploy it:
+
+<CodeGroup>
+  ```shell Shell
+  kubectl apply -f server_loadbalance.yaml
+  ```
+</CodeGroup>
+
+Run the command to see the service and the IP address:
+
+<CodeGroup>
+  ```shell Shell
+  kubectl get services
+  ```
+</CodeGroup>
+
+You'll find the IP:
+
+<CodeGroup>
+  ```bash Shell
+  NAME                     TYPE           CLUSTER-IP     EXTERNAL-IP      PORT(S)        AGE
+  addressbalance-service   LoadBalancer   10.128.63.81   IP_HERE   80:32273/TCP   98m
+  kubernetes               ClusterIP      10.128.0.1     <none>           443/TCP        3h46m
+  ```
+</CodeGroup>
+
+You can also go on the Linode platform and check the load balancer page, which is called [NodeBalancer](https://cloud.linode.com/nodebalancers).
+
+At this point, you have a fully deployed app in a Kubernetes cluster with load balancing and 5 self-healing pods. It is a bit overkill for this specific application, but it's a good starting point to work with more complex projects.
+
+You can try the app with a curl request or in a browser.
+
+<CodeGroup>
+  ```bash cURL
+  curl --location 'YOUR_LOAD_BALANCER_IP/getBalance/0xae2Fc483527B8EF99EB5D9B44875F005ba1FaE13'
+  ```
+</CodeGroup>
+
+You can also map the IP to a domain.
+
+### Conclusion
+
+Congratulations on successfully navigating the intricacies of deploying an application on a Kubernetes cluster hosted on Linode! This guide walked you through the entire process, from setting up your Kubernetes environment to deploying a multi-pod application with environment variables and a load balancer. Along the way, you gained insights into key Kubernetes concepts like pods, deployments, services, and Linode-specific configurations.
+
+By following this guide, you've deployed a functional application and laid a strong foundation for scaling and managing more complex projects in the future. The skills you've acquired are transferable to various Kubernetes-based environments and will serve you well as you continue to explore the vast landscape of container orchestration.
+
+### About the author
+
+
+<CardGroup>
+  <Card title="Davide Zambiasi" img="/images/docs/profile_images/1533079085001363457/1VvXp1m0_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on EVM, The Graph protocol, and Starknet
+
+    <Icon icon="laptop"  iconType="solid"/> Helping people understand Web3 and blockchain development
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/soos3d)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/web3Dav3)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/davide-zambiasi/)
+  </Card>
+</CardGroup>

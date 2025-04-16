@@ -1,0 +1,180 @@
+---
+title: web3_clientVersion | Polygon
+openapi: /openapi/polygon_node_api/client_info/web3_clientVersion.json POST /a9bca2f0f84b54086ceebe590316fff3
+---
+
+Polygon API method that returns the client type and version running on the Polygon node. This information can be useful to developers to verify that a node they are connecting to is compatible with their needs.
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `none`
+
+## Response
+
+* `string` — a string identifying the type of client, version, operating system, and language version running on the node
+
+## `web3_clientVersion` code examples
+
+<CodeGroup>
+```javascript web3.js
+const Web3 = require("web3");
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const web3 = new Web3(NODE_URL);
+
+async function getClient() {
+  const client = await web3.eth.getNodeInfo();
+  console.log(client);
+}
+
+getClient();
+```
+
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const clientVersion = async () => {
+  const version = await provider.send("web3_clientVersion");
+  console.log(`Client version: ${version}`);
+};
+
+clientVersion();
+```
+
+```python web3.py
+from web3 import Web3  
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3.HTTPProvider(node_url)
+
+client_version = web3.provider.make_request('web3_clientVersion', [])
+print(client_version)
+```
+</CodeGroup>
+
+
+## Use case
+
+A use case for the `web3_clientVersion` method can be to verify which client is running to then decide which method to run.
+
+Let's say you have a DApp that needs to retrieve all of the transactions receipts in a block; the Erigon and Bor clients both have a method for this, but the `eth_getBlockReceipts` method from Erigon will not work on Bor, and the `eth_getTransactionReceiptsByBlock` method from Bor will not work on Erigon. You can use the `web3_clientVersion` method in your logic to first identify which method must be used.
+
+Here is an implementation of this use case using web3.js:
+
+```javascript index.js
+const Web3 = require("web3");
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const web3 = new Web3(NODE_URL);
+
+// getBlockReceipts Erigon method
+async function getBlockReceipts(blockId) {
+    web3.extend({
+        property: 'eth',
+        methods: [{
+            name: 'getBlockReceipts',
+            call: 'eth_getBlockReceipts',
+            params: 1,
+            inputFormatter: [web3.extend.formatters.inputDefaultBlockNumberFormatter],
+            outputFormatter: null
+        }]
+    });
+
+    const receipts = await web3.eth.getBlockReceipts(blockId)
+    return receipts
+}
+
+// getTransactionReceiptsByBlock Bor method
+async function getTransactionReceiptsByBlock(blockId) {
+    web3.extend({
+        property: 'eth',
+        methods: [{
+            name: 'getTransactionReceiptsByBlock',
+            call: 'eth_getTransactionReceiptsByBlock',
+            params: 1,
+            inputFormatter: [web3.extend.formatters.inputDefaultBlockNumberFormatter],
+            outputFormatter: null
+        }]
+    });
+
+    const receipts = await web3.eth.getTransactionReceiptsByBlock(blockId)
+    return receipts
+}
+
+// Get client version
+async function getClientVersion() {
+    web3.extend({
+        property: 'eth',
+        methods: [{
+            name: 'getClientVersion',
+            call: 'web3_clientVersion',
+            params: 0,
+            inputFormatter: [],
+            outputFormatter: null
+        }]
+    });
+
+    const clientVersion = await web3.eth.getClientVersion();
+    return clientVersion
+}
+
+// Extract the client's name
+async function getClientName() {
+    const clientVersion = await getClientVersion();
+    const clientName = clientVersion.split('/')[0];
+    return clientName
+}
+
+// Get the receipts based on the client
+async function getAllReceipts(blockId) {
+    const clientName = await getClientName()
+
+    if (clientName === 'bor') {
+        console.log('Client is Bor');
+        const receipts = getTransactionReceiptsByBlock(blockId)
+        return receipts
+
+    } else if (clientName === 'erigon') {
+        console.log('Client is Erigon');
+        const receipts = getBlockReceipts(blockId)
+        return receipts
+
+    } else {
+
+        // Do something else if version is neither Bor nor Erigon
+        console.log('Client version is not Bor or Erigon');
+    }
+}
+
+async function main() {
+    try {
+        const receipts = await getAllReceipts('latest');
+        console.log(receipts);
+    } catch (error) {
+        console.error(error);
+    }
+}
+
+main();
+```
+
+
+The `getBlockReceipts` function uses the `web3.extend` method to extend the eth property of the `web3` object with a new method called `getBlockReceipts`. This method calls the `eth_getBlockReceipts` JSON-RPC method with a single parameter `blockId` and formats the input and output values. The function then calls the `getBlockReceipts` method using the `web3.eth.getBlockReceipts` call and returns the resulting receipts.
+
+The `getTransactionReceiptsByBlock` function similarly extends the `eth` property of the `web3` object with a new method called `getTransactionReceiptsByBlock`. This method calls the `eth_getTransactionReceiptsByBlock` JSON-RPC method with a single parameter `blockId` and formats the input and output values. The function then calls the `getTransactionReceiptsByBlock` method using the `web3.eth.getTransactionReceiptsByBlock` call and returns the resulting receipts.
+
+The `getClientVersion` function extends the eth property of the `web3` object with a new method called `getClientVersion`. This method calls the `web3_clientVersion` JSON-RPC method with no parameters and formats the input and output values. The function then calls the `getClientVersion` method using the `web3.eth.getClientVersion` call and returns the resulting client version.
+
+The `getClientName` function calls `getClientVersion` to get the client version and extracts the name of the client by splitting the version string at the first `/` character.
+
+The `getAllReceipts` function calls `getClientName` to get the name of the client and then selects the appropriate method to use for retrieving the receipts. If the client is Bor, it calls `getTransactionReceiptsByBlock`, and if the client is Erigon, it calls `getBlockReceipts`. If the client is neither Bor nor Erigon, the function logs a message and returns null.
+
+## Try the `web3_clientVersion` RPC method yourself

@@ -1,0 +1,432 @@
+---
+title: "Fetching Subgraph Data Using JS"
+---
+
+**TLDR**
+* Demonstrates three approaches to query subgraphs via JavaScript: simple fetch/HTTP requests, The Graph’s graph-client, and the urql library.
+* Explains how to compose GraphQL queries, manage endpoints, and retrieve data for use in any DApp or Node.js application.
+* Highlights how different approaches balance simplicity, flexibility, and performance for robust data fetching.
+* Encourages picking the method that aligns with your project’s complexity and deployment requirements.
+
+## Main article
+
+Alright! From the previous articles, we have established that subgraphs are cool. I mean, using Chainstack Subgraphs, you can bring order to the chaos of a sprawling blockchain network and make sense of the data jungle. They provide super convenient ways to index and query decentralized data, in a rather efficient and user-friendly manner.
+
+As a developer, it is so satisfying to see the data, such as [ERC-20 token balances](/docs/subgraphs-tutorial-indexing-erc-20-token-balance) or [Uniswap pools](/docs/subgraphs-tutorial-indexing-uniswap-data), neatly presented in an easy-to-access and ready-to-query format. But, you know what is more satisfying? Using that data to improve the kickassery of your application.
+
+Mastering the art of setting up subgraphs and learning how to access the data from within your DApp opens up a wide range of possibilities for building high-performance, data-driven applications. Now that you've completed the former let's focus on the latter.
+
+This tutorial will explore various methods for accessing subgraph data using JavaScript.
+
+## Setting up the prerequisites
+
+As you might have already guessed, this article will contain a lot of JavaScript code. So, before we go any further, make sure that you have the following dependencies installed on your system:
+
+* [node.js](https://nodejs.org/en/download/) (^v16) and the corresponding npm
+* A code editor (VS Code, preferably)
+
+Also, since we will be exploring more than one method, it will be helpful if we keep those methods as different projects, for future reference.
+
+To quickly set up a node project, all you need to do is:
+
+1. Create a new directory.
+
+2. Open a terminal in the new directory.
+
+3. Run the following command to create a `package.json` file in your directory:
+
+   <CodeGroup>
+     ```bash Bash
+     npm init
+     ```
+   </CodeGroup>
+
+4. The command will prompt you for some information regarding your project. Fill those up, and your node project is all set to go.
+
+Now, at this point, showing you how to set up a subgraph from scratch is kind of getting redundant, so for this tutorial, we will use an existing subgraph that we created in the previous article. Since the [Uniswap subgraph](/docs/subgraphs-tutorial-indexing-uniswap-data) has more to offer in terms of data, let us use that one.
+
+<Warning>
+  ### For those who are new
+
+  Before proceeding with this article, make sure that you read the [Indexing Uniswap data](/docs/subgraphs-tutorial-indexing-uniswap-data) tutorial and use that article to set up a subgraph that indexes the Uniswap liquidity pool data.
+</Warning>
+
+Ok, now that you have taken care of the prerequisites, let's code some stuff.
+
+## Using HTTP requests
+
+We’ll start from the basics. The most straightforward way to communicate with any entity on the web is through a simple HTTP request, and Chainstack Subgraphs are no exception. In fact, once you deploy a subgraph using Chainstack, the Subgraph page will display an HTTP(S) based `Query URL` that you can use to interact with the deployed subgraph.
+
+We already saw this in action when we used the `Query URL` along with curl to fetch the data from the subgraph, in the previous article. Now, let's see how we can translate that to code.
+
+To send an HTTP request, we need to install an additional npm package called `node-fetch`, so:
+
+* Set up a new node project.
+
+* Open a new terminal in the root directory of your project.
+
+* Use the following command to install the node-fetch package:
+
+  <CodeGroup>
+    ```bash Shell
+    npm i node-fetch@2
+    ```
+  </CodeGroup>
+
+<Info>
+  ### Side note
+
+  There are many other node packages that let you make HTTP requests. Here we are using the `node-fetch` package due to its ease of use. Since making an HTTP request is more or less the same throughout the various packages, you are free to try the following code using an npm package of your liking.
+</Info>
+
+After installing the package, create a new file `index.js` in the project directory and add the following code to it:
+
+<CodeGroup>
+  ```js index.js
+  //import the node-fetch package
+  const fetch = require('node-fetch');
+  /*
+  * Function to fetch a list of tokens from the number
+  * Parameter:
+  *     _number - Number of tokens required
+  */
+  async function getTokenList(_number){
+      //set the query url
+      var queryURL = "<https://chainstack-subgraphs-query-url>"
+      //define the query to fetch a list of ten tokens
+      var uniswapGraphQuery = `query {
+                          tokens(first: ${_number}){
+                              id
+                              name
+                              symbol
+                              }
+                          }`
+      //set the request options
+      var options = {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: uniswapGraphQuery
+        })
+      }
+      //get the response
+      var response = await fetch(queryURL,options)
+      //parsing the body text as JSON
+      var queryResult =  await response.json()
+      //display the list of tokens tokens
+      console.log(queryResult["data"]["tokens"]);
+
+  }
+
+  getTokenList(5)
+  ```
+</CodeGroup>
+
+Now, the code is pretty self-explanatory. Here, we have created an asynchronous function `getTokenList()` which will get us the list of tokens. The user can specify the number of tokens that he wants. Within the function, we have set the query URL of the subgraph (`queryURL`), the query (`uniswapGraphQuery`), and the options (`options`) for our request.
+
+<Info>
+  You can test the query by running it on the GraphQL UI page, given by the GraphQL UI URL in your Chainstack Subgraphs page. While testing the query, just remove the word ‘query’ and replace the format placeholder (`${_number}`) with an actual number.
+</Info>
+
+Then, using the `fetch()` function, we make a request to the subgraph and process and display the response. Here's the sample response:
+
+<CodeGroup>
+  ```Json JSON
+  [
+  {
+    id: '0x0000000000071566c1cf5db929f8e2e2f5d57da8',
+    name: 'UOU'
+    symbol: 'UOU'
+  },
+  {
+    id: '0x0000000000085d4780b73119b644ae5ecd22b376',
+    name: 'TrueUSD'
+    symbol: 'TUSD'
+  },
+  {
+    id: '0x000000007a58f5f58e697e51ab0357bc9e260a04',
+    name: 'Concave',
+    symbol: 'CNV
+  },
+  {
+    id: '0x00027908a7e322b4990fd5d92a37906af46e9aee
+    name: 'BitcoinPruebita
+    symbol: 'PRBT'
+  },
+  {
+  id: '0X005285cf447f1841cfafod1b4eb584e382f4249d',
+  name: 'stusdt'
+  symbol: 'STUSDT'
+  }
+  ]
+  ```
+</CodeGroup>
+
+## Using graph-client
+
+Now that we covered the basic method, let’s level it up a notch. You see, there are times in a developer's life when they need more control over the whole data retrieval process. I mean, what if they want to fetch data from multiple sources? How can they handle connection errors? Or set timeouts?
+
+Look, I am not saying that you can’t do all this using the basic stuff, but the problem is that it could take a lot of effort, coding, and coffee to actually set up the strategies and processes required to cover all these functionalities, that is unless all these come bundled up in a neat little thing like graph-client.
+
+`graph-client` is a GraphQL client that is provided by The Graph protocol. The client helps manage subgraph requests. graph-client help us include complex functionalities like fetch strategies, block tracking, pagination, and cross-chain subgraph handling while making requests to our subgraphs, thereby extending the request scope and capabilities.
+
+To fetch data using graph client:
+
+* Set up a new node project using `npm init`
+
+* Open a terminal in the new project directory and run the following code:
+
+  <CodeGroup>
+    ```bash Shell
+    npm install --save-dev @graphprotocol/client-cli
+    ```
+  </CodeGroup>
+
+This will install the graph-CLI tool. We will use the CLI tool to generate the code necessary to query the subgraphs. Once the code is generated, we can directly use it in our applications.
+
+Before we generate the code, however, we need to create a configuration file in our project, and within that file, we have to specify our subgraph URL among other configurations.
+
+So, create a new file `.graphclientrc.yml` in the project directory and add the following configuration:
+
+<CodeGroup>
+  ```yaml .graphclientrc.yml
+  # .graphclientrc.yml
+  sources:
+    - name: <CHAINSTACK_SUBGRAPH_NAME>
+      handler:
+        graphql:
+          endpoint: <CHAINSTACK_SUBGRAPH_QUERY_URL>
+  ```
+</CodeGroup>
+
+As you can see, within the configuration file, we provide the name of the subgraph that we deployed using Chainstack and the **Query URL** that we get from the subgraph's page in the Chainstack console.
+
+Based on this configuration, we can generate the code for fetching subgraph data, So, open a terminal in the project and type:
+
+<CodeGroup>
+  ```bash Shell
+  npx graphclient build --fileType json
+  ```
+</CodeGroup>
+
+This will create a new directory, `.graphclient`, in your project, containing the code (runtime artifacts) we need for fetching data. The `—fileType json` flag will generate the source artifacts (`.graphclient/sources/`) in JSON format and provide a JavaScript file (`.graphclient/index.js`) as the entry point.
+
+<CodeGroup>
+  ```bash Shell
+  .
+  ├── index.d.ts
+  ├── index.js
+  ├── index.mjs
+  ├── package.json
+  ├── schema.graphql
+  └── sources
+      └── UniswapV3Graph
+          ├── introspectionSchema.json
+          ├── schema.graphql
+          └── types.ts
+  ```
+</CodeGroup>
+
+Within the `index.js` file, we are given an `execute()` function that we can import onto our application and use in order to fetch query data from subgraphs.
+
+To try this out, create a new JavaScript file, `query.js` in the root directory of your project:
+
+<CodeGroup>
+  ```bash Shell
+  ├── .graphclient/
+  ├── .graphclientrc.yml
+  ├── package.json
+  └── query.js
+  ```
+</CodeGroup>
+
+Within the new file, add the following code:
+
+<CodeGroup>
+  ```js query.js
+  //import from the generated directory
+  const graphClient =  require('./.graphclient')
+
+  //query to fetch the pool data
+  const poolsQuery = `
+  query {
+    pools(first: 10){
+      id
+      token0{
+        name
+        id
+        symbol
+      }
+      token1{
+        name
+        id
+        symbol
+      }
+      blockNumber
+      timestamp
+    }
+  }`
+
+  //query to fetch token data
+  const tokenQuery = `
+  {
+    tokens(first: 10){
+      id
+      name
+      symbol
+    }
+  }
+  `
+
+  async function getQueryData() {
+    //getting pool data
+    const poolsResult = await graphClient.execute(poolsQuery, {})
+    console.log((poolsResult["data"]["pools"]))
+    //getting token data
+    const tokenResult = await graphClient.execute(tokenQuery, {})
+    console.log((tokenResult["data"]["tokens"]))
+  }
+
+  getQueryData()
+  ```
+</CodeGroup>
+
+The code will fetch the data according to the query.
+
+Now, as mentioned above, while using graph-client you can add some additional functionalities to your request. For instance, you can:
+
+* Mention retry rates
+* Mention connection timeouts
+* Add fallback subgraphs in case you are dealing with a faulty indexer
+
+To do all this, all you have to do is to edit the configuration file, `.graphclientrc.yml` and add the required properties:
+
+<CodeGroup>
+  ```yaml .graphclientrc.yml
+  sources:
+    - name: <CHAINSTACK_SUBGRAPH_NAME>
+      handler:
+        graphql:
+          strategy: fallback #mention the mechanism
+          sources:
+            - endpoint: <CHAINSTACK_SUBGRAPH_QUERY_URL>
+              retry: 2 #number of retries in case of a network or runtime error
+              timeout: 5000 #timeout for a given endpoint (in milliseconds)
+            - endpoint: <CHAINSTACK_FALLBACK_SUBGRAPH_QUERY_URL> #url of fallback subgraph
+  ```
+</CodeGroup>
+
+And that’s how you can use graph-client to fetch the subgraph data. Now, let’s go over one more method that is a bit more direct.
+
+## Using the urql library
+
+Of all the methods that we have discussed so far, this one requires the least amount of code, and it is precisely because of a nice little library called urql.
+
+The urql library also is a GraphQL client that helps simplify the process of making requests to a GraphQL endpoint. It provides a user-friendly API and allows us to interact with GraphQL servers in a type-safe manner. With urql, we can create a GraphQL client with just one line of code and then use it to make requests to our subgraph. We can also use the client in React components and fetch data in response to user events. Additionally, we can also make use of features like caching and pagination.
+
+Here, we are going to see how to use the urql library and JavaScript to fetch data from a subgraph. So…
+
+* Set up a new node project
+
+* Install the following packages:
+
+  <CodeGroup>
+    ```bash Shell
+    npm install urql isomorphic-unfetch
+    ```
+  </CodeGroup>
+
+* Create a new file `index.js` within your project
+
+* Add the following code:
+
+  <CodeGroup>
+    ```js index.js
+    // Polyfill in JavaScript
+    // Make sure to include the necessary polyfill for the fetch API,
+    // in case your project needs to support older browsers
+    require('isomorphic-unfetch');
+
+    //import the urql package
+    const { createClient } = require('urql');
+
+    //set the query url
+    const queryURL = "<CHAINSTACK_SUBGRAPH_QUERY_URL>";
+
+    //create a new GraphQL Client
+    const client = createClient({
+      url: queryURL,
+    });
+
+    //query to fetch the pool data
+    const poolsQuery = `query {
+      pools(first: 10){
+        id
+        token0{
+          name
+          id
+          symbol
+        }
+        token1{
+          name
+          id
+          symbol
+        }
+        blockNumber
+        timestamp
+      }
+    }`
+
+    async function fetchData(){
+    	//fetch data
+      const queryResult = await client.query(poolsQuery).toPromise()
+      console.log(queryResult["data"]["pools"]);
+    }
+
+    fetchData()
+    ```
+  </CodeGroup>
+
+Now, the code is pretty much the same as the one we used for the `graph-client`, but this time, we are using the urql client.
+
+So, once we create the client (`client`) using the `createClient()` method, we can use the `query()` method to make the requests.
+
+This is how you can use the urql library to fetch data from a subgraph.
+
+And with that, we have explored some rather interesting ways of fetching data from a subgraph onto your application.
+
+## Conclusion
+
+In summary, we looked at various methods to access data from a subgraph that can be used in a DApp. We discussed the use of basic HTTP requests, the graph-client library, and the urql library. Each of these options offers different levels of control and flexibility when it comes to data fetching. With basic HTTP requests, you're able to make direct calls to the subgraph. However, the graph-client and urql libraries are more powerful, as they provide more options and allow you to perform more complex operations. Ultimately, the decision of which library to use will depend on the specific needs of the project and the developers involved. I hope this article has provided some helpful information and insight into these options. Happy coding, developers!
+
+<Info>
+  ### See also
+
+  <CardGroup>
+    <Card title="A beginner’s guide to getting started with The Graph" href="/docs/subgraphs-tutorial-a-beginners-guide-to-getting-started-with-the-graph" icon="angle-right" horizontal />
+    <Card title="Explaining Subgraph schemas" href="/docs/subgraphs-tutorial-working-with-schemas" icon="angle-right" horizontal />
+    <Card title="Debugging subgraphs with a local Graph Node" href="/docs/subgraphs-tutorial-debug-subgraphs-with-a-local-graph-node" icon="angle-right" horizontal />
+    <Card title="Indexing ERC-20 token balance using Subgraphs" href="/docs/subgraphs-tutorial-indexing-erc-20-token-balance" icon="angle-right" horizontal />
+    <Card title="Indexing Uniswap data with Subgraphs" href="/docs/subgraphs-tutorial-indexing-uniswap-data" icon="angle-right" horizontal />
+    <Card title="Deploying a Lido subgraph with Chainstack" href="/docs/subgraphs-tutorial-deploying-a-lido-subgraph-with-chainstack" icon="angle-right" horizontal />
+  </CardGroup>
+</Info>
+
+### About the author
+
+<CardGroup>
+<Card
+  title="Sethu Raman Omanakuttan"
+  img="/images/docs/u/44131280.png"
+>
+<Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+<Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on Ethereum, NEAR , Graph Protocol and Oasis.
+<Icon icon="laptop"  iconType="solid"/> Majored in computer science and technology.
+
+
+[<Icon icon="github"  iconType="brands"/>](https://github.com/SethuRamanOmanakuttan)
+[<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/Sethu_Raman_O)
+[<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/sethuraman-omanakuttan)
+</Card>
+</CardGroup>

@@ -1,0 +1,805 @@
+---
+title: "Mastering JSON Web Tokens: How to Implement Secure User Authentication"
+---
+
+**TLDR**
+
+* Explains the structure of JWTs (header, payload, signature) and how they protect user data.
+* Shows how to generate and validate JWTs in JavaScript (jose), Python (PyJWT), and Go (jwt-go).
+* Demonstrates setting custom claims (e.g., issuer, audience, expiration) for authorization.
+* Highlights the importance of secure key management and up-to-date libraries for token integrity.
+
+## Introduction
+
+JSON Web Tokens (JWTs) are a crucial component in modern web applications, providing a secure and standardized method for transmitting and validating information between parties. JWTs are compact, URL-safe tokens carrying user claims in a JSON object, which are digitally signed to ensure data integrity and prevent tampering. They simplify the authentication process, enable stateless server design, and facilitate easy transmission through various channels.
+
+In this tutorial, we're going to dive into the nitty-gritty of JWT tokens. We'll cover what JWTs are and how to create and validate them. By the time we're done, you'll understand JWTs and how they help keep the web safe and speedy.
+
+<Info>
+  Check out [Covalent API magic: How to retrieve all transactions made by an account](/docs/tutorial-covalent-api-magic-how-to-retrieve-all-transactions-made-by-an-account) to see an example of how a real world application can use JWTs.
+</Info>
+
+## What are JSON Web Tokens?
+
+**JWTs** are a way to share important information securely between two parties, like a user and a website. They're often used to check if a user is allowed to access certain parts of a website or to identify who the user is. JWTs are made up of a series of characters that contain data in JSON format.
+
+The data inside a JWT is protected from tampering thanks to a process called signing. Signing uses a secret key to ensure the information in the JWT is legit.
+
+JWTs have gained popularity due to their ability to simplify user tracking on websites without the need to store extensive user information. This is particularly beneficial for modern websites that rely on multiple services and technologies that require communication. With JWTs, websites can easily verify user identity and permissions while improving website efficiency and manageability.
+
+### Structure of a JWT
+
+A JWT consists of three distinct parts: the **header**, the **payload**, and the **signature**. These parts are Base64Url-encoded and concatenated using periods (`.`) to form the complete JWT token.
+
+#### Header
+
+The header is a JSON object that typically contains two properties: the token type (usually `JWT`) and the signing algorithm used, such as `HS256` for HMAC SHA-256 or `ES256` for ECDSA using P-256 and SHA-256.
+
+The header provides information about how the JWT is encoded and secured.
+
+<Info>
+  Find a complete list of available algorithms in the [RFC 7518](https://tools.ietf.org/html/rfc7518#section-3) specifications.
+</Info>
+
+Example of a header:
+
+<CodeGroup>
+  ```Json JSON
+  {
+    "alg": "HS256",
+    "typ": "JWT"
+  }
+  ```
+</CodeGroup>
+
+<Info>
+  Note that this guide shows the `HS256` algorithms as an example, but Chainstack uses the `EdDSA`algorithms as it is more secure.
+</Info>
+
+#### Payload
+
+The payload is a JSON object that contains the claims (pieces of information) about the user and other relevant data. Claims are key-value pairs that can be registered, public or private claims. Registered claims are predefined by the JWT specification, such as `iss` for issuer and `exp` for expiration time, while public and private claims can be custom-defined by the developer.
+
+Some of the most common JWT claims are:
+
+* `iss` (Issuer) — identifies the provider or application that issued the JWT. The issuer claim is usually a string or a URI representing the entity that created the JWT, for example, `chainstack`.
+* `sub` (Subject) — identifies who the JWT is for. This is used to keep track of which user the token is meant for by storing the unique identifier of the user.
+* `aud` (Audience) — identifies the recipients of the JWT. It essentially specifies the applications, services, or servers that are allowed to process the token.
+* `exp` (Expiration Time) — specifies the expiration date and time, in seconds since the Unix epoch, after which the JWT must not be accepted for processing. This claim is used to define the token's validity period, after which it should be considered expired and rejected.
+* `nbf` (Not Before) — specifies the date and time, in seconds since the Unix epoch, before which the JWT must not be accepted for processing. This claim is used to define the earliest possible time when the token can be considered valid.
+* `iat` (Issued At) — specifies the date and time, in seconds since the Unix epoch, when the JWT was issued. This claim can be used to determine the token's age and potentially reject tokens issued too far in the past.
+
+<Info>
+  ### Learn more
+
+  Find a complete list of JWT claims in the [JSON Web Token Claims](https://www.iana.org/assignments/jwt/jwt.xhtml#claims) page from the Internet Assigned Numbers Authority organization.
+</Info>
+
+Example of a payload:
+
+<CodeGroup>
+  ```Json JSON
+  {
+    "iss": "chainstack",
+    "sub": "user-number-5",
+    "aud": "www.mydapp.io",
+    "iat": 1516239022
+  }
+  ```
+</CodeGroup>
+
+#### Signature
+
+The signature is a cryptographic hash generated using the encoded header, encoded payload, and a secret key. The signature ensures that the token has not been tampered with and verifies the authenticity of the JWT.
+
+To create the signature, the encoded header, and payload are combined with a period (`.`) separator and then hashed with the secret key using the algorithm specified in the header.
+
+Example of signature creation using HMAC SHA-256:
+
+<CodeGroup>
+  ```javascript Javascript
+  HMACSHA256(
+    base64UrlEncode(header) + "." +
+    base64UrlEncode(payload),
+    secret_key)
+  ```
+</CodeGroup>
+
+The final JWT token is a combination of the encoded header, payload, and signature, separated by periods (`.`), like the following:
+
+<CodeGroup>
+  ```text text
+  <encoded_header>.<encoded_payload>.<signature>
+  ```
+</CodeGroup>
+
+Example of a real JWT:
+
+<CodeGroup>
+  ```shell JWT
+  eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJSRy04MzctMzgwIiwiaXNzIjoiY2hhaW5zdGFjayIsImV4cCI6MTY3OTk0NjY0NSwibmJmIjoxNjc5OTM5NDQ1LCJpYXQiOjE2Nzk5NDMwNDUsImF1ZCI6InRlc3QtbmV3LXNsdWcifQ.6cJTsqUA3ocZFaiBcrviZ15LzVT4T1J7-zM4X-4C8Ck
+  ```
+</CodeGroup>
+
+## Use cases for JWTs
+
+JWTs are versatile and can be used in various scenarios within web applications. Here, we will discuss two common use cases: authentication and authorization.
+
+### Authentication
+
+Authentication is the process of verifying the identity of a user, device, or system. In web applications, it's essential to make sure that users are who they claim to be before allowing them access to protected resources or services.
+
+JWTs are commonly used for authentication in web applications. When a user logs in with their credentials, for example, username and password, the server verifies the provided information. If the credentials are valid, the server generates a JWT containing the user's information and sends it back to the user.
+
+The user's browser or application then stores the token and sends it along with each subsequent request to the server. The server checks the token's signature and verifies the user's identity based on the information stored in the token. Since the token is self-contained and carries the necessary user data, the server doesn't need to perform additional database lookups or maintain session information, making the authentication process more efficient.
+
+### Authorization
+
+Authorization is the process of determining which actions a user can perform or which resources they can access within an application. It's crucial to ensure that users have appropriate permissions and can only access the data and services to which they're entitled.
+
+When JWTs are used for authorization purposes. In addition to the user's identity, the token's payload may contain other claims related to the user's roles, permissions, or access rights, usually using an `Authorization` header using the `Bearer` schema, which looks like the following:
+
+<CodeGroup>
+  ```shell Shell
+  Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWV9.TJVA95OrM7E2cBab30RMHrHDcEfxjoYZgeFONFh7HgQ
+  ```
+</CodeGroup>
+
+When a user requests access to a protected resource, the server can extract the required information from the JWT and determine if the user is authorized to perform the requested action or access the resource. This is done by extracting the JWT from the header and performing the following steps:
+
+1. Validate the token's signature to ensure it hasn't been tampered with.
+2. Check the token's claims, such as `iss`, `exp`, `nbf`, `sub`, and `aud`, to confirm it's a valid token issued for the user and intended for the server.
+3. Verify that the user is authorized to access the requested resources or perform the desired actions based on the claims in the token.
+
+## Generating JSON Web Tokens
+
+In this section, we will discuss how to generate JWT tokens using popular libraries and frameworks for different programming languages, there are many libraries available, but for this tutorial, we will use the tools listed in the next section in JavaScript, Python, and Golang.
+
+These libraries help simplify the process of creating, signing, and managing JWT tokens, allowing developers to focus on building secure and efficient web applications.
+
+### Tools and libraries
+
+When generating JWTs, it's essential to choose a well-maintained library or framework that supports the required functionality and provides a secure implementation. Below is a list of popular libraries for different programming languages:
+
+#### JavaScript and node.js
+
+**jose** is a comprehensive suite of tools for signing, encrypting, and decrypting JSON-based data, making it easier to implement secure communication between parties in web applications.
+
+Install with:
+
+<CodeGroup>
+  ```shell Shell
+  npm install jose
+  ```
+</CodeGroup>
+
+<Info>
+  Find the jose library source code on the [jose's GitHub repository](https://github.com/panva/jose).
+</Info>
+
+#### Python
+
+**PyJWT** is a popular library for encoding, decoding, and verifying JWT tokens in Python applications. It supports various signing algorithms and provides a clean, easy-to-use API.
+
+Install with:
+
+<CodeGroup>
+  ```shell Shell
+  pip install pyjwt
+  ```
+</CodeGroup>
+
+<Info>
+  Find more information on [PyJWT’s GitHub repository](https://github.com/jpadilla/pyjwt/), or the [PyJWT docs](https://pyjwt.readthedocs.io/).
+</Info>
+
+#### Golang
+
+**jwt-go** is a widely adopted library for creating, parsing, and validating JWT tokens in Golang applications. It supports multiple signing algorithms and offers a straightforward API.
+
+<Info>
+  Note that starting from Go 1.16, Go modules are the recommended way to manage dependencies in your Go projects.
+</Info>
+
+Run this command to generate a Go module before running the install command:
+
+<CodeGroup>
+  ```shell Shell
+  go mod init <module-name>
+  ```
+</CodeGroup>
+
+Install with:
+
+<CodeGroup>
+  ```shell Shell
+  go get -u github.com/golang-jwt/jwt/v5
+  ```
+</CodeGroup>
+
+<Info>
+  Find more information on [jwt-go’s GithHub repository](https://github.com/golang-jwt/jwt).
+</Info>
+
+These libraries provide a convenient way to generate JWTs for different programming languages. Once you've chosen a library that suits your application's needs, you can use its provided functions to create, sign, and manage JWTs securely and efficiently.
+
+<Warning>
+  ### Check your versions
+
+  It is extremely important to note that these tools might not be up to date when you read this tutorial, so make sure to check their repositories and documentation to learn about possible updates and security issues.
+
+  You can find a comprehensive list of JWT libraries on the [JWT tools collection page Auth0](https://jwt.io/libraries).
+</Warning>
+
+### Generate and validate JSON web tokens
+
+This section will demonstrate how you can you the libraries and languages mentioned above to generate and validate JWTs.
+
+For this tutorial, we will:
+
+* Generate and encode JWTs with claims.
+* Decode and validate JWTs.
+
+### JavaScript jose library
+
+To use the jose library in JavaScript, firstly, make sure your coding environment is set up correctly by having [node.js installed](https://nodejs.org/en/download). Then, you can install jose using npm.
+
+#### Generate JWTs
+
+Here you will find two JavaScript programs using the jose library: the first one to generate a JWT and the second one to validate it.
+
+<Info>
+  This project uses the [dotenv library](https://github.com/motdotla/dotenv) to handle environment variables.
+</Info>
+
+Create a new JavaScript file named `generate-jwt.js` in your project’s directory and paste the following code:
+
+<CodeGroup>
+  ```js generate-jwt.js
+  // Importing required modules and dependencies
+  const { SignJWT } = require('jose');
+  const encoder = new TextEncoder();
+  const dotenv = require('dotenv');
+  dotenv.config();
+
+  // Extracting and encoding the secret key from the environment variables
+  const secretKey = process.env.SECRET_KEY;
+  const secret = encoder.encode(secretKey);
+
+  // Defining the algorithm used for signing the token
+  const algorithm = 'HS256';
+
+  // Defining the custom claims to be used in the JWT
+  const customIssuer = 'chainstack';
+  const customAudience = 'www.cooldapp.io';
+  const userId = 'web3-dev';
+
+  // Defining a function which generates tokens with options specified
+  const generateToken = async () => {
+    try {
+
+      // Setting the token's "not before" value to 60 seconds before the current time
+      const nowInSeconds = Math.floor(Date.now() / 1000);
+      const nbf = nowInSeconds - 60;
+
+      // Creating a new JWT token and setting its values
+      const jwt = await new SignJWT({ user_id: userId })
+        .setProtectedHeader({ alg: algorithm })
+        .setIssuedAt(nowInSeconds)
+        .setIssuer(customIssuer)
+        .setAudience(customAudience)
+        .setExpirationTime('1h')
+        .setNotBefore(nbf)
+        .sign(secret);
+
+      console.log(`New JWT:\n${jwt}`);
+    } catch (error) {
+
+      console.error(`Error generating token: ${error}`);
+    }
+  };
+
+  generateToken();
+  ```
+</CodeGroup>
+
+The JSON Web Token is generated by encoding a secret key from the environment variables and setting custom claims like the issuer, audience, and user ID. A function is defined to generate the token with options specified using the `HS256` algorithm. Finally, the generated token is printed to the console.
+
+<Info>
+  Find the code reference in [jose’s repository](https://github.com/panva/jose/blob/main/docs/classes/jwt_sign.SignJWT.md#readme).
+</Info>
+
+Create a `.env` file where you can store your secret key, then run this code and generate your own JWT.
+
+Create the secret key variable in this format:
+
+<CodeGroup>
+  ```shell Shell
+  SECRET_KEY=YOUR_KEY
+  ```
+</CodeGroup>
+
+The response will look like the following:
+
+<CodeGroup>
+  ```shell Shell
+  $ node generate-jwt
+  New JWT:
+  eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoid2ViMy1kZXYiLCJpYXQiOjE2ODAwMTg1MjMsImlzcyI6ImNoYWluc3RhY2siLCJhdWQiOiJ3d3cuY29vbGRhcHAuaW8iLCJleHAiOjE2ODAwMjIxMjMsIm5iZiI6MTY4MDAxODQ2M30.LGZebttbACMKuHt-7w7wN7T4Qgbgnr6cen5hcr_TWys
+  ```
+</CodeGroup>
+
+#### Validate JWTs
+
+Now that we've successfully generated a JWT, it's time to explore how to decode and validate it using the jose library. To do this, we'll first create a new file in the same directory and name it `validate-jwt.js`. Once you've created the file, simply copy and paste the following code snippet:
+
+<CodeGroup>
+  ```js validate-jwt.js
+  // Importing required modules and dependencies
+  const { jwtVerify } = require('jose');
+  const encoder = new TextEncoder();
+  const dotenv = require('dotenv');
+  dotenv.config();
+
+  // Async function to verify JWT
+  async function verifyJwt (secret, jwt, issuer, audience) {
+    try {
+      const { payload, protectedHeader } = await jwtVerify(jwt, secret, {
+        issuer: issuer,
+        audience: audience
+      });
+
+      return { protectedHeader, payload };
+    } catch (error) {
+      console.error(`Something went wrong: ${error}`);
+    }
+  }
+
+  // Main function
+  async function main () {
+    // Extracting and encoding the secret key from the environment variables
+    const secretKey = process.env.SECRET_KEY;
+
+    if (!secretKey) {
+      console.log('Error: Secret key not found in environment variables.');
+      return;
+    }
+
+    const secret = encoder.encode(secretKey);
+
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoid2ViMy1kZXYiLCJpYXQiOjE2ODAwMTg1MjMsImlzcyI6ImNoYWluc3RhY2siLCJhdWQiOiJ3d3cuY29vbGRhcHAuaW8iLCJleHAiOjE2ODAwMjIxMjMsIm5iZiI6MTY4MDAxODQ2M30.LGZebttbACMKuHt-7w7wN7T4Qgbgnr6cen5hcr_TWys';
+
+    // Defining the custom claims to be used in the JWT
+    const customIssuer = 'chainstack';
+    const customAudience = 'www.cooldapp.io';
+
+    const { protectedHeader, payload } = await verifyJwt(secret, jwt, customIssuer, customAudience);
+
+    console.log('protectedHeader:', protectedHeader);
+    console.log('payload:', payload);
+  }
+
+  main();
+  ```
+</CodeGroup>
+
+This code is responsible for verifying the authenticity and integrity of a JWT using a secret key and specific parameters.
+
+To accomplish this task, the code defines an `async` function named `verifyJwt`, which accepts four parameters: `secret`, `jwt`, `issuer`, and `audience`.
+
+This function attempts to verify the provided JWT using the secret key, the issuer, and the audience parameters specified. If the verification process is successful, it returns the protected header and payload of the JWT. In case of any errors, an error message is logged.
+
+To use this code, simply replace the `jwt` constant with the JWT that you generated using the previous script and run it. If the token is valid, you'll receive a response that looks something like this:
+
+<CodeGroup>
+  ```shell Shell
+  $ node validate-jwt
+  protectedHeader: { alg: 'HS256' }
+  payload: {
+    user_id: 'web3-dev',
+    iat: 1680018523,
+    iss: 'chainstack',
+    aud: 'www.cooldapp.io',
+    exp: 1680022123,
+    nbf: 1680018463
+  }
+  ```
+</CodeGroup>
+
+At this stage, you can implement JWT-based authentication to your app. This will make sure that your users have the right permissions for a safe and smooth experience.
+
+### Python PyJWT library
+
+Now, let’s see how to generate and validate JWTs using Python. The principle is the same as in JavaScript.
+
+Ensure your Python environment is set up and the PyJWT library is installed.
+
+<Info>
+  This project uses the [python-dotenv library](https://github.com/motdotla/dotenv) to handle environment variables.
+</Info>
+
+#### Generate JWTs
+
+Create a new file named `generate_jwt.py` and paste the following code:
+
+<CodeGroup>
+  ```python generate_jwt.py
+  import jwt       # for generating a JSON Web Token
+  import time      # for accessing the current time
+  import os        # for accessing environment variables
+  from dotenv import load_dotenv   # for loading environment variables from a file
+
+  # Loading environment variables
+  load_dotenv()
+
+  # Defining function to generate a JWT token
+  def generate_jwt_token(claims: dict, secret_key: str, algorithm: str) -> str:
+
+      # Creating a token with the specified claims and secret key
+      token = jwt.encode(
+          claims,
+          secret_key,
+          algorithm=algorithm,
+          headers={"alg": "HS256", "typ": "JWT"}
+      )
+      return token
+
+  # Main function to execute
+  if __name__ == "__main__":
+
+      # Setting the secret key to sign the token using an environment variable.
+      secret_key = os.environ.get("SECRET_KEY")
+
+      # Defining the algorithm to use for signing the token.
+      algorithm = "HS256"
+
+      # Setting the payload or claims for the token.
+      claims = {
+          "sub": "web3_dev",    # Subject - who the token is for
+          "iss": "chainstack",  # Issuer - who issued the token
+          "exp": int(time.time()) + 3600,  # Expiration time - token is only valid for an hour
+          "nbf": int(time.time()) - 3600,  # Time before which token is not valid
+          "iat": int(time.time()),    # Issued at - when the token was issued
+          "aud": "www.cooldapp.io",   # Audience - intended recipient of the token
+      }
+
+      # Generating the JWT token with the given claims
+      token = generate_jwt_token(claims, secret_key, algorithm)
+
+      # Printing the generated JWT token
+      print("JWT token:")
+      print(token)
+  ```
+</CodeGroup>
+
+This code generates a JSON Web Token (JWT) using the pyjwt library, with a specific set of claims, a secret key loaded from an environment variable, and the `HS256` signing algorithm.
+
+The claims include subject, issuer, expiration time, not before time, issued at time, and audience. The dotenv library is used to load the secret key from a `.env` file. The generated JWT token is printed as output.
+
+To run it, create a `.env` file where you can store your secret key, then run this code and generate your own JWT.
+
+Create the secret key variable in this format:
+
+<CodeGroup>
+  ```text text
+  SECRET_KEY=YOUR_KEY
+  ```
+</CodeGroup>
+
+The response will look like the following:
+
+<CodeGroup>
+  ```shell Shell
+  $ python generate_jwt.py
+  JWT token:
+  eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ3ZWIzX2RldiIsImlzcyI6ImNoYWluc3RhY2siLCJleHAiOjE2ODAwMjU3MTEsIm5iZiI6MTY4MDAxODUxMSwiaWF0IjoxNjgwMDIyMTExLCJhdWQiOiJ3d3cuY29vbGRhcHAuaW8ifQ.3kFOThDwqMCm5c71B6kRvR8efzf4edKkDI-iYzb_S1I
+  ```
+</CodeGroup>
+
+#### Validate JWTs
+
+Create a new file named `validate_jwt.py`, and paste the following code:
+
+<CodeGroup>
+  ```python validate_jwt.py
+  import jwt
+  import os
+  from dotenv import load_dotenv
+  from typing import List, Union
+
+  # Load the environment variables from the .env file
+  load_dotenv()
+
+  SECRET_KEY = os.environ["SECRET_KEY"]
+  ALGORITHM = "HS256"
+  EXPECTED_AUDIENCE = ["www.cooldapp.io"]
+
+  def verify_token(token: str, secret_key: str, algorithm: str, expected_audience: Union[str, List[str]]) -> Union[dict, None]:
+      """
+      Verify the provided token and return the claims if the token is valid
+
+      Args:
+          token (str): The JWT token string to verify
+          secret_key (str): The secret key used to sign the token
+          algorithm (str): The algorithm used to sign the token
+          expected_audience (Union[str, List[str]]): The expected audience value(s)
+
+      Returns:
+          If the token is valid, a dictionary containing the claims. Otherwise, None.
+      """
+      try:
+          claims = jwt.decode(token, secret_key, algorithms=[algorithm], audience=expected_audience)
+          return claims
+
+      except jwt.exceptions.InvalidTokenError as error:
+          print(f"Error verifying token: {error}")
+          return None
+
+  if __name__ == '__main__':
+
+      # Set the token to verify
+      token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ3ZWIzX2RldiIsImlzcyI6ImNoYWluc3RhY2siLCJleHAiOjE2ODAwMjU3MTEsIm5iZiI6MTY4MDAxODUxMSwiaWF0IjoxNjgwMDIyMTExLCJhdWQiOiJ3d3cuY29vbGRhcHAuaW8ifQ.3kFOThDwqMCm5c71B6kRvR8efzf4edKkDI-iYzb_S1I"
+
+      # Verify the token and get the claim
+      claims = verify_token(token, SECRET_KEY, ALGORITHM, EXPECTED_AUDIENCE)
+
+      if claims:
+          print(claims)
+  ```
+</CodeGroup>
+
+The code then defines some variables—`SECRET_KEY`, `ALGORITHM`, and `EXPECTED_AUDIENCE`—which are used by the `verify_token` function.
+
+Then, the code defines a function named `verify_token` that takes as input parameters a token string, a secret key, an algorithm, and an expected audience value. The function attempts to decode the token and returns the decoded claims data as a dictionary if the token is valid. If the token is invalid, an error message is printed, and `None` is returned.
+
+Replace the `token` variable with the JWT you generated using the previous script, then run it; you will be able to validate the token. The response will look like the following:
+
+<CodeGroup>
+  ```shell Shell
+  $ python validate_jwt.py
+  {'sub': 'web3_dev', 'iss': 'chainstack', 'exp': 1680025711, 'nbf': 1680018511, 'iat': 1680022111, 'aud': 'www.cooldapp.io'}
+  ```
+</CodeGroup>
+
+Now you have the tools to generate and validate JWTs in Python and can implement the logic in your application.
+
+### Golang jwt-go library
+
+This section of this guide will show you how to generate and validate JWTs using Golang. First of all, make sure your Go environment is configured; follow the instruction on the [Golang docs](https://go.dev/doc/install) to install Go, then install the jwt-go library as it was shown in the libraries section.
+
+<Info>
+  This project uses the [GoDotEnv library](https://github.com/joho/godotenv) to use `.env` files.
+</Info>
+
+#### Generate JWTs
+
+For this part of the project, create a new directory named `generate`, then create a new file named `generate-jtw.go` and paste the following code:
+
+<CodeGroup>
+  ```go generate-jtw.go
+  package main
+
+  import (
+  	"fmt"
+  	"log"
+  	"os"
+  	"time"
+
+  	"github.com/golang-jwt/jwt/v5"
+  	"github.com/joho/godotenv"
+  )
+
+  // loadEnvVars loads environment variables from .env file
+  func loadEnvVars() error {
+  	err := godotenv.Load()
+  	if err != nil {
+  		return fmt.Errorf("error loading .env file: %w", err)
+  	}
+  	return nil
+  }
+
+  // getSecretKey gets the secret key from environment variables
+  func getSecretKey() (string, error) {
+  	secretKey := os.Getenv("SECRET_KEY")
+  	if secretKey == "" {
+  		return "", fmt.Errorf("SECRET_KEY environment variable not set")
+  	}
+  	return secretKey, nil
+  }
+
+  // createToken creates a token object with signing method and claims
+  func createToken(secretKey, customIssuer, customAudience, userId string) (string, error) {
+  	// Defining custom claims for JWT
+  	claims := jwt.MapClaims{
+  		"iss":     customIssuer,
+  		"aud":     customAudience,
+  		"nbf":     time.Now().Add(-60 * time.Second).Unix(),
+  		"iat":     time.Now().Unix(),
+  		"exp":     time.Now().Add(1 * time.Hour).Unix(),
+  		"user_id": userId,
+  	}
+  	// Create a token object with signing method and claims
+  	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+  	// Sign the token using the secret key
+  	signedToken, err := token.SignedString([]byte(secretKey))
+  	if err != nil {
+  		return "", fmt.Errorf("Error signing token: %w", err)
+  	}
+
+  	return signedToken, nil
+  }
+
+  // main function
+  func main() {
+  	err := loadEnvVars()
+  	if err != nil {
+  		log.Fatalf("Error occurred: %v", err)
+  	}
+
+  	secretKey, err := getSecretKey()
+  	if err != nil {
+  		log.Fatalf("Error occurred: %v", err)
+  	}
+
+  	// Defining custom claims for JWT
+  	customIssuer := "chainstack"
+  	customAudience := "www.cooldapp.io"
+  	userId := "web3-dev"
+
+  	token, err := createToken(secretKey, customIssuer, customAudience, userId)
+  	if err != nil {
+  		log.Fatalf("Error occurred: %v", err)
+  	}
+
+  	fmt.Printf("New JWT:\n%s\n", token)
+  }
+  ```
+</CodeGroup>
+
+The code defines three functions: `loadEnvVars()`, `getSecretKey()`, and `createToken()`.
+
+The `loadEnvVars()` function loads environment variables from an external `.env` file. The `getSecretKey()` function retrieves the `SECRET_KEY` value from environment variables or returns an error message if the value is not set.
+
+The `createToken()` function creates a JWT object with custom claims, which include the issuer, audience, timestamp, and user id. In this case, we are using the `HS266` algorithm with `SigningMethodHS256`. It then signs the JWT using the secret key value.
+
+The `main()` function calls these three functions in order to create a new JWT with custom claims and prints the token to the console.
+
+<Info>
+  Find more examples in the [Golang docs](https://pkg.go.dev/github.com/golang-jwt/jwt/v5#example-New-Hmac).
+</Info>
+
+Before running this code, create a `.env` file in the same directory and set up your secret key using this format:
+
+<CodeGroup>
+  ```text text
+  SECRET_KEY=YOUR_SECRET_KEY
+  ```
+</CodeGroup>
+
+Then build the Go program by running the `go build` command. This will create an executable file you can run:
+
+<CodeGroup>
+  ```shell Shell
+  $ ./generate
+  New JWT:
+  eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJ3d3cuY29vbGRhcHAuaW8iLCJleHAiOjE2ODAwMzM5ODAsImlhdCI6MTY4MDAzMDM4MCwiaXNzIjoiY2hhaW5zdGFjayIsIm5iZiI6MTY4MDAzMDMyMCwidXNlcl9pZCI6IndlYjMtZGV2In0.DPzzRv5mvb5u40gx9DiNXBEffIocN3ntN936dulh2F0
+  ```
+</CodeGroup>
+
+<Info>
+  ### For Windows
+
+  Run `generate.exe` on Windows.
+</Info>
+
+#### Validate JWTs
+
+Let’s now build the program to validate JWTs in Go. Create a new directory named `validate` in the root of your project, create a `.env` file like the previous one, and create a new file named `validate-jwt.go`; then paste the following code in it:
+
+<CodeGroup>
+  ```go validate-jwt.go
+  package main
+
+  import (
+  	"fmt"
+  	"log"
+  	"os"
+
+  	"github.com/golang-jwt/jwt/v5"
+  	"github.com/joho/godotenv"
+  )
+
+  func main() {
+  	if err := loadEnvVars(); err != nil {
+  		log.Fatalf("Error loading environment variables: %v", err)
+  	}
+
+  	secretKey, err := getSecretKey()
+  	if err != nil {
+  		log.Fatalf("Error getting secret key: %v", err)
+  	}
+
+  	tokenToValidate := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJ3d3cuY29vbGRhcHAuaW8iLCJleHAiOjE2ODAwMzM5ODAsImlhdCI6MTY4MDAzMDM4MCwiaXNzIjoiY2hhaW5zdGFjayIsIm5iZiI6MTY4MDAzMDMyMCwidXNlcl9pZCI6IndlYjMtZGV2In0.DPzzRv5mvb5u40gx9DiNXBEffIocN3ntN936dulh2F0"
+
+  	claims, err := validateToken(tokenToValidate, secretKey)
+  	if err != nil {
+  		log.Fatalf("Error validating token: %v", err)
+  	}
+
+  	fmt.Printf("Token is valid. Claims: %v\n", claims)
+  }
+
+  // loadEnvVars loads environment variables from .env file.
+  func loadEnvVars() error {
+  	err := godotenv.Load()
+  	if err != nil {
+  		return fmt.Errorf("godotenv.Load error: %w", err)
+  	}
+  	return nil
+  }
+
+  // getSecretKey gets the secret key from environment variables.
+  func getSecretKey() (string, error) {
+  	secretKey := os.Getenv("SECRET_KEY")
+  	if secretKey == "" {
+  		return "", fmt.Errorf("Secret key not set")
+  	}
+  	return secretKey, nil
+  }
+
+  // validateToken validates a JWT token and returns its claims if valid.
+  func validateToken(tokenString string, secretKey string) (jwt.Claims, error) {
+  	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+  		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+  			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+  		}
+  		return []byte(secretKey), nil
+  	})
+
+  	if err != nil {
+  		return nil, fmt.Errorf("error parsing token: %w", err)
+  	}
+
+  	if !token.Valid {
+  		return nil, fmt.Errorf("invalid token")
+  	}
+
+  	return token.Claims, nil
+  }
+  ```
+</CodeGroup>
+
+In this code, the `main` function loads environment variables, gets a secret key, validates a JWT token using the secret key, and prints the token's claims if it's valid.
+
+The `loadEnvVars()` function uses the `godotenv` package to load environment variables from a `.env` file. The `getSecretKey()` function retrieves the secret key from the loaded environment variables.
+
+The `validateToken()` function takes a token string and a secret key as input. It uses the **jwt-go** package to parse and validate the token. It checks if the token signature is valid by verifying it with the provided secret key. If the token is valid, it returns the token's claims.
+
+Finally, the `main` function calls the `loadEnvVars()` and `getSecretKey()` functions to get the secret key, then calls the `validateToken()` function to validate a token string. If the token is valid, it prints the token's claims.
+
+To run this code, replace the `tokenToValidate` variable with your JWT, then build and run the application.
+
+Now you are ready to validate users using Golang as well.
+
+## Conclusion
+
+Throughout this guide, we've explored the basics of JWTs, including their structure and the different algorithms used to encode and decode them. We've also provided practical examples of how to generate and validate JWTs using popular libraries in JavaScript, Python, and Go.
+
+By incorporating JWTs into your projects, users' data is well protected while providing a seamless and user-friendly experience.
+
+### About the author
+
+<CardGroup>
+  <Card title="Davide Zambiasi" img="/images/docs/profile_images/1533079085001363457/1VvXp1m0_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on EVM, The Graph protocol, and Starknet
+
+    <Icon icon="laptop"  iconType="solid"/> Helping people understand Web3 and blockchain development
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/soos3d)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/web3Dav3)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/davide-zambiasi/)
+  </Card>
+</CardGroup>

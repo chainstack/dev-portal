@@ -1,0 +1,171 @@
+---
+title: "Work with Dedicated Subgraphs"
+---
+
+**TLDR:**
+
+* Set up your subgraph by adding it to the Chainstack console, configuring it via Graph CLI (install, init, build), and deploying it with the provided deployment command.
+* Configure `schema.graphql` and `subgraph.yaml` carefully to define the desired indexing entities and starting block.
+* Track deployment status in the console (sync in progress, up to date, or failed) and use logs for troubleshooting.
+* Query your subgraph using either the CLI’s **Query URL** or the **GraphQL UI URL** to seamlessly fetch on-chain data.
+
+## Set up a subgraph
+
+To set up a subgraph, complete the following steps:
+
+<CardGroup>
+  <Card title="Add a subgraph" icon="square-1" iconType="solid" horizontal href="/docs/dedicated-subgraphs#add-a-subgraph"/>
+  <Card title="Create and configure a subgraph" icon="square-2" iconType="solid" horizontal href="/docs/dedicated-subgraphs#create-and-configure-a-subgraph"/>
+  <Card title="Deploy a subgraph" icon="square-3" iconType="solid" horizontal href="/docs/dedicated-subgraphs#deploy-a-subgraph"/>
+</CardGroup>
+
+## Add a subgraph
+
+In [Subgraphs](https://console.chainstack.com/subgraphs), you can view a list of all existing subgraphs and can filter the view using the **Protocol** drop-down list. You can create a new subgraph using the **Add subgraph** button and view the details of a subgraph by clicking on the subgraph name.
+
+Subgraphs must be associated with a project; if you don’t already have a project to add the subgraph to, see [create a project](/docs/manage-your-project#create-a-project).
+
+To add a subgraph:
+<Steps>
+  <Step>
+    Click **Add subgraph**. The Add subgraph page is displayed.
+  </Step>
+  <Step>
+    In the **Choose network** section:
+
+   * Choose a **Blockchain protocol**.
+   * Choose the **Network**. Currently, **Mainnnet** is supported.
+   * Choose the **Type**.
+   * Click **Next**. The Create subgraph section is displayed.
+  </Step>
+  <Step>
+    In the **Create subgraph** section:
+
+   * Enter a **Name** for the subgraph.
+   * Select the **Project** that you want to assign your subgraph to.
+   * Click **Add subgraph**. The details page of the new subgraph is displayed.
+  </Step>
+</Steps>
+
+The subgraph details page includes information such as the **Owner**, **Creation date**, **Region**, and **Protocol**. You can view the **Metrics** about the requests made in the subgraph, view the **Subgraph Query URLs**, and the **Subgraph Deployment command**, which you require to deploy the subgraph.
+
+## Create and configure a subgraph
+
+Before you begin: you must have Graph CLI installed globally to build and deploy subgraphs. You can install it with npm as follows:
+
+<CodeGroup>
+  ```bash Shell
+  npm install -g @graphprotocol/graph-cli
+  ```
+</CodeGroup>
+
+To check if the Graph CLI was installed correctly, run:
+
+<CodeGroup>
+  ```bash Shell
+  graph –v
+  ```
+</CodeGroup>
+
+To create and configure a subgraph:
+<Steps>
+  <Step>
+    Open a new directory in your terminal and run:
+
+   <CodeGroup>
+     ```bash Shell
+     graph init
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+    Configure all the required parameters that are displayed in the CLI. The Graph will download your smart contract’s ABI and install all the dependencies by running `npm install` automatically.
+  </Step>
+  <Step>
+    Set up your `schema.graphql` file to define all the entities and key-value pairs that you want to query.
+  </Step>
+  <Step>
+    Go to your manifest file (`subgraph.yaml`) and make sure all the deployment parameters are correctly defined. We recommend that you only start indexing data from the block number of the first transaction that you want to track as this can save a lot of indexing time.
+  </Step>
+  <Step>
+    To generate AssemblyScript types for the entities defined in your schema file, in your root directory, run:
+
+   <CodeGroup>
+     ```bash Shell
+     graph codegen
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+    When your mappings file is configured, run:
+
+   <CodeGroup>
+     ```bash Shell
+     graph build
+     ```
+   </CodeGroup>
+  </Step>
+</Steps>
+
+When your subgraph compiles successfully, you are now ready to deploy your subgraph.
+
+## Deploy a subgraph
+
+To deploy your new subgraph:
+<Steps>
+  <Step>
+    In **Subgraphs**, open the details page of your new subgraph and copy the **Deployment command**, which will have the following format:
+
+   <CodeGroup>
+     ```bash Shell
+     graph deploy --node https://api.graph-eu.p2pify.com/3c6e0b8a9c15224a8228b9a98ca1531d/deploy --ipfs https://api.graph-eu.p2pify.com/3c6e0b8a9c15224a8228b9a98ca1531d/ipfs my_subgraph_v1_0
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+    Paste and run the command in your CLI.
+  </Step>
+  <Step>
+    Enter a version label for your subgraph (you can use any number/letter character combination). If the subgraph is successfully deployed, you will receive a response like the following example:
+
+   <CodeGroup>
+     ```bash Shell
+     Deployed to https://chainstack.com/subgraphs/SG-123-456-789
+
+     Subgraph endpoints:
+     Queries (HTTP):     https://ethereum-mainnet.graph-eu.p2pify.com/3c6e0b8a9c15224a8228b9a98ca1531d/my_subgraph_v1_0
+     ```
+   </CodeGroup>
+  </Step>
+</Steps>
+
+In the subgraph details page, the status of the subgraph will change to **Deployed. Initial sync in progress** and will continuously provide feedback on the progress of the synchronization process. When it completes, the status will change to **Up to date**.
+
+<Info>
+  If the subgraph is in the **Failed** state, click **Logs** to view four levels of messages generated by the indexer and troubleshoot the issue.
+</Info>
+
+## Query a subgraph
+
+To query a subgraph, you can choose from either of the following **Subgraph query** options in the subgraph details page:
+
+* **Query URL** — use this URL to query in the CLI.
+* **GraphQL UI URL** — use this URL to query in the GraphQL UI.
+
+### Query URL in CLI
+
+To query your subgraph in the CLI, copy the **Query URL** from the subgraph details page and add it to the query. For example, to query transactions:
+
+<CodeGroup>
+  ```bash cURL
+  curl -g \\
+  -X POST \\
+  -H "Content-Type: application/json" \\
+  -d '{"query":"{myTransactions(first: 5) { id  _value _from _to}}"}' \\
+       https://ethereum-mainnet.graph-eu.p2pify.com/3c6e0b8a9c15224a8228b9a98ca1531d/my_subgraph_v1_0
+  ```
+</CodeGroup>
+
+### GraphQL UI URL query in browser
+
+To query the subgraph using the GraphQL UI, copy the GraphQL UI URL from the subgraph details page and paste it in your browser. The GraphQL UI is displayed, where you can enter the details of your query.

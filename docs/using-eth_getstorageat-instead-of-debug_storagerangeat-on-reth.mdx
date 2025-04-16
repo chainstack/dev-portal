@@ -1,0 +1,668 @@
+---
+title: "Using eth_getStorageAt Instead of debug_storageRangeAt on Reth"
+description: "The method is not supported in Reth. See ."
+---
+
+In this article, we'll walk through a practical Python-based workaround script to replicate the essential functionality of `debug_storageRangeAt` using standard Ethereum RPC calls (`eth_getStorageAt`). This approach ensures you can still achieve your debugging goals without relying on methods unavailable in Reth.
+
+We'll use BASE and Python as an example.
+
+We'll replicate specifically the following call on the BASE mainnet:
+
+<CodeGroup>
+  ```shell Shell
+  curl --request POST \
+       --url CHAINSTACK_NODE_URL \
+       --header 'accept: application/json' \
+       --header 'content-type: application/json' \
+       --data '
+  {
+    "jsonrpc": "2.0",
+    "method": "debug_storageRangeAt",
+    "id": 1,
+    "params": [
+      "0xc40b7058b5b80e565dfb986fe852c047733291291c8de1be8888ae64b5457bbd",
+      25,
+      "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      "0x00000000000000000000000000000000",
+      2
+    ]
+  }
+  '
+  ```
+</CodeGroup>
+
+## Workaround overview
+
+The workaround leverages the standard Ethereum RPC method `eth_getStorageAt` to mimic the storage exploration functionality:
+
+* Sequentially query storage slots.
+* Retrieve non-zero storage entries.
+* Implement pagination to handle large storage queries efficiently.
+
+## Full script in Python
+
+<CodeGroup>
+  ```python Python
+  #!/usr/bin/env python3
+  """
+  Workaround for debug_storageRangeAt RPC method on Reth nodes.
+  This script provides similar functionality using standard eth_getStorageAt calls.
+  """
+
+  # =============================================================================
+  # Configuration - Edit these values
+  # =============================================================================
+
+  # Your Chainstack node URL (required)
+  RPC_URL = "CHAINSTACK_NODE_URL"
+
+  # Block hash or number to query storage at
+  BLOCK_HASH = "YOUR_TARGET_BLOCK_HASH"
+
+  # Transaction index in the block
+  TX_INDEX = INDEX_NUMBER
+
+  # Contract address to inspect storage for
+  CONTRACT_ADDRESS = "0x833589fcd6eYOUR_CONTRACT_ADDRESSdb6e08f4c7c32d4f71b54bda02913"
+
+  # Starting storage key (32 bytes hex string)
+  START_KEY = "0x00000000000000000000000000000000"
+
+  # Maximum number of storage entries to return
+  MAX_RESULTS = 10
+
+  # ==============
+  # Implementation
+  # ==============
+
+  from web3 import Web3
+  from eth_utils import keccak, to_bytes, to_hex
+  import json
+  from typing import Optional, Dict, Any, Union
+  from dataclasses import dataclass
+
+  @dataclass
+  class StorageRangeResult:
+      """Container for storage range query results."""
+      storage: Dict[str, Dict[str, Optional[str]]]  # Storage slot -> {key, value} mapping
+      next_key: Optional[str] = None                # Next key for pagination
+
+  class StorageRangeWorkaround:
+      """Implements debug_storageRangeAt functionality using eth_getStorageAt."""
+
+      def __init__(self, rpc_url: str):
+          """Initialize with RPC URL for the Ethereum node."""
+          self.w3 = Web3(Web3.HTTPProvider(rpc_url))
+          if not self.w3.is_connected():
+              raise ConnectionError("Failed to connect to Ethereum node")
+
+      def get_storage_range_at(
+          self,
+          block_hash: Union[str, bytes],
+          tx_index: int,
+          contract_address: str,
+          start_key: str,
+          max_results: int
+      ) -> StorageRangeResult:
+          """
+          Emulate debug_storageRangeAt functionality using eth_getStorageAt.
+
+          Args:
+              block_hash: Block hash or number
+              tx_index: Transaction index in the block (ignored in this implementation)
+              contract_address: Address of the contract to inspect
+              start_key: Starting storage key (32 bytes hex string)
+              max_results: Maximum number of storage entries to return
+
+          Returns:
+              StorageRangeResult containing storage entries and next key if any
+          """
+          # Normalize parameters
+          if isinstance(block_hash, str) and block_hash.startswith('0x'):
+              block_hash = block_hash[2:]
+          block_hash = bytes.fromhex(block_hash) if isinstance(block_hash, str) else block_hash
+
+          contract_address = self.w3.to_checksum_address(contract_address)
+          start_key = start_key if start_key.startswith('0x') else '0x' + start_key
+
+          # Get block information
+          try:
+              block = self.w3.eth.get_block(block_hash)
+          except Exception as e:
+              raise Exception(f"Failed to get block: {e}")
+
+          # Get storage entries
+          storage_entries = {}
+          current_key_int = int(start_key, 16)
+          found_entries = 0
+
+          # Keep trying keys until we find max_results non-zero entries or hit a reasonable limit
+          max_attempts = max_results * 10  # Try up to 10x max_results to find non-zero values
+          attempts = 0
+
+          while found_entries < max_results and attempts < max_attempts:
+              current_key_hex = hex(current_key_int)
+              if not current_key_hex.startswith('0x'):
+                  current_key_hex = '0x' + current_key_hex[2:].zfill(64)
+
+              try:
+                  value = self.w3.eth.get_storage_at(
+                      contract_address,
+                      current_key_hex,
+                      block['number']
+                  )
+                  value_hex = '0x' + value.hex()
+
+                  # Only include non-zero values
+                  if value_hex != '0x' + '00' * 32:
+                      storage_entries[current_key_hex] = value_hex
+                      found_entries += 1
+
+              except Exception as e:
+                  print(f"Warning: Failed to get storage at {current_key_hex}: {e}")
+
+              current_key_int += 1
+              attempts += 1
+
+          # Determine next key for pagination
+          next_key = None
+          if found_entries >= max_results:
+              next_key = hex(current_key_int)
+              if not next_key.startswith('0x'):
+                  next_key = '0x' + next_key[2:].zfill(64)
+
+          # Format result
+          result = StorageRangeResult(
+              storage={
+                  k: {"key": None, "value": v} for k, v in storage_entries.items()
+              },
+              next_key=next_key
+          )
+
+          return result
+
+  def compute_mapping_slot(mapping_slot: int, key: Union[str, int, bytes]) -> str:
+      """
+      Compute the storage slot for a mapping entry.
+
+      Args:
+          mapping_slot: Slot number where the mapping is declared
+          key: The key in the mapping (address, uint, etc.)
+
+      Returns:
+          The 32-byte hex string of the storage slot
+      """
+      if isinstance(key, str) and key.startswith('0x'):
+          key = bytes.fromhex(key[2:])
+      elif isinstance(key, int):
+          key = key.to_bytes(32, 'big')
+      elif not isinstance(key, bytes):
+          raise ValueError("Key must be hex string, integer, or bytes")
+
+      key = key.rjust(32, b'\x00')  # pad to 32 bytes
+      slot_bytes = mapping_slot.to_bytes(32, 'big')
+
+      slot_hash = keccak(key + slot_bytes)
+      return '0x' + slot_hash.hex()
+
+  def main():
+      """Main entry point for the script."""
+      try:
+          storage_range = StorageRangeWorkaround(RPC_URL)
+
+          result = storage_range.get_storage_range_at(
+              block_hash=BLOCK_HASH,
+              tx_index=TX_INDEX,
+              contract_address=CONTRACT_ADDRESS,
+              start_key=START_KEY,
+              max_results=MAX_RESULTS
+          )
+
+          # Print results in a JSON-RPC style response
+          response = {
+              "jsonrpc": "2.0",
+              "id": 1,
+              "result": {
+                  "storage": result.storage,
+                  "nextKey": result.next_key
+              }
+          }
+          print(json.dumps(response, indent=2))
+
+      except Exception as e:
+          # Format error as JSON-RPC error response
+          error_response = {
+              "jsonrpc": "2.0",
+              "id": 1,
+              "error": {
+                  "code": -32000,
+                  "message": str(e)
+              }
+          }
+          print(json.dumps(error_response, indent=2))
+
+  if __name__ == '__main__':
+      main()
+  ```
+</CodeGroup>
+
+## Configuration
+
+Adjust these parameters according to your context:
+
+<CodeGroup>
+  ```python python
+  # Your Chainstack node URL (replace with your own)
+  RPC_URL = "CHAINSTACK_NODE_URL"
+
+  # Target block hash for querying storage
+  BLOCK_HASH = "YOUR_TARGET_BLOCK_HASH"
+
+  # Transaction index in the block
+  TX_INDEX = INDEX_NUMBER
+
+  # Contract address you want to inspect
+  CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS"
+
+  # Starting storage key
+  START_KEY = "0x00000000000000000000000000000000"
+
+  # Maximum results per run
+  MAX_RESULTS = 10
+  ```
+</CodeGroup>
+
+3. **Interpret the Output:** You'll see a JSON-formatted output similar to what `debug_storageRangeAt` provides, including storage entries and the next key for pagination.
+
+Use this snippet to identify and query the exact slots needed.
+
+## Pagination explained
+
+Due to the potentially massive size of contract storage, the script includes pagination. If more entries exist beyond the queried range, `nextKey` is returned. Use this as your new `START_KEY` in the subsequent query.
+
+## Limitations & Best Practices
+
+* **Performance:** This workaround may be slower than native implementations due to multiple RPC calls.
+* **Accuracy:** It returns hashed storage keys without preimage (original key). You'll need additional logic or external knowledge to map these hashes to original keys.
+
+## Full example comparison
+
+Let's do the same parameters call `debug_storageRangeAt` on BASE testinprod and `eth_getStorageAt` on Reth.
+
+### debug\_storageRangeAt on BASE testinprod
+
+Call:
+
+<CodeGroup>
+  ```bash Shell
+  curl --request POST \
+       --url https://base-mainnet.core.chainstack.com/2fc1de7f08c0465f6a28e3c355e0cb14/ \
+       --header 'accept: application/json' \
+       --header 'content-type: application/json' \
+       --data '
+  {
+    "jsonrpc": "2.0",
+    "method": "debug_storageRangeAt",
+    "id": 1,
+    "params": [
+      "0xc40b7058b5b80e565dfb986fe852c047733291291c8de1be8888ae64b5457bbd",
+      25,
+      "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+      "0x00000000000000000000000000000000",
+      2
+    ]
+  }
+  '
+  ```
+</CodeGroup>
+
+Output:
+
+<CodeGroup>
+  ```Json JSON
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "storage": {
+        "0x0175b7a638427703f0dbe7bb9bbf987a2551717b34e79f33b5b1008d1fa01db9": {
+          "key": "0x000000000000000000000000000000000000000000000000000000000000000b",
+          "value": "0x000000000000000000000000000000000000000000000000000224743a3e0b18"
+        },
+        "0x036b6384b5eca791c62761152d0c79bb0604c104a5fb6f4eb0703f3154bb3db0": {
+          "key": "0x0000000000000000000000000000000000000000000000000000000000000005",
+          "value": "0x5553444300000000000000000000000000000000000000000000000000000008"
+        },
+        "0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563": {
+          "key": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "value": "0x0000000000000000000000003abd6f64a422225e61e435bae41db12096106df7"
+        },
+        "0x405787fa12a823e0f2b7631cc41b3ba8828b3321ca811111fa75cd3aa3bb5ace": {
+          "key": "0x0000000000000000000000000000000000000000000000000000000000000002",
+          "value": "0x0000000000000000000000004d15e70518a20fc8828b5c3853f32e35238d0b77"
+        },
+        "0x8a35acfbc15ff81a39ae7d344fd709f28e8600b4aa8c65c6b64bfe7fe36bd19b": {
+          "key": "0x0000000000000000000000000000000000000000000000000000000000000004",
+          "value": "0x55534420436f696e000000000000000000000000000000000000000000000010"
+        },
+        "0x8d1108e10bcb7c27dddfc02ed9d693a074039d026cf4ea4240b40f7d581ac802": {
+          "key": "0x000000000000000000000000000000000000000000000000000000000000000f",
+          "value": "0x02fa7265e7c5d81118673727957699e4d68f74cd74b7db77da710fe8a2c7834f"
+        },
+        "0xa66cc928b5edb82af9bd49922954155ab7b0942694bea4ce44661d9a8736c688": {
+          "key": "0x0000000000000000000000000000000000000000000000000000000000000007",
+          "value": "0x5553440000000000000000000000000000000000000000000000000000000006"
+        },
+        "0xb10e2d527612073b26eecdfd717e6a320cf44b4afac2b0732d9fcbe2b7fa0cf6": {
+          "key": "0x0000000000000000000000000000000000000000000000000000000000000001",
+          "value": "0x000000000000000000000000d3571b3bc51cecff49194ad67afffc648d5e07b4"
+        },
+        "0xf3f7a9fe364faab93b216da50a3214154f22a0a2b415b23a84c8169e8b636ee3": {
+          "key": "0x0000000000000000000000000000000000000000000000000000000000000008",
+          "value": "0x0000000000000000000000012230393edad0299b7e7b59f20aa856cd1bed52e1"
+        },
+        "0xf652222313e28459528d920b65115c16c04f3efc82aaedc97be59f3f377c0d3f": {
+          "key": "0x0000000000000000000000000000000000000000000000000000000000000006",
+          "value": "0x0000000000000000000000000000000000000000000000000000000000000006"
+        }
+      },
+      "nextKey": "0x0000000000000000000000000000000000000000000000000000000000000012"
+    }
+  }
+  ```
+</CodeGroup>
+
+### eth\_getStorageAt
+
+Call:
+
+(Note the Chainstack Node URL is a public one for this Developer portal, so it's rate-limited and suitable for one-off example calls only).
+
+<CodeGroup>
+  ```python Python
+  #!/usr/bin/env python3
+  """
+  Workaround for debug_storageRangeAt RPC method on Reth nodes.
+  This script provides similar functionality using standard eth_getStorageAt calls.
+  """
+
+  # =============================================================================
+  # Configuration - Edit these values
+  # =============================================================================
+
+  # Your Chainstack node URL (required)
+  RPC_URL = "https://base-mainnet.core.chainstack.com/2fc1de7f08c0465f6a28e3c355e0cb14/"
+
+  # Block hash or number to query storage at
+  BLOCK_HASH = "0xc40b7058b5b80e565dfb986fe852c047733291291c8de1be8888ae64b5457bbd"
+
+  # Transaction index in the block
+  TX_INDEX = 25
+
+  # Contract address to inspect storage for
+  CONTRACT_ADDRESS = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+
+  # Starting storage key (32 bytes hex string)
+  START_KEY = "0x00000000000000000000000000000000"
+
+  # Maximum number of storage entries to return
+  MAX_RESULTS = 10
+
+  # =============================================================================
+  # Implementation - Do not modify below this line unless you know what you're doing
+  # =============================================================================
+
+  from web3 import Web3
+  from eth_utils import keccak, to_bytes, to_hex
+  import json
+  from typing import Optional, Dict, Any, Union
+  from dataclasses import dataclass
+
+  @dataclass
+  class StorageRangeResult:
+      """Container for storage range query results."""
+      storage: Dict[str, Dict[str, Optional[str]]]  # Storage slot -> {key, value} mapping
+      next_key: Optional[str] = None                # Next key for pagination
+
+  class StorageRangeWorkaround:
+      """Implements debug_storageRangeAt functionality using eth_getStorageAt."""
+
+      def __init__(self, rpc_url: str):
+          """Initialize with RPC URL for the Ethereum node."""
+          self.w3 = Web3(Web3.HTTPProvider(rpc_url))
+          if not self.w3.is_connected():
+              raise ConnectionError("Failed to connect to Ethereum node")
+
+      def get_storage_range_at(
+          self,
+          block_hash: Union[str, bytes],
+          tx_index: int,
+          contract_address: str,
+          start_key: str,
+          max_results: int
+      ) -> StorageRangeResult:
+          """
+          Emulate debug_storageRangeAt functionality using eth_getStorageAt.
+
+          Args:
+              block_hash: Block hash or number
+              tx_index: Transaction index in the block (ignored in this implementation)
+              contract_address: Address of the contract to inspect
+              start_key: Starting storage key (32 bytes hex string)
+              max_results: Maximum number of storage entries to return
+
+          Returns:
+              StorageRangeResult containing storage entries and next key if any
+          """
+          # Normalize parameters
+          if isinstance(block_hash, str) and block_hash.startswith('0x'):
+              block_hash = block_hash[2:]
+          block_hash = bytes.fromhex(block_hash) if isinstance(block_hash, str) else block_hash
+
+          contract_address = self.w3.to_checksum_address(contract_address)
+          start_key = start_key if start_key.startswith('0x') else '0x' + start_key
+
+          # Get block information
+          try:
+              block = self.w3.eth.get_block(block_hash)
+          except Exception as e:
+              raise Exception(f"Failed to get block: {e}")
+
+          # Get storage entries
+          storage_entries = {}
+          current_key_int = int(start_key, 16)
+          found_entries = 0
+
+          # Keep trying keys until we find max_results non-zero entries or hit a reasonable limit
+          max_attempts = max_results * 10  # Try up to 10x max_results to find non-zero values
+          attempts = 0
+
+          while found_entries < max_results and attempts < max_attempts:
+              current_key_hex = hex(current_key_int)
+              if not current_key_hex.startswith('0x'):
+                  current_key_hex = '0x' + current_key_hex[2:].zfill(64)
+
+              try:
+                  value = self.w3.eth.get_storage_at(
+                      contract_address,
+                      current_key_hex,
+                      block['number']
+                  )
+                  value_hex = '0x' + value.hex()
+
+                  # Only include non-zero values
+                  if value_hex != '0x' + '00' * 32:
+                      storage_entries[current_key_hex] = value_hex
+                      found_entries += 1
+
+              except Exception as e:
+                  print(f"Warning: Failed to get storage at {current_key_hex}: {e}")
+
+              current_key_int += 1
+              attempts += 1
+
+          # Determine next key for pagination
+          next_key = None
+          if found_entries >= max_results:
+              next_key = hex(current_key_int)
+              if not next_key.startswith('0x'):
+                  next_key = '0x' + next_key[2:].zfill(64)
+
+          # Format result
+          result = StorageRangeResult(
+              storage={
+                  k: {"key": None, "value": v} for k, v in storage_entries.items()
+              },
+              next_key=next_key
+          )
+
+          return result
+
+  def compute_mapping_slot(mapping_slot: int, key: Union[str, int, bytes]) -> str:
+      """
+      Compute the storage slot for a mapping entry.
+
+      Args:
+          mapping_slot: Slot number where the mapping is declared
+          key: The key in the mapping (address, uint, etc.)
+
+      Returns:
+          The 32-byte hex string of the storage slot
+      """
+      if isinstance(key, str) and key.startswith('0x'):
+          key = bytes.fromhex(key[2:])
+      elif isinstance(key, int):
+          key = key.to_bytes(32, 'big')
+      elif not isinstance(key, bytes):
+          raise ValueError("Key must be hex string, integer, or bytes")
+
+      key = key.rjust(32, b'\x00')  # pad to 32 bytes
+      slot_bytes = mapping_slot.to_bytes(32, 'big')
+
+      slot_hash = keccak(key + slot_bytes)
+      return '0x' + slot_hash.hex()
+
+  def main():
+      """Main entry point for the script."""
+      try:
+          storage_range = StorageRangeWorkaround(RPC_URL)
+
+          result = storage_range.get_storage_range_at(
+              block_hash=BLOCK_HASH,
+              tx_index=TX_INDEX,
+              contract_address=CONTRACT_ADDRESS,
+              start_key=START_KEY,
+              max_results=MAX_RESULTS
+          )
+
+          # Print results in a JSON-RPC style response
+          response = {
+              "jsonrpc": "2.0",
+              "id": 1,
+              "result": {
+                  "storage": result.storage,
+                  "nextKey": result.next_key
+              }
+          }
+          print(json.dumps(response, indent=2))
+
+      except Exception as e:
+          # Format error as JSON-RPC error response
+          error_response = {
+              "jsonrpc": "2.0",
+              "id": 1,
+              "error": {
+                  "code": -32000,
+                  "message": str(e)
+              }
+          }
+          print(json.dumps(error_response, indent=2))
+
+  if __name__ == '__main__':
+      main()
+  ```
+</CodeGroup>
+
+Output:
+
+<CodeGroup>
+  ```Json JSON
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "storage": {
+        "0x0": {
+          "key": null,
+          "value": "0x0000000000000000000000003abd6f64a422225e61e435bae41db12096106df7"
+        },
+        "0x1": {
+          "key": null,
+          "value": "0x000000000000000000000000d3571b3bc51cecff49194ad67afffc648d5e07b4"
+        },
+        "0x2": {
+          "key": null,
+          "value": "0x0000000000000000000000004d15e70518a20fc8828b5c3853f32e35238d0b77"
+        },
+        "0x4": {
+          "key": null,
+          "value": "0x55534420436f696e000000000000000000000000000000000000000000000010"
+        },
+        "0x5": {
+          "key": null,
+          "value": "0x5553444300000000000000000000000000000000000000000000000000000008"
+        },
+        "0x6": {
+          "key": null,
+          "value": "0x0000000000000000000000000000000000000000000000000000000000000006"
+        },
+        "0x7": {
+          "key": null,
+          "value": "0x5553440000000000000000000000000000000000000000000000000000000006"
+        },
+        "0x8": {
+          "key": null,
+          "value": "0x0000000000000000000000012230393edad0299b7e7b59f20aa856cd1bed52e1"
+        },
+        "0xb": {
+          "key": null,
+          "value": "0x000000000000000000000000000000000000000000000000000224743a3e0b18"
+        },
+        "0xf": {
+          "key": null,
+          "value": "0x02fa7265e7c5d81118673727957699e4d68f74cd74b7db77da710fe8a2c7834f"
+        }
+      },
+      "nextKey": "0x10"
+    }
+  }
+  ```
+</CodeGroup>
+
+**References & further reading:**
+
+<CardGroup>
+  <Card title="Ethereum JSON-RPC specification" href="https://ethereum.org/en/developers/docs/apis/json-rpc/" icon="angle-right" horizontal />
+  <Card title="Reth JSON-RPC docs" href="https://reth.rs/jsonrpc/intro.html" icon="angle-right" horizontal />
+  <Card title="Understanding Ethereum Storage Layout" href="https://docs.soliditylang.org/en/latest/internals/layout_in_storage.html" icon="angle-right" horizontal />
+</CardGroup>
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

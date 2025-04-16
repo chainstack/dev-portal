@@ -1,0 +1,153 @@
+---
+title: arbtrace_call | Arbitrum
+openapi: /openapi/arbitrum_node_api/debug_and_trace/arbtrace_call.json POST /66f812de2a6724a75a51f60dd6f2a154
+---
+
+Arbitrum API method that traces the execution of [eth\_call](/api-reference/arbitrum_node_api/execute_transactions/eth_call) within the context of a specific block's execution. This method uses the final state of the parent block as its base and allows developers to trace the execution of a particular call.
+
+<Note>
+Learn how to [deploy a node](/docs/debug-and-trace-apis#ethereum) with the debug and trace API methods enabled.
+</Note>
+
+<Warning>
+Blocks older than 22,207,815th were added to the chain before Nitro migration and cannot be queried with Geth methods. Starting from block 22,207,815, Arbitrum migrated to Nitro which made Geth `debug_*` methods available for newer blocks.
+
+Use the `arbtrace_call` method for calling blocks prior to 22,207,815.
+</Warning>
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `object` — the transaction call object:
+
+  + `from` — (optional) the string of the address used to send the transaction.
+  + `to` — the string of the address to which the transaction is directed, a wallet, or a smart contract.
+  + `gas` — (optional) the maximum amount of gas that can be used by the transaction.
+  + `gasprice` — (optional) the amount of gas price the sender is willing to pay for each gas unit in [wei](https://ethereum.org/en/developers/docs/intro-to-ether/#denominations).
+  + `value` — (optional) the value sent with this transaction, encoded as hexadecimal.
+  + `data` — (optional) additional data to be sent with the call, usually used to invoke functions from smart contracts as a string of the hash of the method signature and encoded parameters; see the [Ethereum Contract ABI](https://solidity.readthedocs.io/en/latest/abi-spec.html).
+* `quantity` — the integer of a block, encoded as hexadecimal.
+* `array` — an array identifying the type of tracer and its configuration:
+
+  + `trace` — tracer that captures information on all call frames executed during a transaction. The resulting nested list of call frames is organized into a tree structure that reflects the way the Ethereum Virtual Machine works and can be used for debugging and analysis purposes.
+
+## Response
+
+* `output` — the data returned as a result of the transaction, encoded in hexadecimal format.
+* `stateDiff` — reveals changes to the state resulting from the execution of the given transaction.
+* `trace` — the basic trace of specific information.
+  + `action` — the operation to be performed on the recipient.
+    - `from` — the address initiating the transaction.
+    - `callType` — the type of method, such as `call` or `delegatecall`.
+    - `gas` — the units of gas supplied by the sender, encoded in hexadecimal format.
+    - `input` — the data transmitted along with the transaction, typically used for interaction with smart contracts.
+    - `to` — the recipient's address. If it's a contract creation transaction, this field is `null`.
+    - `value` — the amount sent with the transaction, encoded as a hexadecimal.
+  + `result` — the value of the gas price used, encoded as hexadecimal.
+    - `gasUsed` — the total amount of gas used by all the transactions in the block, encoded as hexadecimal.
+    - `output` — the return value from the contract call, encoded in hexadecimal. If the `RETURN` method isn't executed, the output will be empty bytes.
+  + `subtraces` — a list of contract calls made by the transaction, each represented as a nested `call`frame object.
+  + `traceAddress` — a list of addresses where the call was executed, the addresses of the parent calls, and the order of the current sub-call.
+  + `type` — the value of the method, such as `call` or `create`.
+* `vmTrace` — a comprehensive trace of the virtual machine's state during the execution of a given transaction, including any sub-calls.
+
+## `arbtrace_call` code examples
+
+<CodeGroup>
+```javascript web3.js
+const Web3 = require("web3");
+const NODE_URL = "YOUR_CHAINSTACK_ENDPOINT";
+const web3 = new Web3(NODE_URL);
+
+// Define the arbtrace_call custom method
+web3.extend({
+    property: 'arbtrace',
+    methods: [{
+      name: 'call',
+      call: 'arbtrace_call',
+      params: 3,
+    }],
+  });
+  
+  async function arbtraceCall() {
+
+        const call = {
+          "from": '0xeff678bf68ca0da9dfdac0c88f431e8d0e2f7116',
+          "to": '0x1b02da8cb0d097eb8d57a175b88c7d8b47997506',
+          "gas": '0xfa4d9',
+          "gasPrice": '0x9c1e25d',
+          "data": '0x18cbafe5000000000000000000000000000000000000000000000000000000003038624200000000000000000000000000000000000000000000000006ff882fdeb13bd100000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000eff678bf68ca0da9dfdac0c88f431e8d0e2f711600000000000000000000000000000000000000000000000000000000630f76620000000000000000000000000000000000000000000000000000000000000002000000000000000000000000ff970a61a04b1ca14834a43f5de4533ebddb5cc800000000000000000000000082af49447d8a07e3bd95bd0d56f35241523fbab1'
+        }
+      
+        const block = '0x152dd44'
+      
+        const tracer = 'trace';
+  
+    try {
+      const result = await web3.arbtrace.call(call, [tracer], block);
+      console.log(result);
+    } catch (error) {
+      console.error("Error:", error);
+    }
+  }
+  
+  arbtraceCall();
+```
+
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "YOUR_CHAINSTACK_ENDPOINT";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const arbtraceCall = async () => {
+
+    const call = {
+      "from": '0xeff678bf68ca0da9dfdac0c88f431e8d0e2f7116',
+      "to": '0x1b02da8cb0d097eb8d57a175b88c7d8b47997506',
+      "gas": '0xfa4d9',
+      "gasPrice": '0x9c1e25d',
+      "data": '0x18cbafe5000000000000000000000000000000000000000000000000000000003038624200000000000000000000000000000000000000000000000006ff882fdeb13bd100000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000eff678bf68ca0da9dfdac0c88f431e8d0e2f711600000000000000000000000000000000000000000000000000000000630f76620000000000000000000000000000000000000000000000000000000000000002000000000000000000000000ff970a61a04b1ca14834a43f5de4533ebddb5cc800000000000000000000000082af49447d8a07e3bd95bd0d56f35241523fbab1'
+    }
+  
+    const block = '0x152dd44'
+  
+    const tracer = 'trace';
+    const traces = await provider.send("arbtrace_call", [call, [tracer], block]);
+    console.log(traces);
+  };
+  
+  arbtraceCall()
+```
+
+```python web3.py
+from web3 import Web3  
+node_url = "YOUR_CHAINSTACK_ENDPOINT" 
+web3 = Web3.HTTPProvider(node_url)
+
+call = {
+    'from': '0xeff678bf68ca0da9dfdac0c88f431e8d0e2f7116',
+    'to': '0x1b02da8cb0d097eb8d57a175b88c7d8b47997506',
+    'gas': '0xfa4d9',
+    'gasPrice': '0x9c1e25d',
+    'data': '0x18cbafe5000000000000000000000000000000000000000000000000000000003038624200000000000000000000000000000000000000000000000006ff882fdeb13bd100000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000eff678bf68ca0da9dfdac0c88f431e8d0e2f711600000000000000000000000000000000000000000000000000000000630f76620000000000000000000000000000000000000000000000000000000000000002000000000000000000000000ff970a61a04b1ca14834a43f5de4533ebddb5cc800000000000000000000000082af49447d8a07e3bd95bd0d56f35241523fbab1'
+  }
+
+block = 'latest'
+
+# Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer. Leave empty {} for Struct/opcode logger.
+tracer = ['trace']
+tx_traces = web3.provider.make_request('arbtrace_call', [call, tracer, block])
+print(tx_traces)
+```
+</CodeGroup>
+
+
+## Try the `arbtrace_callMany` RPC method yourself

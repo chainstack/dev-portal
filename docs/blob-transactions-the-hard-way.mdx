@@ -1,0 +1,654 @@
+---
+title: "Blob Transactions the Hard Way"
+---
+
+**TLDR:**
+* Walks you through crafting and broadcasting blob (type-3) transactions on Ethereum, including creating 128 KB blobs and verifying the KZG commitment and blob versioned hash.
+* Explains how blob data is stored on the consensus layer for 18 days, while the blob versioned hash lives on the execution layer.
+* Dives into EIP-4788 & EIP-4844, detailing how to map execution-layer blocks to consensus-layer slots to fetch and verify blob data.
+* Provides full Python scripts for a “bare bones” approach to building, sending, and verifying blob transactions from start to finish.
+
+## Main article
+
+Or *almost* the hard way as we are going to use a bit of Python.
+
+The focus of this guide is on keeping the [Dencun and EIP-4844 talk](/docs/ethereum-dencun-rundown-with-examples) to a minimum and to give you hands-on exposure to blob transactions, which is a good way to supplement the prior general knowledge on the topic.
+
+<Check>
+  ### Chainstack Ethereum archive nodes store blob data
+
+  Chainstack Ethereum archive nodes store blob data beyond 18 days on the Mainnet, Sepolia, Holesky.
+
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required. You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Introduction
+
+### EIPS involved
+
+The two EIPs for this guide are:
+
+* [EIP-4788](https://eips.ethereum.org/EIPS/eip-4788) — each block on the execution layer now contains the parent beacon's block root.
+* [EIP-4844](https://www.eip4844.com/) — the compressed transaction data from rollups is now stored on the consensus layer for 18 days.
+
+There's more to each of these EIPs, but we focus on what we need to know for this guide.
+
+### Problem
+
+A quick reminder on the problem that the blob transactions solve.
+
+With the increased activity on the Ethereum mainnet, the limited throughput leads up to the increased transaction fees (and costs as ETH appreciates in value). To solve this, a new chain is launched. The new chain has faster block times and a centralized unit (the sequencer) processing the transactions and blocks. To have some of the Ethereum network security & decentralization, the new chain takes all of its transactions as complete transaction data, compresses them (or rolls them up, hence rollups) and posts the data in batches to the Ethereum network as smart contract call data.
+
+Posting as call data is costly, but you now have the costs split between all the transactions on the rollup chain that were compressed and posted as one transaction to the Ethereum network. As an example, have a look at the Arbitrum batch [517392](https://arbiscan.io/batch/517392?isnitro=true) — there are 809 transactions in the batch; these transactions were paid for in ETH on the Arbitrum mainnet. The ETH from the transactions in the batch was used to fund [one transaction](https://etherscan.io/tx/0x7a5c81cbbc07c68abf0b9d91bb8c6d121aaf3b25b49cd4f047603b3fa9d39910) on the Ethereum mainnet where it posted the entire compressed data from the 809 transactions as call data to a contract. In a simplified way, now you have the cost of this one Ethereum transaction split between the actors of the 809 Arbitrum transactions. This makes each of the 809 transactions cheaper.
+
+The two problems with this are:
+
+* The EVM was never designed for this use case and posting compressed transaction data in batches as call data to smart contracts is expensive.
+* The call data is unnecessary and expensive to merely store data.
+
+### Solution
+
+Enter blob transactions — the simple and sane solution. Blob data is moved to be stored on the consensus layer. Blob data is no longer processed by the EVM, which means it can be much bigger in size and there is no associated EVM processing gas costs.
+
+|                   | Blockspace      | Blobspace       |
+| ----------------- | --------------- | --------------- |
+| Seen by all nodes | Yes             | Yes             |
+| Storage           | Execution layer | Consensus layer |
+| EVM access        | Yes             | No              |
+| Longevity         | Forever         | 18 days         |
+| Cost              | Expensive       | Cheap           |
+
+Table credits: [Consensys](https://consensys.io/blog/ethereum-evolved-dencun-upgrade-part-5-eip-4844) .
+
+A few quick things on blob transactions:
+
+* Blob transactions are type-3 transactions on the execution layer.
+* When submitted on the execution layer, blob transactions go through the usual lifecycle (node > mempool > block) but the actual blob data is separately gossiped to the consensus layer.
+* Blob data is not validated in the rollup chain context by the Ethereum chain.
+* 18 days is theoretically sufficient for all the network participants to agree on the rollup chain state.
+* It is ultimately the job of the respective rollup chain mechanisms to store the blob data beyond 18 days and ensure its availability (aka Data Availability).
+* Even though the blob data is stored for 18 days, the KZG commitment for each blob — which is basically a fancy hash of blob data — is stored forever. This means that if you recover a blob that's been lost, you can prove it's the same blob through the respective KZG commitment.
+
+### Transaction types
+
+As mentioned, blob transactions are type-3 transactions and at the time of this post are the latest transaction type.
+
+* **Type-0** aka Legacy — original Ethereum transactions with the parameters `nonce`, `gasPrice`, `gasLimit`, `to`, `value`, `data`, `v`, `r`, `s`.
+
+* **Type-1** aka Access list — adds the `accessList` parameter to the original set. Introduced by [EIP-2930](https://eips.ethereum.org/EIPS/eip-2930).
+
+* **Type-2** aka [EIP-1559](https://eips.ethereum.org/EIPS/eip-1559) — introduces priority fees by adding `maxPriorityFeePerGas` and `maxFeePerGas`.
+
+* **Type-3** aka Blobs — adds two new parameters:
+
+  * `maxFeePerBlobGas` — max fee per blob gas to store the blob
+  * `blobVersionedHashes` — a blob pointer, which is a hash of the blob's KZG commitment
+
+As you see, Ethereum transactions add more parameters with each new type.
+
+## Walkthrough
+
+Now let's have a hands-on walkthrough. In Python.
+
+Here's what we are going to do:
+
+* Create our own blob data
+
+* Send a type-3 transaction with our blob data on Sepolia
+
+* Retrieve our blob data from the network
+
+* Compute the KZG commitment for our blob data and verify it's the same as computed by the node
+
+* Compute the blob versioned hash from the KZG commitment and verify it's the same as computed by the node
+
+* Find all type-3 transactions in a block
+
+* Put it all together and run a script that:
+
+  * Extracts all type-3 transactions from a block
+  * Retrieves the blob data from the network
+  * Retrieves the KZG commitment from the network
+  * Retrieves the blob versioned hash from the network
+  * Locally computes the KZG commitment and the blob versioned hash
+  * Checks if the locally computed KZG commitment and the blob versioned has match the ones retrieved from the network (aka computed by the nodes)
+
+### Prerequisites
+
+<Steps>
+  <Step>
+    Log in to your [Chainstack account](https://console.chainstack.com/) and get an Ethereum Sepolia node. You can get by with a full node for this exercise.
+  </Step>
+  <Step>
+    Install [eth-abi](https://pypi.org/project/eth-abi/).
+  </Step>
+  <Step>
+    Install or update [web3.py](https://pypi.org/project/web3/). Note that it's important you have the latest version as it includes support for the type-3 transactions.
+  </Step>
+  <Step>
+    Install or update [eth-account](https://pypi.org/project/eth-account/). Same here — it's important you have the latest version as it includes support for the type-3 transactions.
+  </Step>
+  <Step>
+    Install [ckzg](https://pypi.org/project/ckzg/) — this computes the KZG commitments.
+  </Step>
+  <Step>
+    Fund your account with SepoliaETH. You can do this through the [Chainstack faucet](https://faucet.chainstack.com/).
+  </Step>
+  <Step>
+    Create a `.env` file with the following variables:
+
+    ```
+    EXECUTION_LAYER_URL=
+    CONSENSUS_LAYER_URL=
+    PRIVATE_KEY=
+    ```
+  </Step>
+</Steps>
+
+[GithHub repository](https://github.com/chainstacklabs/blob-transactions-the-hard-way) for the all the scripts.
+
+### Create blob data
+
+Each blob is always is a fixed 128 KB in size. You are always paying for a 128 KB slot space. For our hands-on exercise, this means that if our blob data is less than 128 KB, we need to pad it to 128 KB.
+
+We are sending a blob that says `Chainstack`, so we pad it to the fixed size.
+
+<CodeGroup>
+  ```python Python
+  import os
+  from eth_abi import abi
+
+  def create_blob_data(text):
+      # Encode the text using Ethereum ABI encoding for a string
+      encoded_text = abi.encode(["string"], [text])
+
+      # Calculate the required padding to make the blob size exactly 131072 bytes or 128 KB
+      required_padding = 131072 - (len(encoded_text) % 131072)
+
+      # Create the BLOB_DATA with the correct padding
+      BLOB_DATA = (b"\x00" * required_padding) + encoded_text
+
+      return BLOB_DATA
+
+  def main():
+      text = "Chainstack" # If you change this, make sure you update the padding
+
+      # Create blob data
+      blob_data = create_blob_data(text)
+
+      # Print the blob data in hexadecimal format
+      print("Blob Data (Hex):")
+      print(blob_data.hex())
+
+  if __name__ == "__main__":
+      main()
+  ```
+</CodeGroup>
+
+For convenience, redirect the output to a file as it's going to be huge:
+
+<CodeGroup>
+  ```shell Shell
+  python create_blob_data.py > blob.txt
+  ```
+</CodeGroup>
+
+What you have now is your blob data. As a reminder, it's completely arbitrary what we put into it — it can be [2837 transactions](https://arbiscan.io/batch/617502?isnitro=true) rolled into one object or it can the string `Chainstack` in hex and padded to 128 KB (as in our case).
+
+### Send a type-3 transaction
+
+Now that we know what blob data is and how to create one, let's actually put it on-chain.
+
+Let's first run the script and then have a look at the transaction committed to the chain.
+
+<CodeGroup>
+  ```python Python
+  import os
+  from eth_abi import abi
+  from eth_account import Account
+  from eth_utils import to_hex
+  from web3 import Web3, HTTPProvider
+  from dotenv import load_dotenv
+
+  load_dotenv()
+
+  w3 = Web3(HTTPProvider(os.getenv("EXECUTION_LAYER_URL")))
+
+  """
+  Add the web3py middleware to ensure compatibility with Erigon 2
+  as the eth_estimateGas only expects one argument. The block number or
+  block hash was dropped in https://github.com/ledgerwatch/erigon/releases/tag/v2.60.1
+  """
+  def erigon_compatibility_middleware(make_request, w3):
+      def middleware(method, params):
+          if method == 'eth_estimateGas' and len(params) > 1:
+              # Modify the params to include only the transaction object
+              params = params[:1]
+          return make_request(method, params)
+      return middleware
+  w3.middleware_onion.add(erigon_compatibility_middleware)
+
+  text = "Chainstack"
+  encoded_text = abi.encode(["string"], [text])
+
+  # Calculate the required padding to make the blob size exactly 131072 bytes
+  required_padding = 131072 - (len(encoded_text) % 131072)
+
+  # Create the BLOB_DATA with the correct padding
+  BLOB_DATA = (b"\x00" * required_padding) + encoded_text
+
+  pkey = os.environ.get("PRIVATE_KEY")
+  acct = w3.eth.account.from_key(pkey)
+
+  tx = {
+      "type": 3, # Type-3 transaction
+      "chainId": 11155111,  # Sepolia 11155111; Holesky 17000
+      "from": acct.address,
+      "to": "0x0000000000000000000000000000000000000000", # Does not matter what account you send it to
+      "value": 0,
+      "maxFeePerGas": 10**12,
+      "maxPriorityFeePerGas": 10**12,
+      "maxFeePerBlobGas": to_hex(10**12), # Note the new type-3 parameter for blobs
+      "nonce": w3.eth.get_transaction_count(acct.address),
+  }
+
+  # Now you can estimate gas as usual
+  gas_estimate = w3.eth.estimate_gas(tx)
+  tx["gas"] = gas_estimate
+
+  # Proceed with the rest of your script
+  signed = acct.sign_transaction(tx, blobs=[BLOB_DATA])
+  tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+  tx_receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+  print(f"TX receipt: {tx_receipt}")
+  ```
+</CodeGroup>
+
+Note the comments in the script. Especially note how we are handling the Erigon compatibility here. Erigon introduced a breaking change in [v2.60.1](https://github.com/ledgerwatch/erigon/releases/tag/v2.60.1) — unlike Geth, the `eth_estimateGas` call in Erigon moving forward does not take in the block number or block hash as an argument.
+
+Running this will print out the transaction receipt.
+
+Here's an example of this transaction on the Sepolia etherscan: [0x5a74bd72aeeb99e874e58b927f9a5c96665278a36b61bed69a4b09597b02edce](https://sepolia.etherscan.io/tx/0x5a74bd72aeeb99e874e58b927f9a5c96665278a36b61bed69a4b09597b02edce)
+
+On etherscan when viewing the transaction, hit **Blobs**. You will see:
+
+* Commitment — the KZG commitment of the blob data. We are going to touch on this later in this article.
+* Blob Versioned Hash — basically a hash of the blob, serving as pointer on the execution layer to the blob on the consensus layer.
+
+Clicking the Blob Versioned Hash value will show the blob data. You can check if it's the same as the one we created previously and saved as `blob.txt`. It should be the same.
+
+Etherscan, being a great explorer, is providing you the data both from the consensus layer and the execution layer.
+
+What you need to remember here is:
+
+* Blob data — only stored on the consensus layer.
+* KZG commitment — only stored on the consensus layer.
+* Blob Versioned Hash — only stored on the execution layer.
+
+Here's the same blob transaction from our example as `Index 0` in the [Sepolia Beacon chain explorer](https://sepolia.beaconcha.in/block/6090748#blobs).
+
+A look at the actual cycle of our type-3 transaction:
+
+1. We create the blob data and submit it as a type-3 transaction to a node. The `to` address of the transaction doesn't really matter as our goal is to put the blob data on the consensus layer.
+2. The node picks up our transaction in its entirety, including the complete blob data, and computes the KZG commitment for the blob data and the blob versioned hash from the KZG commitment.
+3. The node then propagates the transaction (without the blob data) with the blob versioned hash value to the mempool on the execution layer. The node also gossips the actual blob data over P2P to other nodes.
+4. The transaction gets picked up from the mempool as usual and committed in a block on the execution layer. The blob data is stored on the consensus layer. The blob versioned hash on the execution layer is acting as pointer to the blob on the consensus layer.
+
+Now we have the type-3 transaction with the blob versioned hash forever living on the execution layer and the actual blob data stored for 18 days on the consensus layer. (Unless you run Chainstack archive nodes, in which case it's also forever).
+
+### Retrieve blob data from the network
+
+Let's retrieve the blob data from the network.
+
+Since we are working with the consensus layer now, make sure you now use the consensus client endpoint from your Chainstack node details.
+
+Our example transaction is included in [block 6090748](https://sepolia.etherscan.io/txs?block=6090748\&isblob=true) on the execution layer. The call we are going to use is [Retrieve blob sidecar](/api-reference/ethereum_beacon_chain_api/state/getBlobSidecarByRoot).
+
+To provide a specific pointer for the blob data on the consensus layer, we can use one of the following:`head`, `genesis`, `finalized`, or `slot_number`.
+
+The original [Beacon chain API spec](https://ethereum.github.io/beacon-APIs/#/Beacon/getBlobSidecars) also includes `hex encoded blockRoot with 0x prefix`, but Nimbus nodes (that Chainstack uses) do not support this for finalized blocks for efficiency. And we don't need this anyway as you will see later.
+
+Note that the call does not support the execution layer block number, you can only provide the respective slot number on the consensus layer. Programmatically, we'll deal with this later. For now, we'll just pick the respective slot number from the Sepolia Beacon chain explorer: [slot 5203463](https://sepolia.beaconcha.in/slot/5203463).
+
+Here's our call
+
+<CodeGroup>
+  ```shell Shell
+  curl --request GET \
+       --url CONSENSUS_LAYER_URL/eth/v1/beacon/blob_sidecars/5203463 \
+       --header 'accept: application/json' | jq "."
+  ```
+</CodeGroup>
+
+This will retrieve all the four blobs referenced by the four type-3 transactions in [block 6090748](https://sepolia.etherscan.io/txs?block=6090748\&isblob=true) on the execution layer. One of them is our blob data.
+
+### Compute the KZG commitment
+
+Let's compute the KZG commitment for our blob data and make sure it's the same one as computed by the node.
+
+When we did the `sidecars` call in the previous section, we received 4 different blobs with respective KZG commitments.
+
+Let's now verify that one them is ours and computed correctly by independently taking our own created blob data and getting its KZG commitment.
+
+#### What is a KZG commitment
+
+But first — what is a KZG commitment?
+
+In simple words, this is a fancy (and extremely secure) way of creating a hash of a blob.
+
+You might have been one of the 141,416 contributors who were a part of the [KZG ceremony](https://ceremony.ethereum.org/) by providing your input.
+
+What was created as a result of this ceremony was the file `trusted_setup.txt` that the KZG commitment takes as one of the inputs.
+
+Examples:
+
+* In [Geth](https://github.com/ethereum/go-ethereum/blob/3687c34cfc9eba1b2c29209d27d272a72c4de3af/crypto/kzg4844/trusted_setup.json)
+* In [Nimbus](https://github.com/status-im/nimbus-eth2/blob/d2a07514541ffe6ee02a2ec7272ce7a315131e04/beacon_chain/conf.nim#L1487)
+* In [Erigon](https://github.com/ledgerwatch/erigon/blob/ff0da3dd47eb691dc5aefddb114a261779288778/cmd/utils/flags.go#L117)
+* In [Nethermind](https://github.com/NethermindEth/nethermind/blob/4fee4bfe1a72433cff37d62319e718462f78ca9a/src/Nethermind/Nethermind.Crypto/kzg_trusted_setup.txt)
+* In [c-kzg-4844](https://github.com/ethereum/c-kzg-4844/blob/main/src/trusted_setup.txt)
+
+The last one is the KZG implementation that we are actually going to use.
+
+#### Compute the KZG commitment
+
+The Python library for [c-kzg-4844](https://github.com/ethereum/c-kzg-4844/blob/main/src/trusted_setup.txt) is [ckzg](https://pypi.org/project/ckzg/).
+
+We are going to use the library, take our blob data that we created with `create_blob_data.py` earlier and saved as `blob.txt`, and take the [trusted\_setup.txt](https://github.com/ethereum/c-kzg-4844/blob/main/src/trusted_setup.txt) file.
+
+<CodeGroup>
+  ```python Python
+  import ckzg
+
+  def bytes_from_hex(hexstring):
+      return bytes.fromhex(hexstring.replace("0x", ""))
+
+  if __name__ == "__main__":
+      ts = ckzg.load_trusted_setup("trusted_setup.txt")
+
+      with open("blob.txt", "r") as file:
+          blob_hex = file.read().strip()
+          blob = bytes_from_hex(blob_hex)
+
+      # Compute KZG commitment
+      commitment = ckzg.blob_to_kzg_commitment(blob, ts)
+
+      # Print the commitment in hexadecimal format
+      print("KZG Commitment:", commitment.hex())
+  ```
+</CodeGroup>
+
+This will print the KZG commitment for our blob. For our example, it should be `9493a713dd89eb7fe295efd62545bb93bca395a84d18ecfa2c6c650cddc844ad4c1935cbe7d6830967df9d33c5a2e230`
+
+If you look up the KZG commitment in the data you retrieved (or look up in the explorer), you will see that our independently computed KZG for our independently created blob data matches the on-chain one.
+
+### Compute blob versioned hash from the KZG commitment
+
+This one is less fancy, let's do the hash of our KZG commitment and see if it matches the versioned hash from the transaction on the execution layer.
+
+<CodeGroup>
+  ```python Python
+  import hashlib
+
+  # Given KZG commitment
+  kzg_commitment = "9493a713dd89eb7fe295efd62545bb93bca395a84d18ecfa2c6c650cddc844ad4c1935cbe7d6830967df9d33c5a2e230"
+
+  # Remove the '0x' prefix if present
+  if kzg_commitment.startswith("0x"):
+      kzg_commitment = kzg_commitment[2:]
+
+  # Convert the KZG commitment to bytes
+  kzg_commitment_bytes = bytes.fromhex(kzg_commitment)
+
+  # Compute the SHA-256 hash of the KZG commitment
+  sha256_hash = hashlib.sha256(kzg_commitment_bytes).digest()
+
+  # Prepend the version byte (0x01) to the last 31 bytes of the SHA-256 hash
+  version_byte = b'\x01'
+  blob_versioned_hash = version_byte + sha256_hash[1:]
+
+  # Convert to hexadecimal for display
+  blob_versioned_hash_hex = blob_versioned_hash.hex()
+
+  # Print the result
+  print(f"Blob versioned hash: 0x{blob_versioned_hash_hex}")
+  ```
+</CodeGroup>
+
+Remember that the blob versioned hash is stored on the execution layer. To retrieve it, you can do a simple [eth\_getTransactionByHash](/api-reference/ethereum_node_api/transaction_info/eth_getTransactionByHash).
+
+Example for our transaction on Sepolia:
+
+<CodeGroup>
+  ```shell Shell
+  curl --request POST \
+       --url EXECUTION_LAYER_URL \
+       --header 'accept: application/json' \
+       --header 'content-type: application/json' \
+       --data '
+  {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "eth_getTransactionByHash",
+    "params": [
+      "0x5a74bd72aeeb99e874e58b927f9a5c96665278a36b61bed69a4b09597b02edce"
+    ]
+  }' | jq '.result.blobVersionedHashes'
+  ```
+</CodeGroup>
+
+Check if the retrieved one matches the locally computed one. It should match.
+
+### Find all type-3 transactions in a block
+
+This one simple with the latest version of [web3py](https://pypi.org/project/web3/). Make sure you have it updated.
+
+<CodeGroup>
+  ```python Python
+  import os
+  from web3 import Web3
+  from web3 import Web3, HTTPProvider
+  from dotenv import load_dotenv
+
+  load_dotenv()
+
+  w3 = Web3(HTTPProvider(os.getenv("EXECUTION_LAYER_URL")))
+
+  # Specify the block number you want to check
+  block_number = 6090748
+  block = w3.eth.get_block(block_number, full_transactions=True)
+
+  # Iterate through transactions and check for type-3 transactions
+  for tx in block.transactions:
+      if tx.type == 3:  # Type 3 refers to blob transactions
+          print("Transaction Hash:", tx.hash.hex())
+  ```
+</CodeGroup>
+
+### Putting it all together
+
+As a the final one, let's put all parts together and have a script that does the following:
+
+* Extracts all type-3 transactions from a block
+* Retrieves the blob data from the network
+* Retrieves the KZG commitment from the network
+* Retrieves the blob versioned hash from the network
+* Locally computes the KZG commitment and the blob versioned hash
+* Checks if the locally computed KZG commitment and the blob versioned matches the ones retrieved from the network (aka computed by the nodes)
+
+What you may notice is there's no very direct association of the block number on the execution layer with the respective slot number on the consensus layer. We do need the slot number on the consensus layer, however, to be able to do a `sidecar` call and retrieve the blobs associated with the type-3 transactions that we detect on the execution layer.
+
+This is where the [EIP-4788](https://eips.ethereum.org/EIPS/eip-4788) will help us. The EIP introduced the first real way for the execution layer to have access to the consensus layer by having the parent block root of the consensus layer. Each block on the execution layer now has the parent (previous) slot root of the consensus layer in it stored as `parentBeaconBlockRoot`.
+
+We'll retrieve this parent slot root, get the slot number associated with root with the `eth/v1/beacon/headers/{parent_beacon_block_root_hex}` call on the consensus layer, and then do a simple `+ 1` to get the slot number that we need.
+
+<CodeGroup>
+  ```python Python
+  import os
+  import requests
+  from web3 import Web3, HTTPProvider
+  from dotenv import load_dotenv
+  import ckzg
+  import hashlib
+
+  load_dotenv()
+
+  # Connect to the Ethereum Execution Layer
+  w3 = Web3(HTTPProvider(os.getenv("EXECUTION_LAYER_URL")))
+
+  # Specify the block number you want to check
+  block_number = 6090748
+  block = w3.eth.get_block(block_number, full_transactions=True)
+
+  # Find type-3 transactions
+  type_3_tx_hashes = [tx.hash.hex() for tx in block.transactions if tx.type == 3]
+
+  # Store blob versioned hashes in a dictionary
+  blob_versioned_hashes_dict = {}
+  for tx_hash in type_3_tx_hashes:
+      tx_details = w3.eth.get_transaction(tx_hash)
+      blob_versioned_hashes = tx_details.get('blobVersionedHashes', [])
+      if blob_versioned_hashes:
+          blob_versioned_hashes_dict[tx_hash] = blob_versioned_hashes[0].hex()
+
+  # Extract the parentBeaconBlockRoot from the block data
+  parent_beacon_block_root = block['parentBeaconBlockRoot']
+
+  # Convert byte string to hexadecimal string
+  parent_beacon_block_root_hex = parent_beacon_block_root.hex()
+
+  # Ensure it starts with '0x'
+  if not parent_beacon_block_root_hex.startswith('0x'):
+      parent_beacon_block_root_hex = '0x' + parent_beacon_block_root_hex
+
+  # Print the parentBeaconBlockRoot for visibility
+  print("parentBeaconBlockRoot being queried:", parent_beacon_block_root_hex)
+
+  # Use parentBeaconBlockRoot for further queries
+  headers_url = f"{os.getenv('CONSENSUS_LAYER_URL')}/eth/v1/beacon/headers/{parent_beacon_block_root_hex}"
+
+  header_response = requests.get(headers_url)
+  if header_response.status_code != 200:
+      print("Failed to fetch data:", header_response.status_code)
+      print(header_response.text)
+      exit()
+
+  header_data = header_response.json()
+  if 'data' not in header_data:
+      print("Unexpected response format:", header_data)
+      exit()
+
+  slot_number = int(header_data['data']['header']['message']['slot']) + 1
+
+  # Retrieve blobs
+  blobs_url = f"{os.getenv('CONSENSUS_LAYER_URL')}/eth/v1/beacon/blob_sidecars/{slot_number}"
+  blobs_response = requests.get(blobs_url).json()
+  blobs = blobs_response['data']
+
+  # Process each blob
+  results = []
+  for i, tx_hash in enumerate(type_3_tx_hashes):
+      blob = blobs[i]
+      print(f"Retrieved KZG commitment for transaction {tx_hash}: {blob['kzg_commitment']}")
+
+      blob_data_hex = blob['blob']
+
+      # Save blob data to a file
+      with open(f"blob{i}.txt", "w") as file:
+          file.write(blob_data_hex)
+
+      # Load blob data from the file and ensure it's correct
+      with open(f"blob{i}.txt", "r") as file:
+          blob_hex = file.read().strip()
+          blob_data = bytes.fromhex(blob_hex.replace("0x", ""))  # Ensure consistent handling
+          print(f"Blob data file for transaction {tx_hash}: blob{i}.txt")
+
+      # Load trusted setup
+      ts = ckzg.load_trusted_setup("trusted_setup.txt")
+
+      # Compute KZG commitment
+      commitment = ckzg.blob_to_kzg_commitment(blob_data, ts)
+      print(f"Locally computed KZG commitment for transaction {tx_hash}: {commitment.hex()}")
+
+      # Compute versioned hash
+      sha256_hash = hashlib.sha256(commitment).digest()
+      versioned_hash = b'\x01' + sha256_hash[1:]
+
+      # Compare with network data, ignoring the '0x' prefix
+      network_commitment = blob['kzg_commitment']
+      local_commitment_hex = '0x' + commitment.hex()
+
+      commitment_match = local_commitment_hex == network_commitment
+      print(f"KZG commitment match for transaction {tx_hash}: {commitment_match}")
+
+      # Use the stored blob versioned hashes during blob processing
+      network_versioned_hash = blob_versioned_hashes_dict.get(tx_hash, "No blob versioned hash found")
+      print(f"Network versioned hash for transaction {tx_hash}: {network_versioned_hash}")
+
+      print(f"Blob data file for transaction {tx_hash}: blob{i}.txt")
+      print(f"Locally computed KZG commitment for transaction {tx_hash}: {commitment.hex()}")
+      print(f"Locally computed versioned hash for transaction {tx_hash}: {versioned_hash.hex()}")
+      print()
+
+      results.append({
+          'transaction_hash': tx_hash,
+          'commitment': commitment.hex(),
+          'versioned_hash': versioned_hash.hex(),
+          'commitment_match': commitment_match,
+          'versioned_hash_match': versioned_hash.hex() == network_versioned_hash
+      })
+
+  print("### SUMMARY ###")
+  print(f"Block {block_number}, Slot {slot_number}")
+  print("Type-3 transactions:", type_3_tx_hashes)
+  print()
+  for result in results:
+      print(f"TX:{result['transaction_hash']}:")
+      print(f"KZG: {result['commitment']}")
+      print(f"Versioned hash: {result['versioned_hash']}")
+      print(f"Locally computed match for the retrieved blob:")
+      print(f"KZG commitment: {result['commitment_match']}")
+      print(f"Versioned hash: {result['versioned_hash_match']}")
+      print()
+  ```
+</CodeGroup>
+
+Make sure you have `trusted_setup.txt` in the same directory with the script.
+
+This will print the results and tell you if the independently computed KZG commitment and blob versioned hash match the ones retrieved off the network.
+
+Example for our transaction:
+
+<CodeGroup>
+  ```shell Shell
+  TX:5a74bd72aeeb99e874e58b927f9a5c96665278a36b61bed69a4b09597b02edce:
+  KZG: 9493a713dd89eb7fe295efd62545bb93bca395a84d18ecfa2c6c650cddc844ad4c1935cbe7d6830967df9d33c5a2e230
+  Versioned hash: 01afb6777db05b1376ccb3d0c1e842d437d2a8ad9c0acfb8247edab425fee61c
+  Locally computed match for the retrieved blob:
+  KZG commitment: True
+  Versioned hash: True
+  ```
+</CodeGroup>
+
+## Conclusion
+
+This hands-on the hard way guide walked you through creating, detecting, and verifying the type-3 transactions (aka blob transactions). It also showed you some of the pitfalls and how to navigate them like getting slot number associated with the execution layer blob transaction, being able to retrieve the blobs through the Nimbus client, blob data being stored for 18 days (unless you run archive nodes with Chainstack), and so on.
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

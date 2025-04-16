@@ -1,0 +1,291 @@
+---
+title: "Solana: Understanding the Difference Between Blocks and Slots"
+---
+
+**TLDR**
+* Solana reports two metrics: **slots**, which are scheduled opportunities to produce a block, and **blocks**, which only increment when a block is actually produced.
+* This leads to a discrepancy: the slot count typically exceeds the block count by millions because many slots go unfilled.
+* For transaction expiry, Solana uses **block height** (150 blocks), not slots, so empty slots do not affect how long your transaction remains valid.
+* Be mindful that RPC calls and explorers often mix the terminology, so always verify whether you’re dealing with a slot or a block.
+
+## Main article
+
+Solana’s architecture can be a bit confusing at first glance—especially when you notice that the chain reports two different numbers for **blocks** and **slots**. Understanding how these concepts differ is key to interpreting the output of Solana’s RPC methods correctly.
+
+In this article, we’ll walk through:
+
+* What a **slot** is.
+* What a **block** is.
+* Why slot numbers and block numbers differ (sometimes by millions).
+* How this affects transaction validity, especially when using the `getLatestBlockhash` RPC call.
+
+## What is a Solana slot?
+
+A **slot** is essentially a scheduled spot for a validator to produce a block. Solana runs on a proof-of-stake model (it's proof-of-history with a lot of modifications, but for this article's context it's the underlying proof-of-stake model that matters), where validators take turns producing blocks in these scheduled slots. However, a validator **may not produce a block** for each slot. When a slot is missed (i.e., no block is produced), it still counts toward the slot count, but it does not generate a corresponding block.
+
+So you can think of each slot as:
+
+> A timeslot allocated for a potential block.
+
+## What is a Solana block?
+
+A **block** is only created if the validator assigned to the slot actually produces a block. Blocks contain the transactions, state changes, and other essential data that get committed to the chain.
+
+Because not every slot results in a block, the total block count tends to lag behind the slot count. This is why **block heights** and **slot heights** almost always diverge—and can differ by millions.
+
+In the past, there have been observations that some Solana validators had the incentives and the means to skip block production for some slots in return for a higher reward. This seems to have been fixed since then. You can read about it here: [Everstake claims some validators were optimized to skip block production](https://everstake.one/blog/some-solana-validators-may-be-optimized-to-skip-blocks-for-higher-rewards-but-v117-seems-to-have-fix).
+
+If you've been on Solana for some time, you'll remember a few network outages. These have also contributed to the block vs slot numbers disparity. As the network halted and no blocks were produced, the slots kept incrementing.
+
+As an example, let's take the very first outage of September 14, 2021—it lasted for 17 hours and was restarted around block `96542804`.
+
+So if we take a few blocks before that, we'll see that there are empty slots with not blocks produced:
+
+* Solana Explorer: [96542000](https://explorer.solana.com/block/96542000)
+* Solscan: [96542000](https://solscan.io/block/96542000)
+* SolanaFM: [96542000](https://solana.fm/block/96542000?cluster=mainnet-alpha)
+
+You can also run a [getBlock | Solana](/api-reference/solana_node_api/getBlocks) call and provide the slot number and you'll see that it's missing. Note that you need a Chainstack Solana archive node to be able to make the call, since it's a slot far in the past:
+
+<CodeGroup>
+  ```shell Shell
+  % curl --request POST \
+       --url CHAINSTACK_SOLANA_ARCHIVE_NODE \
+       --header 'accept: application/json' \
+       --header 'content-type: application/json' \
+       --data '
+  {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "getBlock",
+    "params": [
+      96542000,
+      {
+        "encoding": "jsonParsed",
+        "maxSupportedTransactionVersion": 0
+      }
+    ]
+  }
+  '
+  {"jsonrpc":"2.0","error":{"code":-32009,"message":"Slot 96542000 was skipped, or missing in long-term storage"},"id":1}
+  ```
+</CodeGroup>
+
+## Example: Slot height vs. block height
+
+As of January 1, 2025, here’s an example of Solana’s reported values:
+
+* **Slot height:** `311118891`
+* **Block height:** `289445888`
+
+Notice how the block height is \~22 million behind the slot height. This is normal on Solana due to the presence of empty (unproduced) slots.
+
+## Where this matters: `getLatestBlockhash` method
+
+The [`getLatestBlockhash`](/api-reference/solana_node_api/getLatestBlockhash) RPC method returns three key pieces of data:
+
+* **`slot`**: The slot number at which the block hash was produced.
+* **`blockhash`**: The latest block hash to use for a new transaction.
+* **`lastValidBlockHeight`**: The block height until which the transaction is considered valid before expiring (150 blocks from the “current” block height).
+
+If you call [getLatestBlockhash | Solana](/api-reference/solana_node_api/getLatestBlockhash), you’ll see something like:
+
+<CodeGroup>
+  ```shell Shell
+  curl --request POST \
+       --url https://nd-326-444-187.p2pify.com/9de47db917d4f69168e3fed02217d15b/ \
+       --header 'accept: application/json' \
+       --header 'content-type: application/json' \
+       --data '
+  {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "getLatestBlockhash"
+  }
+  '
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```Json JSON
+  {
+    "jsonrpc": "2.0",
+    "result": {
+      "context": {
+        "apiVersion": "2.0.18",
+        "slot": 311115149
+      },
+      "value": {
+        "blockhash": "AAU3aKZUQbddu7Q6sP8sggmQme7B9H1FAZvjVvkz5MZq",
+        "lastValidBlockHeight": 289442306
+      }
+    },
+    "id": 1
+  }
+  ```
+</CodeGroup>
+
+Here:
+
+* The `"slot": 311115149` matches the slot height.
+* The `"lastValidBlockHeight": 289442306` is about 22 million behind the slot number.
+
+The gap underscores how many slots have gone by without a block being produced in them.
+
+## How Solana decides transaction validity
+
+Solana nodes consider **150 blocks** to determine if a transaction is still valid. Specifically, a transaction lives in the pending pool until the chain surpasses `lastValidBlockHeight`. After 150 blocks have passed from the latest block height at the time of your transaction creation, your transaction is dropped if it wasn’t included.
+
+Importantly:
+
+* **Blocks**, not slots, are used in these calculations.
+* If some slots are empty, they do not count toward that total of 150—because no block was produced there!
+
+Hence, when you see `lastValidBlockHeight`, it’s really telling you: “You have until block N + 150 to have your transaction included on-chain.”
+
+### Quick illustration with `getBlock`
+
+Let’s do a [`getBlock`](/api-reference/solana_node_api/getBlocks) call using the **slot** number from our `getLatestBlockhash` example above:
+
+<CodeGroup>
+  ```shell Shell
+  curl --request POST \
+       --url https://<YOUR_SOLANA_NODE> \
+       --header 'accept: application/json' \
+       --header 'content-type: application/json' \
+       --data '
+  {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "getBlock",
+    "params": [
+      311115149,
+      {
+        "encoding": "jsonParsed",
+        "maxSupportedTransactionVersion": 0
+      }
+    ]
+  }
+  ' | jq '.'
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```Json JSON
+  {
+    "jsonrpc": "2.0",
+    "result": {
+      "blockHeight": 289442156,
+      "blockTime": 1735703553,
+      "blockhash": "AAU3aKZUQbddu7Q6sP8sggmQme7B9H1FAZvjVvkz5MZq",
+      ...
+    },
+    "id": 1
+  }
+  ```
+</CodeGroup>
+
+Notice the result:
+
+* The slot passed in as a parameter is `311115149`.
+* The block height returned is `289442156`.
+
+Now, if you compare `289442156` with our `lastValidBlockHeight` (`289442306`), you’ll see there’s exactly a difference of 150 blocks—just as expected for the transaction validity window.
+
+## Getting the latest slot vs. the latest block
+
+* [getSlot | Solana](/api-reference/solana_node_api/getSlot) gives you the latest **slot height**.
+* [getBlockHeight | Solana](/api-reference/solana_node_api/getBlockHeight)gives you the latest **block height**.
+* [getBlockTime | Solana](/api-reference/solana_node_api/getBlockTime) gives you the latest **block time** but you need to use the slot as a parameter in the call. If you are not using an archive node, make sure you provide the slot that is about within the last 24 hours.
+
+Try them out yourself:
+
+<CodeGroup>
+  ```shell Shell
+  curl --request POST \
+       --url https://nd-326-444-187.p2pify.com/9de47db917d4f69168e3fed02217d15b/ \
+       --header 'accept: application/json' \
+       --header 'content-type: application/json' \
+       --data '
+  {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "getSlot"
+  }
+  '
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```shell Shell
+  curl --request POST \
+       --url https://nd-326-444-187.p2pify.com/9de47db917d4f69168e3fed02217d15b/ \
+       --header 'accept: application/json' \
+       --header 'content-type: application/json' \
+       --data '
+  {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "getBlockHeight"
+  }
+  '
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```shell Shell
+  curl --request POST \
+       --url https://nd-326-444-187.p2pify.com/9de47db917d4f69168e3fed02217d15b/ \
+       --header 'accept: application/json' \
+       --header 'content-type: application/json' \
+       --data '
+  {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "getBlockTime",
+    "params": [
+      166974442
+    ]
+  }
+  '
+  ```
+</CodeGroup>
+
+## Common pitfalls
+
+1. **Mistaking a slot for a block** Many Solana explorers incorrectly label URLs or pages with the word “block” while they’re actually referencing a **slot**. For instance:
+
+   * Solscan’s URL might say `block/311115149`, but that number is a slot.
+   * The official Solana explorer also says `block/311115149`, but again, it’s a slot, not a block.
+
+2. **Transaction expiration** If you assume 150 **slots** for expiration instead of 150 **blocks**, you’ll miscalculate how long your transaction can remain in the mempool. In reality, empty slots do not affect transaction expiry. Only blocks do.
+
+3. **RPC naming confusion** The [`getBlock`](/api-reference/solana_node_api/getBlocks) method uses a slot number as its parameter. But the response includes the **block** height (`blockHeight`). Don’t let the naming fool you—this is a “fetch block by slot” call.
+
+## Why slot and block numbers are always different
+
+* **Slots**: Every slot increments by one whether or not a block is produced.
+* **Blocks**: Only increment when a block is actually produced.
+
+Over time, the gap between slot height and block height keeps growing because some validators will miss (skip) their assigned slot, causing no block to form. That means your transaction expiry (150 blocks) counts only those slots where a block was produced.
+
+## Conclusion
+
+Solana’s design means there will always be a discrepancy between slot height and block height. Slots are simply a schedule, while blocks represent actual produced data. Once you grasp this distinction—and remember that transaction validity is measured in blocks, not slots—you’ll avoid confusion and make the most of Solana’s RPC methods.
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

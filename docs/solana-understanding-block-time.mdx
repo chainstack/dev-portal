@@ -1,0 +1,189 @@
+---
+title: "Solana: Understanding Block Time"
+---
+
+**TLDR**:
+
+* Solana’s slot-based timeline can be confusing—remember slots are scheduled intervals (\~400ms), while blocks only exist if produced in those intervals.
+* Timestamps on Solana are derived from validator-submitted UTC times, with built-in drift rules (25% fast, 150% slow) to maintain accurate on-chain time.
+* For critical time logic, rely on the on-chain `Clock` sysvar (`unix_timestamp`) rather than local or client clocks.
+* Don’t confuse slots (intervals) with block heights (successful block productions), and keep drift and missed slots in mind when designing dApps.
+
+## Main article
+
+If you are coming from EVM, or pretty much any other blockchain, you have to realize that Solana's **block time** is actually an integral part of the consensus and thus differs notably from everything else.
+
+## Key concepts
+
+* **Slots** — scheduled intervals (\~400ms each) designated for validators to attempt block production. Due to network conditions, not all slots produce blocks. Which creates even more confusion. See [Solana: Understanding the difference between blocks and slots](/docs/understanding-the-difference-between-blocks-and-slots-on-solana).
+* **Blocks** — actual data structures containing transactions, state changes, and related metadata. Blocks only exist if validators successfully produce them.
+* **Timestamps** — Solana derives block timestamps via consensus rather than including explicit timestamps in block headers. Validators periodically submit their UTC timestamps; the network calculates a stake-weighted mean to set each block’s timestamp.
+* **Drift and accuracy** — Solana caps timestamp drift (up to 25% forward and 150% backward — see further in the article for an example) from the expected progression to safeguard against manipulation or malicious validators.
+
+## Validator impact
+
+Validators use Proof of History (PoH) internally for timing. They vote on blocks, including UTC timestamps. Missed or skipped slots result in gaps without blocks or timestamps, creating a divergence between the slot and block counts.
+
+## Off-chain time retrieval via JSON-RPC
+
+### Get block time
+
+Retrieve estimated Unix timestamp for a given slot:
+
+<CodeGroup>
+  ```shell Shell
+  curl -X POST \
+    -H "Content-Type: application/json" \
+    --data '{"jsonrpc":"2.0","id":1,"method":"getBlockTime","params":[SLOT_NUMBER]}' \
+    CHAINSTACK_SOLANA_URL
+  ```
+</CodeGroup>
+
+Replace `SLOT_NUMBER` with the desired slot and `CHAINSTACK_SOLANA_URL` with your Solana node endpoint.
+
+### Get detailed block information
+
+Retrieve block details including block time and hash:
+
+<CodeGroup>
+  ```shell Shell
+  curl -X POST \
+    -H "Content-Type: application/json" \
+    --data '{"jsonrpc":"2.0","id":1,"method":"getBlock","params":[SLOT_NUMBER, {"encoding":"json"}]}' \
+    CHAINSTACK_SOLANA_URL
+  ```
+</CodeGroup>
+
+Replace `SLOT_NUMBER` and `CHAINSTACK_SOLANA_URL` with your Solana node endpoint.
+
+### Get latest slot
+
+Check the latest slot number:
+
+<CodeGroup>
+  ```shell Shell
+  curl -X POST \
+    -H "Content-Type: application/json" \
+    --data '{"jsonrpc":"2.0","id":1,"method":"getSlot"}' \
+    CHAINSTACK_SOLANA_URL
+  ```
+</CodeGroup>
+
+### Get latest block height
+
+Retrieve the latest block height (actual blocks produced):
+
+<CodeGroup>
+  ```shell Shell
+  curl -X POST \
+    -H "Content-Type: application/json" \
+    --data '{"jsonrpc":"2.0","id":1,"method":"getBlockHeight"}' \
+    CHAINSTACK_SOLANA_URL
+  ```
+</CodeGroup>
+
+## On-chain time: `Clock` sysvar
+
+Solana smart contracts access current time via the `Clock` sysvar:
+
+* `unix_timestamp` — consensus-agreed timestamp of the current slot, updated every slot.
+
+Contracts rely on this timestamp for logic like auctions or expirations.
+
+## Time stamp drift example check
+
+A practical example using the real timestamp.
+
+Tmestamp drift is the allowable deviation in block timestamps from the expected time, ensuring that validators maintain a synchronized blockchain clock despite network variability.
+
+Solana enforces asymmetric drift limits:
+
+* [a 25% fast drift](https://github.com/anza-xyz/agave/blob/a99bbba064268ff89842c3ebd2b1b36d2e7c0384/runtime/src/stake_weighted_timestamp.rs#L17) — the time difference between slots can be up to 25% less than the expected 0.4 seconds, allowing a minimum of 0.3 seconds per slot instead of 0.4 seconds
+* [a 150% slow drift](https://github.com/anza-xyz/agave/blob/a99bbba064268ff89842c3ebd2b1b36d2e7c0384/runtime/src/stake_weighted_timestamp.rs#L18) — the time difference between slots can be up to 150% more than the expected 0.4 seconds, allowing a maximum of 1.0 second per slot instead of 0.4 seconds
+
+Let's take [Epoch 763](https://solscan.io/epoch/763) as an example to illustrate how timestamp drift can be calculated and enforced.
+
+Epoch details:
+
+* Epoch — [763]()
+* First slot — [329616000](https://solscan.io/block/329616000)
+* First block timestamp — `1743118653` (Unix timestamp for Thursday, March 27, 2025, 23:37:33 UTC)
+* Current slot — [329849011](https://solscan.io/block/329849011)
+* Actual timestamp for Slot [329849011](https://solscan.io/block/329849011) — `1743211690` (Saturday, March 29, 2025, 01:28:10 UTC)
+
+Let's figure out if this actual timestamp is okay under Solana’s rules.
+
+Step 1: how many slots passed?
+
+* Slots passed = Current slot - Starting slot
+* 329849011 - 329616000 = 233011 slots
+
+Step 2: how much time should have passed?
+
+* Each slot takes 0.4 seconds.
+* Total expected time = 233011 × 0.4 = 93204 seconds (rounding for simplicity).
+
+Step 3: What’s the expected timestamp?
+
+* Expected timestamp = Starting timestamp + Expected time
+* `1743118653 + 93204 = 1743211857`
+
+So, if everything was perfect, the timestamp at slot `329849011` should be around `1743211857` (remember we also rounded up).
+
+Step 4: what’s the allowed ange? The timestamp can drift:
+
+* 25% fast drift — it can be 25% earlier (faster).
+* 150% slow drift — it can be 150% later (slower).
+
+Let’s calculate these limits:
+
+* Expected time = 93204 seconds
+* Fast drift — 25% of 93204 = 0.25 × 93204 = 23301 seconds earlier
+* Slow drift — 150% of 93204 = 1.5 × 93204 = 139806 seconds later
+
+So:
+
+* Earliest allowed timestamp: 1743211857 - 23301 = 1743188556
+* Latest allowed timestamp: 1743211857 + 139806 = 1743351664
+
+The timestamp must be between **1743188556** and **1743351664**.
+
+Step 5: is the actual timestamp okay?
+
+* Actual timestamp = **1743211690**
+* Check: Is 1743211690 between 1743188556 and 1743351664? **Yes**. It’s fine.
+
+This mechanism allows for normal variations in clock synchronization while preventing extreme outliers from disrupting consensus timing.
+
+## Best practices for time-sensitive logic
+
+* **Use on-chain time** — always utilize the on-chain timestamp (`Clock::get()?.unix_timestamp`) for critical on-chain logic. Do not depend on client-side or local times.
+* **Anticipate delays** — understand that Solana timestamps can slightly lag during network congestion or validator outages. Include buffer times in applications where precision is crucial.
+* **Blocks vs. slots** — remember that transaction expiration is based on blocks (typically 150 blocks), not slots. Missed slots don’t affect the block-based expiry window.
+
+## Common pitfalls
+
+* **Misinterpreting slots and blocks** — Slots represent intervals; blocks represent successful data production. The difference can span millions. Again, see [Solana: Understanding the difference between blocks and slots](/docs/understanding-the-difference-between-blocks-and-slots-on-solana).
+* **Incorrect expiry calculations** — Ensure calculations use block counts (150 blocks) for transactions validity, not slot counts. Same reference here [Solana: Understanding the difference between blocks and slots](/docs/understanding-the-difference-between-blocks-and-slots-on-solana).
+* **RPC method confusion** — be aware that `getBlock` takes a slot number but returns block-specific information, including block height. Again, [Solana: Understanding the difference between blocks and slots](/docs/understanding-the-difference-between-blocks-and-slots-on-solana).
+
+Understanding these nuances of Solana’s block and slot dynamics ensures effective development, precise transaction management, and robust dApp functionality.
+
+And don't forget to code your `getBlock` calls efficiently — see [Solana: optimize your getBlock performance](/docs/solana-optimize-your-getblock-performance).
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

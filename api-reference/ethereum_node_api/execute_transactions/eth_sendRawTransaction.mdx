@@ -1,0 +1,404 @@
+---
+title: eth_sendRawTransaction | Ethereum
+openapi: /openapi/ethereum_node_api/execute_transactions/eth_sendRawTransaction.json
+  POST /0a9d79d93fb2f4a4b1e04695da2b77a7
+---
+
+Ethereum API method that allows submitting a signed transaction to the network. Once a transaction is signed, you can use the `eth_sendRawTransaction` method to submit the signed transaction to the Ethereum network for processing.
+
+<Warning>
+Note that the interactive example in this page will not work, due to the fact that `eth_sendRawTransaction` is used to modify the state of the blockchain, it is not possible to duplicate the same request.
+</Warning>
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `data` — the signed transaction. The serialized transaction data, which includes the transaction metadata such as the nonce, gas price, gas limit, recipient address, and data payload, as well as the digital signature generated using the private key associated with the address that is sending the transaction. Typically, signed with a library such as web3.py, web3.js, or ethers.js using the sender's private key.
+
+## Response
+
+* `result` — the unique hash identifying the transaction or the zero hash if the transaction is not available yet. The zero hash is a special value that represents an invalid or null hash.
+
+## `eth_sendRawTransaction` code examples
+
+<Note>
+Learn more about the `ChainstackProvider` in `ethers.js`: [ethers ChainstackProvider Documentation](/api-reference/ethersjs-chainstackprovider).
+</Note>
+
+> With ether.js, you can use the `ChainstackProvider` directly if you want to run this code on the Ethereum mainnet:
+
+```javascript ethers.js
+const ethers = require("ethers");
+
+// Create a ChainstackProvider instance for Ethereum mainnet
+const chainstack = new ethers.ChainstackProvider("mainnet");
+```
+
+
+The following examples demonstrate how to use Web3 libraries to make an ETH transfer on the Sepolia testnet.
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+async function sendEth(value) {
+
+  // Define the sender and receiver addresses, and the private key
+	const sender = '0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a';
+  const receiver = '0xe9ba4b4d84d7a3c80245514213b88d50ed937114';
+  const privateKey = '1111111111111111111111111111111111111111111111111111111111111111';
+  
+  // Define the gas limit
+  const gasLimit = await provider.estimateGas({
+    from: sender,
+    to: receiver,
+    value: ethers.parseEther(value),
+  });
+
+  // Get the transaction count for the sender address
+  const nonce = await provider.getTransactionCount(sender);
+
+  // Define the transaction object
+  const transactionObject = {
+    to: receiver,
+    gasPrice: ethers.parseUnits('50', 'gwei'),
+    gasLimit: gasLimit.toString(),
+    nonce: nonce,
+    value: ethers.parseEther(value),
+  };
+
+  // Sign the transaction using the private key  
+  const wallet = new ethers.Wallet(privateKey, provider);
+  console.log(`Sending transaction...`)
+  
+  const transaction = await wallet.sendTransaction(transactionObject);
+  console.log('Transaction hash:', transaction.hash);
+}
+
+sendEth("2");
+```
+
+```javascript web3.js
+const { Web3 } = require("web3");
+
+// Initialize Web3 instance using a provider
+const web3 = new Web3(
+  new Web3.providers.HttpProvider("YOUR_CHAINSTACK_RPC_NODE")
+);
+
+/**
+ * Sends a specified amount from a given account to another.
+ *
+ * @param {string} secretKey The private key of the sender's account.
+ * @param {string} to The recipient address.
+ * @param {string} amount The amount to send in Ether.
+ */
+async function sendAmount(secretKey, to, amount) {
+  const account = web3.eth.accounts.privateKeyToAccount(secretKey);
+  web3.eth.accounts.wallet.add(account);
+  const senderAddress = account.address;
+  console.log(
+    `Attempting to send ${amount} ETH from ${senderAddress} to ${to}`
+  );
+
+  const MAX_RETRIES = 3; // Maximum number of retries
+  const COOLDOWN = 5000; // Time waited between retries in ms
+
+  let retries = 0; // Initialize retry counter
+
+  async function sendTransaction() {
+    try {
+      const balance = await web3.eth.getBalance(senderAddress);
+      console.log(
+        `Current balance: ${web3.utils.fromWei(balance, "ether")} ETH`
+      );
+
+      const gasPrice = await web3.eth.getGasPrice();
+      console.log(
+        `Current gas price: ${web3.utils.fromWei(gasPrice, "gwei")} Gwei`
+      );
+
+      const gasLimit = await web3.eth.estimateGas({
+        from: senderAddress,
+        to: to,
+        value: web3.utils.toWei(amount, "ether"),
+      });
+      console.log(`Estimated gas limit: ${gasLimit}`);
+
+      const gasCost = BigInt(gasPrice) * BigInt(gasLimit);
+      console.log(
+        `Estimated gas cost: ${web3.utils.fromWei(
+          gasCost.toString(),
+          "ether"
+        )} ETH`
+      );
+
+      const amountToSend = web3.utils.toWei(amount, "ether");
+      const totalCost = BigInt(amountToSend) + gasCost;
+
+      if (BigInt(balance) >= totalCost) {
+        console.log(`Amount to send: ${amount} ETH`);
+
+        const transaction = {
+          to: to,
+          value: amountToSend,
+          gas: gasLimit,
+          gasPrice: gasPrice,
+          nonce: await web3.eth.getTransactionCount(senderAddress, "latest"),
+        };
+
+        console.log("Signing transaction...");
+        const signedTx = await account.signTransaction(transaction);
+
+        console.log("Transaction signed. Sending...");
+        const receipt = await web3.eth.sendSignedTransaction(
+          signedTx.rawTransaction
+        );
+
+        console.log(
+          `Transaction successful with hash: ${receipt.transactionHash}`
+        );
+        console.log(
+          `Find the transaction in the explorer: https://sepolia.etherscan.io/tx/${receipt.transactionHash}`
+        );
+      } else {
+        console.log(
+          "Not enough balance to cover the transaction cost. Transaction aborted."
+        );
+      }
+    } catch (error) {
+      console.error(`Failed to send transaction: ${error.message}`);
+
+      if (retries < MAX_RETRIES) {
+        retries++;
+        console.log(`Retrying... (${retries}/${MAX_RETRIES})`);
+        await new Promise((resolve) => setTimeout(resolve, COOLDOWN)); // Wait for 5 seconds before retrying
+        await sendTransaction(); // Retry the transaction
+      } else {
+        console.error("Maximum retries reached. Giving up.");
+      }
+    }
+  }
+
+  await sendTransaction();
+}
+
+// Replace with your secret key, recipient address, and the amount to send
+const secretKey = "0x_YOUR_PRIVATE_KEY";
+const recipientAddress = "DESTINATION_ADDRESS";
+const amountToSend = "1.0"; // Amount in Ether
+
+sendAmount(secretKey, recipientAddress, amountToSend);
+```
+
+```python web3.py
+from web3 import Web3  
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url)) 
+
+# Define the sender and receiver addresses, and the private key
+sender = '0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a' 
+receiver = '0xe9ba4b4d84d7a3c80245514213b88d50ed937114' 
+private_key = '1111111111111111111111111111111111111111111111111111111111111111'   
+
+# Estimate gas limit
+gas_limit = web3.eth.estimate_gas({
+  'from': sender,
+  'to': receiver
+})
+
+# Build the transaction object
+transaction = {
+  'nonce': web3.eth.get_transaction_count(sender),
+  'to': receiver,
+  'value': web3.to_wei(1, 'ether'), # value to send 
+  'gas': gas_limit,
+  'gasPrice': web3.eth.gas_price,
+  'chainId': web3.eth.chain_id
+}
+
+# Sign the transaction
+signed_tx = web3.eth.account.sign_transaction(transaction, private_key)
+print(f'Signed transaction: {signed_tx}')
+
+# Send the transaction
+print('Sending transaction...')
+tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
+print(f'Transaction hash: {web3.toHex(tx_hash)}')
+```
+</CodeGroup>
+
+<Note>
+Note that you will need to edit the `amountToSend`, `recipientAddress`, and `secretKey` fields to be able to use this code.
+</Note>
+
+
+## Use case
+
+One potential use case for `eth_sendRawTransaction` is to automatically swap ETH for a token when its price reaches a certain level. `eth_sendRawTransaction` will allow specifying custom transaction parameters, such as gas price or gas limit, to optimize the speed and cost of the transaction.
+
+For instance, you could build a program monitoring the price of a specific token and execute a `swapExactETHForTokens` transaction when the token reaches a certain price level, it could use `eth_sendRawTransaction` to submit a raw transaction with a custom gas price and limit that are optimized for the current network conditions.
+
+The following code shows how to call the `swapExactETHForTokens` function from the SushiSwap exchange on Ethereum using ethers.js:
+
+<Note>
+Note that this code only shows how to execute the `swapExactETHForTokens` function on [SushiSwap on Ethereum mainnet](https://etherscan.io/address/0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F#code), and not how to track the prices. You need to build a separate part for this.
+</Note>
+
+
+This particular example shows how to swap ETH for AAVE tokens.
+
+```javascript index.js
+const ethers = require("ethers");
+
+// Create a ChainstackProvider instance for Ethereum mainnet
+const chainstack = new ethers.ChainstackProvider("mainnet");
+
+// ABI for the swapExactETHForTokens function
+const sushiRouterABI = [
+  {
+     "inputs":[
+        {
+           "internalType":"uint256",
+           "name":"amountOutMin",
+           "type":"uint256"
+        },
+        {
+           "internalType":"address[]",
+           "name":"path",
+           "type":"address[]"
+        },
+        {
+           "internalType":"address",
+           "name":"to",
+           "type":"address"
+        },
+        {
+           "internalType":"uint256",
+           "name":"deadline",
+           "type":"uint256"
+        }
+     ],
+     "name":"swapExactETHForTokens",
+     "outputs":[
+        {
+           "internalType":"uint256[]",
+           "name":"amounts",
+           "type":"uint256[]"
+        }
+     ],
+     "stateMutability":"payable",
+     "type":"function"
+  }
+]
+
+async function swapETHForToken(value, token, privateKey) {
+  // Create a new wallet using the private key
+  const wallet = new ethers.Wallet(privateKey, provider);
+
+  // Get the SushiSwap Router contract and create a contract instance
+  const sushiRouterAddress = '0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506'; // SushiSwap Router address on Ethereum Mainnet
+  const sushiRouterContract = new ethers.Contract(sushiRouterAddress, sushiRouterABI, wallet);
+
+  // Prepare the swap parameters
+  const tokenToBuy = token;
+  const amountOfETH = ethers.parseEther(value); // Convert the input value to Wei
+  const minAmountOfTokens = ethers.parseUnits('0'); // Set the minimum output token amount to 0, this means that you will always receive something. 
+  const deadline = Math.floor(Date.now() / 1000) + 60 * 10; // Set the deadline to 10 minutes from now
+
+  // Define the token path for the swap
+  const path = ['0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', tokenToBuy]; // WETH to token to buy
+
+  // Parameters for the transaction object
+  const nonce = await wallet.getTransactionCount();
+  const gasPrice = await chainstack.getGasPrice();
+  const transactionData = sushiRouterContract.interface.encodeFunctionData('swapExactETHForTokens', [
+    minAmountOfTokens,
+    path,
+    wallet.address,
+    deadline
+  ]);
+
+  // Calculate the gas limit based on the parameters
+  const gasLimit = await chainstack.estimateGas({to: sushiRouterAddress, value: amountOfETH, data: transactionData});
+
+  // Get the chain ID for replay-protected (EIP-155) transactions
+  const chainId = await chainstack.getNetwork().then(network => network.chainId);
+
+  // Build the transaction object
+  const transactionObject = {
+    to: sushiRouterAddress,
+    value: amountOfETH,
+    nonce: nonce,
+    gasPrice: gasPrice,
+    gasLimit: gasLimit,
+    data: transactionData,
+    chainId: chainId
+  };
+
+  // Sign and send the transaction
+  console.log(`Swapping tokens...`);
+  const signedTx = await wallet.signTransaction(transactionObject);
+  const transaction = await chainstack.sendTransaction(signedTx);
+  console.log(`Transaction sent; transaction hash: ${transaction.hash}\n`);
+
+  // Wait for the transaction to be confirmed
+  console.log(`Validating transaction...`);
+  const receipt = await transaction.wait();
+  return receipt
+}
+
+async function main() {
+  try {
+    // Set the swap parameters and private key
+    const quantity = '0.2'; // Amount of ETH to swap
+    const addressToBuy = '0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9'; // Address of the token to buy (AAVE in this case)
+    const privateKey = '1111111111111111111111111111111111111111111111111111111111111111'; // Replace with your actual private key
+
+    // Execute the swap and check if successful
+    const receipt = await swapETHForToken(quantity, addressToBuy, privateKey);
+    
+    if (receipt.status === 1) {
+      console.log(`The swap was successful!`);
+      console.log(`Transaction receipt`, receipt);
+      
+    } else {
+      console.log(`The swap failed with status ${receipt.status}.`);
+    }
+  } catch (error) {
+    console.error(`An error occurred during the swap: ${error.message}`);
+  }
+}
+
+
+main();
+```
+
+<Warning>
+**Security notice**
+
+You need your private key to sign the transaction; never share your private key with anyone.
+
+On a side note, the private key in this case must be imported without '0x' at the beginning of the string.
+</Warning>
+
+
+In the `swapETHForToken` function, a new wallet is created using the provided `privateKey`. Then, the instance of the SushiSwap Router contract is obtained using its address and the ABI (Application Binary Interface) for the `swapExactETHForTokens` function. This function swaps a specified amount of ETH for a token at the current market price.
+
+The `tokenToBuy`, `amountOfETH`, `minAmountOfTokens`, and `deadline` variables are used to prepare the swap parameters. The `path` variable defines the input and output token path for the swap. The `nonce`, `gasPrice`, and the `transactionData` variables define the parameters for the transaction object and encode the `swapExactETHForTokens` function call with the specified parameters.
+
+The `gasLimit` variable is calculated based on the parameters, and the `chainId` variable is obtained for replay-protected (EIP-155) transactions. Then, the `transactionObject` variable is built, including the `to` address, the `value`, the `nonce`, the `gasPrice`, the `gasLimit`, the `data`, and the `chainId`.
+
+Finally, the transaction is signed and sent, and the receipt is returned. If the status of the receipt is equal to 1, the swap was successful, and the receipt object is logged to the console. If the status is not equal to 1, the swap failed, and an error message is logged to the console.
+
+## Try the `eth_sendRawTransaction` RPC method yourself

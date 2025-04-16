@@ -1,0 +1,256 @@
+---
+title: "Create a .env file with all your Chainstack endpoints with JavaScript."
+description: "Learn how to create a `.env` file with all your Chainstack endpoints using JavaScript."
+---
+
+<AccordionGroup>
+<Accordion title="Overview">
+
+Chainstack provides a robust API that enables you to retrieve data about your projects and endpoints efficiently. This short tutorial will use the [list all nodes](https://docs.chainstack.com/reference/chainstack-platform-api-list-all-nodes) API.
+
+</Accordion>
+
+<Accordion title="Prerequisites">
+
+You will need a Chainstack account with an API and Node.js
+
+- Get a [Chainstack API key](https://docs.chainstack.com/reference/platform-api-getting-started#create-api-key)
+- [Deploy a node](https://docs.chainstack.com/docs/manage-your-node)
+</Accordion>
+
+<Accordion title="Environment setup">
+
+To successfully set up your project environment, follow these steps:
+
+1. **Create a new Node project**:
+	```shell
+	npm init --yes
+	```
+	Learn how to manage Node projects reading [Web3 node.js: From zero to a full-fledged project](https://docs.chainstack.com/docs/web3-nodejs-from-zero-to-a-full-fledged-project)
+2. **Install Required Packages**:
+	For this project, we'll use `Axios` to interact with the Chainstack API, `web3.js` to verify the endpoints, and `dotenv` to handle the Chainstack API key securely.
+	```shell
+	npm i web3 axios dotenv
+	```
+</Accordion>
+
+<Accordion title="Environment variables">
+
+It's important to store your Chainstack API key securely. For this purpose, create a `.env` file in your project's root directory, which will hold sensitive configuration details, like API keys, away from your main codebase.
+
+Here's how you can set it up:
+
+1. **Navigate to Your Project's Root Directory**:
+	Ensure you're in the root directory of your project, where your main application files reside.
+2. **Create a `.env` File**:
+	In this directory, create a new file named `.env`. This file is commonly used to store environment variables.
+3. **Add Your Chainstack API Key**:
+	Open the `.env` file with a text editor and insert the following line:
+	```env
+	CHAINSTACK_API_KEY="YOUR_API_KEY"
+	```
+	Replace `YOUR_API_KEY` with your actual Chainstack API key.
+
+</Accordion>
+
+<Accordion title="The script">
+
+Now that you've set up your environment, the next step involves creating a JavaScript file.
+
+Follow these instructions:
+
+1. **Creating a New JavaScript File in the Root Directory**:
+	Create a new JavaScript file in your project's root directory (the same location where you created the `.env` file). You can name this file `getEndpoints.js`.
+
+This naming convention indicates the file's purpose to retrieve endpoint data.
+
+2. **Adding Code to the JavaScript File**:
+	After creating `getEndpoints.js`, open it in your preferred code editor. You are now ready to add the necessary code. Paste the JavaScript script.
+
+</Accordion>
+
+<Accordion title="Understanding the code">
+
+This JavaScript code is designed to interact with the Chainstack API, retrieve blockchain node information, and create a configuration file with these details.
+
+1. **Importing Modules and Loading Environment Variables:**
+	- The code begins by importing necessary modules: `axios` for HTTP requests, `web3` for interacting with Ethereum blockchain, and `fs` for file system operations. It also loads environment variables using `dotenv`.
+2. **Constants and Global Variables:**
+	- Two constants are defined: `CHAINSTACK_API_KEY` (from environment variables) for API authentication and `OUTPUT_FILE_NAME` as the default name for the output file.
+3. **Fetching Data from Chainstack API:**
+	- The `fetchChainstackData` function makes an asynchronous GET request to the Chainstack API using the Axios library. It uses the API key for authorization. If successful, it logs the number of items fetched and returns the data; if not, it logs an error and returns null.
+4. **Processing Individual Chainstack Items:**
+	- `processChainstackItem` takes an item from the Chainstack data and extracts relevant information, including ID, name, HTTP endpoint, authentication key, and client configuration.
+5. **Connecting to a Web3 Endpoint:**
+	- The `connectToWeb3` function attempts to connect to a Web3 endpoint using the provided URL. It uses the `Web3` library to interact with the blockchain. It logs the success or failure of the connection.
+6. **Sanitizing Endpoint Names:**
+	- `sanitizeName` sanitizes the name of an endpoint to be used as a key in the environment file. It replaces spaces, dashes, and slashes with underscores and converts the string to uppercase.
+7. **Creating a `.env` File:**
+	- `createEnvFile` takes a dictionary of endpoint information and writes it to a `.env` file. Each line in the file represents an endpoint with its URL, formatted as an environment variable.
+8. **Orchestrating the Main Process:**
+	- The `main` function orchestrates the overall process. It first checks for the Chainstack API key. Then, it fetches data from the Chainstack API and processes each item. For each item, it reconstructs the endpoint URL and attempts to connect via Web3. If successful, the endpoint information is added to a dictionary. Finally, if there are any successful endpoints, it creates a `.env` file with this information.
+9. **Executing the Main Function:**
+	- Finally, the script executes the `main` function to run the entire process.
+
+</Accordion>
+
+<Accordion title="Outcome">
+Executing this script will efficiently process and validate your Chainstack endpoints. It identifies those endpoints that successfully return a chain ID, indicating their active and functional status. These validated endpoints are then neatly recorded into a `.env` file.
+
+With this setup, you gain a streamlined and organized method to access and utilize all your Chainstack endpoints.
+
+This approach simplifies endpoint management and enhances the overall efficiency of your interactions with Chainstack services.
+
+Note that non-EVM endpoints or improperly formatted ones will not work and will show a warning. This is a point you can build on and improve.
+</Accordion>
+</AccordionGroup>
+
+<RequestExample>
+```js getEndpoints.js
+const axios = require('axios');
+const { Web3 } = require('web3');
+const fs = require('fs');
+require('dotenv').config();
+
+// Constants
+const CHAINSTACK_API_KEY = process.env.CHAINSTACK_API_KEY;
+const OUTPUT_FILE_NAME = 'rpc.env';
+
+// Fetch data from Chainstack API
+async function fetchChainstackData(apiKey) {
+    const url = "https://api.chainstack.com/v1/nodes/";
+    const headers = {
+        "accept": "application/json",
+        "authorization": `Bearer ${apiKey}`
+    };
+
+    try {
+        const response = await axios.get(url, { headers });
+        console.log(`Fetched ${response.data.results.length} items from Chainstack.`);
+        return response.data;
+    } catch (error) {
+        console.error(`Failed to fetch data from Chainstack: ${error}`);
+        return null;
+    }
+}
+
+// Process a single item from Chainstack data
+function processChainstackItem(item) {
+    console.debug(`Processing item: ${item.name} with ID ${item.id}`);
+    return {
+        id: item.id,
+        name: item.name,
+        details: item.details,
+        http_endpoint: item.details.https_endpoint,
+        auth_key: item.details.auth_key,
+        configuration: item.configuration,
+        client: item.configuration.client
+    };
+}
+
+// Connect to a Web3 endpoint
+async function connectToWeb3(reconstructedEndpoint) {
+    console.debug(`Attempting to connect to Web3 endpoint: ${reconstructedEndpoint}`);
+    try {
+        const web3 = new Web3(new Web3.providers.HttpProvider(reconstructedEndpoint));
+        const chainId = await web3.eth.getChainId();
+        console.info(`Connected to ${reconstructedEndpoint} with chain ID: ${chainId}`);
+        return true;
+    } catch (error) {
+        console.error(`Failed to connect to ${reconstructedEndpoint}: ${error}`);
+        return false;
+    }
+}
+
+
+// Sanitize the endpoint name for use as an environment variable key
+function sanitizeName(name) {
+    return name.replace(/\s|-|\//g, "_").toUpperCase();
+}
+
+// Create a .env file from the endpoint info dictionary
+function createEnvFile(endpointInfoDict, filename = OUTPUT_FILE_NAME) {
+    console.info(`Preparing to write ${Object.keys(endpointInfoDict).length} endpoints to .env file.`);
+    const lines = Object.entries(endpointInfoDict).map(([endpoint, info]) => {
+        const sanitized_name = sanitizeName(info.name);
+        return `${sanitized_name}_URL="${endpoint}"\n`;
+    });
+
+    fs.writeFileSync(filename, lines.join(''));
+    console.info(`.env file created successfully at ${filename}`);
+}
+
+// Main function to orchestrate the process
+async function main() {
+    console.info("Starting main process.");
+    if (!CHAINSTACK_API_KEY) {
+        console.error("Chainstack API key not found.");
+        return;
+    }
+
+    const json_data = await fetchChainstackData(CHAINSTACK_API_KEY);
+    if (!json_data) {
+        return;
+    }
+
+    const endpointInfoDict = {};
+    for (const item of json_data.results) {
+        const data = processChainstackItem(item);
+        const reconstructedEndpoint = `${data.http_endpoint}/${data.auth_key}`;
+        if (await connectToWeb3(reconstructedEndpoint)) {
+            endpointInfoDict[reconstructedEndpoint] = { name: data.name };
+        }
+    }
+
+    if (Object.keys(endpointInfoDict).length > 0) {
+        createEnvFile(endpointInfoDict);
+    } else {
+        console.info("No endpoint information to write to .env file.");
+    }
+    console.info("Main process completed.");
+}
+
+// Run the main function
+main();
+```
+</RequestExample>
+
+<ResponseExample>
+```bash
+Starting main process.
+Fetched 10 items from Chainstack.
+Processing item: Eth mainnet with ID ND-422-757-666
+Attempting to connect to Web3 endpoint: https://nd-422-757-666.p2pify.com/
+Connected to https://nd-422-757-666.p2pify.com/ with chain ID: 1
+Processing item: Poly mainnet with ID ND-828-700-214
+Attempting to connect to Web3 endpoint: https://nd-828-700-214.p2pify.com/
+Connected to https://nd-828-700-214.p2pify.com/ with chain ID: 137
+Processing item: Ava mainnet with ID ND-418-459-126
+Attempting to connect to Web3 endpoint: https://nd-418-459-126.p2pify.com/
+Failed to connect to https://nd-418-459-126.p2pify.com/: ResponseError: Returned error: Internal error
+Processing item: Arb mainnet with ID ND-000-364-211
+Attempting to connect to Web3 endpoint: https://nd-000-364-211.p2pify.com/
+Connected to https://nd-000-364-211.p2pify.com/ with chain ID: 42161
+Processing item: Sol mainnet with ID ND-326-444-187
+Attempting to connect to Web3 endpoint: https://nd-326-444-187.p2pify.com/
+Failed to connect to https://nd-326-444-187.p2pify.com/: InvalidResponseError: Returned error: Method not found
+Processing item: Gno mainnet with ID ND-500-249-268
+Attempting to connect to Web3 endpoint: https://nd-500-249-268.p2pify.com/
+Connected to https://nd-500-249-268.p2pify.com/ with chain ID: 100
+Processing item: Node-1 with ID ND-363-550-219
+Attempting to connect to Web3 endpoint: https://nd-363-550-219.p2pify.com/
+Connected to https://nd-363-550-219.p2pify.com/ with chain ID: 1101
+Processing item: Arb mainnet with debug/trace with ID ND-954-882-037
+Attempting to connect to Web3 endpoint: https://nd-954-882-037.p2pify.com/
+Connected to https://nd-954-882-037.p2pify.com/ with chain ID: 42161
+Processing item: Starknet Mainnet with ID ND-097-590-908
+Attempting to connect to Web3 endpoint: https://starknet-mainnet.core.chainstack.com/
+Failed to connect to https://starknet-mainnet.core.chainstack.com/: InvalidResponseError: Returned error: Method not found
+Processing item: getTokenAccountsByDelegate with ID ND-106-833-045
+Attempting to connect to Web3 endpoint: https://nd-106-833-045.p2pify.com/
+Failed to connect to https://nd-106-833-045.p2pify.com/: InvalidResponseError: Returned error: Method not found
+Preparing to write 6 endpoints to .env file.
+.env file created successfully at rpc.env
+Main process completed.
+```
+</ResponseExample>

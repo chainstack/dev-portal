@@ -1,0 +1,245 @@
+---
+title: "Handle Real-Time Data Using WebSocket with JavaScript and Python"
+---
+
+**TLDR**
+* Demonstrates how to connect to the Chainstack API over WebSockets for real-time blockchain data using web3.js, ethers.js, and Python.
+* Explains the advantages of WebSocket vs. HTTP (bidirectional, persistent connection).
+* Includes examples of implementing auto-reconnect logic to handle unexpected disconnections or timeouts.
+* Highlights the typical connection limits and the importance of retry mechanisms to maintain an uninterrupted data stream.
+
+## Main article
+
+The Chainstack API simplifies access to your EVM node through either HTTPS or WebSocket connections. This tutorial illustrates how to utilize a WebSocket connection to retrieve real-time data employing web3.js and ethers.js, as well as Python. It also explains how to incorporate WebSocket reconnect logic to ensure that the connection is automatically reestablished if it happens to drop for any reason.
+
+## Difference between HTTP and WebSocket protocols
+
+**HTTP** (hypertext transfer protocol) operates on a unidirectional basis, whereas **WebSocket** offers bidirectional communication.
+
+In the traditional client-server model using HTTP, each request made by the client initiates a new connection. This connection is then closed once the client receives a response from the server. This cyclical process of establishing and terminating connections can be inefficient and resource-intensive, especially for applications requiring real-time updates or frequent data exchanges.
+
+> For example, how your browser requests data to the server to display this article.
+
+On the contrary, WebSocket enhances the client-server communication process by initiating a connection just once, which is then kept open and reused for as long as either the server or the client maintains it. This persistent connection supports a more efficient data exchange between the server and the client without constantly opening and closing connections.
+
+This key advantage of WebSocket, connection reusability, is a game-changer for real-time applications. Alongside this, it features a "keep-alive" mechanism, ensuring the connection stays active, reducing the chances of timeouts or connection drops. This constant open channel allows for seamless data transfer, promoting faster, more dynamic interactions.
+
+## HTTP and WebSocket connection limitations
+
+### HTTP
+
+* 60 seconds timeout for the idle connection, so the connection will be terminated if idle for 60 seconds.
+* Each connection supports a maximum of 1,000 requests. After serving these 1,000 requests over a single HTTP connection, the current connection is concluded, and a fresh connection is established for subsequent requests.
+
+### WebSocket
+
+* 3,600 seconds (1 hour) timeout for the idle connection, so the connection will be terminated if idle for 3,600 seconds, equivalent to 1 hour.
+* A maximum of 500 concurrent connections can be maintained over WebSocket.
+
+## Managing WebSocket reconnections
+
+While WebSockets maintain a persistent, two-way connection, preparing for scenarios where the connection might be interrupted is crucial. The examples in this guide all integrate a WebSocket reconnection logic designed to automatically reestablish the connection should it become unexpectedly terminated.
+
+### Common WebSocket error codes
+
+Below are some of the common codes and keywords that indicate the WebSocket was disconnected and you need to implement a reconnect logic:
+
+* Code `1006` (abnormal closure)
+* `ECONNRESET`
+
+<Info>
+  Implement WebSocket reconnect logic or implement a [dedicated gateway](/docs/trader-node#dedicated-gateways).
+</Info>
+
+## Retrieve real-time data with WebSocket
+
+The Chainstack API allows you to use subscriptions to retrieve real-time data about blocks, pending transactions, and logs. Leveraging subscriptions, you can keep your application informed with recent developments, ensuring an accurate and timely representation of the blockchain state. Learn more about subscriptions in the [API documentation](/api-reference/ethereum-web3js-subscriptions-methods).
+
+### Real-time data with WebSocket and web3.js
+
+The web3.js library integrates subscription functionalities, enabling you to get real-time data from the blockchain effortlessly.
+
+<Info>
+  Learn how to set up the best [node.js environment](/docs/web3-nodejs-from-zero-to-a-full-fledged-project) for your JavaScript applications.
+</Info>
+
+First, install the web3.js library by running the following command:
+
+<CodeGroup>
+  ```shell Shell
+  npm i web3
+  ```
+</CodeGroup>
+
+The following example demonstrates using the web3.js library to receive real-time block headers, including WebSocket reconnect logic.
+
+<CodeGroup>
+  ```javascript Javascript
+  const { Web3 } = require("web3");
+  const NODE_URL = "YOUR_CHAINSTACK_WSS_ENDPOINT";
+
+  // Reconnect options
+  const reconnectOptions = {
+    autoReconnect: true,  // Automatically attempt to reconnect
+    delay: 5000,          // Reconnect after 5 seconds
+    maxAttempts: 10,      // Max number of retries
+  };
+
+  const web3 = new Web3(
+    new Web3.providers.WebsocketProvider(NODE_URL, undefined, reconnectOptions)
+  );
+
+  async function subscribeToNewBlocks() {
+    try {
+      // Create a new subscription to the 'newBlockHeaders' event
+      const event = "newBlockHeaders";
+      const subscription = await web3.eth.subscribe(event); // Changed to 'newHeads'
+
+      console.log(`Connected to ${event}, Subscription ID: ${subscription.id}`);
+
+      // Attach event listeners to the subscription object for 'data' and 'error'
+      subscription.on("data", handleNewBlock);
+      subscription.on("error", handleError);
+    } catch (error) {
+      console.error(`Error subscribing to new blocks: ${error}`);
+    }
+  }
+
+  // Fallback functions to react to the different events
+
+  // Event listener that logs the received block header data
+  function handleNewBlock(blockHeader) {
+    console.log("New block header:", blockHeader);
+  }
+
+  // Event listener that logs any errors that occur
+  function handleError(error) {
+    console.error("Error when subscribing to new block header:", error);
+  }
+
+  subscribeToNewBlocks();
+  ```
+</CodeGroup>
+
+<Info>
+  Learn more about the [web3.js `newBlockHeaders` subscription](/api-reference/ethereum-subscribenewblockheaders).
+</Info>
+
+### Real-time data with WebSocket and ethers.js
+
+Install the ethers.js and ws libraries:
+
+<CodeGroup>
+  ```shell Shell
+  npm i ethers ws
+  ```
+</CodeGroup>
+
+The following is an example of establishing a WebSocket connection using ethers.js, designed to subscribe to new block headers, which also incorporates a mechanism for automatic WebSocket reconnection.
+
+<CodeGroup>
+  ```javascript Javascript
+  const ethers = require("ethers");
+  const WebSocket = require("ws");
+
+  const NODE_URL =
+    "YOUR_CHAINSTACK_WSS_ENDPOINT";
+
+  function createWebSocket() {
+    const ws = new WebSocket(NODE_URL);
+
+    ws.on("close", () => {
+      console.log("Disconnected. Reconnecting...");
+      setTimeout(() => {
+        provider = new ethers.WebSocketProvider(createWebSocket());
+        startListening();
+      }, 3000);
+    });
+
+    ws.on("error", (error) => {
+      console.log("WebSocket error: ", error);
+    });
+
+    return ws;
+  }
+
+  let provider = new ethers.WebSocketProvider(createWebSocket());
+
+  function startListening() {
+    provider.on("block", async (blockNumber) => {
+      console.log("New block number:", blockNumber);
+      const block = await provider.getBlock(blockNumber);
+      console.log("Block details:", block);
+    });
+  }
+
+  startListening();
+  ```
+</CodeGroup>
+
+### Real-time data with WebSocket and Python
+
+Install the websockets library:
+
+<CodeGroup>
+  ```shell Shell
+  pip install websockets
+  ```
+</CodeGroup>
+
+The following is an example of establishing a WebSocket connection using Python, designed to subscribe to new block headers, incorporating an automatic WebSocket reconnection mechanism.
+
+<CodeGroup>
+  ```python Python
+  # Import required libraries
+  import asyncio
+  import json
+  import websockets
+
+  # Replace with your own Ethereum node WebSocket URL
+  eth_node_ws_url = 'YOUR_CHAINSTACK_WSS_ENDPOINT'
+
+  async def subscribe_to_blocks(ws_url):
+      # Continuously try to connect and subscribe
+      while True:
+          try:
+              # Establish a WebSocket connection to the Ethereum node
+              async with websockets.connect(ws_url) as websocket:
+                  # Send a subscription request for the Transfer event logs
+                  await websocket.send(json.dumps({
+                      "id": 1,
+                      "method": "eth_subscribe",
+                      "params": [
+                          "newHeads"
+                      ],
+                      "jsonrpc": "2.0"
+                  }))
+
+                  # Wait for the subscription response and print it
+                  subscription_response = await websocket.recv()
+                  print(f'Subscription response: {subscription_response}')
+
+                  # Continuously process incoming logs
+                  while True:
+                      # Receive a log entry and parse it as JSON
+                      log = await websocket.recv()
+                      log_data = json.loads(log)
+
+                      # Print the log data
+                      print(f'New log: {log_data}')
+                      print("#"*10)
+
+          # If there's an exception (e.g., connection error), attempt to reconnect
+          except Exception as e:
+              print(f'Error: {e}')
+              print('Reconnecting...')
+              await asyncio.sleep(5)
+
+  # Execute the subscription function
+  asyncio.run(subscribe_to_blocks(eth_node_ws_url))
+  ```
+</CodeGroup>
+
+## Conclusion
+
+This guide has walked you through leveraging the power of WebSocket over traditional HTTP, utilizing JavaScript and Python, and interacting with the Chainstack API to retrieve real-time data. We also explored how to implement WebSocket reconnect logic.

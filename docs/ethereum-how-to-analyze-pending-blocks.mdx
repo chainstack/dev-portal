@@ -1,0 +1,403 @@
+---
+title: "Ethereum: How to Analyze Pending Blocks"
+---
+
+TLDR:
+* **What is a pending block?** It’s the block a node (whether proposer or not) believes will be next in line for inclusion on the chain. A proposer’s pending block is built from their local mempool and is what they’ll broadcast. A non-proposer’s pending block, however, is only a “best guess” since the proposer might have a different mempool or prioritization strategy.
+
+* **How does Geth create it?** Up to version 1.14.0, Geth continuously managed a pending block in the background, updating it as new transactions arrived. Now, Geth builds a pending block on demand, caches it briefly (2 seconds by default), then discards or updates it when a new block is published or if a reorg happens.
+
+* **Why do transaction sets differ?** Nodes prioritize local transactions first (if they meet gas requirements) and then sort remote ones by their effective gas tip. The block proposer might see different transactions altogether and order them differently based on fees, local config, or simply having a newer view of the mempool.
+
+* **What does the code show?** By comparing the “pending” block to the finalized block with the same block number, you can see which transactions made it and how their positions changed. In practice, you’ll often find:
+
+  * Some transactions in the pending block don’t appear in the finalized block.
+  * The finalized block may include additional transactions.
+  * Transaction orders may differ because the proposer’s actual block can diverge from your local pending snapshot.
+
+## Main article
+
+Overall, monitoring the pending block gives insights into potential arbitrage or flash loan opportunities, but it’s never a hard guarantee that your transactions will be included exactly as you see them.
+
+In the Ethereum blockchain, understanding the concept of a pending block is crucial for seizing arbitrage opportunities, executing flash loans, and managing risks. Monitoring pending blocks allows users to identify large transactions or price discrepancies across decentralized exchanges.
+
+When a user queries the pending block through a node client, several processes occur under the hood to assemble and manage this block. Since Geth stays [the most popular Ethereum execution client](https://www.ethernodes.org/), let's explore how Geth specifically constructs the pending block.
+
+<Check>
+  ### Run Ethereum nodes on Chainstack
+
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required. You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Introduction
+
+The pending tag of blocks allows developers to get information on the transactions expected to be included in the next block. According to the [JSON-RPC specification](https://github.com/ethereum/execution-apis/blob/main/src/schemas/block.yaml) for Ethereum clients, there are five block tags that the clients must use:
+
+1. **Earliest**. Refers to the lowest numbered block available to the client.
+2. **Pending**. Refers to the next block anticipated by the client, built atop the latest and including transactions typically sourced from the local mempool.
+3. **Latest**. Points to the most recent block in the client's observed canonical chain, subject to potential reorganizations even under normal conditions.
+4. **Safe**. Represents the latest block secure from reorganizations under assumptions of an honest majority and specific synchronicity conditions.
+5. **Finalized**. Denotes the most recent crypto-economically secure block, immune to reorganizations except under manual intervention coordinated by the community.
+
+It must be noted that if the node is a block proposer, then the pending block is the one the node intends to broadcast later. This pending block is built using the latest transactions from the local mempool, prioritized, and validated according to the consensus rules.
+
+On the other hand, if the node is not a block proposer (whether it is a validator or a non-validator), the pending block still consists of transactions from the local mempool. However, these transactions are included based on the node’s expectations of what might be in the next block, but there is no guarantee that these transactions will be included. **The actual inclusion of transactions depends on the block proposer who might have a different mempool state and transaction selection criteria.**
+
+## Geth implementation
+
+Let’s explore the pending block on the example of the Geth execution client. Recently, [the client has been updated](https://github.com/ethereum/go-ethereum/releases/tag/v1.14.0) and a pending block is created upon request (whenever this block tag is used) and cached for a period set in the pendingTTL (time-to-live) property of the miner ([currently, it’s set to 2 sec](https://github.com/ethereum/go-ethereum/blob/master/miner/pending.go)).
+
+Before the update, the pending block was managed continuously in the background. Geth would keep updating the pending block as new transactions arrived in the mempool, and the state of the blockchain changed. To check which client version you are connected to, you can use the [web3\_clientVersion RPC method](/api-reference/ethereum_node_api/client_info/web3_clientVersion).
+
+Let’s examine the lifecycle of the pending block before the update has been introduced (Geth \< 1.14.0). The component of the Geth client that is responsible for managing the pending block is [the miner](https://github.com/ethereum/go-ethereum/blob/v1.13.15/miner/worker.go).
+
+After receiving the request to interact with a pending block, the Geth checks if a pending block is already available and up-to-date. If it is not available, the validator fetches, validates, sorts pending transactions in the local mempool, and then includes them in the pending block. From now on, it generates and maintains the pending block continuously. If a pending block is available, the worker ensures it is updated with any new transactions or state changes that have occurred.
+
+Here are the scenarios that can occur to an existing pending block:
+
+1. **Update**. When new transactions arrive in the mempool, they are validated, sorted, and included in the pending block.
+2. **Discarding**. When a new block is built and added to the blockchain or a blockchain reorganization occurs, the current pending block may become invalid due to changes in the state. A new pending block is generated based on the new blockchain state.
+
+To better understand the construction of a pending block, we need to examine how transactions are filtered and ordered in the mempool (or txpool, as it's called in Geth).
+
+### Mempool
+
+When transactions are added to the mempool, they undergo several [validation](https://github.com/ethereum/go-ethereum/blob/master/core/txpool/validation.go) steps to ensure they meet network conditions and node-specific configurations. Two relevant gas checks related to the article's topic are listed below.
+
+GasFeeCap ≥ GasTipCap and GasTipCap ≥ MinGasTip
+
+Once validated, transactions are dynamically filtered and sorted to maintain the mempool's efficiency and relevance.
+
+**Filtering**
+
+Transactions remain in the mempool if their gas fee cap exceeds the current base fee. Additionally, the effective gas tip must be greater than or equal to the minimum gas tip specified in the node configuration.
+
+GasFeeCap ≥ BaseFee and EffectiveGasTip ≥ MinGasTip
+
+EffectiveGasTip = min(GasFeeCap - BaseFee, GasTipCap)
+
+**Sorting**
+
+Transactions in the mempool are primarily sorted by their gas price, specifically their effective gas tip, which is the difference between the gas fee cap and the base fee or the gas tip cap, whichever is lower.
+
+<Info>
+  ### EIP-1559
+
+  Gas fee cap and gas tip cap were introduced with EIP-1559 transactions. Legacy transactions, also known as Type-0 transactions, do not have these properties and only specify a gas price. These legacy transactions are sorted [by gas price alone](https://github.com/ethereum/go-ethereum/blob/7cfff30ba3a67de767a9b2a7405b91f120873d10/core/types/tx_legacy.go#L101), without the need for calculating an effective gas tip.
+</Info>
+
+For transactions from the same account, they are sorted by nonce to ensure they can be executed sequentially. If necessary, the time when the transaction was first seen can also be considered to help order transactions with the same gas price.
+
+### Pending block
+
+When requesting a pending block, transactions are sourced from the mempool. Geth employs filtering and sorting logic mentioned the mempool section to ensure that pending transactions adhere to the current network conditions and node configuration.
+
+[Local transactions](https://github.com/ethereum/go-ethereum/blob/master/miner/worker.go#L415) are given the highest priority and are included in the block before considering remote ones, regardless of their effective gas tip, as long as it exceeds the minimum gas tip set in the node configuration.
+
+<Info>
+  ### Local transactions
+
+  Local transactions in Geth are those originating from addresses [explicitly added to the node's configuration](https://geth.ethereum.org/docs/fundamentals/command-line-options) or transactions submitted directly by the node itself.
+</Info>
+
+## Code walkthrough
+
+Now let's have a hands-on walkthrough in Python. Here's what we are going to do:
+
+1. Check the version of the node we are connected to.
+2. Fetch a pending block and its number.
+3. Fetch the latest block with the same number.
+4. Compare transactions in the pending and latest blocks.
+
+### Prerequisites
+
+<Steps>
+  <Step>
+    Log in to your [Chainstack account](https://console.chainstack.com/) and get an Ethereum mainnet node. You can get by with a full node for this exercise.
+  </Step>
+  <Step>
+    Open your terminal (Command Prompt for Windows or Terminal for macOS/Linux) and run the following command to clone the GitHub repository.
+
+   <CodeGroup>
+     ```bash Bash
+     git clone https://github.com/smypmsa/geth-pending-latest-block.git
+     cd your-repository
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+    Set up your Python virtual environment.
+
+   <CodeGroup>
+     ```bash macOS/Linux
+     python3 -m venv venv
+     source venv/bin/activate
+     ```
+
+     ```Text Windows
+     python -m venv venv
+     venv\Scripts\activate
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+    With the virtual environment activated, run the following command to install the required dependencies.
+
+   <CodeGroup>
+     ```bash Bash
+     pip install -r requirements.txt
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+    Create the environment variable file (.env) and paste your Chainstack endpoint URL there.
+
+   <CodeGroup>
+     ```python Python
+     ETH_NODE_URL=<your_eth_node_url>
+     ```
+   </CodeGroup>
+  </Step>
+</Steps>
+
+[GitHub repository](https://github.com/smypmsa/geth-pending-latest-block) for all the scripts.
+
+### Connect to the node
+
+Load the configuration file (.env), read its values and connect to the Ethereum node.
+
+<CodeGroup>
+  ```python Python
+  import os
+  import time
+
+  from dotenv import load_dotenv
+  from web3 import Web3
+
+  # Load environment variables
+  load_dotenv()
+  ETH_NODE_URL = os.getenv("ETH_NODE_URL")
+
+  # Create connection to Ethereum node
+  web3 = Web3(Web3.HTTPProvider(ETH_NODE_URL))
+  ```
+</CodeGroup>
+
+### Fetch a pending block
+
+Check that the connection to the Ethereum node is established, get the node version and fetch a pending block.
+
+<CodeGroup>
+  ```python Python
+  def main():
+      if not web3.is_connected():
+          print("\nFailed to connect to the Ethereum node.")
+          return
+
+      print("\nConnected to the Ethereum node.")
+      print("Node version:", web3.client_version)
+
+      # Fetch pending block
+      pending_block = web3.eth.get_block('pending')
+      pending_block_number = pending_block.number
+  ```
+</CodeGroup>
+
+### Fetch a finalized block
+
+To fetch a finalized block with the same number as the pending block we fetched earlier, a few retries may be needed.
+
+<CodeGroup>
+  ```python Python
+      # Retry fetching the finalized block with the same block number as the pending block
+      finalized_block = None
+      start_time = time.time()
+      while True:
+          try:
+              finalized_block = web3.eth.get_block(pending_block_number, full_transactions=True)
+              break
+          except Exception as e:
+              if time.time() - start_time > 60:
+                  print(f"Failed to fetch the finalized block within 60 seconds: {e}")
+                  return
+          time.sleep(2)
+  ```
+</CodeGroup>
+
+### Compare transactions
+
+Get transactions that are common for both blocks and that are unique for each block.
+
+<CodeGroup>
+  ```python Python
+      # Compare transactions in the pending block and finalized block
+      print(f"\nComparing txs in pending block and finalized block (block number: {pending_block_number}):")
+      pending_block_tx_hashes = {tx.hex() for tx in pending_block.transactions}
+      finalized_block_tx_hashes = {tx['hash'].hex() for tx in finalized_block.transactions}
+
+      common_txs = pending_block_tx_hashes.intersection(finalized_block_tx_hashes)
+      pending_only_txs = pending_block_tx_hashes - finalized_block_tx_hashes
+      finalized_only_txs = finalized_block_tx_hashes - pending_block_tx_hashes
+  ```
+</CodeGroup>
+
+Let’s also compare the positions of transactions in the pending block with their positions in the latest block.
+
+<CodeGroup>
+  ```python Python
+      position_changes = {
+          "same_position": 0,
+          "higher_position": 0,
+          "lower_position": 0
+      }
+
+      for tx_hash in common_txs:
+          pending_index = [tx.hex() for tx in pending_block.transactions].index(tx_hash)
+          finalized_index = [tx['hash'].hex() for tx in finalized_block.transactions].index(tx_hash)
+
+          if pending_index == finalized_index:
+              position_changes["same_position"] += 1
+          elif pending_index > finalized_index:
+              position_changes["higher_position"] += 1
+          else:
+              position_changes["lower_position"] += 1
+  ```
+</CodeGroup>
+
+### Putting it all together
+
+<CodeGroup>
+  ```python Python
+  import os
+  import time
+
+  from dotenv import load_dotenv
+  from web3 import Web3
+
+  # Load environment variables
+  load_dotenv()
+  ETH_NODE_URL = os.getenv("ETH_NODE_URL")
+
+  # Create connection to Ethereum node
+  web3 = Web3(Web3.HTTPProvider(ETH_NODE_URL))
+
+  def main():
+      if not web3.is_connected():
+          print("\nFailed to connect to the Ethereum node.")
+          return
+
+      print("\nConnected to the Ethereum node.")
+      print("Node version:", web3.client_version)
+
+      # Fetch pending block
+      pending_block = web3.eth.get_block('pending')
+      pending_block_number = pending_block.number
+
+      # Retry fetching the finalized block with the same block number as the pending block
+      finalized_block = None
+      start_time = time.time()
+      while True:
+          try:
+              finalized_block = web3.eth.get_block(pending_block_number, full_transactions=True)
+              break
+          except Exception as e:
+              if time.time() - start_time > 60:
+                  print(f"Failed to fetch the finalized block within 60 seconds: {e}")
+                  return
+          time.sleep(2)
+
+      # Compare transactions in the pending block and finalized block
+      print(f"\nComparing txs in pending block and finalized block (block number: {pending_block_number}):")
+      pending_block_tx_hashes = {tx.hex() for tx in pending_block.transactions}
+      finalized_block_tx_hashes = {tx['hash'].hex() for tx in finalized_block.transactions}
+
+      common_txs = pending_block_tx_hashes.intersection(finalized_block_tx_hashes)
+      pending_only_txs = pending_block_tx_hashes - finalized_block_tx_hashes
+      finalized_only_txs = finalized_block_tx_hashes - pending_block_tx_hashes
+
+      print(f"\nTxs in pending block: {len(pending_block.transactions)}")
+      print(f"Txs in latest block: {len(finalized_block.transactions)}")
+
+      position_changes = {
+          "same_position": 0,
+          "higher_position": 0,
+          "lower_position": 0
+      }
+
+      for tx_hash in common_txs:
+          pending_index = [tx.hex() for tx in pending_block.transactions].index(tx_hash)
+          finalized_index = [tx['hash'].hex() for tx in finalized_block.transactions].index(tx_hash)
+
+          if pending_index == finalized_index:
+              position_changes["same_position"] += 1
+          elif pending_index > finalized_index:
+              position_changes["higher_position"] += 1
+          else:
+              position_changes["lower_position"] += 1
+
+      print(f"\nTxs with higher position in the latest: {position_changes['higher_position']}")
+      print(f"Txs with the same position in the latest: {position_changes['same_position']}")
+      print(f"Txs with lower position in the latest: {position_changes['lower_position']}")
+      print(f"Txs not included in the latest: {len(pending_only_txs)}")
+
+  if __name__ == "__main__":
+      main()
+  ```
+</CodeGroup>
+
+## Pending and latest blocks analysis
+
+If you run the code above, you will notice that the transactions in the pending block differ from those in the final block added to the blockchain.
+
+The point is that the pending block is constructed by any node (validator or non-validator), but the finalized block is constructed by the block proposer (validator). **The block proposer may have a different view of the mempool, apply different prioritization criteria, or include different transactions based on network conditions and their own transaction pool.**
+
+When examining the transactions in the pending block versus the finalized block for block number 20212119, we can observe some interesting patterns and differences:
+
+| Metric                                                  | Number of transactions |
+| ------------------------------------------------------- | ---------------------- |
+| Pending block                                           | 122                    |
+| Finalized block                                         | 189                    |
+| Transactions with higher positions in the latest block  | 0                      |
+| Transactions with the same position in the latest block | 0                      |
+| Transactions with lower positions in the latest block   | 120                    |
+| Transactions not included in the latest block           | 2                      |
+
+### Key observations
+
+1. The finalized block contains significantly more transactions than the pending block. This means that additional transactions were included by the block proposer after the pending block snapshot was taken.
+2. Almost all transactions (120 out of 122) from the pending block ended up in a lower position in the finalized block.
+3. Two transactions from the pending block were not included in the finalized block at all. This could be due to various reasons such as insufficient fees, reorganization, or replacement by higher-priority transactions.
+
+## Conclusion
+
+The goal of this article was to demystify the concept of a pending block in the Ethereum blockchain, specifically focusing on how Geth, the most popular Ethereum execution client, constructs pending blocks.
+
+### Key findings
+
+Block proposer and non-block proposer limitations:
+
+* Block proposers construct the pending block using the latest transactions from the local mempool, ensuring they are prioritized and validated according to consensus rules. These blocks are proposed to the network for inclusion in the blockchain.
+* Non-block proposers (which can include validators when they are not proposing a block) construct a pending block based on their expectations of the next block's transactions but lack the guarantee of actual inclusion, as the final decision rests with the block proposer.
+
+Transaction ordering in a pending block:
+
+* Transactions in the pending block are sourced from the mempool and primarily sorted by their effective gas tip, calculated as the difference between the gas fee cap and the base fee or the gas tip cap.
+* Local transactions are prioritized over remote transactions, regardless of their effective gas tip, as long as they meet the minimum gas tip requirement.
+
+Handling of legacy transactions:
+
+* Legacy transactions (Type-0) are sorted by gas price alone, without considering the effective gas tip. This ensures backward compatibility and straightforward inclusion based on gas price.
+
+### About author
+
+<CardGroup>
+  <Card title="Anton Sauchyk" img="/images/docs/profile_images/1817926677730664448/3nNn0T2p_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="laptop"  iconType="solid"/>Multiple years of software development and Web3 expertise. Creator of the open-source Compare Dashboard for RPC provider performance benchmarking. Core contributor to the DevEx team’s pump.fun trading bot. Author of technical tutorials on EVM blockchains, Solana, TON and Elastic Subgraphs.
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/smypmsa)
+    [<Icon icon="twitter"  iconType="brands"/>](https://x.com/sensuniama)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/anton-sauchyk/)
+  </Card>
+</CardGroup>

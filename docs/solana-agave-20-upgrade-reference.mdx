@@ -1,0 +1,251 @@
+---
+title: "Solana Agave 2.0 Upgrade Reference"
+description: "A quick reference on the Solana node client transition to Agave and the deprecated methods"
+---
+
+**TLDR**
+
+* Agave replaces the original Solana node client and deprecates several outdated calls by October 21, 2024.
+* Most newly recommended methods (e.g., `getSignatureStatuses`) are already standard, so your existing workflows likely remain unaffected.
+* The code examples illustrate how to switch from `confirmTransaction` to `getSignatureStatuses` in both JavaScript and Python.
+
+## In brief
+
+[Agave](https://github.com/anza-xyz/agave) is the Rust-based Solana node client that is also a fork of the original Solana Labs client.
+
+The primary purpose of Agave replacing the original Solana Labs client is make the network multi-client. The multi-client part mostly means the introduction of another node client — the C-based Firedancer.
+
+Nodes are expected to upgrade to Agave v2.0 by **October 21, 2024**.
+
+For you as a developer, this means there are a few methods that will be deprecated with other methods replacing them. The methods that are getting the deprecation have already been outdated for quite a bit of time and all of the replacement methods (except for [isBlockhashValid](/api-reference/solana_node_api/isBlockhashValid)) aren't new. So the chances are you won't be significantly affected.
+
+See:
+
+<CardGroup>
+  <Card title="Agave v2.0 release schedule" href="https://github.com/anza-xyz/agave/wiki/v2.0-Release-Schedule" icon="angle-right" horizontal />
+  <Card title="Agave v2.0 transition guide" href="https://github.com/anza-xyz/agave/wiki/Agave-v2.0-Transition-Guide" icon="angle-right" horizontal />
+</CardGroup>
+
+## Methods: deprecated and replaced
+
+| Deprecated call                   | Replacement call                                                                                                                                                                                                        |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| confirmTransaction                | [getSignatureStatuses](/api-reference/solana_node_api/getSignatureStatuses)                                                                                                                                                          |
+| getSignatureStatus                | [getSignatureStatuses](/api-reference/solana_node_api/getSignatureStatuses)                                                                                                                                                          |
+| getSignatureConfirmation          | [getSignatureStatuses](/api-reference/solana_node_api/getSignatureStatuses)                                                                                                                                                          |
+| getConfirmedSignaturesForAddress  | [getSignaturesForAddress](/api-reference/solana_node_api/getSignaturesForAddress)                                                                                                                                                    |
+| getConfirmedBlock                 | [getBlock](/api-reference/solana_node_api/getBlocks)                                                                                                                                                                                  |
+| getConfirmedBlocks                | [getBlocks](/api-reference/solana_node_api/getBlocks)                                                                                                                                                                                |
+| getConfirmedBlocksWithLimit       | [getBlocksWithLimit](/api-reference/solana_node_api/getBlocksWithLimit)                                                                                                                                                                     |
+| getConfirmedTransaction           | [getTransaction](/api-reference/solana_node_api/getTransaction)                                                                                                                                                                             |
+| getConfirmedSignaturesForAddress2 | [getSignaturesForAddress](/api-reference/solana_node_api/getSignaturesForAddress)                                                                                                                                                    |
+| getRecentBlockhash                | [getLatestBlockhash](/api-reference/solana_node_api/getLatestBlockhash)                                                                                                                                                              |
+| getFees                           | [getFeeForMessage](/api-reference/solana_node_api/getFeeForMessage)                                                                                                                                                                  |
+| getFeeCalculatorForBlockhash      | [isBlockhashValid](/api-reference/solana_node_api/isBlockhashValid) or [getFeeForMessage](/api-reference/solana_node_api/getFeeForMessage)                                                                                                               |
+| getFeeRateGovernor                | [getFeeForMessage](/api-reference/solana_node_api/getFeeForMessage)                                                                                                                                                                  |
+| getSnapshotSlot                   | [getHighestSnapshotSlot](/api-reference/solana_node_api/getHighestSnapshotSlot)                                                                                                                                                      |
+| getStakeActivation                | [getAccountInfo \| Solana](/api-reference/solana_node_api/getAccountInfo) ([alternative approach](https://solana.stackexchange.com/questions/15710/the-alternative-method-to-get-the-stake-account-status-since-getstakeactivation)) |
+
+## Replacing `confirmTransaction` with `getSignaturesStatuses`
+
+<CodeGroup>
+  ```javascript @solana/web3.js
+  import { Connection, Transaction, SendOptions } from '@solana/web3.js';
+
+  async function sendAndConfirmTransaction(
+    connection: Connection,
+    transaction: Transaction,
+    timeout: number = 30000, // 30 seconds default timeout
+    options?: SendOptions
+  ): Promise<string> {
+    // Send the transaction
+    const signature = await connection.sendTransaction(transaction, options?.signers || [], {
+      ...options,
+      skipPreflight: options?.skipPreflight || false
+    });
+
+    // Create a promise that will reject after the timeout
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Transaction confirmation timeout after ${timeout}ms`));
+      }, timeout);
+    });
+
+    // Create the confirmation promise
+    const confirmationPromise = (async () => {
+      let done = false;
+      while (!done) {
+        // Get the status of the transaction
+        const response = await connection.getSignatureStatuses([signature]);
+        const status = response.value[0];
+
+        if (status) {
+          if (status.err) {
+            throw new Error(`Transaction failed: ${status.err.toString()}`);
+          }
+
+          // Check if we have enough confirmations
+          if (status.confirmationStatus === 'finalized') {
+            done = true;
+            return signature;
+          }
+        }
+
+        // Wait a bit before checking again
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    })();
+
+    // Race between timeout and confirmation
+    try {
+      return await Promise.race([confirmationPromise, timeoutPromise]);
+    } catch (error) {
+      // If it's a timeout error, we should still return the signature
+      if (error.message.includes('timeout')) {
+        return signature;
+      }
+      throw error;
+    }
+  }
+
+  // Example usage
+  async function example() {
+    const connection = new Connection('CHAINSTACK_NODE');
+    const transaction = new Transaction();
+    // ... add your transaction instructions here ...
+
+    try {
+      const signature = await sendAndConfirmTransaction(connection, transaction, 60000, {
+        skipPreflight: false,
+        // ... other options
+      });
+      console.log('Transaction confirmed:', signature);
+    } catch (error) {
+      console.error('Transaction failed:', error);
+    }
+  }
+  ```
+
+  ```python solana.py
+  from solana.rpc.api import Client
+  from solana.transaction import Transaction
+  from solana.rpc.commitment import Commitment
+  from typing import Optional, List, Union
+  import time
+  import asyncio
+  from concurrent.futures import TimeoutError
+
+  class TransactionConfirmationError(Exception):
+      """Custom exception for transaction confirmation errors"""
+      pass
+
+  async def send_and_confirm_transaction(
+      client: Client,
+      transaction: Transaction,
+      signers: List,
+      timeout: int = 30,  # timeout in seconds
+      commitment: Union[str, Commitment] = "finalized"
+  ) -> str:
+      """
+      Send and confirm a transaction using getSignatureStatuses
+
+      Args:
+          client: Solana client instance
+          transaction: Transaction to send
+          signers: List of signers for the transaction
+          timeout: Maximum time to wait for confirmation in seconds
+          commitment: Commitment level to use
+
+      Returns:
+          Transaction signature
+
+      Raises:
+          TransactionConfirmationError: If transaction fails or times out
+      """
+
+      # Send the transaction
+      try:
+          response = client.send_transaction(
+              transaction,
+              *signers,
+              opts={
+                  "skip_preflight": False,
+                  "preflight_commitment": commitment
+              }
+          )
+          signature = response["result"]
+      except Exception as e:
+          raise TransactionConfirmationError(f"Failed to send transaction: {str(e)}")
+
+      # Start time for timeout tracking
+      start_time = time.time()
+
+      async def confirm_transaction() -> str:
+          while True:
+              try:
+                  # Check if we've exceeded timeout
+                  if time.time() - start_time > timeout:
+                      raise TimeoutError(f"Transaction confirmation timeout after {timeout} seconds")
+
+                  # Get transaction status
+                  response = client.get_signature_statuses([signature])
+
+                  if response["result"]["value"][0] is None:
+                      # Transaction not yet processed, wait and retry
+                      await asyncio.sleep(1)
+                      continue
+
+                  status = response["result"]["value"][0]
+
+                  # Check if transaction failed
+                  if status.get("err"):
+                      raise TransactionConfirmationError(
+                          f"Transaction failed: {status['err']}"
+                      )
+
+                  # Check confirmation status
+                  conf_status = status.get("confirmationStatus")
+                  if conf_status == "finalized":
+                      return signature
+
+                  # Wait before checking again
+                  await asyncio.sleep(1)
+
+              except TimeoutError:
+                  # Return signature even on timeout
+                  return signature
+              except Exception as e:
+                  if not isinstance(e, TimeoutError):
+                      raise TransactionConfirmationError(f"Confirmation failed: {str(e)}")
+
+      try:
+          return await confirm_transaction()
+      except Exception as e:
+          raise TransactionConfirmationError(str(e))
+
+  # Example usage
+  async def example():
+      # Initialize client
+      client = Client("CHAINSTACK_NODE")
+
+      # Create and populate your transaction
+      transaction = Transaction()
+      # ... add your transaction instructions here ...
+
+      try:
+          signature = await send_and_confirm_transaction(
+              client=client,
+              transaction=transaction,
+              signers=[],  # Add your signers here
+              timeout=60,  # 60 seconds timeout
+              commitment="finalized"
+          )
+          print(f"Transaction confirmed: {signature}")
+      except TransactionConfirmationError as e:
+          print(f"Transaction failed: {str(e)}")
+
+  # Run the example
+  if __name__ == "__main__":
+      asyncio.run(example())
+  ```
+</CodeGroup>

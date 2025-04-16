@@ -1,0 +1,149 @@
+---
+title: eth_newBlockFilter | Gnosis
+openapi: /openapi/gnosis_node_api/blocks_info/eth_newBlockFilter.json POST /512e720763b369ed620657f84d38d2af
+---
+
+Gnosis Chain API method that creates a filter that watches for new blocks on the blockchain. It returns a filter ID, which can be used to retrieve the results using the [eth\_getFilterChanges](/api-reference/gnosis_node_api/filter_handling/eth_getFilterChanges) method. The `eth_newBlockFilter` method is useful for developers who must be notified of new blocks on the blockchain in real-time.
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `none`
+
+## Response
+
+* `result` — a hexadecimal string representing the ID of the newly created filter
+
+The filters created are stored on the blockchain client instance. The filter fill is automatically deleted if not polled within a certain time (5 minutes by default).
+
+Use the following methods with the filter ID:
+
+* [eth\_getFilterChanges](/api-reference/gnosis_node_api/filter_handling/eth_getFilterChanges) to retrieve updates
+* [eth\_uninstallFilter](/api-reference/gnosis_node_api/filter_handling/eth_uninstallFilter) to remove the filter
+
+## `eth_newBlockFilter` code examples
+
+<Note>
+**web3.eth.filterdeprecation**
+
+Note that the `web3.eth.filter` methods have been deprecated and replaced with the `web3.eth.subscribe` in web3.js. See [web3.js subscriptions](/api-reference/gnosis-web3js-subscriptions-methods).
+</Note>
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const createFilter = async () => {
+  try {
+    const filterId = await provider.send('eth_newBlockFilter', []);
+    console.log(filterId); // the filter ID returned by eth_newFilter
+    return filterId
+  } catch (error) {
+    console.log(error);
+  }
+};
+
+createFilter();
+```
+
+```python web3.py
+from web3 import Web3  
+node_url = "CHAINSTACK_NODE_URL" 
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+def get_new_blocks():
+    try:
+        blocks_filter = web3.eth.filter('latest')
+        return blocks_filter
+    except Exception as e:
+        print(e)
+
+blocks = get_new_blocks()
+filter_id = blocks.filter_id
+print(filter_id)
+```
+</CodeGroup>
+
+
+## Use case
+
+One use case for `eth_newBlockFilter` in a simple DApp is to listen for new blocks and update the user interface with the latest block information.
+
+When the DApp starts, it creates a new filter using `eth_newBlockFilter` to listen for new blocks. When a new block is added to the blockchain, the filter is triggered, and the DApp retrieves the latest block information using a Web3 library.
+
+Here is an implementation of this use case using web3.py:
+
+```python main.py
+import time
+from web3 import Web3  
+node_url = "CHAINSTACK_NODE_URL" 
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# Set up a new blocks filter
+def get_new_blocks():
+    try:
+        blocks_filter = web3.eth.filter('latest')
+
+        # Split the string at the space character
+        parts = str(blocks_filter).split(' ')
+
+        # Extract the filter value from the second part
+        filter_id = parts[2]
+
+        return filter_id
+    except Exception as e:
+        print(e)
+
+def watch_for_blocks(new_filter):
+    # Wait for new blocks to arrive
+    while True:
+        # Retrieve the changes that match the filter
+        changes = web3.eth.get_filter_changes(new_filter)
+
+        # If there are no changes, wait for new blocks
+        if len(changes) == 0:
+            time.sleep(1)   # Wait for 1 second
+            continue
+
+        # Process the new blocks
+        for change in changes:
+            block = web3.eth.get_block(change)
+            print('New block:', block)
+
+def main():
+    # Create a new filter to watch for new blocks
+    new_filter = get_new_blocks()
+    print(new_filter)
+    
+    # Watch for new blocks
+    watch_for_blocks(new_filter)
+
+if __name__ == '__main__':
+    main()
+```
+
+
+The code is divided into three main functions: `get_new_blocks`, `watch_for_blocks`, and `main`. Let's take a closer look at each of them:
+
+`get_new_blocks` is responsible for setting up a new filter to watch for new blocks. The `try` block sets up the filter by calling the `eth.filter` method of the web3.py library and passing it the string `latest`. The `split` method is then used to split the resulting string at each space character, and the second part of the resulting list is extracted as the filter ID. The filter ID is returned from the function.
+
+<Note>
+The `eth.filter` method of the web3.py library does not only return the filter ID but it returns a sentence saying `Filter for 0x3c3f5a5e637d29c033e4e7a3f7e870cd`; this is the reason for the string manipulation within the `get_new_blocks` function.
+</Note>
+
+
+`watch_for_blocks` is the function that watches for new blocks. It does this by first entering an infinite loop while `True`. Within this loop, the [eth\_getFilterChanges](/api-reference/gnosis_node_api/filter_handling/eth_getFilterChanges) method is used to retrieve any changes that match the filter ID passed to the function. If there are no changes, the code waits for 1 second using the `time.sleep` method and then continues with the loop. If there are changes, the new blocks are processed by looping through them and calling the `eth.getBlock` method of the web3 library to retrieve the details of each block. Finally, the details of the new blocks are printed on the console.
+
+`main` is the function that ties everything together. It first calls `get_new_blocks` to set up a new filter to watch for new blocks, and then passes the resulting filter ID to `watch_for_blocks` to start watching for new blocks. The filter ID is also printed to the console to confirm that the filter has been set up correctly.
+
+## Try the `eth_newBlockFilter` RPC method yourself

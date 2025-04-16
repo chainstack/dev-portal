@@ -1,0 +1,188 @@
+---
+title: "Send batch requests using ethers.js"
+description: "This Recipe shows how to send batch requests to your Chainstack node instead of sending multiple loop-based requests. Adopting this approach can substantially boost the performance of your DApp."
+---
+
+<AccordionGroup>
+<Accordion title="Overview">
+
+
+HTTP batch request is a feature most Ethereum clients support. With batch requests enabled, multiple HTTP requests can be packaged into one single request and sent to the server. The server then processes this bulk and returns a bulk result.
+
+All of these requests are done in a single round trip.
+
+This feature can be useful for reducing the load on the server and improving the performance. Here you will learn how to do it using ether.js V6.
+
+</Accordion>
+<Accordion title="Environment setup">
+
+Install [node.js](https://nodejs.org/) in case it is not installed yet.
+
+Create a new directory for your project, then install the web3.js and ethers.js libraries:
+
+`npm install ethers`
+
+</Accordion>
+<Accordion title="Batch requests with ethers">
+
+The `JsonRpcProvider` in `ethers` can accept a single request or an array of requests using the `_send` method.
+
+In this example, the script gets the details of the last 20 blocks using a batch.
+</Accordion>
+<Accordion title="The code">
+
+The code does the following:
+
+- An ethers provider is initialized using your Chainstack endpoint.
+- The latest block number on the blockchain is fetched using the [getBlockNumber](https://docs.chainstack.com/reference/ethereum_node_api/blocks_info/eth_blockNumber) method.
+- The current time is recorded in milliseconds.
+- An array of size 20 is created, and each entry corresponds to a block number, starting from the latest block and going back by 20 blocks.
+- A JSON-RPC request object is created for each block number to fetch block details. These request objects are made using the [eth\_getBlockByNumber](https://docs.chainstack.com/reference/ethereum_node_api/blocks_info/eth_getBlockByNumber) method, and the block numbers are converted to hexadecimal strings using the `ethers.toQuantity()` method. All these request objects are stored in pastBlocksPromises.
+- The `_send()` method on the provider sends all these requests in a batch.
+- The responses are stored in `pastBlocks`.
+- The current time is re-recorded, and the execution time for these operations is logged to the console.
+- The pastBlocks array containing the block details is returned.
+
+</Accordion>
+<Accordion title="Get your Chainstack endpoint">
+
+You will need a Chainstack account and an Ethereum node to run this code.
+
+1. [Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+2. [Deploy a node](https://docs.chainstack.com/docs/manage-your-networks#join-a-public-network).
+3. [View node access and credentials](https://docs.chainstack.com/docs/manage-your-node#view-node-access-and-credentials).
+</Accordion>
+<Accordion title="Run the code">
+
+Now you can get your endpoint and paste it into the `endpoint` const. Then you can run it with `node YOUR_SCRIPT_NAME`
+
+The console will log the time needed to execute the batch, meaning sending the requests and receiving the responses; it then logs block numbers and hashes of the last 20 blocks.
+
+</Accordion>
+<Accordion title="Understanding the response">
+
+As you can see in the console, it took about 800ms to get the responses for all 20 blocks, which is a significant improvement compared to sending each request using a `for` loop.
+
+> For context, during the development of this Recipe, a regular `for` loop would take about 10/12 seconds.
+</Accordion>
+</AccordionGroup>
+
+<RequestExample>
+```js index.js
+const { ethers } = require("ethers");
+
+const endpoint =
+  "YOUR_CHAINSTACK_ENDPOINT";
+
+async function getPastBlocksBatch() {
+  const provider = new ethers.JsonRpcProvider(endpoint);
+  const latestBlockNumber = await provider.getBlockNumber();
+  const startTime = Date.now();
+
+  const pastBlocksPromises = Array.from(
+    { length: 20 },
+    (_, i) => latestBlockNumber - i
+  ).map((blockNumber) => {
+    return {
+      id: blockNumber,
+      jsonrpc: "2.0",
+      method: "eth_getBlockByNumber",
+      params: [ethers.toQuantity(blockNumber), false],
+    };
+  });
+
+  const pastBlocks = await provider._send(pastBlocksPromises);
+
+  const endTime = Date.now();
+  const executionTime = endTime - startTime;
+
+  console.log(`Execution batch time: ${executionTime} ms`);
+
+  return pastBlocks;
+}
+
+getPastBlocksBatch().then((blocks) => {
+  blocks.forEach((blockResult) => {
+    if (blockResult.error) {
+      console.log(
+        `Error fetching block: ${blockResult.error}`,
+        blockResult.error
+      );
+    } else {
+      const block = blockResult.result;
+      console.log(`Block number: ${parseInt(block.number, 16)}`);
+      console.log(`Block hash: ${block.hash}`);
+      console.log("-------------------------");
+    }
+  });
+});
+```
+</RequestExample>
+
+<ResponseExample>
+```bash
+Execution batch time: 786 ms
+
+Block number: 17787188
+Block hash: 0x57c181e5bf88645e448a89ce86a6e2d89f70b18dde2b898ad0da744aa958aac0
+-------------------------
+Block number: 17787187
+Block hash: 0xbe95b9bfed0eaf4105d12db3ea2d4445a6115e3dcc4e36cf1a713c4c5534bef2
+-------------------------
+Block number: 17787186
+Block hash: 0xab086d364d4a2b74eb80b7bdc1f8929543e2e6885c1ee70d478247bda2ea1deb
+-------------------------
+Block number: 17787185
+Block hash: 0x56f0fe238baf6a2b7b22ac78d99fff0224cd134cee5271f62be6503f2db94880
+-------------------------
+Block number: 17787184
+Block hash: 0xdf67e5391456c75598210486e10707c9e14890e44cf967e3bc6365844032fae3
+-------------------------
+Block number: 17787183
+Block hash: 0x74aa07e0aeb2990a52ec729002a766bbdbf96981edbd17586462e0c7f0db8401
+-------------------------
+Block number: 17787182
+Block hash: 0x66bb9f0e74c556951b11adad3a3e0103abaf3241edf029212df1fd0fed9fe007
+-------------------------
+Block number: 17787181
+Block hash: 0x0f95564e18819455bff61fc453c11aa58f21be4fbe62d9638dfa08624003d797
+-------------------------
+Block number: 17787180
+Block hash: 0x4a2108025f87b4505787e664bb23812cdd7d9cb32567c7a6ac930a9f54cf9bb9
+-------------------------
+Block number: 17787179
+Block hash: 0x65c8b1e8032add2e0a7b15c635dff6196cb72f7b97576a66876993c75583e4c8
+-------------------------
+Block number: 17787178
+Block hash: 0xc00a091e71f41c6722730be8496362f68c760193a34d014d45d46da6eae660ef
+-------------------------
+Block number: 17787177
+Block hash: 0x63f870742f7c4dae5444e338d2f817a8a04d334e9026b99df7e05ede8e41700b
+-------------------------
+Block number: 17787176
+Block hash: 0x83190bc285bca53f2f98b3d6f0773183495928e4c9c7edfba6bb88865cdf1f17
+-------------------------
+Block number: 17787175
+Block hash: 0xe3ae69abefd5f06339f0399c46c5bf4c7622378950923e6f0fb2007e74d670cb
+-------------------------
+Block number: 17787174
+Block hash: 0xb5b4ea9c910236710cc5d70ba29159859f2dcc901ef6abbd653db5d9dc1fe8dc
+-------------------------
+Block number: 17787173
+Block hash: 0x45abcaf6ef8dee46444ec4065644d730ad7b962ea605672a7ed535e850006a92
+-------------------------
+Block number: 17787172
+Block hash: 0xab592f9f9623e1be922374a79c22802570cbcae49bdc0928bffc98780a540752
+-------------------------
+Block number: 17787171
+Block hash: 0x98ab72cc36bff5715cc1471ae7f8459905e3c5fb9cd40520234e01714a2a0a3d
+-------------------------
+Block number: 17787170
+Block hash: 0x2d4045355ad94b0c70c5c6cc6df49ea43641d10f22f0ae61780b40f13f0b05e0
+-------------------------
+Block number: 17787169
+Block hash: 0x5807d23bb5719584605990083bf6fd189971d7e1c6b797200fe6e21df1c70e61
+-------------------------
+```
+</ResponseExample>
+

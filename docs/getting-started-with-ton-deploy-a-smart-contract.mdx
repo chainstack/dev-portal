@@ -1,0 +1,687 @@
+---
+title: "TON: Deploy a Smart Contract"
+---
+
+**TLDR**
+* You’ll configure a Hardhat project to interact with Aave V3 flash loans on Avalanche’s Fuji testnet.
+* You’ll use Chainstack for your Avalanche node endpoint and deploy a custom FlashLoan contract.
+* You’ll borrow USDC, then repay it plus fees in a single transaction, demonstrating a flash loan’s instant, collateral-free mechanics.
+* By the end, you’ll have a working Aave flash loan flow on a testnet environment ready for deeper custom logic.
+
+## Main article
+
+The Open Network ([TON](https://docs.ton.org/)) is a decentralized and open platform comprising several components, including TON Blockchain, TON DNS, TON Storage, and TON Sites. Originally developed by the Telegram team, TON aims to provide fast, secure, and user-friendly decentralized services. Its core protocol, TON Blockchain, connects the underlying infrastructure to form the greater TON Ecosystem.
+
+TON is focused on achieving widespread cross-chain interoperability within a highly scalable and secure framework. Designed as a distributed supercomputer or “superserver,” TON provides various products and services to contribute to developing the decentralized vision for the new internet. This makes it well-suited for a wide range of decentralized applications.
+
+One of the unique features of TON smart contracts is that they can receive messages and do some action based on it; we'll leverage this in the smart contract we'll develop.
+
+This tutorial will guide you through creating, building, testing, deploying, and interacting with a simple storage contract on the TON blockchain. We'll use the [Blueprint SDK](https://docs.ton.org/develop/smart-contracts/sdk/javascript).
+
+The Blueprint SDK is an essential tool for developers working with the TON blockchain. It provides a comprehensive suite of tools and libraries that simplify the process of writing, testing, and deploying smart contracts.
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/) to deploy a TON testnet node
+* [Node.js](https://nodejs.org/en)
+* A TON wallet, we used Tonekeeper. You can choose one on [ton.org](https://ton.org/wallets?locale=en\&pagination%5Blimit%5D=-1).
+* Some testnet tokens; get some tokens from the [TON faucet](https://t.me/testgiver_ton_bot).
+
+<Info>
+  ### Run nodes on Chainstack
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required. You can sign up with your GitHub, X, Google, or Microsoft account.
+</Info>
+
+## Project overview
+
+This will be an introductory project where we use the Blueprint SDK to develop, test, and deploy a simple storage-style smart contract where we can save a number and increment a counter.
+
+The smart contract is written in the TACT language, TON's smart contract language, and is comparable to Solidity for EVM-based chains.
+
+## Getting started
+
+Let's create a new TON project and run the initialization command in a new directory.
+
+<CodeGroup>
+  ```bash Shell
+  npm create ton@latest
+  ```
+</CodeGroup>
+
+Select an empty project in TACT.
+
+When you create a new project using the Blueprint SDK, the directory structure is organized to help you efficiently manage your smart contract development process. Here's a brief overview of the main directories and their purposes:
+
+* **build/**: This directory contains the compiled artifacts of your smart contracts. After you run the build command, the output files will be stored here, including the compiled contract bytecode and other related artifacts.
+
+* **contracts/**: This is where you write your smart contracts. All `.tact` files containing the contract code are placed in this directory. For instance, the `SimpleStorage` contract will reside here.
+
+* **scripts/**: This directory is used for deployment and interaction scripts. These scripts facilitate deploying your contracts to the TON blockchain and interacting with them. For example, scripts to deploy the contract or fetch data from the contract will be placed here.
+
+* **tests/**: This directory holds the test files for your smart contracts. Here, you can write tests to ensure your contracts behave as expected. The default test script verifies contract deployment, and you can extend it to test additional functionalities.
+
+* **wrappers/**: This directory contains the TypeScript wrappers generated for your contracts. These wrappers provide a convenient way to interact with your contracts in a type-safe manner from your scripts and tests.
+
+## Contract development
+
+Now, we are ready to start developing the contract. You'll find a `.tact` contract in the `contracts` directory, paste the following code in it.
+
+<CodeGroup>
+  ```sol simple_contract.tact
+  import "@stdlib/deploy";
+
+  // Allows the contract to receive a custom object of type "Save" specifying the number to save in the contract.
+  message Save {
+      amount: Int as uint32;
+  }
+
+  // This is an example of a simple storage contract. It has a function that increments the saved number by one when the function is called.
+  contract SimpleContract with Deployable {
+
+      // Declare variables
+      // Variables structure: name: type
+
+      id: Int as uint32; // This is an ID for contract deployment
+      savedNumber: Int as uint32;
+      counter: Int as uint32;
+
+      // init is similar to a contructor in Solidity
+      init(id: Int) {
+
+          // Init the id assed from the contructor
+          self.id = id;
+
+          // Initialize the variables to zero when the contract is deployed
+          self.savedNumber = 0;
+          self.counter = 0;
+      }
+
+      // TON contracts can recevie messages
+      // This function makes an action when a specific message is recevied
+      // In this case, when the contract recevies the message "add 1" will increment the counter variable by 1
+      receive("add 1"){
+          self.counter = self.counter + 1;
+      }
+
+      // This allows the contract to recevie objects, in this case of type "Save"
+      // Save a value in the contract
+      receive(msg: Save){
+          self.savedNumber = msg.amount;
+      }
+
+      // Getter function to read the variable
+      get fun Number(): Int { // Int is the type of value returned
+          return self.savedNumber;
+      }
+
+      // Getter function to read the counter variable
+      get fun Counter(): Int { // Int is the type of value returned
+          return self.counter;
+      }
+
+      // Getter function for the ID
+      get fun Id(): Int {
+          return self.id;
+      }
+  }
+  ```
+</CodeGroup>
+
+Here is a breakdown of how the code works.
+
+### Breakdown of the Contract
+
+1. **Imports and Message Declaration**
+
+   * The contract imports necessary modules using `import "@stdlib/deploy";`.
+   * A custom message type `Save` is declared, which contains an `amount` field of type `Int` (aliased as `uint32`).
+
+   <CodeGroup>
+     ```tact tact
+     import "@stdlib/deploy";
+
+     message Save {
+         amount: Int as uint32;
+     }
+     ```
+   </CodeGroup>
+
+2. **Contract Declaration**
+
+   * The `SimpleContract` is declared with the `Deployable` trait, allowing it to be deployed on the blockchain.
+   * The contract contains three variables: `id`, `savedNumber`, and `counter`, all of type `Int` (aliased as `uint32`).
+
+   <CodeGroup>
+     ```tact tact
+     contract SimpleContract with Deployable {
+         id: Int as uint32;
+         savedNumber: Int as uint32;
+         counter: Int as uint32;
+     ```
+   </CodeGroup>
+
+3. **Initialization**
+
+   * The `init` function acts as a constructor and initializes the contract with an `id`. We need to give a custom ID because the smart contract address will be determined during deployment based on the code and initial status.
+   * The variables `savedNumber` and `counter` are set to zero upon deployment.
+
+   <CodeGroup>
+     ```tact tact
+         init(id: Int) {
+             self.id = id;
+             self.savedNumber = 0;
+             self.counter = 0;
+         }
+     ```
+   </CodeGroup>
+
+4. **Message Handlers**
+
+   * The contract can receive messages to perform specific actions.
+   * The `receive("add 1")` handler increments the `counter` by 1 when it receives the message "add 1".
+
+   <CodeGroup>
+     ```tact tact
+         receive("add 1") {
+             self.counter = self.counter + 1;
+         }
+     ```
+   </CodeGroup>
+
+   * The `receive(msg: Save)` handler allows the contract to receive an object of type `Save` and store the `amount` in `savedNumber`.
+
+   <CodeGroup>
+     ```tact tact
+         receive(msg: Save) {
+             self.savedNumber = msg.amount;
+         }
+     ```
+   </CodeGroup>
+
+5. **Getter Functions**
+
+   * The contract includes getter functions to retrieve the values of `savedNumber`, `counter`, and `id`.
+
+   <CodeGroup>
+     ```tact tact
+         get fun Number(): Int {
+             return self.savedNumber;
+         }
+
+         get fun Counter(): Int {
+             return self.counter;
+         }
+
+         get fun Id(): Int {
+             return self.id;
+         }
+     ```
+   </CodeGroup>
+
+The `SimpleContract` is a straightforward example of a storage contract on the TON blockchain. It demonstrates basic functionalities such as initializing variables, handling messages to perform specific actions, and providing getter functions to retrieve stored values. In the next sections, we will build, test, deploy, and interact with this contract using the Blueprint SDK.
+
+## Build the contract
+
+Once we have the contract, we can run the build command to compile it and ensure no error.
+
+<CodeGroup>
+  ```bash Shell
+  npx blueprint build
+  ```
+</CodeGroup>
+
+It will compile and build the contract
+
+<CodeGroup>
+  ```bash Shell
+  Using file: SimpleContract
+  Build script running, compiling SimpleContract
+  ⏳ Compiling...   > 👀 Enabling debug
+     > SimpleContract: tact compiler
+     > SimpleContract: func compiler
+     > SimpleContract: fift decompiler
+     > Packaging
+     > SimpleContract
+     > Bindings
+     > SimpleContract
+     > Reports
+     > SimpleContract
+
+  ⚠️ Make sure to disable debug mode in contract wrappers before doing production deployments!
+
+  <Icon icon="square-check"  iconType="solid" /> Compiled successfully! Cell BOC result:
+
+  {
+    "hash": "8bb0916eb10debd617ebaba79be7097cc21e41597dc940d16af521dbed9dad25",
+    "hashBase64": "i7CRbrEN69YX66unm+cJfMIeQVl9yUDRavUh2+2drSU=",
+    "hex": "b5ee9c724102110100029f000114ff00f4a413f4bcf2c80b0102016202070298d001d0d3030171b0a301fa400120d74981010bbaf2e08820d70b0a208104ffbaf2d0898309baf2e088545053036f04f86102f862db3c59db3cf2e082c8f84301cc7f01ca000101cb1fc9ed54090301f6eda2edfb0192307fe07021d749c21f953020d70b1fde208210946a98b6ba8ea830d31f018210946a98b6baf2e081d33f0131c8018210aff90f5758cb1fcb3fc9f84201706ddb3c7fe0c0008e2af90182eb0d7299a100d9de4cf674453aeb6aa320067fc00702b62aa29243621d23217dba94a47fdb31e09130e27004013a6d6d226eb3995b206ef2d0806f22019132e2102470030480425023db3c0501cac87101ca01500701ca007001ca02500520d74981010bbaf2e08820d70b0a208104ffbaf2d0898309baf2e088cf165003fa027001ca68236eb3917f93246eb3e2973333017001ca00e30d216eb39c7f01ca0001206ef2d08001cc95317001ca00e2c901fb000600987f01ca00c87001ca007001ca00246eb39d7f01ca0004206ef2d0805004cc9634037001ca00e2246eb39d7f01ca0004206ef2d0805004cc9634037001ca00e27001ca00027f01ca0002c958cc020120080c020fbd10c6d9e6d9e18c090b013ced44d0d401f863d2000194d31f0131e030f828d70b0a8309baf2e089db3c0a0002700002200201200d0e00b9bbbd182705cec3d5d2cae7b1e84ec39d64a851b6682709dd6352d2b647cb322d3af2dfdf1623982702055c01b80676394ce583aae4725b2c382701bd49def954596f1c753d3de0559c32682709d974e5ab34ecb733a0e966d9466e8a480201480f100011b0afbb5134348000600075b26ee3435697066733a2f2f516d576165594177773744717159335651704e5136456232414146466d67416346323365383955655a7947327764820ab944fa3"
+  }
+
+  <Icon icon="square-check"  iconType="solid" /> Wrote compilation artifact to build/SimpleContract.compiled.json
+  ```
+</CodeGroup>
+
+## Test the contract
+
+Once the contract compiles, we can test it; the test file is in the `tests` directory. The default test script verifies that the contract deploys correctly.
+
+Let's edit it to also check that the counter and the save features work. Paste the following code.
+
+<CodeGroup>
+  ```typescript SimpleContract.spec.ts
+  import { Blockchain, SandboxContract, TreasuryContract } from '@ton/sandbox';
+  import { toNano } from '@ton/core';
+  import { SimpleContract } from '../wrappers/SimpleContract';
+  import '@ton/test-utils';
+
+  // On TON we can test by creating a virtual chain
+  describe('SimpleContract', () => {
+      let blockchain: Blockchain; // Init a virtual chain
+      let deployer: SandboxContract<TreasuryContract>;
+      let simpleContract: SandboxContract<SimpleContract>; // Init the smart contract instance
+
+      const contractId = 1648n; // Id for deployment that will be passed in the contructor. Random value in this example
+
+      beforeEach(async () => {
+          blockchain = await Blockchain.create();
+
+          simpleContract = blockchain.openContract(await SimpleContract.fromInit(contractId));
+
+          // Init the deployer. It comes with 1M TON tokens
+          deployer = await blockchain.treasury('deployer');
+
+          const deployResult = await simpleContract.send(
+              deployer.getSender(),
+              {
+                  value: toNano('0.05'), // Value to send to the contract
+              },
+              {
+                  $$type: 'Deploy', // This because the contract inherits the Deployable trait.
+                  queryId: 0n,
+              },
+          );
+
+          // Here is the test. In this case it tests that the contract is deployed correctly.
+          expect(deployResult.transactions).toHaveTransaction({
+              from: deployer.address,
+              to: simpleContract.address,
+              deploy: true,
+              success: true,
+          });
+      });
+
+      it('should deploy', async () => {
+          // the check is done inside beforeEach
+          // blockchain and simpleContract are ready to use
+          console.log('Deploying contract...');
+
+          const conttactId = await simpleContract.getId();
+          console.log(`Fetched ID during deployment: ${conttactId}`);
+      });
+
+      it('should increase', async () => {
+          console.log('Testing increase by 1 function...');
+          const counterBefore = await simpleContract.getCounter();
+
+          console.log('counterBefore - ', counterBefore);
+
+          await simpleContract.send(
+              deployer.getSender(),
+              {
+                  value: toNano('0.02'),
+              },
+              'add 1', // The message the contract expects
+          );
+
+          const counterAfter = await simpleContract.getCounter();
+
+          console.log('counterAfter - ', counterAfter);
+
+          // Check it incremented the value
+          expect(counterBefore).toBeLessThan(counterAfter);
+      });
+
+      it('should save the amount', async () => {
+          console.log('Testing increase by given value function...');
+
+          const numeberBefore = await simpleContract.getNumber();
+
+          const amount = 10n;
+          console.log(`Value to save: ${amount}`);
+          console.log(`Number saved before: ${numeberBefore}`);
+
+          await simpleContract.send(
+              deployer.getSender(),
+              {
+                  value: toNano('0.02'),
+              },
+              {
+                  $$type: 'Save', // This time it's an object and not just text
+                  amount: amount,
+              },
+          );
+
+          const numberAfter = await simpleContract.getNumber();
+
+          console.log(`Number saved after: ${numberAfter}`);
+      });
+  });
+  ```
+</CodeGroup>
+
+### Breakdown of the Test File
+
+Here is a quick breakdown, the test and interaction scripts are written in TypeScript. The idea is that the test file spins up a virtual chain to run the tests on with `let blockchain: Blockchain; // Init a virtual chain`.
+
+1. **Imports**
+
+   * Import necessary modules and utilities from the TON Sandbox, core libraries, and the `SimpleContract` wrapper.
+
+   <CodeGroup>
+     ```typescript TypeScript
+     import { Blockchain, SandboxContract, TreasuryContract } from '@ton/sandbox';
+     import { toNano } from '@ton/core';
+     import { SimpleContract } from '../wrappers/SimpleContract';
+     import '@ton/test-utils';
+     ```
+   </CodeGroup>
+
+2. **Describe Block**
+
+   * Define the test suite for the `SimpleContract`. Inside the `describe` block, we initialize variables for the blockchain, deployer, and contract instances.
+
+   <CodeGroup>
+     ```typescript TypeScript
+     describe('SimpleContract', () => {
+         let blockchain: Blockchain; // Init a virtual chain
+         let deployer: SandboxContract<TreasuryContract>;
+         let simpleContract: SandboxContract<SimpleContract>; // Init the smart contract instance
+
+         const contractId = 1648n; // Id for deployment that will be passed in the constructor. Random value in this example
+     ```
+   </CodeGroup>
+
+3. **beforeEach Hook**
+
+   * This hook runs before each test. It sets up the blockchain environment, initializes the contract, and deploys it using a deployer with 1M TON tokens available. The deployment is then verified to ensure the contract is deployed successfully.
+
+   <CodeGroup>
+     ```typescript TypeScript
+         beforeEach(async () => {
+             blockchain = await Blockchain.create();
+
+             simpleContract = blockchain.openContract(await SimpleContract.fromInit(contractId));
+
+             // Init the deployer. It comes with 1M TON tokens
+             deployer = await blockchain.treasury('deployer');
+
+             const deployResult = await simpleContract.send(
+                 deployer.getSender(),
+                 {
+                     value: toNano('0.05'), // Value to send to the contract
+                 },
+                 {
+                     $$type: 'Deploy', // This because the contract inherits the Deployable trait.
+                     queryId: 0n,
+                 },
+             );
+
+             // Here is the test. In this case it tests that the contract is deployed correctly.
+             expect(deployResult.transactions).toHaveTransaction({
+                 from: deployer.address,
+                 to: simpleContract.address,
+                 deploy: true,
+                 success: true,
+             });
+         });
+     ```
+   </CodeGroup>
+
+4. **Test: should deploy**
+
+   * This test checks if the contract is deployed correctly by fetching the contract ID. The actual deployment check is handled in the `beforeEach` hook.
+
+   <CodeGroup>
+     ```typescript TypeScript
+         it('should deploy', async () => {
+             // the check is done inside beforeEach
+             // blockchain and simpleContract are ready to use
+             console.log('Deploying contract...');
+
+             const contractId = await simpleContract.getId();
+             console.log(`Fetched ID during deployment: ${contractId}`);
+         });
+     ```
+   </CodeGroup>
+
+5. **Test: should increase**
+
+   * This test verifies the functionality of the `add 1` message. It retrieves the counter value before and after sending the message and checks if it has increased.
+
+   <CodeGroup>
+     ```typescript TypeScript
+         it('should increase', async () => {
+             console.log('Testing increase by 1 function...');
+             const counterBefore = await simpleContract.getCounter();
+
+             console.log('counterBefore - ', counterBefore);
+
+             await simpleContract.send(
+                 deployer.getSender(),
+                 {
+                     value: toNano('0.02'),
+                 },
+                 'add 1', // The message the contract expects
+             );
+
+             const counterAfter = await simpleContract.getCounter();
+
+             console.log('counterAfter - ', counterAfter);
+
+             // Check it incremented the value
+             expect(counterBefore).toBeLessThan(counterAfter);
+         });
+     ```
+   </CodeGroup>
+
+6. **Test: should save the amount**
+
+   * This test checks the functionality of saving a specified amount in the contract. It sends a `Save` message and verifies if the `savedNumber` variable is updated correctly.
+
+Run the test with the test command.
+
+<CodeGroup>
+  ```bash Shell
+  npx blueprint test
+  ```
+</CodeGroup>
+
+## Deploy to the TON chain
+
+The Blueprint SDK allows you to deploy contracts to the mainnet or testenet and it provides endpoints out of the box, but in this case we want to use the Chainstack endpoint we deployed since performs better and it's more reliable. We can add it in a configuration file, in the project's root create a new file named `blueprint.config.ts` and paste the code.
+
+<CodeGroup>
+  ```typescript blueprint.config.ts
+  import { Config } from '@ton/blueprint';
+
+  export const config: Config = {
+      network: {
+          endpoint: 'YOUR_CHAINSTACK_ENDPOINT',
+          type: 'testnet',
+          version: 'v4',
+          //key: 'YOUR_API_KEY',
+      },
+  };
+  ```
+</CodeGroup>
+
+Now that the custom endpoint is configured, edit the deploy script in`scripts` to include the contract ID; in this case, the ID is a random value, but you might change it based on the resulting address that will give you.
+
+<CodeGroup>
+  ```ts deploySimpleContract.ts
+  import { toNano } from '@ton/core';
+  import { SimpleContract } from '../wrappers/SimpleContract';
+  import { NetworkProvider } from '@ton/blueprint';
+
+  export async function run(provider: NetworkProvider) {
+
+    	// Edit this ID
+      const contractId = 1648n;
+      const simpleContract = provider.open(await SimpleContract.fromInit(contractId));
+
+      await simpleContract.send(
+          provider.sender(),
+          {
+              value: toNano('0.5'),
+          },
+          {
+              $$type: 'Deploy',
+              queryId: 0n,
+          },
+      );
+
+      // Deploy contract
+      await provider.waitForDeploy(simpleContract.address);
+      console.log(`Deployed at address ${simpleContract.address}`);
+
+      // run methods on `simpleContract`
+  }
+  ```
+</CodeGroup>
+
+Blueprint allows various deployment options; in this case, we'll use the CLI and the run command directly.
+
+<Info>
+  Find more methods in the [Blueprint SDK docs](https://github.com/ton-org/blueprint?tab=readme-ov-file#deploy-one-of-the-contracts).
+</Info>
+
+First, add environment variables from the terminal if you want to use the mnemonic phrase to use your wallet; you can also use Tonkeeper and the app from your phone (more secure).
+
+<CodeGroup>
+  ```bash Shell
+  export WALLET_MNEMONIC=""
+
+  export WALLET_VERSION="v4"
+  ```
+</CodeGroup>
+
+Run the `run` command and follow the instructions, we used the mnemonic deployment in this case.
+
+<CodeGroup>
+  ```bash Shell
+  npx blueprint run
+  ```
+</CodeGroup>
+
+Example result:
+
+<CodeGroup>
+  ```bash Shell
+  Using file: deploySimpleContract
+  ? Which network do you want to use? testnet
+  ? Which wallet are you using? Mnemonic
+  Connected to wallet at address: EQDrNXDLYKstXHj5xV6_md1nYvvrb6y6v4bFyTZReZ-vFYdx
+  Sent transaction
+  Contract deployed at address EQDVoYZ96Gtc-nQM0U4-rj0mporVOTlSpmB64Tn6HJax98VN
+  You can view it at https://testnet.tonscan.org/address/EQDVoYZ96Gtc-nQM0U4-rj0mporVOTlSpmB64Tn6HJax98VN
+  Deployed at address EQDVoYZ96Gtc-nQM0U4-rj0mporVOTlSpmB64Tn6HJax98VN
+  ```
+</CodeGroup>
+
+## Interact with the contract
+
+Read data from the contract. Make a new file in the `scripts` direcotry named `getCounter.ts`:
+
+<CodeGroup>
+  ```ts ts
+  import { SimpleContract } from '../wrappers/SimpleContract';
+  import { NetworkProvider } from '@ton/blueprint';
+
+  export async function run(provider: NetworkProvider) {
+      const contractId = 1648n; // Random in this case
+      const simpleContract = provider.open(await SimpleContract.fromInit(contractId));
+
+      const id = await simpleContract.getId();
+      const savedNumber = await simpleContract.getNumber();
+      const counter = await simpleContract.getCounter();
+
+      console.log(`Fethching smart contract data...`);
+      console.log(`Contract ID: ${id}`);
+      console.log(`Current saved number: ${savedNumber}`);
+      console.log(`Current counter: ${counter}`);
+  }
+  ```
+</CodeGroup>
+
+Run it with the same `run` command and follow the instructions:
+
+<CodeGroup>
+  ```bash Shell
+  npx blueprint run
+  ```
+</CodeGroup>
+
+Result:
+
+<CodeGroup>
+  ```bash Shell
+  ? Choose file to use
+  ? Choose file to use getCounter
+  ? Which network do you want to use?
+  ? Which network do you want to use? testnet
+  ? Which wallet are you using?
+  ? Which wallet are you using? Mnemonic
+  Connected to wallet at address: EQDrNXDLYKstXHj5xV6_md1nYvvrb6y6v4bFyTZReZ-vFYdx
+  Fethching smart contract data...
+  Contract ID: 1648
+  Current counter: 0
+  ```
+</CodeGroup>
+
+Now use the wallet to send a transaction, including the message "Save" and some TON token to save the value.
+
+Make a new script in `scripts` named `addValue`:
+
+<CodeGroup>
+  ```ts ts
+  import { toNano } from '@ton/core';
+  import { SimpleContract } from '../wrappers/SimpleContract';
+  import { NetworkProvider } from '@ton/blueprint';
+
+  export async function run(provider: NetworkProvider) {
+      const contractId = 1648n;
+      const simpleContract = provider.open(await SimpleContract.fromInit(contractId));
+
+      const id = await simpleContract.getId();
+      const counter = await simpleContract.getNumber();
+
+      console.log(`Sending increasing value...`);
+      console.log(`Contract ID: ${id}`);
+      console.log(`Current counter: ${counter}`);
+
+      // Call the Add function and add 7
+      await simpleContract.send(provider.sender(), { value: toNano('0.02') }, { $$type: 'Save', amount: 7n });
+  }
+  ```
+</CodeGroup>
+
+Follow the same process with the `run` command, then once the transaction is validated, you can run the get script to fetch the updated value.
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

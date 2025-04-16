@@ -1,0 +1,440 @@
+---
+title: "Avalanche: Aave V3 Flash Loan with Hardhat"
+---
+
+**TLDR**
+* You’ll configure a Hardhat project to interact with Aave V3 flash loans on Avalanche’s Fuji testnet.
+* You’ll use Chainstack for your Avalanche node endpoint and deploy a custom FlashLoan contract.
+* You’ll borrow USDC, then repay it plus fees in a single transaction, demonstrating a flash loan’s instant, collateral-free mechanics.
+* By the end, you’ll have a working Aave flash loan flow on a testnet environment ready for deeper custom logic.
+
+## Flash loans
+
+A flash loan is a type of loan that can be obtained instantly and without any collateral, unlike traditional loans that require time-consuming application processes and collateral such as property or assets. This type of loan is available through Aave, a decentralized lending platform, where borrowers can borrow any amount they need and repay it within a single transaction. The loan is secured by the borrower's smart contract and is only valid for the duration of that transaction. If the borrower cannot repay the loan and the associated fees within the same transaction, the loan is automatically canceled, and the transaction is reverted. Flash loans are often used in the context of cryptocurrency trading and arbitrage, as they enable traders to obtain funds quickly and cheaply to take advantage of market opportunities.
+
+For detailed documentation, see Aave Developers: [Flash Loans](https://docs.aave.com/developers/guides/flash-loans).
+
+The objective of this tutorial is to make you familiar with the Avalanche C-Chain, the [Hardhat framework](/docs/avalanche-tooling#hardhat), and the [Aave flash loans](https://docs.aave.com/faq/flash-loans).
+
+Specifically, in this tutorial, you will:
+
+* Deploy an Avalanche node on the Fuji testnet.
+* Create a flash loan project using Hardhat.
+* Run a flash loan on the Fuji testnet through an Avalanche node deployed with Chainstack.
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/) to deploy an Avalanche node.
+* [Node.js](https://nodejs.org/en/) as the JavaScript framework.
+* [Hardhat](https://hardhat.org/hardhat-runner/docs/getting-started#overview) to create, deploy, and interact with contracts.
+
+## Dependencies
+
+* Hardhat: ^2.12.7
+* @aave/core-v3: ^1.17.2
+* dotenv: ^16.0.3
+
+## Overview
+
+This tutorial shows you how to request a flash loan on the Fuji testnet to borrow USDC. To get from zero to an executed Aave V3 flash loan on the Avalanche Fuji C-Chain testnet, do the following:
+
+1. With Chainstack, create a public chain project.
+2. With Chainstack, join the Avalanche Fuji testnet.
+3. With Chainstack, access your Avalanche node endpoint.
+4. With Hardhat, create and set up an Aave flash loan project.
+5. With Hardhat, execute the flash loan through your Avalanche node.
+
+## Step-by-step
+
+### Create a public chain project
+
+See [Create a project](/docs/manage-your-project#create-a-project).
+
+### Join the Avalanche Fuji testnet
+
+See [Join a public network](/docs/manage-your-networks#join-a-public-network).
+
+### Get your Avalanche node endpoint
+
+See [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+
+### Fund your wallet
+
+Before diving into the flash loan project, make sure to top up your wallet with testnet AVAX and USDC tokens. Use the following faucets:
+
+* [Aave faucet](https://app.aave.com/faucet/) for USDC. Make sure you are on the Avalanche Market.
+* [Fuji faucet](https://faucet.avax.network/) for AVAX.
+
+### Install HardHat
+
+See [Installing Hardhat](https://hardhat.org/hardhat-runner/docs/getting-started#installation).
+
+### Create a Hardhat project
+
+Create a new directory for your project, then run the following from a terminal:
+
+<CodeGroup>
+  ```shell Shell
+  npx hardhat
+  ```
+</CodeGroup>
+
+This will launch the Hardhat CLI, which will prompt you to choose a starter project. For this project, answer **yes** to the following:
+
+* **Create a JavaScript project**
+* **Do you want to install this sample project's dependencies with npm (hardhat @nomicfoundation/hardhat-toolbox)?**
+
+### Install the required dependencies
+
+This project uses the [aave/core-v3](https://github.com/aave/aave-v3-core) package for the smart contracts and the [dotenv](https://github.com/motdotla/dotenv) package to safely use environment variables.
+
+Run the following command in your root directory to install:
+
+<CodeGroup>
+  ```shell Shell
+  npm i @aave/core-v3 dotenv
+  ```
+</CodeGroup>
+
+### Create a .env file
+
+In your project's root directory, create a new file and name it `.env`. Here is where you will set up the environment variables for your Chainststack Avalanche Fuji endpoint and your wallet's private key.
+
+<CodeGroup>
+  ```Text .env
+  PRIVATE_KEY="YOUR_WALLET_PRIVATE_KEY"
+  FUJI_CHAINSTACK="YOUR_CHAINSTACK_ENDPOINT"
+  ```
+</CodeGroup>
+
+Save it after you added your information.
+
+### Edit the Hardhat configuration file
+
+You will find a file named `hardhat.config.js` in the root directory. This file is used to configure various settings for your Hardhat projects, such as the network you want to deploy your contracts on, the compilers you want to use, and the plugins you want to enable.
+
+Delete the default code in the file and replace it with the following:
+
+<CodeGroup>
+  ```javascript hardhat.config.js
+  require("@nomicfoundation/hardhat-toolbox");
+  require("dotenv").config();
+
+  /** @type import('hardhat/config').HardhatUserConfig */
+  module.exports = {
+    solidity: "0.8.10",
+    networks: {
+      fuji: {
+        url: process.env.FUJI_CHAINSTACK,
+        accounts: [process.env.PRIVATE_KEY],
+      },
+    },
+  };
+  ```
+</CodeGroup>
+
+Let's break down what each part of the file does:
+
+* `require("@nomicfoundation/hardhat-toolbox");` imports the Hardhat Toolbox plugin, which provides several useful tools and utilities for Hardhat projects.
+* `require("dotenv").config();` loads environment variables from a `.env` file using the `dotenv` package.
+* `module.exports = { ... }` exports a JavaScript object containing the configuration for the Hardhat project.
+* `solidity: "0.8.10",` sets the Solidity compiler version to 0.8.10.
+* `networks: { ... }` defines the network configurations for the Hardhat project. In this case, it defines a network called `fuji` that connects to the Avalanche Fuji blockchain network.
+* `fuji: { ... }` defines the configuration for the `fuji` network.
+* `url: process.env.FUJI_CHAINSTACK,` sets the URL for the Fuji network using the `FUJI_CHAINSTACK` environment variable.
+* `accounts: [process.env.PRIVATE_KEY],` sets the accounts for the `fuji` network using the `PRIVATE_KEY` environment variable. This will allow the Hardhat project to deploy contracts and interact with the Fuji network using the specified private key.
+
+### Create the flash loan smart contract
+
+In the root directory, you will find a directory named `contracts` with a sample contract in it. Rename this contract to `FlashLoan.sol` and replace its code with the following:
+
+<CodeGroup>
+  ```sol FlashLoan.sol
+  // SPDX-License-Identifier: MIT
+
+  pragma solidity ^0.8.10;
+
+  import {FlashLoanSimpleReceiverBase} from "@aave/core-v3/contracts/flashloan/base/FlashLoanSimpleReceiverBase.sol";
+  import {IPoolAddressesProvider} from "@aave/core-v3/contracts/interfaces/IPoolAddressesProvider.sol";
+  import {IERC20} from "@aave/core-v3/contracts/dependencies/openzeppelin/contracts/IERC20.sol";
+
+  /**
+   * @title FlashLoan
+   * @dev A contract that demonstrates how to use Aave's flash loans. This contract can borrow any token from the Aave lending pool, perform custom logic with the borrowed funds, and repay the loan plus interest in a single transaction.
+   */
+
+  contract FlashLoan is FlashLoanSimpleReceiverBase {
+      address payable public owner; // The owner of this contract, who can withdraw funds.
+
+      /**
+       * @dev Constructor function that sets the address provider for the Aave lending pool and the contract owner.
+       * @param _addressProvider The address provider for the Aave lending pool.
+       */
+      constructor(address _addressProvider)
+          FlashLoanSimpleReceiverBase(IPoolAddressesProvider(_addressProvider))
+      {
+          owner = payable(msg.sender); // Set the contract owner to the creator of this contract.
+      }
+
+      /**
+       * @dev This function is called after this contract receives a flash loan. It executes custom logic with the borrowed funds and repays the loan plus interest to the Aave lending pool.
+       * @param asset The token being borrowed.
+       * @param amount The amount of the token being borrowed.
+       * @param premium The fee paid to the Aave lending pool.
+       * @param initiator The address that initiated the flash loan.
+       * @param params Additional parameters for the flash loan.
+       * @return true to indicate that the flash loan has been repaid.
+       */
+      function executeOperation(
+          address asset,
+          uint256 amount,
+          uint256 premium,
+          address initiator,
+          bytes calldata params
+      ) external override returns (bool) {
+
+          // This function is called by the Aave lending pool contract after this contract receives the flash loan.
+          // The asset parameter represents the token being borrowed, amount is the amount borrowed, and premium is the fee paid to the pool.
+          // 👇 Your custom logic for the flash loan should be implemented here 👇
+
+                      /** YOUR CUSTOM LOGIC HERE */
+
+          // 👆 Your custom logic for the flash loan should be implemented above here 👆
+          // Approve the lending pool contract to pull funds from this contract to pay back the flash loan.
+
+          uint256 amountOwed = amount + premium;
+          IERC20(asset).approve(address(POOL), amountOwed);
+
+          return true; // Return true to indicate that the flash loan has been repaid.
+      }
+
+      /**
+       * @dev Function to request a flash loan for a specified token and amount.
+       * receiverAddress The address of this contract, which will receive the flash loan.
+       * @param _token The token to be borrowed.
+       * @param _amount The amount of the token to be borrowed.
+       * params No additional parameters are needed.
+       * referralCode No referral code is used.
+       */
+      function requestFlashLoan(address _token, uint256 _amount) public onlyOwner {
+          address receiverAddress = address(this);
+          address asset = _token;
+          uint256 amount = _amount;
+          bytes memory params = "";
+          uint16 referralCode = 0;
+
+          // Call the Aave lending pool contract to initiate the flash loan.
+          POOL.flashLoanSimple(
+              receiverAddress,
+              asset,
+              amount,
+              params,
+              referralCode
+          );
+      }
+
+          /**
+       * @dev Get the balance of a specific token in this contract.
+       * @param _tokenAddress The address of the token to check the balance of.
+       * @return The balance of the specified token in this contract.
+       */
+      function getBalance(address _tokenAddress) external view returns (uint256) {
+          return IERC20(_tokenAddress).balanceOf(address(this));
+      }
+
+      /**
+       * @dev Withdraw a specific token from this contract to the contract owner's address.
+       * @param _tokenAddress The address of the token to withdraw.
+       */
+      function withdraw(address _tokenAddress) external onlyOwner {
+          IERC20 token = IERC20(_tokenAddress);                           // Create an instance of the token contract.
+          token.transfer(msg.sender, token.balanceOf(address(this)));     // Transfer the token balance to the contract owner.
+      }
+
+      /**
+       * @dev Modifier to ensure that only the contract owner can call a specific function.
+       */
+      modifier onlyOwner() {
+          require(
+              msg.sender == owner,
+              "You are not the owner!"
+          );
+          _;
+      }
+
+      /**
+       * @dev Fallback function to receive ETH payments.
+       */
+      receive() external payable {}
+  }
+  ```
+</CodeGroup>
+
+<Info>
+  ### Default flash loan logic
+
+  This smart contract receives the flash loan but performs no further actions on it. You will need to add your own logic.
+</Info>
+
+This smart contract is heavily commented on to explain its inner workings, but you can find more details on the [Aave docs](https://docs.aave.com/developers/guides/flash-loans).
+
+### Create the deploying and interacting script
+
+In the `scripts` directory inside the root of your project, you will find a file named `deploy.js`. Replace its content with the following:
+
+<CodeGroup>
+  ```javascript deploy.js
+  const { ethers } = require("hardhat");
+
+  // Contract addresses and other values
+  const AVA_FUJI_POOL_PROVIDER = "0x220c6A7D868FC38ECB47d5E69b99e9906300286A";
+  const USDC_ADDRESS = "0x6a17716Ce178e84835cfA73AbdB71cb455032456";
+  const USDC_DECIMALS = 6;
+  const FLASHLOAN_AMOUNT = ethers.utils.parseUnits("1000", USDC_DECIMALS);
+
+  // USDC tranfer function ABI
+  const USDC_ABI = ["function transfer(address to, uint256 value) external returns (bool)"];
+
+  async function main() {
+    try {
+      console.log("Deploying FlashLoan contract...");
+      const FlashLoan = await ethers.getContractFactory("FlashLoan");
+      const flashLoan = await FlashLoan.deploy(AVA_FUJI_POOL_PROVIDER);
+      await flashLoan.deployed();
+      console.log(`FlashLoan contract deployed at: ${flashLoan.address}`);
+      console.log(`View contract at: https://testnet.snowtrace.io/address/${flashLoan.address}`);
+      console.log("---------------------------------------------------------------\n");
+
+      // Transfer USDC to the FlashLoan contract
+      const erc20 = new ethers.Contract(USDC_ADDRESS, USDC_ABI, ethers.provider.getSigner());
+      const amount = ethers.utils.parseUnits("5", USDC_DECIMALS);
+
+      console.log(`Transferring ${amount / 1e6} USDC to the FlashLoan contract...`);
+      const transferErc20 = await erc20.transfer(flashLoan.address, amount);
+      console.log(`Transferred ${amount / 1e6} USDC tokens to the FlashLoan contract`);
+
+      console.log("Waiting for 1 block to verify the transfer...");
+      await transferErc20.wait(1); // Wait 1 block for the transaction to be verified to update the balance
+      console.log(`---------------------------------------------------------------\n`);
+
+      // Check USDC balance of the FlashLoan contract
+      const usdcBalance = await flashLoan.getBalance(USDC_ADDRESS);
+      console.log(`USDC balance of the FlashLoan contract is: ${usdcBalance / 1e6} USDC`);
+      console.log("---------------------------------------------------------------\n");
+
+      // Call flash loan
+      console.log(`Requesting a flash loan of ${FLASHLOAN_AMOUNT / 1e6} USDC...`);
+      const flashloanTx = await flashLoan.requestFlashLoan(USDC_ADDRESS, FLASHLOAN_AMOUNT);
+      console.log("Flash loan executed!");
+      console.log(`View transaction at: https://testnet.snowtrace.io/tx/${flashloanTx.hash}`);
+      await flashloanTx.wait(1); // Wait 1 block for the transaction to be verified to update the balance
+      console.log("---------------------------------------------------------------\n");
+
+      // Withdraw remaining USDC
+      const remainingUSDC = await flashLoan.getBalance(USDC_ADDRESS);
+      console.log(`Withdrawing ${remainingUSDC / 1e6} USDC from the FlashLoan contract...`);
+
+      const withdrawFunds = await flashLoan.withdraw(USDC_ADDRESS);
+      await withdrawFunds.wait(1); // Wait 1 block for the transaction to be verified
+      console.log(`Funds sent!`)
+      console.log(`View transaction at: https://testnet.snowtrace.io/tx/${withdrawFunds.hash}`);
+
+    } catch (error) {
+
+      console.error(error);
+      process.exitCode = 1;
+    }
+  }
+
+  main();
+  ```
+</CodeGroup>
+
+This code is a script that deploys a `FlashLoan` smart contract and uses it to request a flash loan of 1,000 USDC tokens.
+
+The script first sets some constants, including the addresses of the Aave pool provider and the USDC token on the Fuji testnet. Verify that the addresses are up to date on the [Aave docs](https://docs.aave.com/developers/deployed-contracts/v3-testnet-addresses#contract-name-changes-from-v2-greater-than-v3) by finding the addresses for `PoolAddressesProvider-Avalanche`and `USDC-TestnetMintableERC20-Avalanche`. The amount of USDC to be borrowed is also declared here.
+
+It then deploys the `FlashLoan` contract and transfers 5 USDC tokens to the contract from the deployer's account. To request flash loans, the smart contract must hold some of the tokens that you are planning to borrow; these tokens are used to repay the fee. On the V3 version, the fee is a fixed percentage, and you can find the updated fee value on the [Aave docs](https://docs.aave.com/developers/guides/flash-loans#flash-loan-fee).
+
+Next, the script checks the USDC balance of the `FlashLoan` contract, this is only for displaying it to the user, but you can easily implement some logic to stop the process if the funds to repay the borrowing fee are too low. It then requests a flash loan of 1,000 USDC tokens. Once the loan is executed, the remaining USDC tokens in the contract are withdrawn. The [Aave documentation](https://docs.aave.com/developers/guides/flash-loans#2.-calling-flashloan-or-flashloansimple) recommends not leaving any funds in the smart contract to avoid possible misuse by an attacker.
+
+The script uses the Hardhat development framework and the `ethers.js` library to interact with the blockchain network and the `FlashLoan` contract. It also prints out messages to the console at various points in the script's execution to provide information about the progress of the `FlashLoan` operation.
+
+### Run the flash loan
+
+To run the flash loan on the Fuji network, execute the following command in the console from your root directory:
+
+<CodeGroup>
+  ```shell Shell
+  npx hardhat run --network fuji scripts/deploy.js
+  ```
+</CodeGroup>
+
+This command will compile the smart contracts, deploy the FlashLoan contract and execute the operation
+
+The result in the console will look like the following:
+
+<CodeGroup>
+  ```shell Shell
+  Deploying FlashLoan contract...
+  FlashLoan contract deployed at: 0x77609a96E67455EcbBb3d8AD38567511dc587C54
+  View contract at: https://testnet.snowtrace.io/address/0x77609a96E67455EcbBb3d8AD38567511dc587C54
+  ---------------------------------------------------------------
+
+  Transferring 5 USDC to the FlashLoan contract...
+  Transferred 5 USDC tokens to the FlashLoan contract
+  Waiting for 1 block to verify the transfer...
+  ---------------------------------------------------------------
+
+  USDC balance of the FlashLoan contract is: 5 USDC
+  ---------------------------------------------------------------
+
+  Requesting a flash loan of 1000 USDC...
+  Flash loan executed!
+  View transaction at: https://testnet.snowtrace.io/tx/0xdcc41e8eec65f798aae643b99036f595137090fa777a729ce15c1a0397b247fa
+  ---------------------------------------------------------------
+
+  Withdrawing 4.5 USDC from the FlashLoan contract...
+  Funds sent!
+  View transaction at: https://testnet.snowtrace.io/tx/0x759fbd6c513e59f48001566b86d1358c329519f6e6096ffb1748ab3ff0b6f97c
+  ```
+</CodeGroup>
+
+<Info>
+### Possible compiler warnings
+
+  Note that you might receive two warnings from the Solidity compiler about two `Unused function parameter`. You can ignore the warnings as they do not stop the compiler or the execution of the flash loan. This is happening because the function is being overridden and the parameters are needed to keep the same function's signature.
+</Info>
+
+You can see how a completed deployment and flash loan looks like on the Fuji explorer by checking the following transactions:
+
+<CardGroup>
+  <Card title="Deployed FlashLoan contract" href="https://testnet.snowtrace.io/address/0x77609a96E67455EcbBb3d8AD38567511dc587C54" icon="angle-right" horizontal />
+  <Card title="Execute flash loan" href="https://testnet.snowtrace.io/tx/0xdcc41e8eec65f798aae643b99036f595137090fa777a729ce15c1a0397b247fa" icon="angle-right" horizontal />
+  <Card title="Withdraw funds" href="https://testnet.snowtrace.io/tx/0x759fbd6c513e59f48001566b86d1358c329519f6e6096ffb1748ab3ff0b6f97c" icon="angle-right" horizontal />
+</CardGroup>
+
+## Conclusion
+
+This tutorial guided you through setting up Hardhat to work with Chainstack nodes and creating a project to run your own flash loan transaction on the Avalanche network.
+
+This tutorial uses a testnet; however, the exact same instructions and sequence will work on the mainnet as well.
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

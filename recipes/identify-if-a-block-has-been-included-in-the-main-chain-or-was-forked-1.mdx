@@ -1,0 +1,135 @@
+---
+title: "Identify if a block has been included in the main chain or was forked"
+description: "This script uses web3.js to evaluate whether a specific block within a blockchain network has been integrated into the main chain or if it was a result of a reorg."
+---
+
+<AccordionGroup>
+<Accordion title="Prerequisites" >
+
+You will need a Chainstack account and an EVM-compatible node to follow this recipe.
+
+1. [Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+2. [Deploy a node](https://docs.chainstack.com/docs/manage-your-networks#join-a-public-network).
+3. [View node access and credentials](https://docs.chainstack.com/docs/manage-your-node#view-node-access-and-credentials).
+</Accordion>
+<Accordion title="Environment setup" >
+
+Install [node.js](https://nodejs.org/en/) in case it is not installed.
+
+Create a new directory for your project, then install the web3.js library.
+
+`npm install web3`
+
+</Accordion>
+<Accordion title="Initialize a provider instance" >
+
+Create a new file, `index.js`, import the web3.js library, and initialize a new provider instance using your Chainstack node URL.
+
+Paste your Chainstack node URL in the `NODE_URL` const.
+
+```js index.js
+const Web3 = require("web3");
+
+const NODE_URL = "YOUR_CHAINSTACK_ENDPOINT"
+const web3 = new Web3(NODE_URL)
+```
+</Accordion>
+<Accordion title="Create the function with the logic" >
+
+Add a function that takes a block number as a parameter, retrieves the block data using the `eth_getBlockByNumber` method, and compares its hash with the parent hash of the next block.
+
+This function returns `true` if the block is forked and `false` if it is not.
+
+You can remove the `console.log` statements from the function and only use its boolean returns.
+
+```js index.js
+// If the hash of the block to inspect is === to the parent hash of the next block, then this is not a forked block.
+async function isForked(block) {
+
+    const nextBlock = blockToInspect + 1
+    console.log(`Block to inspect: ${block}`)
+    console.log(`Next block: ${nextBlock} \n`)
+
+    const blockToInspectHash = (await web3.eth.getBlock(block, false)).hash
+    console.log(`Block hash of the block you are inspecting: ${blockToInspectHash} \n`)
+
+    const nextBlockParentHash = (await web3.eth.getBlock(nextBlock, false)).parentHash
+    console.log(`Parent hash of the next block: ${nextBlockParentHash} \n`)
+
+    if (String(nextBlockParentHash) == String(nextBlockParentHash)) {
+        console.log(`You are inspecting the correct block`)
+        return false
+
+    } else {
+        console.log(`You are inspecting a forked block!`)
+        return true
+    }
+}
+```
+</Accordion>
+<Accordion title="Call the function" >
+
+Now you can run the function. Add a `const` to specify which block to analyze.
+
+```js index.js
+const blockToInspect = 16394103
+isForked(blockToInspect)
+```
+</Accordion>
+<Accordion title="Understand the logic" >
+
+A block hash is generated through the application of a cryptographic hash function, which takes the block's data, including transactions and other information, as well as the hash of the parent block (the previous block), and outputs a unique, fixed-length digest. This hash represents the current block within the blockchain.
+
+The script compares the parent hash of the following block with the hash of the block under inspection. If the two values match, it can be concluded that the block was included in the main chain. Conversely, if the values do not match, it indicates that the block was not used to generate the hash of the next block and has therefore been excluded from the main chain, resulting in a forked block.
+</Accordion>
+</AccordionGroup>
+
+<RequestExample>
+```js index.js
+const Web3 = require("web3");
+
+const NODE_URL = "YOUR_CHAINSTACK_ENDPOINT"
+const web3 = new Web3(NODE_URL)
+
+// If the hash of the block to inspect is === to the parent hash of the next block, then this is not a forked block.
+async function isForked(block) {
+
+    const nextBlock = blockToInspect + 1
+    console.log(`Block to inspect: ${block}`)
+    console.log(`Next block: ${nextBlock} \n`)
+
+    const blockToInspectHash = (await web3.eth.getBlock(block, false)).hash
+    console.log(`Block hash of the block you are inspecting: ${blockToInspectHash} \n`)
+
+    const nextBlockParentHash = (await web3.eth.getBlock(nextBlock, false)).parentHash
+    console.log(`Parent hash of the next block: ${nextBlockParentHash} \n`)
+
+    if (String(nextBlockParentHash) == String(nextBlockParentHash)) {
+        console.log(`You are inspecting the correct block`)
+        return false
+
+    } else {
+        console.log(`You are inspecting a forked block!`)
+        return true
+    }
+}
+
+const blockToInspect = 16394103
+isForked(blockToInspect)
+```
+</RequestExample>
+
+<ResponseExample>
+```bash
+$ node index
+
+  'Block to inspect: 16394103
+  'Next block: 16394104
+
+  'Block hash of the block you are inspecting: 0x819f79970003b8c7d51071001509406d9f51aa734aaf69aff506959abdcc2d55
+
+  'Parent hash of the next block: 0x819f79970003b8c7d51071001509406d9f51aa734aaf69aff506959abdcc2d55
+
+  'You are inspecting the correct block
+```
+</ResponseExample>

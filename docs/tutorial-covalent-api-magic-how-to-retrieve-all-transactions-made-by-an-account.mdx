@@ -1,0 +1,290 @@
+---
+title: "Covalent API Magic: How to Retrieve all Transactions made by an Account"
+---
+
+<Warning>
+  ### Deprecation notice
+
+  Covalent support has been deprecated. This guide is for historical reference.
+</Warning>
+
+Covalent is a powerful new addition to the Chainstack Marketplace. It is more convenient than ever to gain access and query data using the Covalent API directly from the Chainstack console.
+
+In this tutorial, we'll guide you through how to use the Covalent **Get transactions for address** API to create a JavaScript project to retrieve all transactions ever sent from an Ethereum address in one go.
+
+## Understanding Covalent
+
+Covalent is a powerful tool that offers unified APIs to access a broad range of data, including event logs for smart contracts, token balances, historical pricing, transaction records, and more. This capability enables developers and analysts to obtain blockchain data for creating decentralized applications, conducting in-depth data analysis, and gaining valuable insights into the ever-changing blockchain ecosystem.
+
+The Covalent API has a unified design that eliminates the need to deal with the complexities of interfacing with multiple blockchains. This saves developers time and energy while improving the user experience for navigating blockchain data.
+
+## Setting up the project environment
+
+In this section, we will set up the environment required for our JavaScript project, including installing node.js and the required packages.
+
+### Prerequisites
+
+For this project, you will need the following:
+
+* node.js installed on your machine to run JavaScript code; [download and install](https://nodejs.org/en) the latest version of node.js from the official website.
+
+* Access to Covalent itself. To get it, do the following:
+
+  1. [Purchase and install](https://console.chainstack.com/marketplace/covalent) the Covalent app on the Chainstack Marketplace.
+  2. [Generate a Chainstack API key](/api-reference/platform-api-getting-started#create-api-key) if you don't have one.
+  3. [Claim your JSON web token](https://api.chainstack.com/reference/#operation/retrieveToken) required to access Covalent API.
+
+<Warning>
+  ### JWT lifecycle
+
+  Don't forget to renew your JWT each hour.
+</Warning>
+
+<Info>
+  Learn more about JTWs by reading [Mastering JSON web tokens: How to implement secure user authentication](/docs/tutorial-mastering-jwt-how-to-implement-secure-user-authentication).
+</Info>
+
+### Initialize a new project
+
+The first step is to initialize a new node.js project.
+
+Create a new directory for your project and navigate to it in your terminal or command prompt. Then run the following:
+
+<CodeGroup>
+  ```bash Shell
+  npm init -y
+  ```
+</CodeGroup>
+
+This will create a `package.json` file in your project directory, which will store your project's dependencies and other information.
+
+### Install the required dependencies
+
+For this project, we will use the [Axios package](https://axios-http.com/docs/intro) to make HTTP requests and the [dotenv package](https://github.com/motdotla/dotenv) to manage environment variables.
+
+Install both packages by running the following command in your project directory:
+
+<CodeGroup>
+  ```bash Shell
+  npm install axios dotenv
+  ```
+</CodeGroup>
+
+### Set up the environment variables
+
+It is good practice to use secure environment variables even in a developing or a learning environment; for this reason, we use the dotenv library to manage the Access token.
+
+Create a file named `.env` in your root directory and add your Covalent JSON web token (JWT) in the following format:
+
+<CodeGroup>
+  ```bash Shell
+  COVALENT_JWT_TOKEN="<YOUR_COVALENT_JWT_TOKEN>"
+  ```
+</CodeGroup>
+
+<Info>
+  Using a `.env` file allows you to reduce the risk of exposing secrets. Read [How to store your Web3 DApp secrets: Guide to environment variables](/docs/how-to-store-your-web3-dapp-secrets-guide-to-environment-variables) to learn more about keeping your secrets safe.
+</Info>
+
+## Coding the program
+
+Now that the environment is ready, we have all the tools to start coding. The goal is to use the Covalent API to retrieve every transaction ever made by an Ethereum address. In this tutorial, we target Ethereum, but you can use this code for any chain supported by the Covalent API.
+
+Create a new file in the root directory named `index.js` and paste the following code:
+
+<CodeGroup>
+  ```js index.js
+  const axios = require('axios');
+  require('dotenv').config();
+
+  /**
+   * ChainstackApi class provides methods to interact with the Chainstack API.
+   * In this case it uses Axios to call the Covalent API.
+   */
+   class ChainstackApi {
+         /**
+       * Constructor for the ChainstackApi class.
+       * Initializes the JWT Token.
+       */
+      constructor() {
+        this.COVALENT_JWT_TOKEN = process.env.COVALENT_JWT_TOKEN
+      }
+
+    /**
+     * Fetch all transactions ever made by a wallet address on a given blockchain.
+     * @param {string} chainName - The blockchain name (e.g. 'eth-mainnet').
+     * @param {string} walletAddress - The wallet address to fetch transactions for.
+     * @param {string} currency - The quote currency (e.g. 'USD').
+     * @param {boolean} noLogs - Whether to exclude logs from the response.
+     * @returns {Promise<Object>} - The transaction data.
+     */
+
+    async fetchTransactions(chainName, walletAddress, currency, noLogs) {
+      try {
+        const response = await axios.get(`https://api.covalenthq.com/v1/${chainName}/address/${walletAddress}/transactions_v2/?quote-currency=${currency}&no-logs=${noLogs}`, {
+          headers: {
+            'Authorization': `Bearer ${this.COVALENT_JWT_TOKEN}`
+          }
+        });
+
+        return response.data;
+      } catch (error) {
+        console.error('Error fetching transactions:', error);
+        throw error;
+      }
+    }
+  }
+
+  async function main() {
+    try {
+
+      // Define the settings
+     const chainstack = new ChainstackApi();                              // create a new instance of the Chainstack API using the API key
+     const chainName = 'eth-mainnet';                                     // define the blockchain network to fetch transactions from
+     const walletAddress = '0x48D46B9E4093ebED3E269454975A433EeA08d5eA';  // define the wallet address to query transactions from
+     const currency = 'USD';                                              // define the currency in which the values should be returned
+     const noLogs = true;                // define whether we need to include event logs with the response. true = no logs, false = logs
+
+      const { data: transactionsData } = await chainstack.fetchTransactions(chainName, walletAddress, currency, noLogs);
+      console.log(transactionsData);
+
+    } catch (error) {
+
+      console.error('Error:', error);
+    }
+  }
+
+  main();
+  ```
+</CodeGroup>
+
+### Understanding the code
+
+The code defines a `ChainstackApi` class to interact with the **Get transactions for address** from the Covalent API using Axios.
+
+It fetches every transaction ever made by an address on a given blockchain network, the Ethereum mainnet in this example. Here's how the code works step by step:
+
+<Steps>
+  <Step>
+  Define the `ChainstackApi` class with a constructor that initializes the JWT and creates an encoded key for authentication.
+
+   * The constructor sets `COVALENT_JWT_TOKEN` to the value from the environment variable.
+  </Step>
+  <Step>
+  Define the `fetchTransactions` method within the `ChainstackApi` class.
+
+   * This method takes four parameters: `chainName`, `walletAddress`, `currency`, and `noLogs`.
+
+     You can use the `noLogs` option to decide whether you want to retrieve the logs or not; depending on your need, keeping the logs off can save some resources, as logs are usually an extensive response.
+
+   * It sends a GET request to the Covalent API using Axios, passing the parameters as part of the URL and the encoded key in the headers.
+
+   * If the request is successful, it returns the transaction data. If there's an error, it logs the error and throws it.
+  </Step>
+  <Step>
+  Define the `main` async function that:
+
+   * Create a new instance of the `ChainstackApi` class.
+   * Defines the required parameters: `chainName`, `walletAddress`, `currency`, and `noLogs`.
+   * Calls the `fetchTransactions` method of the `ChainstackApi` instance and destructures the `data` property from the response, storing it in `transactionsData`.
+   * Logs the `transactionsData` to the console.
+   * If an error occurs during the execution, log the error.
+  </Step>
+  <Step>
+  Invoke the `main` function to execute the code.
+  </Step>
+</Steps>
+
+<Info>
+  This program is designed to be modular, so you can add more methods to the `ChainstackApi` class and then export it with `module.exports = ChainstackApi;`.
+
+  This allows you to import the `ChainstackApi` class into other files and use its methods. Import it with this line, `const ChainstackApi = require('./PATH_TO_YOUR_FILE')`.
+</Info>
+
+### Run the code and understand the response
+
+To run the code, simply save the file and run it with the `node` command:
+
+<CodeGroup>
+  ```bash Shell
+  node index
+  ```
+</CodeGroup>
+
+This code extracts the `transactionsData` object from the response, which includes general information and an `items` object listing the details of every transaction.
+
+Example of a response:
+
+<CodeGroup>
+  ```Json JSON
+  {
+    address: '0x48d46b9e4093ebed3e269454975a433eea08d5ea',
+    updated_at: '2023-03-31T18:24:09.576722810Z',
+    next_update_at: '2023-03-31T18:29:09.576723755Z',
+    quote_currency: 'USD',
+    chain_id: 1,
+    chain_name: 'eth-mainnet',
+    items: [
+      {
+        block_signed_at: '2023-03-31T18:03:23Z',
+        block_height: 16948837,
+        tx_hash: '0x103b93a32311b5c28096f9b7b5ae22dec3d7abd4d9f0015bbfeda413bdcbd1ea',
+        tx_offset: 188,
+        successful: true,
+        from_address: '0x48d46b9e4093ebed3e269454975a433eea08d5ea',
+        from_address_label: null,
+        to_address: '0x914ee2fce9a6bccfd170d6ea40e2db8076ac4cd8',
+        to_address_label: null,
+        value: '850000000000000000',
+        value_quote: 1549.5949279785157,
+        gas_offered: 21000,
+        gas_spent: 21000,
+        gas_price: 28041233487,
+        fees_paid: '588865903227000',
+        gas_quote: 1.0735336669412312,
+        gas_quote_rate: 1823.0528564453125
+      },
+    ],
+    pagination: {
+      has_more: false,
+      page_number: 0,
+      page_size: 100,
+      total_count: null
+    }
+  }
+  ```
+</CodeGroup>
+
+From here, you can add your own logic to extract the kind of data that you need and process it to build cool Web3 applications.
+
+## More Covalent APIs
+
+In this tutorial, we focused on the **Get transactions for address** API specifically but Covalent offers many unified APIs, including balances, historical prices, and NFTs.
+
+You can use the code we made today with any of the unified APIs available; simply add the request as a method in the `ChainstackApi` class.
+
+<Info>
+  Find a list of unified APIs available on the [Covalent docs](https://www.covalenthq.com/docs/unified-api/).
+</Info>
+
+## Conclusion
+
+This article showed you how to use Covalent's API to retrieve all transactions made by an Ethereum address. By leveraging the power of Covalent and the convenience of Chainstack Marketplace, developers can access a wide range of blockchain data without dealing with the complexities of multiple blockchains.
+
+By following the steps outlined in this tutorial, you can create a JavaScript project that retrieves all transactions sent from an Ethereum address and adapt it for other blockchains supported by Covalent. You can also build upon this foundation to explore more Covalent APIs for various use cases, like getting token balances, historical pricing, and NFT data. The potential applications of this knowledge are vast, enabling you to create powerful Web3 applications, perform in-depth data analysis, and gain insights into the ever-evolving blockchain ecosystem.
+
+### About the author
+
+<CardGroup>
+  <Card title="Davide Zambiasi" img="/images/docs/profile_images/1533079085001363457/1VvXp1m0_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on EVM, The Graph protocol, and Starknet
+
+    <Icon icon="laptop"  iconType="solid"/> Helping people understand Web3 and blockchain development
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/soos3d)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/web3Dav3)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/davide-zambiasi/)
+  </Card>
+</CardGroup>

@@ -1,0 +1,536 @@
+---
+title: "Introduction to Smart Contract Auditing Using Foundry"
+---
+
+**TLDR**
+
+* Smart contract auditing is vital due to the immutable nature of on-chain code – once deployed, bugs and vulnerabilities can’t be easily patched.
+* Manual auditing (plus tools like Slither and Foundry) helps discover issues such as reentrancy, overflow/underflow, or weak pseudo-randomness before they cause real damage.
+* Following best practices—like checks-effects-interactions, mutex locks, proper random number generation, and robust testing—strengthens contract security.
+* Thoroughly documenting discovered vulnerabilities and their fixes fosters trust and ongoing improvement in the auditing process.
+
+## Main article
+
+Smart contract auditing is the process of reviewing and evaluating the code of a smart contract to identify potential security vulnerabilities, bugs, and other issues that may impact the contract's functionality. There are two main types of auditing: manual auditing and automated auditing. Manual auditing involves reviewing the code line-by-line and using tools like Slither to identify potential issues. Automated auditing involves using software tools to scan the code and identify potential vulnerabilities. The need to audit smart contracts is critical, as smart contracts are immutable and can cause significant harm if they contain security vulnerabilities.
+
+In this project, we will provide an overview of smart contract auditing, with a focus on manual auditing techniques. We will also cover common attack vectors, such as reentrancy, replay attacks, and overflows, and provide code examples and snippets to demonstrate how to use tools like Slither in auditing contracts, as well as how to test and report on identified issues.
+
+The purpose of smart contract auditing is to guarantee that the contract works as it should and that the code is safe from malicious attacks and unforeseen outcomes.
+
+### Why audit smart contracts?
+
+Auditing smart contracts is critical, as smart contracts are self-executing and immutable once deployed on the blockchain. This means that once a smart contract is deployed, its code and behavior cannot be changed, making it important to identify and resolve any security vulnerabilities before deployment.
+
+Smart contracts are often used to manage and transfer valuable assets, such as cryptocurrencies, on the blockchain. If a smart contract contains security vulnerabilities, it can be exploited by malicious actors, leading to the loss of these assets. For example, a smart contract that has a vulnerability that allows someone to steal funds from the contract can result in a significant financial loss for the contract's users.
+
+Additionally, smart contracts are designed to be autonomous and self-executing, meaning they can perform actions automatically without the need for human intervention. This is both a strength and a weakness of smart contracts, as a vulnerability in the code can cause the contract to behave in unintended ways, such as sending funds to the wrong address or executing code in an infinite loop.
+
+In short, auditing smart contracts is important because it helps identify and resolve potential security vulnerabilities and bugs, ensuring that the contract behaves as intended and provides the necessary security for users and their assets.
+
+## Auditing smart contracts manually with Slither and Foundry
+
+### What is Slither?
+
+Slither is a tool for making smart contracts more secure. It was created by **Trail Of Bits** and was first released to the public in 2018. Slither is a type of software that helps check the security of smart contracts. It's written in Python and looks for potential problems in the code of a smart contract.
+
+Slither has different types of checks built into it to help find different kinds of security issues. It also provides information about the details of the smart contract and has an API that makes it easy to add custom checks. This tool helps developers find and fix problems, understand the code better, and create custom checks as needed.
+
+Slither works by analyzing the code of a smart contract and looking for specific patterns and code snippets that are known to be vulnerable. Once Slither has identified potential vulnerabilities in the code, it generates a report that highlights the issues and provides recommendations for how to fix them.
+
+### Install Slither
+
+Slither requires [solc](https://docs.soliditylang.org/en/latest/installing-solidity.html), the Solidity compiler, and [Python 3.8+](https://www.python.org/downloads/). I also recommend creating a new Python virtual environment for this project:
+
+<CodeGroup>
+  ```shell Shell
+  python3 -m venv audits
+  ```
+</CodeGroup>
+
+Install Slither using pip by running the following command:
+
+<CodeGroup>
+  ```shell Shell
+  pip3 install slither-analyzer
+  ```
+</CodeGroup>
+
+<Info>
+  To learn more about other installation methods, check out the [Slither repository](https://github.com/crytic/slither#how-to-install).
+</Info>
+
+Next, install the [Slither extension](https://marketplace.visualstudio.com/items?itemName=trailofbits.slither-vscode) in VS Code.
+
+### What is Foundry?
+
+Foundry is a toolkit for building applications on the Ethereum blockchain. It's written in a programming language called Rust and is designed to be fast, flexible, and easy to use.
+
+Foundry is made up of several different tools that work together to make building and testing Ethereum applications easier. Some of the tools include:
+
+* Forge — a testing framework for Ethereum applications, similar to other testing frameworks like Truffle, Hardhat, and DappTools.
+* Cast — a tool that helps you interact with smart contracts on the Ethereum blockchain. You can use it to send transactions and get information about the blockchain.
+* Anvil — a local Ethereum node, similar to Ganache and Hardhat Network, that you can use to test your applications.
+* Chisel — a Solidity REPL (Read-Eval-Print-Loop) that lets you test and run Solidity code in a fast, efficient, and verbose way.
+
+Each of these tools is designed to make different parts of the Ethereum development process easier and more efficient, and when used together, they provide a comprehensive toolkit for building and testing Ethereum applications.
+
+<Info>
+  Learn more about Foundry from our [workshop with Learn Web3 DAO](https://github.com/chainstacklabs/learnweb3dao-foundry-workshop).
+</Info>
+
+### Install Foundry
+
+To get started with Foundry, you need to install a tool called `foundryup`. Here's how:
+
+1. Open your terminal and run this command (for Linux and macOS):
+
+   <CodeGroup>
+     ```bash cURL
+     curl -L https://foundry.paradigm.xyz | bash
+     ```
+   </CodeGroup>
+
+2. Once you've got the installation script, open a new terminal or make sure your PATH is up-to-date. Then, run the following command:
+
+   <CodeGroup>
+     ```shell Shell
+     foundryup
+     ```
+   </CodeGroup>
+
+That's it! You're now ready to start using Foundry. If you require additional information or assistance, please visit the Foundry [repository](https://github.com/foundry-rs/foundry#installation) or check out the [Foundry book](https://book.getfoundry.sh/getting-started/installation).
+
+## Auditing smart contracts
+
+Before we dive into the smart contract auditing process, let's take a moment to familiarize ourselves with the steps involved. The auditing journey typically unfolds as follows:
+
+1. **Test execution**. We kick off the process by running a series of tests on the smart contract code. This helps us spot any potential hiccups that might be lurking in the code.
+2. **Specification and documentation review**. Next, we immerse ourselves in the specifications and documentation of the smart contract. This deep dive gives us a comprehensive understanding of the contract's inner workings.
+3. **Fast tool utilization**. Here, we employ rapid-fire tools like Slither to swiftly pinpoint potential vulnerabilities and security issues in the code.
+4. **Manual analysis**. Post the automated tests and tool usage, we conduct a meticulous manual analysis of the code. This step helps us catch any issues that might have slipped through the automated checks.
+5. **Discussion**. We then engage in a detailed discussion about the identified issues. This dialogue ensures a thorough understanding of the problem and helps us chart out the most effective course of action.
+6. **Report compilation**. The final step involves crafting a comprehensive report that documents all the identified issues, along with recommendations for rectifying the problems. This report serves as a valuable reference for future updates or audits of the smart contract.
+
+Let's jump into auditing a code base!
+
+Remember, we'll be working on the project using Foundry and Slither. [Find the repository on GitHub](https://github.com/chainstacklabs/smart-contracts-audit-foundry-slither).
+
+First, clone the repository
+
+<CodeGroup>
+  ```shell Shell
+  $ git clone https://github.com/chainstacklabs/smart-contracts-audit-foundry-slither.git
+  $ cd audit-practice
+  $ forge install
+  $ forge build
+  ```
+</CodeGroup>
+
+In the `audit/src` directory, there are three contracts written in Solidity. We will be using these contracts for this tutorial.
+
+You can do static analysis with Slither in two ways. You can either use it in the terminal or as an [extension](https://marketplace.visualstudio.com/items?itemName=trailofbits.slither-vscode) in VS Code. We'll explain both options so it's easy to understand.
+
+In your terminal, run the `slither` command:
+
+<CodeGroup>
+  ```shell Shell
+  slither .
+  ```
+</CodeGroup>
+
+<Info>
+  The command `slither .` analyzes all Solidity files within the current directory, as denoted by the `.` symbol. Slither scans these files, generating a comprehensive report that outlines potential vulnerabilities, bugs, and areas of concern regarding code quality within the smart contracts.
+</Info>
+
+You will find the results categorized into three groups: high vulnerabilities (red), medium vulnerabilities (yellow), and low vulnerabilities (green). You can conveniently get the same outcome by using the Slither extension in VS Code. Simply click the Slither icon and proceed to run it.
+
+<Frame>
+  <img src="/images/docs/109627e-slither-extension-report.png" alt="Example of Slither report" />
+</Frame>
+
+Slither found two high-level risks:
+
+* `Lottery.endLottery() (src/OverUnderFlowVul.sol#25-33) uses a weak PRNG`
+* `Reentrancy in ReentrancyExample.withdraw(uint256) (src/ReentrancyExample.sol#11-16)`
+
+<Frame>
+  <img src="/images/docs/9b4e5fc-results.png" alt="High-level risks example" />
+</Frame>
+
+If you examine closely, you'll see that Slither missed a major problem in the `OverUnderVul.sol` contract and `ReplayVul.sol`. That's why it's important to also manually go through the code one line at a time.
+
+<Info>
+  Please note that the following examples are for educational purposes only, and modern versions of Solidity might already include checks to avoid some of the issues explained here.
+</Info>
+
+### Overflow and underflow vulnerabilities
+
+Let’s go over `OverUnderVul.sol`, which is a lottery contract, first.
+
+<CodeGroup>
+  ```solidity solidity
+  // SPDX-License-Identifier: MIT
+  pragma solidity ^0.8.0;
+
+  contract Lottery {
+      address public owner;
+      uint public jackpot;
+      mapping(address => uint) public balances;
+      address[] public players;
+      bool public isEnded;
+
+      constructor() {
+          owner = msg.sender;
+          jackpot = 0;
+          isEnded = false;
+      }
+
+      function buyTicket() public payable {
+          require(!isEnded, "Lottery has ended");
+          require(msg.value == 1 ether, "Please send 1 ether to buy a ticket");
+          players.push(msg.sender);
+          balances[msg.sender] += msg.value;
+          jackpot += msg.value;
+      }
+
+      function endLottery() public {
+          require(msg.sender == owner, "Only owner can end the lottery");
+          require(!isEnded, "Lottery has already ended");
+          isEnded = true;
+          uint winnerIndex = uint(blockhash(block.number - 1)) % players.length;
+          address winner = players[winnerIndex];
+          balances[winner] += jackpot;
+          jackpot = 0;
+      }
+  }
+  ```
+</CodeGroup>
+
+After thoroughly reviewing the contract, it has been discovered that there are potential vulnerabilities with both overflow and underflow.
+
+* An overflow vulnerability exists in the jackpot variable. If the sum of all ticket purchases exceeds the maximum value that can be stored in a `uint` variable, which is 2^256-1, the jackpot variable will reset to zero. This can result in the winner receiving an incomplete prize and cause unexpected behavior in other areas of the contract. 2^256-1 is a very big number, but it’s better to cover every possibility.
+* In the `balances[msg.sender] += msg.value;` line, the balance is also susceptible to overflow.
+* An underflow vulnerability exists in the balance mapping. If a player withdraws more funds than they have in their balance, the balance will underflow and wrap around to the maximum value of a `uint` variable. This allows them to withdraw a large amount of funds they do not own and could be exploited by malicious actors to steal funds from the contract.
+
+*To prevent these vulnerabilities, the contract could add additional checks to ensure that the jackpot and balance variables do not overflow or underflow. For example, the contract could limit the maximum value of the jackpot. The contract could also check that a player has sufficient funds before allowing them to withdraw any amount.*
+
+### Modifying and writing PoC for the `OverUnderVul.sol` contract
+
+Here is a modified version of the lottery contract in the `OverUnderFlowVul.sol` file that includes checks to prevent overflow and underflow vulnerabilities:
+
+<CodeGroup>
+  ```solidity solidity
+  // SPDX-License-Identifier: MIT
+  pragma solidity 0.8.0;
+
+  contract Lottery {
+  address public owner;
+  uint256 public jackpot;
+  mapping(address => uint256) public balances;
+  address[] public players;
+  bool public isEnded;
+
+  constructor() {
+      owner = msg.sender;
+      jackpot = 0;
+      isEnded = false;
+  }
+
+  function buyTicket() public payable {
+      require(!isEnded, "Lottery has ended");
+      require(msg.value == 1 ether, "Please send 1 ether to buy a ticket");
+      players.push(msg.sender);
+      require(balances[msg.sender] + msg.value > balances[msg.sender], "Balance overflow");
+      balances[msg.sender] += msg.value;
+      require(jackpot + msg.value > jackpot, "Jackpot overflow");
+      jackpot += msg.value;
+  }
+
+  function endLottery() public {
+      require(msg.sender == owner, "Only owner can end the lottery");
+      require(!isEnded, "Lottery has already ended");
+      isEnded = true;
+      uint256 winnerIndex = uint256(blockhash(block.number - 1)) % players.length;
+      address winner = players[winnerIndex];
+      require(jackpot > 0, "No jackpot to award");
+      balances[winner] += jackpot;
+      require(balances[winner] >= jackpot, "Balance underflow");
+      jackpot = 0;
+  }
+  }
+  ```
+</CodeGroup>
+
+The following are the contract modifications:
+
+* Two checks for the jackpot and balance overflow have been added to the `buyTicket` function to ensure that the jackpot and balance do not exceed the maximum value of a `uint256` variable.
+
+  The line `require(jackpot + msg.value > jackpot, "Jackpot overflow");` ensures that the new value of `jackpot` (after adding `msg.value`) is indeed greater than the current `jackpot` value. If it's not, this means an overflow has occurred, and the function will revert due to the `require` statement.
+
+  The balance check follows the same principle.
+
+* A check for balance underflow has been added to the endLottery function to ensure the winner's balance does not go below zero when adding the jackpot amount.
+
+  The line `require(balances[winner] >= jackpot, "Balance underflow");` ensures that the new balance of the `winner` (after adding the `jackpot`) is indeed greater than or equal to the `jackpot` value. If it's not, this means an underflow has occurred, and the function will revert due to the `require` statement.
+
+### Weak pseudo-random number generator warning
+
+Now that we covered those vulnerabilities let’s talk about the big one. The use of a weak pseudo-random number generator (PRNG) in your `endLottery()` function as highlighted by Slither.
+
+The line `uint256 winnerIndex = uint256(blockhash(block.number - 1)) % players.length;` is trying to generate a pseudo-random number to select a winner from the `players` array. However, Slither is warning you that this method of generating random numbers is not secure.
+
+The `blockhash` function returns the hash of the given block number, and in this case, it's the hash of the previous block (`block.number - 1`). The issue is that block hash, block number, and other similar variables are public on the blockchain. This means that validators (or anyone else) who can see these variables could potentially manipulate the outcome to their advantage.
+
+In the context of a lottery, this could mean that a validator might be able to influence the result to ensure they win, which would be a major security vulnerability. Therefore, it's generally recommended to use a more secure method for generating random numbers in a smart contract, which generally includes a service like [Chainlink VRF](/docs/smart-contracts-glossary#chainlink-vrf).
+
+<Info>
+  Learn more about Chainlink VRF from our [Chainlink VRF Tutorial with Foundry](https://chainstack.com/using-chainlinks-vrf-with-foundry/).
+</Info>
+
+The following is a **PoC** contract factory that deploys and interacts with the modified contract:
+
+<CodeGroup>
+  ```solidity solidity
+  // SPDX-License-Identifier: MIT
+  pragma solidity ^0.8.0;
+
+  import "./OverUnderFlowVul.sol";
+
+  contract LotteryPOC {
+      OverUnderFlowVul public lottery;
+
+      constructor() {
+          lottery = new OverUnderFlowVul();
+      }
+
+      function buyTickets(uint256 numTickets) public payable {
+          for (uint256 i = 0; i < numTickets; i++) {
+              lottery.buyTicket{value: 1 ether}();
+          }
+      }
+
+      function endLottery() public {
+          lottery.endLottery();
+      }
+
+      function withdraw() public {
+          uint256 balance = lottery.balances(msg.sender);
+          require(balance > 0, "No funds to withdraw");
+          lottery.balances(msg.sender) = 0;
+          payable(msg.sender).transfer(balance);
+      }
+  }
+  ```
+</CodeGroup>
+
+The contract is a proof of concept that deploys an instance of the lottery contract. The contract provides three methods to the user: `buyTickets`, `endLottery`, and `withdraw`. The `buyTickets` method allows the user to buy a specified number of tickets, and the `endLottery` method allows the owner of the lottery contract to end the lottery and select a winner. Finally, the `withdraw` method allows players to withdraw their winnings.
+
+These changes were made to prevent vulnerabilities related to overflow and underflow in the lottery contract. By making these changes, the lottery contract is now more secure and fair for all players.
+
+### Almost-replay vulnerability
+
+Now, let's go over `ReplayVul.sol` which is a simple NFT marketplace contract.
+
+<CodeGroup>
+  ```solidity solidity
+  // SPDX-License-Identifier: MIT
+
+  pragma solidity ^0.8.0;
+
+  contract SimpleNFTMarketplace {
+      mapping(address => uint256) public balances;
+      mapping(uint256 => address) public tokenOwners;
+
+      function buyToken(uint256 _tokenId, uint256 _price) public {
+          require(tokenOwners[_tokenId] != address(0), "Token does not exist");
+          require(balances[msg.sender] >= _price, "Insufficient balance");
+          balances[msg.sender] -= _price;
+          balances[tokenOwners[_tokenId]] += _price;
+          tokenOwners[_tokenId] = msg.sender;
+      }
+  }
+  ```
+</CodeGroup>
+
+This contract has a vulnerability that allows a user to manipulate the ownership of a token by calling the `buyToken` function. Specifically, if an attacker has already obtained ownership of a token, they can call the `buyToken` function with the same `_tokenId` parameter and a very low `_price` parameter. Since the attacker already owns the token, the `tokenOwners[_tokenId] != address(0)` check will pass, and the `require(balances[msg.sender] >= _price)` check will also pass since the attacker can set the price to a very low value.
+
+As a result, the attacker's balance will be decreased by the `_price` amount, while the previous owner's balance will be increased by the same amount. Additionally, the ownership of the token will be transferred to the attacker. This can be repeated multiple times by the attacker to keep acquiring ownership of the same token at a very low cost.
+
+This vulnerability is not a replay attack in the traditional sense, as it doesn't involve replaying transactions on different networks or with different nonces. Instead, it's a form of attack where a token owner can "buy" their own token at any price, potentially draining the contract's balance.
+
+One way to do this is by introducing a nonce parameter in the `buyToken` function that must be incremented every time the function is called. This would ensure that each transaction is unique but it doesn't directly address the issue of a token owner buying their own token.
+
+To address this issue, a more direct solution would be to add a `require` statement to the `buyToken` function that checks if `msg.sender` is not the current owner of the token. This would prevent the token owner from buying their own token, thus mitigating the vulnerability. As always, it's crucial to thoroughly test and audit your contract before deploying it to a live network.
+
+Here's the updated contract with the nonce check implemented:
+
+<CodeGroup>
+  ```solidity solidity
+  // SPDX-License-Identifier: MIT
+
+  pragma solidity ^0.8.0;
+
+  contract SimpleNFTMarketplace {
+      mapping(address => uint256) public balances;
+      mapping(uint256 => address) public tokenOwners;
+
+      function buyToken(uint256 _tokenId, uint256 _price) public {
+          require(tokenOwners[_tokenId] != address(0), "Token does not exist");
+          require(tokenOwners[_tokenId] != msg.sender, "Token already owned by buyer");
+          require(balances[msg.sender] >= _price, "Insufficient balance");
+          balances[msg.sender] -= _price;
+          balances[tokenOwners[_tokenId]] += _price;
+          tokenOwners[_tokenId] = msg.sender;
+      }
+  }
+  ```
+</CodeGroup>
+
+In this updated contract, the line `require(tokenOwners[_tokenId] != msg.sender, "Token already owned by buyer");` ensures that the buyer is not already the owner of the token. If they are, the function will revert due to the `require` statement. This prevents a token owner from buying their own token, which addresses the vulnerability in the original contract.
+
+### Reentrancy attacks
+
+Now, let's go over the reentrancy issue spotted by Slither in `ReentrancyExample.sol` contract. The vulnerability identified by Slither was `Reentrancy in ReentrancyExample.withdraw(uint256) (src/ReentrancyExample.sol#11-16)`
+
+<CodeGroup>
+  ```solidity solidity
+  // SPDX-License-Identifier: MIT
+  pragma solidity ^0.8.0;
+
+  contract ReentrancyExample {
+    mapping(address => uint) balances;
+
+    function deposit() public payable {
+      balances[msg.sender] += msg.value;
+    }
+
+    function withdraw(uint amount) public {
+      require(balances[msg.sender] >= amount, "Insufficient balance.");
+      (bool success, ) = msg.sender.call{value: amount}("");
+      require(success, "Transfer failed.");
+      balances[msg.sender] -= amount;
+    }
+
+    function getBalance() public view returns (uint) {
+      return balances[msg.sender];
+    }
+  }
+  ```
+</CodeGroup>
+
+The Slither report indicates that there is a reentrancy vulnerability in the `withdraw` function of the `ReentrancyExample` contract.
+
+Remember, reentrancy is a type of attack where an attacker exploits a contract's code to execute a function multiple times before the previous execution has been completed. In this contract, an attacker could potentially call the `withdraw` function repeatedly before the `balances[msg.sender] -= amount;` line is executed, allowing them to repeatedly withdraw funds from their balance and drain the contract's balance.
+
+Here's the potential attack scenario:
+
+1. An attacker deposits some ether into your contract, thereby establishing a non-zero balance.
+2. The attacker calls the `withdraw` function. Your contract starts executing the `withdraw` function.
+3. During the `withdraw` call, before the balance is deducted, the attacker's contract fallback function is triggered by the `call` function.
+4. Within the attacker's fallback function, the attacker again calls the `withdraw` function.
+5. Since the contract's state has not yet been updated (the balance deduction happens after the `msg.sender.call`), the contract still sees the balance as not being withdrawn, so it processes the nested `withdraw` call, and sends the funds to the attacker.
+6. This can be repeated until the contract's balance is drained.
+
+To fix this vulnerability, the contract should use a mutex to prevent reentrancy. A common way to do this is to use the "checks-effects-interactions" pattern, which means that a contract should first check all of the preconditions for executing a function, then update the contract's state, and then interact with external contracts or send ether.
+
+<Info>
+  Note that this contract is an example only and does not mean other improvements cannot be made. For example, the `withdraw` function could be external instead of public, and the mappings could be private.
+
+  Even with this example, Slither will still give a reentrancy warning even though we took action against it; static analysis tools such as Slither analyze code in a very systematic and rule-based way, looking for specific patterns that may suggest potential vulnerabilities.
+</Info>
+
+Here is an updated version of the contract that uses the "checks-effects-interactions" pattern:
+
+<CodeGroup>
+  ```solidity solidity
+  // SPDX-License-Identifier: MIT
+  pragma solidity 0.8.0;
+
+  contract ReentrancyExample {
+    mapping(address => uint) balances;
+    mapping(address => bool) locked;
+
+    function deposit() public payable {
+      balances[msg.sender] += msg.value;
+    }
+
+    function withdraw(uint amount) public {
+      require(balances[msg.sender] >= amount, "Insufficient balance.");
+      require(!locked[msg.sender], "Reentrancy detected.");
+      locked[msg.sender] = true;
+      balances[msg.sender] -= amount;
+      (bool success, ) = msg.sender.call{value: amount}("");
+      require(success, "Transfer failed.");
+      locked[msg.sender] = false;
+    }
+
+    function getBalance() public view returns (uint) {
+      return balances[msg.sender];
+    }
+  }
+  ```
+</CodeGroup>
+
+In this version of the contract, we have added a new `locked` mapping to keep track of which accounts are currently executing the `withdraw` function. Before updating the contract's state or interacting with external contracts, we check if the account is already locked. If it is, we revert the transaction to prevent reentrancy. If it is not locked, we set the `locked` flag to `true`, update the balance and perform the transfer, and then set the flag back to `false` to release the lock.
+
+To demonstrate the vulnerability, an attacker could create a contract that repeatedly calls the `withdraw` function of the `ReentrancyExample` contract before the previous call has been completed.
+
+<Warning>
+  Remember to be careful and consider all the edge cases when using this kind of locking mechanism. For instance, if a call to an external contract fails (like if the external contract doesn't have a fallback function or if it reverts for some reason), then the lock will not be released, locking that address out of the `withdraw` function permanently.
+
+  You might want to use a try-catch block to handle potential exceptions from the external call, allowing you to unlock even when the external call fails.
+</Warning>
+
+Here is a simple PoC contract that demonstrates the attack:
+
+<CodeGroup>
+  ```solidity solidity
+  // SPDX-License-Identifier: MIT
+  pragma solidity ^0.8.0;
+  import "./ReentrancyVul.sol";
+
+  contract ReentrancyAttack {
+    ReentrancyExample public target;
+    uint public count;
+
+    constructor(address _target) {
+      target = ReentrancyExample(_target);
+    }
+
+    function attack() public payable {
+      count++;
+      if (count < 10) {
+        target.withdraw(1 ether);
+      }
+    }
+
+    receive() external payable {
+      if (count < 10) {
+        target.withdraw(1 ether);
+      }
+    }
+  }
+  ```
+</CodeGroup>
+
+This contract creates a new `ReentrancyAttack` contract and sets the `target` to the address of the `ReentrancyExample` contract. The `attack` function is called repeatedly to execute the `withdraw` function of the `ReentrancyExample` contract. The `receive` function is a fallback function that is called when the contract receives ether. This function also calls the `withdraw` function, allowing the attacker to repeatedly withdraw funds from the `ReentrancyExample` contract.
+
+To protect against this attack, we can deploy the updated `ReentrancyExample` contract with the mutex protection described earlier, and also we could use the [reentrancy guard contract from OpenZeppelin](https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/utils/ReentrancyGuard.sol).
+
+## Conclusion
+
+In conclusion, smart contract auditing is crucial to ensure the safety of assets managed by smart contracts on the blockchain. Auditing can be done manually or with the use of automated tools, but in this article, the focus was on manual auditing with tools like Slither and Foundry. The need for smart contract auditing is driven by the immutable nature of smart contracts, which makes it difficult to fix security vulnerabilities once they are deployed. The auditing process involves examining the code line-by-line and identifying potential security issues, which are then documented and reported on. I hope this article has provided valuable insights into the importance of smart contract auditing and how to do it effectively. Thank you for reading.
+
+### About the author
+
+<CardGroup>
+  <Card title="Natachi Nnamaka" img="/images/docs/me.png">
+    <Icon icon="code"  iconType="solid"/> Junior blockchain developer
+
+    <Icon icon="laptop"  iconType="solid"/> Enjoy working with React, Next.js, Solidity, Jamstack
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/natachigram)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/natachijs)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/natachijs/)
+  </Card>
+</CardGroup>

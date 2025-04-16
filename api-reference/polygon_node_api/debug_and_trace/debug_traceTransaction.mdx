@@ -1,0 +1,238 @@
+---
+title: debug_traceTransaction | Polygon
+---
+
+Polygon API method that returns a transaction's traces by replaying it. This method provides a detailed breakdown of every step in the execution of a transaction on the Polygon blockchain, including gas usage and opcode output. What sets it apart is its ability to accurately simulate the transaction's execution path by replaying any prior transactions, making it a powerful tool for developers to identify and diagnose issues in their applications.
+
+<Note>
+Learn how to [deploy a node](/docs/debug-and-trace-apis#polygon) with the debug and trace API methods enabled.
+</Note>
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `hash` — the hash identifying a transaction.
+* `object` — (optional) an object identifying the type of tracer and its configuration:
+  + `4byteTracer` — tracer that captures the function signatures and call data sizes for all functions executed during a transaction, creating a map that links each selector and size combination to the number of times it occurred. This provides valuable information about the frequency and usage of each function within the transaction.
+  + `callTracer` — tracer that captures information on all call frames executed during a transaction. The resulting nested list of call frames is organized into a tree structure that reflects the way the Ethereum Virtual Machine works and can be used for debugging and analysis purposes.
+  + `prestateTracer` — tracer with two modes: `prestate` and `diff`, where the former returns the accounts needed to execute a transaction, and the latter returns the differences between the pre and post-states of the transaction. The tracer operates by re-executing the transaction and tracking every state change made, resulting in an object with the account addresses as keys and the corresponding trie leaves as values.
+
+<Note>
+Find a complete [list of available built-in tracers](/api-reference/polygon-debug-trace-rpc-methods#pre-built-javascript-based-tracers) in the debug and trace overview.
+</Note>
+
+
+You can also use additional configuration parameters. The following settings are available:
+
+* `disableStorage` — when enabled, it prevents tracing of storage changes made by the transaction being analyzed, which can reduce the resource requirements of the analysis. By default, `debug_traceTransaction` traces both memory and storage changes, but storage tracing can be particularly resource-intensive, especially for large transactions.
+* `disableStack` — when enabled, it skips tracing of [stack](https://en.wikipedia.org/wiki/Stack_(abstract_data_type)) changes made by the transaction being analyzed. This can be helpful in optimizing performance and resource usage, especially when analyzing complex transactions, but may result in reduced analysis accuracy that should be considered.
+* `enableMemory` — when `false`, it prevents tracing of memory changes made by the transaction being analyzed, which can reduce the resource requirements of the analysis. This can be helpful in optimizing performance and resource usage, especially when analyzing complex transactions, but may result in reduced analysis accuracy that should be considered.
+
+<Warning>
+Note that on an Erigon client, this setting is the opposite and is named `disableMemory`.
+</Warning>
+
+* `enableReturnData` — when `false`, it prevents the method from tracing the return data produced by the transaction being analyzed. The return data tracing can be particularly resource-intensive, requiring a significant amount of time and processing power to complete.
+
+<Warning>
+Note that on an Erigon client, this setting is the opposite and is named `disableReturnData`.
+</Warning>
+
+* `timeout` — setting that allows developers to customize the method's timeout period for JavaScript-based tracing calls. The default timeout is `5s`, and you can find the values formats in the [Go documentation](https://pkg.go.dev/time#ParseDuration).
+
+<Note>
+It's worth noting that when using one of the three built-in tracers in Polygon clients, the `enableMemory`, `disableStorage`, `disableStack`, and `enableReturnData`settings will not have any effect.
+
+When no built-in tracer is selected, the response defaults to the [Struct/opcode logger](https://geth.ethereum.org/docs/developers/evm-tracing/built-in-tracers#structopcode-logger).
+</Note>
+
+
+## Response types
+
+### `4byteTracer` response
+
+* `object` — the `4byteTracer` traces object:
+  + `result` — a map of the function signature, the call data size, and how many times the function was called.
+
+### `callTracer` response
+
+* `object` — the `callTracer` traces object:
+  + `from` — the address of the sender who initiated the transaction.
+  + `gas` — the units of gas included in the transaction by the sender.
+  + `gasused` — the total used gas by the call, encoded as hexadecimal.
+  + `to` — the address of the recipient of the transaction if it was a transaction to an address. For contract creation transactions, this field is `null`.
+  + `input` — the optional input data sent with the transaction, usually used to interact with smart contracts.
+  + `output` — the return value of the call, encoded as a hexadecimal string.
+  + `error` — an error message in case the execution failed.
+  + `revertReason` — the reason why the transaction was reverted, returned by the smart contract if any.
+  + `calls` — a list of sub-calls made by the contract during the call, each represented as a nested call frame object.
+
+### `prestateTracer` response
+
+* `object` — the `prestateTracer` traces object:
+  + `smart contract address` — the address of the smart contract associated with the result.
+    - `balance` — the balance of the contract, expressed in Wei and encoded as a hexadecimal string.
+    - `code` — the bytecode of the contract, encoded as a hexadecimal string.
+    - `nonce` — the nonce of the account associated with the contract, represented as an unsigned integer.
+    - `storage` — a map of key-value pairs representing the storage slots of the contract. The keys and values are both encoded as hexadecimal strings.
+
+### `Struct/opcode logger` response
+
+* `object` — the `Struct/opcode logger` traces object:
+  + `pc` — the current program counter of the transaction, which represents the location of the current opcode being executed. A register that keeps track of the address of the next instruction to be executed in a program.
+  + `op` — the current [opcode](https://ethereum.org/en/developers/docs/evm/opcodes/) being executed, such as PUSH1, ADD, or SWAP1. A code that represents a specific operation or instruction that a computer or processor can understand and execute.
+  + `gas` — the amount of gas remaining in the transaction at the current step of execution.
+  + `gasCost` — the amount of gas consumed by the current opcode being executed.
+  + `depth` — the current depth of the call stack for the transaction, reflecting the number of active frames representing nested function calls.
+  + `stack` — the contents of the EVM stack at the current step of the transaction's execution. The stack is a data structure used by the EVM to manage and manipulate data during the execution of opcodes
+  + `memory` — the contents of the memory at the current step of execution. A temporary data storage location that is available to smart contracts during execution.
+
+## `debug_traceTransaction` code examples
+
+<CodeGroup>
+```javascript web3.js
+const Web3 = require("web3");
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const web3 = new Web3(NODE_URL);
+
+// Define the debug_traceTransaction custom method
+web3.extend({
+  property: 'eth',
+  methods: [{
+    name: 'traceTransaction',
+    call: 'debug_traceTransaction',
+    params: 2,
+    inputFormatter: [web3.extend.formatters.inputTransactionHashFormatter, web3.extend.formatters.inputCallFormatter],
+    outputFormatter: web3.extend.formatters.outputCallFormatter
+  }]
+});
+
+async function traceTransaction(txHash) {
+
+    // Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer. Leave empty {} for Struct/opcode logger.
+    const tracer = { tracer: 'callTracer' };
+    const result = await web3.eth.traceTransaction(txHash, tracer);
+    console.log(result);
+}
+
+traceTransaction("0x6be573c85c46d02cd2d47b997d2f153583fbc959541400bc41b9f140d1216772");
+```
+
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const traceTransaction = async (txhash) => {
+
+  // Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer. Leave empty {} for Struct/opcode logger.
+  const tracer = {};
+  const traces = await provider.send("debug_traceTransaction", [txhash, tracer]);
+  console.log(traces);
+};
+
+traceTransaction("0x6be573c85c46d02cd2d47b997d2f153583fbc959541400bc41b9f140d1216772")
+```
+
+```python web3.py
+from web3 import Web3  
+node_url = "CHAINSTACK_NODE_URL" 
+web3 = Web3.HTTPProvider(node_url)
+
+tx_hash = "0x6be573c85c46d02cd2d47b997d2f153583fbc959541400bc41b9f140d1216772"
+
+# Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer. Leave empty {} for Struct/opcode logger.
+tracer = { "tracer": '4byteTracer' }
+tx_traces = web3.provider.make_request('debug_traceTransaction', [tx_hash, tracer])
+print(tx_traces)
+```
+</CodeGroup>
+
+
+## Use case
+
+A potential use case for the `debug_traceTransaction` method is to inspect failed transactions on the Polygon blockchain by using the built-in `callTracer` tracer to extract the error and reason. By creating a script that analyzes the latest block's transactions and selectively extracts data only from the failed ones, you can effectively utilize this feature.
+
+Below is an example implementation of this logic using the web3.js library:
+
+```javascript index.js
+const Web3 = require("web3");
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const web3 = new Web3(NODE_URL);
+
+// Define the debug_traceTransaction custom method using Web3 extension
+web3.extend({
+  property: 'eth',
+  methods: [{
+      name: 'traceTransaction',
+      call: 'debug_traceTransaction',
+      params: 2,
+      inputFormatter: [
+          web3.extend.formatters.inputTransactionHashFormatter, 
+          web3.extend.formatters.inputCallFormatter
+      ],
+      outputFormatter: web3.extend.formatters.outputCallFormatter
+  }]
+});
+
+// Trace a failed transaction using the callTracer
+async function traceTransaction(txHash) {
+  const tracer = { tracer: 'callTracer' };
+  const result = await web3.eth.traceTransaction(txHash, tracer);
+  return result;
+}
+
+// Get all transactions from the specified block number
+async function getTransactionsFromBlock(blockNumber) {
+  const block = await web3.eth.getBlock(blockNumber, false);
+  const txArray = block.transactions;
+  return txArray;
+}
+
+// Main function that iterates through transactions and extracts data from failed ones
+async function main() {
+  try {
+      const transactions = await getTransactionsFromBlock('latest');
+
+      for (let i = 0; i < transactions.length; i++) {
+          const txHash = transactions[i];
+          const tx = await web3.eth.getTransactionReceipt(txHash);
+          const txStatus = tx.status;
+
+          // If transaction failed, extract data using traceTransaction method
+          if (txStatus === false) {
+              console.log(`Transaction ${txHash} failed!`);
+              const traces = await traceTransaction(txHash);
+              const error = traces.error;
+              const reason = traces.revertReason;
+              console.log(`Transaction failed with error: ${error}`);
+              console.log(`Revert reason: ${reason}\n`);
+          }
+      }
+  } catch (error) {
+      console.error(`Error occurred: ${error}`);
+  }
+}
+
+// Call the main function
+main();
+```
+
+
+The code is a JavaScript implementation that utilizes the web3.js library to extract error and revert reason data from failed transactions on the Polygon blockchain. The code defines a custom method (as it is not available in web3.js by default) called `debug_traceTransaction` using Web3 extension, which allows for tracing of transactions with built-in tracers such as `callTracer`.
+
+The `traceTransaction` function in the code is responsible for using the `debug_traceTransaction` method to extract error and revert reason data from a failed transaction. The function takes in a transaction hash as a parameter and specifies the `callTracer` tracer type, and calls the `traceTransaction` method. The resulting data is then returned to the caller.
+
+The `getTransactionsFromBlock` function retrieves all the transactions from a specified block number and returns an array of transaction hashes. The `main` function in the code is the main entry point, which first calls the `getTransactionsFromBlock` function to retrieve all transactions from the latest block on the Polygon blockchain. It then iterates through the array of transactions and calls `traceTransaction` for each failed transaction, extracting the error and revert reason data.
+
+The extracted data is then printed to the console using `console.log`. The code also handles any errors that may occur during the execution of the code by wrapping the entire execution in a `try-catch` block.
+
+## Try the `debug_traceTransaction` RPC method yourself

@@ -1,0 +1,341 @@
+---
+title: "Aptos: Publish a Module to Save & Retrieve a Message on-Chain"
+---
+
+**TLDR**
+* Aptos uses the Move language and “published” modules in place of traditional smart contracts.
+* This tutorial shows you how to set up an Aptos node, initialize a Move project, and publish a simple module that stores a string on-chain.
+* You’ll run through the basics of module creation, compilation, testing, and then sending transactions to set and retrieve data.
+* Use the Aptos CLI for everything from local testing to publishing, and wrap up by querying the on-chain data with Aptos’ REST API.
+
+## Main article
+
+Aptos uses its own terminology for widely-known Web3 entities. Smart contracts are called Modules and are written in the [Move language](https://move-language.github.io/move/). Modules are also not deployed but *published* on the Aptos chain.
+
+The objective of this tutorial is to familiarize you with the Aptos network, the Move language and modules written in it. In the end of this tutorial, you will be able to publish, test, and interact with Move modules in Aptos.
+
+Specifically, in this tutorial, you will:
+
+* Initialize an Aptos project using the Aptos CLI.
+* Publish a module on the Aptos testnet.
+* Interact with the module to save a message.
+* Use the Aptos REST API to retrieve the message.
+
+## Prerequisites
+
+* [Chainstack account ](https://console.chainstack.com/)to deploy an Aptos node.
+* [Martian Aptos wallet](https://martianwallet.xyz/) to receive testnet Aptos token (APT).
+* [Aptos CLI](https://github.com/aptos-labs/aptos-core) to compile, publish, and interact with the Move module.
+
+## Overview
+
+To get from zero to publishing your string via the module to Aptos testnet, do the following:
+
+<Steps>
+  <Step>
+  With Chainstack, create a <Tooltip tip="A public chain project- a project to join public networks">public chain project</Tooltip>.
+  </Step>
+  <Step>
+  With Chainstack, join Aptos testnet.
+  </Step>
+  <Step>
+  With Chainstack, access your Aptos node credentials.
+  </Step>
+  <Step>
+  Set up your Martian wallet to work through the Chainstack Aptos node.
+  </Step>
+  <Step>
+  Fund your account through the [Aptos testnet faucet](https://aptoslabs.com/testnet-faucet).
+  </Step>
+  <Step>
+  Install the [Aptos CLI](https://aptos.dev/tools/aptos-cli/install-cli/).
+  </Step>
+  <Step>
+  Create a Move project.
+  </Step>
+  <Step>
+  Create and configure your Aptos project.
+  </Step>
+  <Step>
+    Create a module in the Move language.
+  </Step>
+  <Step>
+  Compile and test the Move module.
+  </Step>
+  <Step>
+  Publish the Move module.
+  </Step>
+  <Step>
+  Save and retrieve a message on the Aptos chain.
+  </Step>
+</Steps>
+
+## Step-by-step
+
+### Create a public chain project
+
+See [Create a project](/docs/manage-your-project#create-a-project).
+
+### Join the Aptos testnet
+
+See [Join a public network](/docs/manage-your-networks#join-a-public-network).
+
+### Get node access and credentials
+
+See [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+
+### Set up Martian wallet
+
+See [Aptos tooling: Martian wallet](/docs/aptos-tooling#martian-wallet).
+
+### Fund your account
+
+Your account needs to pay fees in testnet APT to publish the module and interact with it. Fund your account with the [Aptos testnet faucet](https://aptoslabs.com/testnet-faucet).
+
+### Install the Aptos CLI
+
+You need the Aptos CLI to interact with your Move module. Set up the [Aptos CLI](https://aptos.dev/tools/aptos-cli/install-cli/).
+
+### Create a Move project
+
+1. In your project directory, create a Move project:
+
+   <CodeGroup>
+     ```bash Shell
+     aptos move init --name save-message
+     ```
+   </CodeGroup>
+
+   where `save-message` — name of the package.
+
+   This creates a `sources` directory and a `Move.toml` file.
+
+2. Open your `Move.toml` file and edit it to add `[addresses]` and `[dev-addresses]`, where:
+
+   * `dev = "_"` — your default Aptos account.
+   * `dev = "0xC0FFEE"` — an alternative Aptos account for tests.
+
+   Example:
+
+   <CodeGroup>
+     ```toml TOML
+     [package]
+     name = 'save-message'
+     version = '1.0.0'
+
+     [addresses]
+     dev = "_"
+
+     [dev-addresses]
+     dev = "0xC0FFEE"
+
+     [dependencies.AptosFramework]
+     git = 'https://github.com/aptos-labs/aptos-core.git'
+     rev = 'main'
+     subdir = 'aptos-move/framework/aptos-framework'
+     ```
+   </CodeGroup>
+
+   <Warning>
+     Note that packages have one-time names. If you want to re-publish the package, you must change its name.
+   </Warning>
+
+### Create and configure an Aptos project
+
+1. In your project directory, run `aptos init > custom`. This will start a configuration process, during which you need to set up your Chainstack endpoint and Martian wallet private key. Adding the private key will retrieve your Aptos public address automatically.
+
+2. Add your [Aptos node endpoint](/docs/manage-your-node#view-node-access-and-credentials) deployed with Chainstack.
+
+3. At the faucet URL request, type `skip` since you have already funded your account on the previous step.
+
+4. Paste your Martian wallet private key to finish configuring your project. The key is used to send transactions and retrieve your public address. Example of a successful result:
+
+   <CodeGroup>
+     ```bash Shell
+     Aptos CLI is now set up for account ...4474 as profile default!  Run `aptos --help` for more information about commands
+     {
+       "Result": "Success"
+     }
+     ```
+   </CodeGroup>
+
+   As a result, you get a `.aptos` directory with a `config.yaml` file inside it. In `config.yaml`, you will find your project setup.
+
+### Create a Move module
+
+In your Move project directory, navigate to the `sources` directory. Create your Move module file `message.move` which allows you to call the `set_message` function and save a string on-chain:
+
+<CodeGroup>
+  ```js JavaScript
+  module dev::message {
+      use std::error;
+      use std::signer;
+      use std::string;
+      use aptos_framework::account;
+      use aptos_framework::event;
+
+  //:!:>resource
+      struct MessageHolder has key {
+          message: string::String,
+          message_change_events: event::EventHandle<MessageChangeEvent>,
+      }
+  //<:!:resource
+
+      struct MessageChangeEvent has drop, store {
+          from_message: string::String,
+          to_message: string::String,
+      }
+
+      /// There is no message present
+      const ENO_MESSAGE: u64 = 0;
+
+      public fun get_message(addr: address): string::String acquires MessageHolder {
+          assert!(exists<MessageHolder>(addr), error::not_found(ENO_MESSAGE));
+          *&borrow_global<MessageHolder>(addr).message
+      }
+
+      public entry fun set_message(account: signer, message: string::String)
+      acquires MessageHolder {
+          let account_addr = signer::address_of(&account);
+          if (!exists<MessageHolder>(account_addr)) {
+              move_to(&account, MessageHolder {
+                  message,
+                  message_change_events: account::new_event_handle<MessageChangeEvent>(&account),
+              })
+          } else {
+              let old_message_holder = borrow_global_mut<MessageHolder>(account_addr);
+              let from_message = *&old_message_holder.message;
+              event::emit_event(&mut old_message_holder.message_change_events, MessageChangeEvent {
+                  from_message,
+                  to_message: copy message,
+              });
+              old_message_holder.message = message;
+          }
+      }
+
+      #[test(account = @0x1)]
+      public entry fun sender_can_set_message(account: signer) acquires MessageHolder {
+          let addr = signer::address_of(&account);
+          aptos_framework::account::create_account_for_test(addr);
+          set_message(account,  string::utf8(b"Hello Chainstack dev"));
+
+          assert!(
+            get_message(addr) == string::utf8(b"Hello Chainstack dev"),
+            ENO_MESSAGE
+          );
+      }
+  }
+  ```
+</CodeGroup>
+
+### Compile and test the Move module
+
+1. To compile your Move module, run:
+
+   <CodeGroup>
+     ```bash Shell
+     aptos move compile --named-addresses dev=default
+     ```
+   </CodeGroup>
+
+2. After the module compiled, run a build-in test which checks if the `set_message` and `get_message` functions work:
+
+   <CodeGroup>
+     ```bash Shell
+     aptos move test
+     ```
+   </CodeGroup>
+
+### Publish the Move module
+
+1. Publish your compiled and tested Move module by running:
+
+   <CodeGroup>
+     ```bash Shell
+     aptos move publish --named-addresses dev=default
+     ```
+   </CodeGroup>
+
+2. Type `yes` to confirm publishing the transaction on the Aptos chain.
+
+   The module will publish and the terminal will return the module information. You can use the transaction hash to retrieve transaction details. To do so, run:
+
+   <CodeGroup>
+     ```bash cURL
+     curl --location --request GET 'YOUR_CHAINSTACK_ENDPOINT/v1/transactions/by_hash/0x815cecb01a962331ca34904653a26715e6cd8e631d2d1b7da17b593adda1ea65' \
+     --header 'Content-Type: application/json'
+     ```
+   </CodeGroup>
+
+   where YOUR\_CHAINSTACK\_ENDPOINT is your Aptos node endpoint you used earlier.
+
+### Save and retrieve a message on the Aptos chain
+
+1. To save a message on the Aptos chain, run:
+
+   <CodeGroup>
+     ```bash Shell
+     aptos move run --function-id 'default::message::set_message' --args 'string:Hello Chainstack dev'
+     ```
+   </CodeGroup>
+
+   where:
+
+   * `run` — a Move command to call functions
+   * `function-id` — a function to call
+   * `args` — arguments of the function
+
+2. Type `yes` to confirm publishing the transaction on the Aptos chain.
+
+3. Retrieve the published message via the REST API by running:
+
+   <CodeGroup>
+     ```bash cURL
+     curl --location --request GET 'YOUR_CHAINSTACK_ENDPOINT/v1/accounts/c0e0ce57eaf9680ae67252fb3126f25aa86bb098b05f7b72cf0cf0de57c72a7f/resource/0xc0e0ce57eaf9680ae67252fb3126f25aa86bb098b05f7b72cf0cf0de57c72a7f::message::MessageHolder'    \
+     --header 'Content-Type: application/json'
+     ```
+   </CodeGroup>
+
+   where YOUR\_CHAINSTACK\_ENDPOINT is your Aptos node endpoint you used earlier.
+
+Successful response example:
+
+<CodeGroup>
+  ```Json JSON
+  {
+      "type": "0xc0e0ce57eaf9680ae67252fb3126f25aa86bb098b05f7b72cf0cf0de57c72a7f::message::MessageHolder",
+      "data": {
+          "message": "Hello Chainstack dev",
+          "message_change_events": {
+              "counter": "0",
+              "guid": {
+                  "id": {
+                      "addr": "0xc0e0ce57eaf9680ae67252fb3126f25aa86bb098b05f7b72cf0cf0de57c72a7f",
+                      "creation_num": "4"
+                  }
+              }
+          }
+      }
+  }
+  ```
+</CodeGroup>
+
+## Conclusion
+
+This tutorial guided you through the basics of creating, publishing, and testing a simple module that saves a string on the Aptos chain.
+
+### About the author
+
+<CardGroup>
+  <Card title="Davide Zambiasi" img="/images/docs/profile_images/1533079085001363457/1VvXp1m0_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on EVM, The Graph protocol, and Starknet
+
+    <Icon icon="laptop"  iconType="solid"/> Helping people understand Web3 and blockchain development
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/soos3d)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/web3Dav3)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/davide-zambiasi/)
+  </Card>
+</CardGroup>

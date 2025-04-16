@@ -1,0 +1,721 @@
+---
+title: "Celo: Build a Simple Voting DApp with Foundry, Next.js, and Web3.js"
+---
+
+### `TLDR`
+* You’ll build a simple voting DApp on Celo: a Solidity contract (Voting.sol) deployed with Foundry, and a React/Next.js front-end with web3.js to interact via MetaMask.
+* The Solidity contract defines two initial candidates (Luna, Orion) and basic voting logic, tested with Foundry’s test suite.
+* The front end fetches candidate data, checks the chain/network, and allows users to cast votes.
+* This serves as a baseline for deeper improvements (security, Sybil protection, etc.) before production.
+
+## Introduction to Celo
+
+Celo is an open-source blockchain ecosystem that makes decentralized financial (DeFi) tools and services accessible to anyone with a smartphone. It is designed to support financial inclusion and provide a platform for decentralized applications (DApps) with a particular emphasis on mobile usability.
+
+<Warning>
+  ### NFP
+
+  Not for production (NFP) obviously. Feel free to take the source and modify to your needs.
+
+  We assume no responsibility for the code. Moreover, this is a very rough unaudited contract.
+</Warning>
+
+## Project overview: Simple voting DApp
+
+In this tutorial, we'll build a simple voting DApp on the Celo blockchain. The project involves deploying a smart contract using Foundry and creating a simple user interface with Next.js and web3.js to interact with MetaMask.
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/) to deploy a Celo node
+* [Foundry](https://book.getfoundry.sh/) for smart contract development
+* [Next.js](https://nextjs.org/) for the front-end framework
+* [web3.js](https://docs.web3js.org/) for interacting with the blockchain
+* Some Celo tokens
+
+## Step-by-step
+
+### Get a Celo node
+
+<Check>
+  ### Get you own node endpoint today
+
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+  You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+### Smart contract development
+
+Use Foundry to develop, compile, and deploy a simple voting smart contract.
+
+Install Foundry on your machine; you can [follow the instructions in the Foundry book](https://book.getfoundry.sh/getting-started/installation).
+
+Once installed, create a new directory for your project and initialize a Foundry project.
+
+```
+forge init foundry
+```
+
+This will create a Foundry project with the following layout:
+
+```
+.
+├── README.md
+├── foundry.toml
+├── lib
+│   └── forge-std
+│       ├── LICENSE-APACHE
+│       ├── LICENSE-MIT
+│       ├── README.md
+│       ├── foundry.toml
+│       ├── package.json
+│       ├── scripts
+│       ├── src
+│       └── test
+├── script
+│   └── Counter.s.sol
+├── src
+│   └── Counter.sol
+└── test
+    └── Counter.t.sol
+```
+
+In the `src` directory, rename the sample smart contract to `Voting.sol` and paste the following contract:
+
+<Warning>
+  ### Disclaimer
+
+  This Solidity smart contract is provided as an educational example and is not intended for production use. The code is simplified for clarity and lacks several critical features required for a secure and efficient production-grade application.
+</Warning>
+
+<CodeGroup>
+  ```sol Voting.sol
+  // SPDX-License-Identifier: MIT
+
+  // Celo only supports up to 0.8.19 due to the new Push0 opcode
+  pragma solidity >=0.8.0 <=0.8.19;
+
+  /// @title A simple voting contract
+  /// @notice This contract allows users to vote for pre-defined candidates
+  /// @dev This contract uses mappings to store candidate and voter information
+  contract Voting {
+      struct Candidate {
+          string name;
+          uint voteCount;
+      }
+
+      mapping(uint => Candidate) public candidates;
+      mapping(address => bool) public voters;
+      uint public candidatesCount;
+
+      event CandidateAdded(uint indexed candidateId, string name);
+      event Voted(address indexed voter, uint indexed candidateId);
+
+      /// @notice Constructor to initialize the contract with default candidates
+      constructor() {
+          addCandidate("Luna");
+          addCandidate("Orion");
+      }
+
+      /// @notice Adds a new candidate to the candidates list
+      /// @dev This function is private and can only be called within the contract
+      /// @param _name The name of the candidate to add
+      function addCandidate(string memory _name) private {
+          candidatesCount++;
+          candidates[candidatesCount] = Candidate(_name, 0);
+          emit CandidateAdded(candidatesCount, _name);
+      }
+
+      /// @notice Allows a user to vote for a candidate
+      /// @dev This function checks if the voter has already voted and if the candidate ID is valid
+      /// @param _candidateId The ID of the candidate to vote for
+      function vote(uint _candidateId) public {
+          require(!voters[msg.sender], "Already voted.");
+          require(
+              _candidateId > 0 && _candidateId <= candidatesCount,
+              "Invalid candidate."
+          );
+
+          voters[msg.sender] = true;
+          candidates[_candidateId].voteCount++;
+          emit Voted(msg.sender, _candidateId);
+      }
+
+      /// @notice Returns the name and vote count of a candidate
+      /// @dev This function retrieves candidate information based on the candidate ID
+      /// @param _candidateId The ID of the candidate to retrieve
+      /// @return name The name of the candidate
+      /// @return voteCount The vote count of the candidate
+      function getCandidate(
+          uint _candidateId
+      ) public view returns (string memory name, uint voteCount) {
+          Candidate memory candidate = candidates[_candidateId];
+          return (candidate.name, candidate.voteCount);
+      }
+  }
+  ```
+</CodeGroup>
+
+Follow the comments in the smart contract to understand the implementation; here is a quick breakdown.
+
+#### TL;DR smart contract breakdown
+
+This Solidity smart contract implements a simple voting system. Here's a concise breakdown:
+
+1. **Contract Name**: `Voting`
+
+   * Implements a basic voting mechanism.
+
+2. **Key Components**:
+
+   * **Candidate Struct**: Represents a candidate with a `name` and `voteCount`.
+
+   * **Mappings**:
+
+     * `candidates`: Maps a candidate ID to a `Candidate` struct.
+     * `voters`: Maps an address to a boolean indicating if the address has voted.
+
+3. **State Variables**:
+
+   * `candidatesCount`: Tracks the number of candidates.
+
+4. **Events**:
+
+   * `CandidateAdded`: Emitted when a new candidate is added.
+   * `Voted`: Emitted when a vote is cast.
+
+5. **Constructor**:
+
+   * Initializes the contract by adding two default candidates: "Luna" and "Orion".
+
+6. **Functions**:
+
+   * **`addCandidate`**:
+
+     * Private function to add a new candidate.
+     * Increments `candidatesCount` and updates the `candidates` mapping.
+     * Emits the `CandidateAdded` event.
+
+   * **`vote`**:
+
+     * Allows a user to vote for a candidate.
+     * Check if the voter has already voted and the candidate's ID is valid.
+     * Updates the `voters` mapping to mark the address as having voted.
+     * Increments the candidate's `voteCount`.
+     * Emits the `Voted` event.
+
+   * **`getCandidate`**:
+
+     * Returns the name and vote count of a candidate by ID.
+
+#### Functionality summary
+
+* **Adding Candidates**: Candidates can only be added internally via the `addCandidate` function, which is called in the constructor to add initial candidates.
+* **Voting**: Users can vote once for a candidate by providing the candidate's ID. The contract ensures each user votes only once and only for valid candidates.
+* **Retrieving Candidate Info**: Users can get a candidate's name and vote count by providing the candidate's ID.
+
+This smart contract is designed for a simple voting scenario where users vote for pre-defined candidates, and the results are publicly accessible.
+
+#### Test smart contract
+
+Now that we have a contract let's implement a simple test script within Foundry. In the `test` directory, rename the current sample script to `Voting.t.sol` and paste the following script:
+
+<CodeGroup>
+  ```sol Voting.t.sol
+  // SPDX-License-Identifier: MIT
+  pragma solidity ^0.8.19;
+
+  import {Test} from "../lib/forge-std/src/Test.sol";
+  import {Voting} from "../src/Voting.sol";
+
+  contract VotingTest is Test {
+      Voting voting;
+
+      // The setUp function runs before each test function
+      // It creates a new instance of the Voting contract to ensure each test starts with a fresh contract
+      function setUp() public {
+          voting = new Voting();
+      }
+
+      // This test checks that a voter cannot vote more than once
+      function testCannotVoteTwice() public {
+          // Cast the first vote for candidate with ID 1
+          voting.vote(1);
+
+          // Expect the next vote attempt from the same voter to revert with "Already voted." message
+          vm.expectRevert(bytes("Already voted."));
+
+          // Attempt to vote again for the same candidate, which should fail
+          voting.vote(1);
+      }
+
+      // This test checks that a voter cannot vote for an invalid candidate
+      function testCannotVoteInvalidCandidate() public {
+          // Expect the vote attempt for an invalid candidate ID (3) to revert with "Invalid candidate." message
+          // The contract is deployed with 2 candidates
+          vm.expectRevert(bytes("Invalid candidate."));
+
+          // Attempt to vote for a non-existent candidate, which should fail
+          voting.vote(3);
+      }
+  }
+  ```
+</CodeGroup>
+
+This basic test script checks that an address cannot vote twice and that a user cannot vote for a candidate not on the list. Note how this contract lacks any real Sybil protection; this is an improvement you can add.
+
+Move your terminal within the Foundry project and run the test command.
+
+```
+forge test
+```
+
+This will run the test script and you should see all the tests pass.
+
+```
+[⠘] Compiling...
+[⠔] Compiling 1 files with 0.8.19
+[⠑] Solc 0.8.19 finished in 1.69s
+Compiler run successful!
+
+Running 2 tests for test/Voting.t.sol:VotingTest
+[PASS] testCannotVoteInvalidCandidate() (gas: 13027)
+[PASS] testCannotVoteTwice() (gas: 57875)
+Test result: ok. 2 passed; 0 failed; 0 skipped; finished in 5.57ms
+
+Ran 1 test suites: 2 tests passed, 0 failed, 0 skipped (2 total tests)
+```
+
+#### Deploy the smart contract
+
+We have a tested smart contract; let's deploy it on Celo using Foundry and your Chainstack node. If you haven't yet, ensure you have some Celo tokens.
+
+Let's compile the smart contract:
+
+```
+forge compile
+```
+
+Then, we can deploy the contract in one single command using `forge create`:
+
+```
+forge create --rpc-url YOUR_CELO_CHAINSTACK_RPC --private-key YOUR_PRIVATE_KEY src/Voting.sol:Voting
+```
+
+<Info>
+  Make sure to add your RPC url and your private key to the command editing `YOUR_CELO_CHAINSTACK_RPC` and `YOUR_PRIVATE_KEY`.
+
+  Also note that this is a quick way to deploy and test, but exposing endpoints and private keys in your terminal is not a good security practice; ensure the wallet is used for testing only.
+</Info>
+
+This will deploy the smart contract on Celo.
+
+```
+[⠆] Compiling...
+No files changed, compilation skipped
+Deployer: 0x8f8e7012F8F974707A8F11C7cfFC5d45EfF5c2Ae
+Deployed to: 0x5564C4fC4842898Cf78B59373D822A32431d9f46
+Transaction hash: 0x383821697a1019f36fe2ab4206463d58bf6bea4e226a4a8db8846a8a48d1eac4
+```
+
+The transaction can be seen on the [Celo explorer](https://explorer.celo.org/alfajores/tx/0x383821697a1019f36fe2ab4206463d58bf6bea4e226a4a8db8846a8a48d1eac4); the link will show you an example of this contract deployment.
+
+<Info>
+  We'll need the contract ABI and the address where it was deployed for the front end. You can find the ABI in the Foundry project in`out/Voting.sol/Voting.json`. If you didn't make any edits to the contract, you'll find the proper ABI already implemented in the front-end code we'll review in the next section.
+</Info>
+
+### Developing the front end
+
+Now that we have deployed the smart contract, we can create a simple front end so that users can interact with it and vote. Let's initiate a Next.js project. You can do this in a different directory.
+
+```
+npx create-next-app@latest celo-voting-dapp
+```
+
+You can initialize the project with the following options
+
+```
+✔ Would you like to use TypeScript? … No
+✔ Would you like to use ESLint? … Yes
+✔ Would you like to use Tailwind CSS? … Yes
+✔ Would you like to use `src/` directory? … Yes
+✔ Would you like to use App Router? (recommended) … Yes
+✔ Would you like to customize the default import alias (@/*)? … No
+```
+
+Then, move into that directory:
+
+```
+cd celo-voting-dapp
+```
+
+And install the web3.js package:
+
+```
+npm i web3@4.9.0
+```
+
+Then in the Next project, go in `src/app/page.js`and paste the following:
+
+<Info>
+  Remember to add your node URL and smart contract address in:
+
+  ```
+  > const nodeUrl = "YOUR_CHAINSTACK_CELO_URL";
+  >
+  > // Add the address of your smart contract, you can use this if you don't have one 0x5564C4fC4842898Cf78B59373D822A32431d9f46
+  > const contractAddress = "YOUR_DEPLOYED_SMART_CONTRACT";
+  ```
+
+  Also note that exposing your endpoint in the front end like this is not good security practice, but it works for a prototype.
+</Info>
+
+<CodeGroup>
+  ```javascript page.js
+  "use client";
+  import { useEffect, useState } from "react";
+  import { Web3 } from "web3";
+
+  // You node URL and chain ID
+  const nodeUrl = "YOUR_CHAINSTACK_CELO_URL";
+  const chainId = "0xa4ec"; // 42220 Chain ID for Celo
+
+  // Add the address of your smart contract
+  const contractAddress = "YOUR_DEPLOYED_SMART_CONTRACT";
+
+  const contractAbi = [
+    { type: "constructor", inputs: [], stateMutability: "nonpayable" },
+    {
+      type: "function",
+      name: "candidates",
+      inputs: [{ name: "", type: "uint256", internalType: "uint256" }],
+      outputs: [
+        { name: "name", type: "string", internalType: "string" },
+        { name: "voteCount", type: "uint256", internalType: "uint256" },
+      ],
+      stateMutability: "view",
+    },
+    {
+      type: "function",
+      name: "candidatesCount",
+      inputs: [],
+      outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
+      stateMutability: "view",
+    },
+    {
+      type: "function",
+      name: "getCandidate",
+      inputs: [
+        { name: "_candidateId", type: "uint256", internalType: "uint256" },
+      ],
+      outputs: [
+        { name: "name", type: "string", internalType: "string" },
+        { name: "voteCount", type: "uint256", internalType: "uint256" },
+      ],
+      stateMutability: "view",
+    },
+    {
+      type: "function",
+      name: "vote",
+      inputs: [
+        { name: "_candidateId", type: "uint256", internalType: "uint256" },
+      ],
+      outputs: [],
+      stateMutability: "nonpayable",
+    },
+    {
+      type: "function",
+      name: "voters",
+      inputs: [{ name: "", type: "address", internalType: "address" }],
+      outputs: [{ name: "", type: "bool", internalType: "bool" }],
+      stateMutability: "view",
+    },
+    {
+      type: "event",
+      name: "CandidateAdded",
+      inputs: [
+        {
+          name: "candidateId",
+          type: "uint256",
+          indexed: true,
+          internalType: "uint256",
+        },
+        { name: "name", type: "string", indexed: false, internalType: "string" },
+      ],
+      anonymous: false,
+    },
+    {
+      type: "event",
+      name: "Voted",
+      inputs: [
+        {
+          name: "voter",
+          type: "address",
+          indexed: true,
+          internalType: "address",
+        },
+        {
+          name: "candidateId",
+          type: "uint256",
+          indexed: true,
+          internalType: "uint256",
+        },
+      ],
+      anonymous: false,
+    },
+  ];
+
+  export default function Home() {
+    const [candidates, setCandidates] = useState([]);
+    const [account, setAccount] = useState("");
+    const [isCorrectNetwork, setIsCorrectNetwork] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+
+    useEffect(() => {
+      // Load the user's account when the component mounts
+      loadAccount();
+    }, []);
+
+    useEffect(() => {
+      // Load candidates if the user is connected to the correct network
+      if (isCorrectNetwork) {
+        loadCandidates();
+      }
+    }, [isCorrectNetwork]);
+
+    const checkNetwork = async (web3) => {
+      // Get the current chain ID
+      const currentChainId = await web3.eth.getChainId();
+      // Check if the user is connected to the correct network
+      if (currentChainId !== parseInt(chainId, 16)) {
+        // Switch to the correct network if not
+        await switchNetwork();
+      } else {
+        setIsCorrectNetwork(true);
+      }
+    };
+
+    const switchNetwork = async () => {
+      try {
+        // Request to switch the network in MetaMask
+        await window.ethereum.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: chainId }],
+        });
+        setIsCorrectNetwork(true);
+      } catch (switchError) {
+        // Handle the error if the network is not available in MetaMask
+        if (switchError.code === 4902) {
+          setError(
+            "This network is not available in your MetaMask, please add it manually"
+          );
+        }
+      }
+    };
+
+    const loadAccount = async () => {
+      if (window.ethereum) {
+        const web3 = new Web3(window.ethereum);
+        try {
+          // Request the user's accounts from MetaMask
+          await window.ethereum.request({ method: "eth_requestAccounts" });
+          const accounts = await web3.eth.getAccounts();
+          // Set the user's account
+          setAccount(accounts[0]);
+          // Check if the user is connected to the correct network
+          await checkNetwork(web3);
+          return accounts[0];
+        } catch (error) {
+          // Handle the error if the user denies account access
+          setError("User denied account access");
+          return null;
+        }
+      } else {
+        // Handle the error if MetaMask is not detected
+        setError("MetaMask not detected");
+        return null;
+      }
+    };
+
+    const disconnectAccount = () => {
+      // Reset the user's account and network status
+      setAccount("");
+      setIsCorrectNetwork(false);
+    };
+
+    const loadCandidates = async () => {
+      const web3 = new Web3(nodeUrl);
+      const contract = new web3.eth.Contract(contractAbi, contractAddress);
+      // Get the total number of candidates from the smart contract
+      const candidatesCount = await contract.methods.candidatesCount().call();
+
+      const candidatesArray = [];
+      // Fetch each candidate's details from the smart contract
+      for (let i = 1; i <= candidatesCount; i++) {
+        const candidate = await contract.methods.getCandidate(i).call();
+        candidatesArray.push({
+          id: i,
+          name: candidate[0],
+          voteCount: parseInt(candidate[1], 10),
+        });
+      }
+      // Update the state with the list of candidates
+      setCandidates(candidatesArray);
+      setLoading(false);
+    };
+
+    const vote = async (candidateId) => {
+      // Load the user's account if not already loaded
+      const account = await loadAccount();
+      if (!account) return;
+
+      const web3 = new Web3(window.ethereum);
+      const contract = new web3.eth.Contract(contractAbi, contractAddress);
+
+      try {
+        // Call the vote function in the smart contract
+        await contract.methods.vote(candidateId).send({ from: account });
+        // Reload the candidates to update the vote counts
+        loadCandidates();
+      } catch (error) {
+        // Handle the error if voting fails
+        setError("Error voting: " + error.message);
+      }
+    };
+
+    return (
+      <div className="container mx-auto p-4">
+        <h1 className="text-3xl font-bold mb-4">
+          Celo Voting App | Dashboard powered by Chainstack
+        </h1>
+        <h2 className="text-l font-bold mb-4">
+          Connect your account and vote for your candidate!
+        </h2>
+        <h2 className="text-l font-bold mb-4">
+          Each account can only vote once.
+        </h2>
+        {error && <div className="text-red-500 mb-4">{error}</div>}
+        {!account ? (
+          <div className="mb-4">
+            <button
+              className="bg-green-500 text-white px-4 py-2 rounded"
+              onClick={loadAccount}
+            >
+              Login with MetaMask
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="mb-4">
+              <span className="text-lg mr-4">Connected: {account}</span>
+              <button
+                className="bg-red-500 text-white px-4 py-2 rounded"
+                onClick={disconnectAccount}
+              >
+                Log out
+              </button>
+            </div>
+            {isCorrectNetwork ? (
+              loading ? (
+                <div>Loading candidates...</div>
+              ) : (
+                <div className="grid grid-cols-1 gap-4">
+                  {candidates.map((candidate) => (
+                    <div key={candidate.id} className="p-4 border rounded shadow">
+                      <span className="text-lg text-white">
+                        {candidate.name}: {candidate.voteCount} votes
+                      </span>
+                      <button
+                        className="ml-4 bg-blue-500 text-white px-4 py-2 rounded"
+                        onClick={() => vote(candidate.id)}
+                      >
+                        Vote
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )
+            ) : (
+              <div className="text-red-500">
+                Please switch to the Celo Alfajores Testnet to vote.
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+  ```
+</CodeGroup>
+
+#### TL;DR front-end code breakdown
+
+This React component implements a frontend interface for a simple voting application that interacts with a Celo blockchain smart contract. Here's a concise breakdown:
+
+1. **Dependencies**:
+
+   * `Web3` library for blockchain interaction.
+   * React hooks (`useEffect`, `useState`) for managing state and side effects.
+
+2. **Key Variables**:
+
+   * `nodeUrl`: URL of the Celo blockchain node.
+   * `chainId`: Chain ID for the Celo Mainnet.
+   * `contractAddress`: Address of the deployed voting smart contract.
+   * `contractAbi`: ABI (Application Binary Interface) of the smart contract.
+
+3. **State Variables**:
+
+   * `candidates`: Array to store candidate details.
+   * `account`: Stores the user's blockchain account address.
+   * `isCorrectNetwork`: Boolean indicating if the user is connected to the correct blockchain network.
+   * `loading`: Boolean indicating if candidate data is being loaded.
+   * `error`: String for storing error messages.
+
+4. **Lifecycle Hooks**:
+
+   * `useEffect`: Loads the user's account on the component mount and checks the network status. If the user is connected to the correct network, it loads candidates.
+
+5. **Functions**:
+
+   * **`checkNetwork`**: Checks if the user is connected to the correct blockchain network and switches networks if necessary.
+   * **`switchNetwork`**: Switches the user's MetaMask network to the Celo Mainnet.
+   * **`loadAccount`**: Requests the user's account address from MetaMask and checks the network status.
+   * **`disconnectAccount`**: Resets the account and network status.
+   * **`loadCandidates`**: Loads candidate details from the smart contract and updates the state.
+   * **`vote`**: The user can vote for a candidate by using the smart contract.
+
+6. **UI Elements**:
+
+   * Displays the application title and instructions.
+   * Connect button to log in with MetaMask.
+   * Displays the connected account address and log-out button.
+   * Displays a list of candidates with their names, vote counts, and vote buttons.
+   * Error messages and network status messages.
+
+This frontend code provides a user interface for interacting with the voting smart contract, enabling users to connect their MetaMask accounts, vote for candidates, and view current voting results.
+
+### Run the DApp
+
+All the pieces are together now. If you do not change the contract, the ABI in the front end will work. Otherwise, you'll need to add the updated ABI. Run the project with:
+
+```
+npm run dev
+```
+
+Your front end will be available on `http://localhost:3000`:
+
+```
+> celo-tutorial@0.1.0 dev
+> next dev
+
+  ▲ Next.js 14.2.3
+  - Local:        http://localhost:3000
+```
+
+Click on the **Login with MetaMask** button to connect your wallet to the DApp. Then, you can vote for a candidate by signing a transaction.
+
+## Conclusion
+
+Congratulations! You have successfully built a simple voting DApp on the Celo blockchain. Following this tutorial, you've learned how to develop, test, and deploy a smart contract using Foundry and create a frontend interface with Next.js and web3.js to interact with the contract. This project is a foundational example of getting you started with blockchain development on Celo. Remember to enhance and secure your DApp before deploying it to a production environment.

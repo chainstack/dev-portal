@@ -1,0 +1,115 @@
+---
+title: "Solana: Priority Fees for a Jupiter Swap in Python"
+---
+
+**TLDR**
+
+* Jupiter offers a quick way to swap tokens on Solana but lacks a Python SDK, so we query Jupiter’s public API for quotes and transaction data.
+* We calculate our priority fee by fetching recent block data via `getRecentPrioritizationFees`, then derive the median fee and multiply it by a user-defined factor.
+* Adding this priority fee to the raw Jupiter transaction data (plus the base fee of 5000 lamports) helps ensure faster block inclusion under congestion.
+* The entire flow uses both Jupiter endpoints (quote + swap) and a private Solana RPC (e.g., Chainstack) for the final transaction broadcast, giving you more control over performance and reliability.
+
+## Main article
+
+With its cumulative volume in [USD billions](https://defillama.com/protocol/jupiter-aggregator#information), Jupiter is one of the top DEX aggregators on Solana.
+
+In this tutorial, we are going to have a look at how add our own prioritization fees to swap for a token pair through a Jupiter aggregator route.
+
+As Jupiter does not have a Python SDK at the time of this tutorial, it's more fun doing this in Python.
+
+For JavaScript, check out their [Jupiter SDK](https://betastation.jup.ag/docs/apis/swap-sdk).
+
+## Transaction fees on Solana
+
+The topic of transactions fees on Solana is both a nascent development and its own can of worms at the same time, so we are not going to do a deep dive into this.
+
+Here's however what you need to know in a succinct form for this tutorial:
+
+* Base fee — fixed 5000 lamports (0.000005 SOL) per transaction signature, which 99% of the time means 5000 lamports per transaction
+* Priority fee — a non-fixed amount that you can include in your transaction on top of the 5000 lamports base fee to get ahead of others in the queue for the block inclusion of the current leader.
+
+So in theory — the higher the priority fee, the more chances you have to skip ahead and become a part of the state of the chain than the others you are racing against.
+
+Let's implement adding a proper priority fee to our transaction based on an interaction with the Jupiter aggregator.
+
+<Check>
+  ### Run Solana mainnet and devnet nodes on Chainstack
+
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required. You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+Get yourself a Chainstack Solana node.
+
+## Overview
+
+Here's how it's going to work:
+
+1. Get a token pair price quote from the Jupiter API.
+
+2. Get the priority fees data from the recent 150 blocks with the `getRecentPrioritizationFees` call from a Chainstack Solana node.
+
+3. Calculate the priority fee to include with your transaction.
+
+4. Submit the transaction through the Chainstack Solana node:
+
+   1. Transaction data (token pair exchange rate, liquidity pool) from the Jupiter API quote
+   2. Priority fee based on the raw chain data obtained through the Chainstack Solana node
+
+## Implementation
+
+Now let's implement our flow as outlined above.
+
+Have a look at the [Jupiter API endpoints](https://station.jup.ag/api-v6), and you will see that there are a few of them. The two that we need are:
+
+* [quote](https://station.jup.ag/api-v6/get-quote) — to get the quote for the trade
+* [swap](https://station.jup.ag/api-v6/post-swap) — to prepare the swap transaction
+
+For everything else we are using our own Solana node.
+
+Relying on your own unique Solana node endpoint, however, is always the smartest and most reliable way of doing things. This already puts you ahead of the competition, since you are the only one using it, you can try different ones in different locations or having a load balanced one, and so on.
+
+We get the quote from Jupiter.
+
+We get the priority fee from the chain and our calculations:
+
+* Query the chain with `getRecentPrioritizationFees` the Chainstack Solana node
+* Get the priority fee data over the last 150 blocks
+* We then take the 150 fee data and calculate the median
+* Then we multiply the median by whatever number we think will get us the priority slot in the queuer. For example, setting the multiplier to `1.1` will get us a 10% bump over the median; `3` will 3x the median, and so on.
+* Then we build the transaction with the `/swap` Jupiter endpoint with our priority fee.
+* And then we send the transaction through the Chainstack Solana node.
+
+A word on why base the priority fee on the median and not just the highest fee over the past 150 blocks. In the tests that I did, I found that there can be random astronomical priority fees on the chain, and relying on these "flukes" can jeopardize your finances in no time. Feel free to play around and find a better strategy, I'm sure there's one. Just be careful.
+
+Check the full code in the [GitHub repo](https://github.com/chainstacklabs/jupiter-swaps-priority-fees-python):
+
+* PRIVATE\_KEY - your private key, of course.
+* RPC\_ENDPOINT — your Chainstack Solana node endpoint.
+* INPUT\_MINT — the token going in for your swap.
+* OUTPUT\_MINT — the token that you get as a result of the swap.
+* AMOUNT — the amount of the INPUT\_MINT token in lamports.
+* AUTO\_MULTIPLIER — multiply the median of fees to get yourself a priority. Setting to `1` will keep the median unchanged and use that as the priority fee.
+* SLIPPAGE\_BPS — slippage tolerance
+
+## Conclusion
+
+Solana is a very fun and extremely lively ecosystem, so have fun building, keep and eye on the all changes and how the fee market develops — this can give you an edge.
+
+And use Chainstack, of course.
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

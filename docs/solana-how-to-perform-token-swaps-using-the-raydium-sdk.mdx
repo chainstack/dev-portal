@@ -1,0 +1,315 @@
+---
+title: "Solana: How to Perform Token Swaps Using the Raydium SDK"
+---
+
+<Frame>
+  <iframe width="100%" height="420" src="https://www.youtube.com/embed/NT-oYdV67u4" title="Token swaps with Raydium SDK on Solana" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+</Frame>
+**TLDR**
+
+* Using the Raydium SDK on Solana allows you to swap tokens efficiently while leveraging Serum’s order book for ample liquidity.
+* This TypeScript project sets up the Solana Connection (with your own node endpoint), loads trimmed pool data, and constructs a transaction for a token pair (e.g., SOL → USDC).
+* Configuration lives in `swapConfig.ts` for easy adjustments (e.g., token amounts, slippage, versioned transaction usage).
+* You can simulate swaps first or execute them immediately, with built-in transaction logging and debugging.
+
+## Main article
+
+The Solana blockchain is at the forefront of DeFi, known for its remarkable speed and cost-efficiency. This has positioned Solana as a highly sought-after platform for users and developers interested in DeFi activities.
+
+Central to this ecosystem's appeal is Raydium, an automated market maker (AMM) that integrates seamlessly with Serum's central order book, enabling quick and cost-effective token transactions. Raydium's integration with Solana facilitates immediate swaps with minimal slippage and maintains liquidity at optimal levels.
+
+In this guide, we'll walk you through using the Raydium SDK and Solana Chainstack nodes to swap tokens in TypeScript.
+
+## Prerequisites
+
+Before diving into the token-swapping process using the Raydium SDK on Solana, ensuring you have everything needed for a smooth experience is key. Here's a quick rundown of what you'll need beforehand and how to set everything up:
+
+### Deploy a Chainstack Solana node
+<CardGroup>
+  <Card title="Sign up with Chainstack" href="https://console.chainstack.com/user/account/create" icon="angle-right" horizontal />
+  <Card title="Deploy a node" href="/docs/manage-your-networks#join-a-public-network" icon="angle-right" horizontal />
+  <Card title="View node access and credentials" href="/docs/manage-your-node#view-node-access-and-credentials" icon="angle-right" horizontal />
+</CardGroup>
+
+### Prerequisites
+
+* **Node.js**: Make sure you have [Node.js](https://nodejs.org/en/download/current) (version 18 or above) installed on your machine. Node.js is essential for running the scripts and managing the dependencies of the Raydium SDK.
+* **Yarn**: Yarn is a fast, reliable, secure dependency management tool. It is used to install the necessary dependencies for this project. After installing Node.js, install Yarn by running **`npm install --global yarn`** in your terminal.
+* **Solana wallet**: A Solana wallet with some SOL is necessary to cover the swap’s transaction fees.
+
+## Setting up the GitHub repository
+
+This project is organized into various scripts, including utility functions and configuration settings, all stored within a GitHub repository. To begin exploring the project, you can clone the repository onto your local machine. This step guarantees you have all the necessary files and scripts.
+
+<Info>
+  Explore the Github repository: [Raydium SDK Swap Example](https://github.com/chainstacklabs/raydium-sdk-swap-example-typescript)
+</Info>
+
+First, open your terminal and run the following command to clone the repository:
+
+<CodeGroup>
+  ```shell Shell
+  git clone https://github.com/chainstacklabs/raydium-sdk-swap-example-typescript.git
+  ```
+</CodeGroup>
+
+After cloning, hop onto the project’s directory with:
+
+<CodeGroup>
+  ```shell Shell
+  cd raydium-sdk-swap-example-typescript
+  ```
+</CodeGroup>
+
+Next, install the project dependencies. These dependencies are libraries and tools you need to have the project run correctly. In this tutorial we use Yarn, a fast and reliable package manager, to handle these installations. Run the following command to install the necessary dependencies:
+
+<CodeGroup>
+  ```shell Shell
+  yarn
+  ```
+</CodeGroup>
+
+## Project structure and environment setup
+
+The heart of this project lies within the `src` directory, which holds all the executable scripts and necessary configurations for token swapping. Additionally, you'll need a `.env` file in the project's root directory. This file is crucial as it holds sensitive information that enables the project to interact with the Solana blockchain and perform operations securely.
+
+### Configuring environment variables
+
+To set up your environment variables, you'll need to create a `.env` file at the root of your project. This file should include your Solana RPC URL and your wallet's private key. These variables are essential for connecting to the Solana network and executing transactions. Follow these steps:
+
+<Steps>
+  <Step>
+    Create a new file named `.env` in the root directory of the project.
+  </Step>
+  <Step>
+    Open the `.env` file in a text editor and add the following lines, replacing `YOUR_CHAINSTACK_SOLANA_NODE` and `YOUR_PRIVATE_KEY` with your actual Solana RPC URL and wallet's private key:
+
+   <CodeGroup>
+     ```shell Shell
+     RPC_URL=YOUR_CHAINSTACK_SOLANA_NODE
+     WALLET_PRIVATE_KEY=YOUR_PRIVATE_KEY
+     ```
+   </CodeGroup>
+  </Step>
+</Steps>
+Alternatively, the project has a `.env.example` file, which you can rename to `.env` , and update with your details accordingly.
+
+### Trim Raydium's mainnet.json
+
+Raydium's mainnet.json file that has metadata on all the liquidity pools is the file that we need but it's huge — almost 500 MB. This is the file that the project would first need to download and then load into memory to perform the swap. That alone takes minutes, so use a trimmed version that only has the metadata pertaining to your swap and not the entirety of all the available pools.
+
+Here's how to get the trimmed mainnet.json version used in the project:
+
+1. In the project root, run:
+   <CodeGroup>
+     ```shell Shell
+     wget https://api.raydium.io/v2/sdk/liquidity/mainnet.json
+     ```
+   </CodeGroup>
+2. Set the tokenA and tokenB in `src/swapConfig.ts`.
+3. Run the script that takes the token pair from `src/swapConfig.ts`, looks for the respective liquidity pair in `mainnet.json` and produces `trimmed_mainnet.json`, which contains only the data pertaining to the tokens that you need.
+
+Now you can move further to perform the swap.
+
+## Explore the code
+
+The project's source code is divided into three TypeScript files, each with its distinct purpose within the Raydium SDK swapping process. Let's dive into what each file contributes to the project:
+
+### The `RaydiumSwap.ts` file
+
+`RaydiumSwap.ts` defines the `RaydiumSwap` class that encapsulates the functionality for performing token swaps using Raydium on the Solana blockchain.
+
+This file includes functions to:
+
+* Load the Raydium SDK.
+* Connect to the Solana blockchain using the RPC URL from the environment variables you have set.
+* Construct and send swap transactions using the Raydium SDK.
+* Handle errors and transaction confirmations.
+
+Here is an overview of its components:
+
+#### Constructor
+
+* Initializes the Solana `Connection` with a commitment level to `confirmed` for transaction finality.
+* Creates a `Wallet` instance using a provided private key to sign transactions and interact with the blockchain.
+
+#### `loadPoolKeys`
+
+This asynchronous method fetches the liquidity pool information from a given JSON configuration file and stores it within the class. This information is crucial as it includes the details of the various liquidity pools available on Raydium, which are needed to perform swaps.
+
+#### `findPoolInfoForTokens`
+
+This method searches for and returns the liquidity pool information for a specified token pair, facilitating the swap between them. It relies on the data loaded by `loadPoolKeys`.
+
+#### `getSwapTransaction`
+
+* An asynchronous method that builds a swap transaction based on the input parameters, such as the token to receive, the amount to swap, and the liquidity pool to use. Depending on the `useVersionedTransaction` flag, it can create either a legacy `Transaction` or a `VersionedTransaction`.
+* It first calculates the minimum amount out and amount in for the swap, considering the slippage and pool liquidity.
+* After calculating the swap amounts, it creates a transaction instruction using `Liquidity.makeSwapInstructionSimple`.
+
+#### `sendLegacyTransaction` and `sendVersionedTransaction`
+
+These asynchronous methods are responsible for sending the respective types of transactions to the network. They also manage transaction configurations, skipping preflight checks and setting maximum retry limits.
+
+#### `simulateLegacyTransaction` and `simulateVersionedTransaction`
+
+These asynchronous methods allow for the simulation of the respective types of transactions. This can be useful for testing to ensure the transaction will likely succeed before sending it to the blockchain.
+
+#### `calcAmountOut`
+
+An asynchronous method that performs the swap calculations, determining the expected and minimum amount out, execution price, and associated fees based on the current state of the liquidity pool.
+
+#### Exporting the class
+
+At the end of the file, the `RaydiumSwap` class is exported, making it available for import in other application parts.
+
+This file is key for abstracting the complexities of swap operations. The Raydium SDK communicates directly with the Solana blockchain, preparing and executing transactions that swap tokens within the specified liquidity pools.
+
+### The`index.ts` file
+
+`index.ts` is the entry point script that combines the functionality implemented in `RaydiumSwap.ts` and the configuration specified in `swapConfig.ts` to perform or simulate a token swap. Below is the functionality provided by each segment of the script:
+
+#### Swap initialization
+
+An instance of `RaydiumSwap` is created to establish a connection to the Solana blockchain and prepare the wallet for transaction signing.
+
+#### Pool key loading
+
+It invokes `loadPoolKeys` from the `RaydiumSwap` instance to retrieve the necessary information from Raydium's liquidity pools.
+
+#### Pool information retrieval
+
+The script locates the specific liquidity pool required for the token swap using the `findPoolInfoForTokens` method, which uses the token addresses from the `swapConfig`.
+
+#### Transaction preparation
+
+A transaction for the swap is built using the `getSwapTransaction` method, passing in parameters such as the destination token address, the amount to swap, the retrieved pool information, and additional configuration like the maximum lamports for transaction fees and whether to use a versioned transaction.
+
+#### Execution or simulation
+
+Based on the `swapConfig`, the script executes the swap on the blockchain or simulates it to forecast the outcome without sending the transaction.
+
+#### Transaction handling
+
+* If executing the swap, it sends the transaction through the appropriate method (`sendVersionedTransaction` or `sendLegacyTransaction`). It logs the transaction ID, which can be used to track the transaction on a Solana blockchain explorer like Solscan.
+* If simulating, it simulates the corresponding method (`simulateVersionedTransaction` or `simulateLegacyTransaction`) and logs the results, which can help debug or test before live execution.
+
+#### Swap invocation
+
+Finally, the `swap` function is called to initiate the swap process.
+
+This script is a high-level workflow that dictates the swap process from start to finish, abstracting the lower-level details and ensuring that the user-facing process is streamlined and straightforward.
+
+### The `swapConfig.ts` file
+
+The `swapConfig.ts` file holds the configuration settings for a token swap using the Raydium SDK on the Solana blockchain. This is where you set the parameters used throughout the swap process. Let’s detail the contents and role of each configuration option.
+
+This configuration file exports an object `swapConfig` containing key-value pairs that define the parameters of the swap operation:
+
+#### `executeSwap`
+
+A boolean that determines whether to send the transaction (`true`) or to simulate it (`false`). This is useful for testing the swap process without committing real funds.
+
+#### `useVersionedTransaction`
+
+A boolean indicating whether to use Solana's `VersionedTransaction` format. This new transaction format can include additional metadata and is meant to be more future-proof.
+
+#### `tokenAAmount`
+
+The amount of the source token (in this case, SOL) that you wish to swap. The value `0.01` indicates that the swap will attempt to exchange 0.01 SOL.
+
+#### `tokenAAddress`
+
+The address of the source token, which is the token you are giving up in the swap, is set to the mint address of SOL, the native currency of the Solana blockchain.
+
+#### `tokenBAddress`
+
+The address of the destination token is the token you want to receive. In this example, the mint address corresponds to USDC.
+
+#### `maxLamports`
+
+The maximum number of lamports (the smallest unit of SOL) that you are willing to spend on transaction fees.
+
+#### `direction`
+
+Indicates the fixed side of the swap—`in` means that the `tokenAAmount` is the exact amount you will send, while `out` means it's the exact amount you wish to receive.
+
+#### `maxRetries`
+
+The number of retries allowed.
+
+#### `liquidityFile`
+
+The URL to a JSON file containing information about the available liquidity pools on Raydium. This is essential for the `RaydiumSwap` class to load pool keys and find the right pool for the swap.
+
+## How to use the project
+
+To use this program for swapping tokens on the Solana blockchain with the Raydium SDK, follow these steps:
+
+### Configuration
+
+1. Open `src/swapConfig.ts` in your favorite code editor.
+
+2. Modify the `swapConfig` object to set up your desired swap parameters:
+
+   * `executeSwap`: Set this to `false` if you wish to simulate the transaction before executing or `true` to execute the swap immediately. It’s set on the simulation by default.
+   * `useVersionedTransaction`: Determine whether to use a versioned transaction (`true`) or a legacy transaction (`false`). Versioned transactions are the new standard and are recommended.
+   * `tokenAAmount`: Specify the amount of the source token you wish to swap. For example, `0.01` if you're swapping 0.01 SOL.
+   * `tokenAAddress`: Enter the source token's mint address. By default, it's set to SOL's mint address.
+   * `tokenBAddress`: Enter the mint address of the destination token. The default is set to USDC's mint address.
+   * `maxLamports`: Define the maximum fee you will pay for the transaction, which is measured in lamports.
+   * `direction`: Choose `'in'` to fix the amount of the source token or `'out'` to fix the amount of the destination token.
+   * `liquidityFile`: This should point to the Raydium liquidity pool information file. It's preset to the Raydium liquidity pools.
+
+### Execution
+
+With your swap configuration set:
+
+1. Navigate to your terminal.
+
+2. Ensure you're in the root directory of the cloned repository.
+
+3. Run the swap script using Yarn:
+
+   <CodeGroup>
+     ```shell Shell
+     yarn swap
+     ```
+   </CodeGroup>
+
+### Process flow
+
+When you run `yarn swap`, the program will:
+
+* Load the necessary pool keys from Raydium's API based on your liquidity file URL.
+
+* Use the token addresses from `swapConfig` to identify the appropriate liquidity pool.
+
+* Create a transaction with the specified parameters, ready to swap the defined `tokenAAmount` of `tokenAAddress` for `tokenBAddress`.
+
+* Depending on your `executeSwap` configuration, the program will either:
+
+  * Simulate the transaction and output the results in the console for review.
+  * Execute the swap transaction on the Solana blockchain and provide a transaction ID for tracking.
+
+### Transaction tracking
+
+If you execute the swap, you can track the transaction on a Solana blockchain explorer using the provided transaction ID. For example:
+
+<CodeGroup>
+  ```shell Shell
+  https://solscan.io/tx/YOUR_TRANSACTION_ID
+  ```
+</CodeGroup>
+
+<Info>
+  You can see an example of a swap completed with this program on [Solscan](https://solscan.io/tx/5QNkWNrjxjuZaGPKHwTD7topj7jzgqdCLpyXY8q8vAQE1e3VmWZAmymwo8sS5h8NXfLByEWbFS7FdnzDQZLwqHxG).
+</Info>
+
+## Conclusion
+
+In this guide, we navigated the process of executing token swaps on Solana with the Raydium SDK. From setting up the environment to understanding the codebase, we covered the essentials needed to jumpstart your DeFi activities on one of the fastest blockchains.
+
+We walked through the cloning of the repository, installing dependencies, and dissecting the purpose of each TypeScript file, giving you the clarity to configure and execute swaps with ease. The `swapConfig.ts` empowers you to fine-tune swap parameters, while `RaydiumSwap.ts` and `index.ts` facilitate the execution and simulation of swaps, complete with transaction tracking capabilities.
+
+By the end of this tutorial, you've gained the ability to conduct token swaps confidently, making the most of Solana's rapid and cost-effective ecosystem. This foundation sets you up for continued growth and exploration in the vibrant landscape of decentralized finance.

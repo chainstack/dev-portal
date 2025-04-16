@@ -1,0 +1,554 @@
+---
+title: "Ethereum: Academic Certificates with Truffle"
+---
+
+**TLDR:**
+
+* You’ll build and deploy a contract-based DApp that generates and verifies academic certificates on Ethereum.
+* You’ll use Truffle locally to create, test, and compile your contracts.
+* You’ll integrate with Chainstack to run your own Ethereum Sepolia node and migrate your contracts.
+* By the end, you’ll have a fully working certificate-issuing DApp ready for a testnet deployment.
+
+## Main article
+
+In this tutorial, you will:
+
+* Create a DApp that generates an academic certificate.
+* Deploy the DApp on a public Ethereum node using Chainstack.
+
+The contract and the Truffle configuration are in the [GitHub repository](https://github.com/chainstack/ethereum-certificates-tutorial).
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/user/login) to deploy an Ethereum node
+* [Truffle Suite](https://trufflesuite.com/docs/truffle/how-to/install/) to create and deploy contracts
+
+## Overview
+
+To get from zero to a deployed DApp on the Ethereum Sepolia testnet, do the following:
+
+<Steps>
+  <Step>
+  With Chainstack, create a <Tooltip tip="public chain project- a project to join public networks">public chain project</Tooltip>.
+  </Step>
+  <Step>
+  With Chainstack, join the Ethereum Sepolia testnet.
+  </Step>
+  <Step>
+  With Chainstack, access your Ethereum node credentials.
+  </Step>
+  <Step>
+  With Truffle, create and compile the DApp contract.
+  </Step>
+  <Step>
+  With Truffle, deploy the contract to your local development network.
+  </Step>
+  <Step>
+  With Truffle, interact with the contract on your local development network.
+  </Step>
+  <Step>
+  With Truffle, create and run the contract test.
+  </Step>
+  <Step>
+  With Truffle, deploy the contract to your Ethereum node running with Chainstack.
+  </Step>
+</Steps>
+
+## Step-by-step
+
+### Create a public chain project
+
+See [Create a project](/docs/manage-your-project#create-a-project).
+
+### Join the Ethereum Sepolia testnet
+
+See [Join a public network](/docs/manage-your-networks#join-a-public-network).
+
+### Get your Ethereum node access and credentials
+
+See [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+
+### Get Sepolia testnet ether from a faucet
+
+In your MetaMask, fund each account with Sepolia ether from our [Sepolia Ethereum faucet](https://faucet.chainstack.com).
+
+### Create and compile the contracts
+
+<Steps>
+  <Step>
+    On your machine, create a directory for the contract. Initialize Truffle in the directory:
+
+   <CodeGroup>
+     ```shell Shell
+     truffle init
+     ```
+   </CodeGroup>
+
+   This will generate the Truffle boilerplate structure:
+
+   <CodeGroup>
+     ```shell Shell
+     .
+     ├── contracts
+     │   └── .gitkeep
+     ├── migrations
+     │   └── .gitkeep
+     ├── test
+     │   └── .gitkeep
+     └── truffle-config.js
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+    Go to the `contracts` directory. In the directory, create two files: `Ownable.sol` and `DocStamp.sol`.
+
+   <CodeGroup>
+     ```sol Ownable.sol
+     //SPDX-License-Identifier:MIT
+     // Ownable.sol
+
+     pragma solidity ^0.5.0;
+
+     contract Ownable {
+       address public owner;
+       event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+
+       constructor() public {
+         owner = msg.sender;
+       }
+
+       modifier onlyOwner() {
+         require(msg.sender == owner);
+         _;
+       }
+
+       function transferOwnership(address newOwner) onlyOwner public {
+         require(newOwner != address(0));
+         emit OwnershipTransferred(owner, newOwner);
+         owner = newOwner;
+       }
+     }
+     ```
+   </CodeGroup>
+
+   This is an ownable contract. The contract implementation is the following:
+
+   * Only an authority can generate a certificate. On contract deployment, the authority is the account that deploys the contract. The authority is the contract owner.
+
+   * The contract owner can transfer their authority.
+
+     <CodeGroup>
+       ```sol DocStamp.sol
+       //SPDX-License-Identifier:MIT
+       // DocStamp.sol
+
+       pragma solidity ^0.5.0;
+
+       import './Ownable.sol';
+
+       contract DocStamp is Ownable {
+         mapping (bytes32 => address) public records;
+
+         event CertificateIssued(bytes32 indexed record, uint256 timestamp, bool returnValue);
+
+         function issueCertificate(string calldata name, string calldata details) external onlyOwner {
+           bytes32 certificate = keccak256(abi.encodePacked(name, details));
+           require(certificate != keccak256(abi.encodePacked("")));
+           records[certificate] = msg.sender;
+           emit CertificateIssued(certificate, block.timestamp, true);
+         }
+
+         function owningAuthority() external view returns (address) {
+           return owner;
+         }
+
+         function verifyCertificate(string calldata name, string calldata details, bytes32 certificate) external view
+          returns (bool) {
+           bytes32 certificate2 = keccak256(abi.encodePacked(name, details));
+           // are certificates the same?
+           if (certificate == certificate2) {
+             // does the certificate exist on the blockchain?
+             if (records[certificate] == owner) {
+               return true;
+             }
+           }
+           return false;
+         }
+       }
+       ```
+     </CodeGroup>
+
+   This is the main contract. The contract handles the generation and verification of certificates.
+
+   * `issueCertificate()` — generates a certificate by calculating a hash of the student name and details.
+
+     * Can be called only by the owner.
+     * Emits a certificate generation event with the timestamp.
+     * The issuer puts the certificate on the blockchain by storing it in the global variable records by passing `records[certificate] = msg.sender`.
+
+   * `owningAuthority()` — returns the address of issuer/authority.
+
+   * `verifyCertificate()` — calculates a hash of the student name and details, and checks if the contract is on the blockchain.
+     * Can be called by anyone.
+  </Step>
+  <Step>
+    Create `2_deploy_contracts.js` in the `migrations` directory.
+
+   <CodeGroup>
+     ```javascript Javascript
+     var DocStamp = artifacts.require("./DocStamp.sol");
+
+     module.exports = function(deployer) {
+     deployer.deploy(DocStamp);
+     };
+     ```
+   </CodeGroup>
+
+   <Info>
+    ### Deployment details
+
+     Since DocStamp inherits from Ownable, Ownable will be deployed together with DocStamp.
+   </Info>
+  </Step>
+  <Step>
+    Compile the contracts:
+
+   <CodeGroup>
+     ```shell Shell
+     truffle compile
+     ```
+   </CodeGroup>
+
+   This will compile the contracts and put them in your `build/contracts` directory in the `.json` format. If the contract does not compile, check the compiler version in your `truffle-config.js` file and ensure that your compiler version matches the pragma solidity version of the contract.
+  </Step>
+</Steps>
+
+### Deploy the contract to your local development network
+
+<Steps>
+  <Step>
+    Start the development network on your machine:
+
+   <CodeGroup>
+     ```shell Shell
+     truffle develop
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+    Without exiting the Truffle console, deploy the contract to the local development network:
+
+   <CodeGroup>
+     ```shell Shell
+     truffle(develop)>  migrate
+     ```
+   </CodeGroup>
+
+   This will deploy the contract to the development network as specified in the`truffle-config.js`.
+  </Step>
+</Steps>
+
+### Interact with the contract on your local development network
+
+<Steps>
+  <Step>
+    In your Truffle console, create an instance of the deployed contract:
+
+   <CodeGroup>
+     ```javascript Javascript
+     let instance = await DocStamp.deployed()
+     ```
+   </CodeGroup>
+
+   You can run `instance` to see the contract object ABI, bytecode, and methods.
+  </Step>
+  <Step>
+    Declare the contract owner:
+
+   <CodeGroup>
+     ```javascript Javascript
+     let owner = await instance.owningAuthority()
+     ```
+   </CodeGroup>
+
+   You can run `owner` to see the account that deployed the contract and owns the contract.
+  </Step>
+  <Step>
+    Issue the certificate:
+
+   <CodeGroup>
+     ```javascript Javascript
+     let result = await instance.issueCertificate("John", "graduate", {from: owner})
+     ```
+   </CodeGroup>
+
+   This issues the certificate.
+
+   Run `result.logs` to view the full certificate details.
+
+   <Info>
+    ### Getting certificate details
+
+     Running result will not print the certificate details in Truffle console. You must run `result.logs`.
+
+     See also [Processing transaction results](https://www.trufflesuite.com/docs/truffle/getting-started/interacting-with-your-contracts#processing-transaction-results).
+   </Info>
+
+   Example output:
+
+   <CodeGroup>
+     ```shell Shell
+     logIndex: 0,
+       transactionIndex: 0,
+       transactionHash: '0xb3ef241d76bd4d3a3d92ad4fd382785589033a4f561baa2895136a3315b3561b',
+       blockHash: '0x29343b9fc5b88bb8c85287463a37a00e8fecce36553880365ca5395d9fb18eeb',
+       blockNumber: 7,
+       address: '0x3113Aa54D455142a254b43b83FB16c18eD30ba33',
+       type: 'mined',
+       id: 'log_dbbbec7e',
+       event: 'CertificateIssued',
+       args: Result {
+         '0': '0x837e31a66aa8eec0d7adfd41f84175803ddcae69afd451598f2672f652b2c153',
+         '1': [BN],
+         '2': true,
+         __length__: 3,
+         record: '0x837e31a66aa8eec0d7adfd41f84175803ddcae69afd451598f2672f652b2c153',
+         timestamp: [BN],
+         returnValue: true
+     ```
+   </CodeGroup>
+
+   Note the `record` value in the output. This is the hash of the certificate values: name and details. You will need this hash to create the contract test later in this tutorial.
+  </Step>
+  <Step>
+    Run the certificate verification:
+
+   <CodeGroup>
+     ```javascript Javascript
+     let verify = await instance.verifyCertificate("NAME", "DETAILS", "CERTIFICATE_HASH", {from: owner})
+     ```
+   </CodeGroup>
+
+   where
+
+   * NAME — the student name on the certificate used on the issuing step.
+   * DETAILS — any details
+   * CERTIFICATE\_HASH — the hash of DETAILS and NAME. You should have received this hash in the record field at the previous step by running `result.logs`.
+
+   Example:
+
+   <CodeGroup>
+     ```javascript Javascript
+     let verified = await instance.verifyCertificate("John", "graduate",
+     "0x837e31a66aa8eec0d7adfd41f84175803ddcae69afd451598f2672f652b2c153", {from: owner})
+     ```
+   </CodeGroup>
+
+   Running `verify` will now print `true` if there is a match, and `false` if there is no match.
+  </Step>
+</Steps>
+
+### Test the contract
+
+<Steps>
+  <Step>
+    Navigate to the `test` directory.
+  </Step>
+  <Step>
+    Create a `test.js` file:
+
+   <CodeGroup>
+     ```javascript Javascript
+     const DocStamp = artifacts.require('./DocStamp.sol')
+
+     contract('DocStamp', function(accounts) {
+       it('should issue a certificate', async function() {
+         const account = accounts[0]
+
+         try {
+           const instance = await DocStamp.deployed()
+           await instance.issueCertificate("NAME", "DETAILS")
+           const authority = await instance.owningAuthority()
+
+           assert.equal(authority, account)
+         } catch(error) {
+           assert.equal(error, undefined)
+         }
+       })
+
+       it('should verify a certificate', async function() {
+         const account = accounts[0]
+
+         try {
+           const instance = await DocStamp.deployed()
+           const verified = await instance.verifyCertificate("NAME", "DETAILS", "CERTIFICATE_HASH")
+
+           assert.equal(verified, true)
+         } catch(error) {
+           assert.equal(error, undefined)
+         }
+       })
+     })
+     ```
+   </CodeGroup>
+
+   where
+
+   * NAME — the student name on the certificate used on the issuing step.
+   * DETAILS — any details
+   * CERTIFICATE\_HASH — the hash of DETAILS and NAME. You should have received this hash in the record field at one of the previous steps by running `result.logs`.
+
+   Example:
+
+   <CodeGroup>
+     ```javascript Javascript
+     const DocStamp = artifacts.require('./DocStamp.sol')
+
+     contract('DocStamp', function(accounts) {
+       it('should issue a certificate', async function() {
+         const account = accounts[0]
+
+         try {
+           const instance = await DocStamp.deployed()
+           await instance.issueCertificate("John", "graduate")
+           const authority = await instance.owningAuthority()
+
+           assert.equal(authority, account)
+         } catch(error) {
+           assert.equal(error, undefined)
+         }
+       })
+
+       it('should verify a certificate', async function() {
+         const account = accounts[0]
+
+         try {
+           const instance = await DocStamp.deployed()
+           const verified = await instance.verifyCertificate("John", "graduate",
+     "0x837e31a66aa8eec0d7adfd41f84175803ddcae69afd451598f2672f652b2c153")
+
+           assert.equal(verified, true)
+         } catch(error) {
+           assert.equal(error, undefined)
+         }
+       })
+     })
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+    Run the test:
+
+   <CodeGroup>
+     ```shell Shell
+     truffle test
+     ```
+   </CodeGroup>
+
+   The test run output should be `Passing`.
+  </Step>
+</Steps>
+
+<Info>
+### See also
+
+  [Truffle: Writing Tests in JavaScript](https://trufflesuite.com/docs/truffle/how-to/debug-test/write-tests-in-javascript/)
+</Info>
+
+### Deploy the contract to your Ethereum node
+
+<Steps>
+  <Step>
+    Install `HDWalletProvider`.
+
+    [HDWalletProvider](https://github.com/trufflesuite/truffle/tree/develop/packages/hdwallet-provider) is Truffle's separate npm package used to sign transactions.
+
+   Run:
+
+   <CodeGroup>
+     ```shell Shell
+     npm install @truffle/hdwallet-provider
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+    Edit `truffle-config.js` to add:
+
+   * HDWalletProvider
+
+   * Your Ethereum node access and credentials. Example:
+
+     <CodeGroup>
+       ```javascript Javascript
+       const HDWalletProvider = require("@truffle/hdwallet-provider");
+       const mnemonic = "misery walnut expose ...";
+
+       module.exports = {
+        networks: {
+           development: {
+               host: "127.0.0.1",
+               port: 9545,
+               network_id: "5777"
+           },
+           sepolia: {
+               provider: () => new HDWalletProvider(mnemonic, "YOUR_CHAINSTACK_ENDPOINT"),
+               network_id: 11155111,
+               gas: 4500000,
+               gasPrice: 10000000000
+           }
+          }
+       };
+       ```
+     </CodeGroup>
+
+   where
+
+   * `sepolia` — any network name that you will pass to the `truffle migrate --network` command.
+   * `HDWalletProvider` — Truffle's custom provider to sign transactions
+   * `mnemonic` — your mnemonic that generates your accounts. You can also generate a mnemonic online with [Mnemonic Code Converter](https://iancoleman.io/bip39/). Make sure you generate a 15-word mnemonic.
+   * YOUR\_CHAINSTACK\_ENDPOINT — your Chainstack node endpoint. See [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials) and [Ethereum tooling](/docs/ethereum-tooling).
+   * `network_id` — the Ethereum Sepolia testnet network ID: `5`.
+  </Step>
+  <Step>
+    Run:
+
+   <CodeGroup>
+     ```shell Shell
+     truffle migrate --network sepolia
+     ```
+   </CodeGroup>
+
+   This will engage `2_deploy_contracts.js` and deploy the contract to the Ethereum Sepolia testnet as specified in `truffle-config.js`.
+  </Step>
+</Steps>
+
+<Warning>
+### Get testnet ether
+
+  You must get the Sepolia testnet ether to deploy the contract to the testnet.
+</Warning>
+
+<Info>
+  See also:
+  * [Ethereum: Asset tokenization with Embark](/docs/ethereum-tutorial-asset-tokenization-with-embark)
+  * [Ethereum: Trust fund account with Remix](/docs/ethereum-tutorial-trust-fund-account-with-remix)
+</Info>
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

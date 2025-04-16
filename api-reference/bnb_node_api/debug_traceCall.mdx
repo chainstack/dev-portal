@@ -1,0 +1,221 @@
+---
+title: debug_traceCall | BNB Chain
+openapi: /openapi/bnb_node_api/debug_traceCall.json POST /35848e183f3e3303c8cfeacbea831cab
+---
+
+BNB API method that traces the execution of [eth\_call](/api-reference/bnb_node_api/eth_call) within the context of a specific block's execution. This method uses the final state of the parent block as its base and allows developers to trace the execution of a particular call.
+
+<Note>
+Learn how to [deploy a node](/docs/debug-and-trace-apis#ethereum) with the debug and trace API methods enabled.
+</Note>
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `object` — the transaction call object:
+
+  + `from` — (optional) the string of the address used to send the transaction.
+  + `to` — the string of the address to which the transaction is directed, a wallet, or a smart contract.
+  + `gas` — (optional) the maximum amount of gas that can be used by the transaction.
+  + `gasprice` — (optional) the amount of gas price the sender is willing to pay for each gas unit in [Wei](https://ethereum.org/en/developers/docs/intro-to-ether/#denominations).
+  + `value` — (optional) the value sent with this transaction, encoded as hexadecimal.
+  + `data` — (optional) additional data to be sent with the call, usually used to invoke functions from smart contracts as a string of the hash of the method signature and encoded parameters; see the [Ethereum Contract ABI](https://solidity.readthedocs.io/en/latest/abi-spec.html).
+* `quantity or tag` — the integer of a block encoded as hexadecimal or the string with:
+
+  + `latest` — the most recent block in the blockchain and the current state of the blockchain at the most recent block. A chain reorganization is to be expected.
+  + `safe`—the block that received justification from the beacon chain. Although this block could be involved in a chain reorganization, it would necessitate either a coordinated attack by the majority of validators or severe propagation latency.
+  + `finalized`—the block accepted as canonical by more than 2/3 of the validators. A chain reorganization is extremely unlikely, requiring burning at least 1/3 of the staked amount.
+  + `earliest` — the earliest available or genesis block.
+  + `pending`—the pending state and transactions block. This is the current state of transactions that have been broadcast to the network but have not yet been included in a block.
+  
+<Note>
+See the [default block parameter](https://ethereum.org/en/developers/docs/apis/json-rpc/#default-block).
+</Note>
+
+* `object` — (optional) an object identifying the type of tracer and its configuration:
+
+  + `4byteTracer` — tracer that captures the function signatures and call data sizes for all functions executed during a transaction, creating a map that links each selector and size combination to the number of times it occurred. This provides valuable information about the frequency and usage of each function within the transaction.
+  + `callTracer` — tracer that captures information on all call frames executed during a transaction. The resulting nested list of call frames is organized into a tree structure that reflects the way the Ethereum Virtual Machine works and can be used for debugging and analysis purposes.
+  + `prestateTracer` — tracer with two modes: `prestate` and `diff`, where the former returns the accounts needed to execute a transaction, and the latter returns the differences between the pre and post-states of the transaction. The tracer operates by re-executing the transaction and tracking every state change made, resulting in an object with the account addresses as keys and the corresponding trie leaves as values.
+
+<Note>
+Find a complete [list of available built-in tracers](/api-reference/ethereum-debug-trace-rpc-methods#pre-built-javascript-based-tracers) in the debug and trace overview.
+</Note>
+
+
+You can also use additional configuration parameters. The following settings are available:
+
+* `disableStorage` — when enabled, it prevents storage changes from being traced by the transaction being analyzed, which can reduce the resource requirements of the analysis. By default, `debug_traceTransaction` traces both memory and storage changes, but storage tracing can be particularly resource-intensive, especially for large transactions.
+* `disableStack` — when enabled, it skips tracing of [stack](https://en.wikipedia.org/wiki/Stack_(abstract_data_type)) changes made by the transaction being analyzed. This can be helpful in optimizing performance and resource usage, especially when analyzing complex transactions, but may result in reduced analysis accuracy that should be considered.
+* `enableMemory` — when `false`, it prevents tracing of memory changes made by the transaction being analyzed, which can reduce the resource requirements of the analysis. This can help optimize performance and resource usage, especially when analyzing complex transactions, but may result in reduced analysis accuracy that should be considered.
+
+<Warning>
+Note that on an Erigon client, this setting is the opposite and is named `disableMemory`.
+</Warning>
+
+* `enableReturnData` — when `false`, it prevents the method from tracing the return data produced by the analyzed transaction. The return data tracing can be particularly resource-intensive, requiring significant time and processing power to complete.
+
+<Warning>
+Note that on an Erigon client, this setting is the opposite and is named `disableReturnData`.
+</Warning>
+
+* `timeout` — setting that allows developers to customize the method's timeout period for JavaScript-based tracing calls. The default timeout is `5s`, and you can find the values formats in the [Go documentation](https://pkg.go.dev/time#ParseDuration).
+
+<Note>
+It's worth noting that when using one of the three built-in tracers in Ethereum clients, the `enableMemory`, `disableStorage`, `disableStack`, and `enableReturnData`settings will not have any effect.
+
+When no built-in tracer is selected, the response defaults to the [Struct/opcode logger](https://geth.ethereum.org/docs/developers/evm-tracing/built-in-tracers#structopcode-logger).
+</Note>
+
+
+## Response types
+
+### `4byteTracer` response
+
+* `object` — the `4byteTracer` traces object:
+  + `result` — a map of the function signature, the call data size, and how many times the function was called.
+
+### `callTracer` response
+
+* `object` — the `callTracer` traces object:
+  + `from` — the address of the sender who initiated the transaction.
+  + `gas` — the units of gas included in the transaction by the sender.
+  + `gasused` — the total used gas by the call, encoded as hexadecimal.
+  + `to` — the address of the recipient of the transaction if it was a transaction to an address. For contract creation transactions, this field is `null`.
+  + `input` — the optional input data sent with the transaction., usually used to interact with smart contracts.
+  + `output` — the return value of the call, encoded as a hexadecimal string.
+  + `error` — an error message in case the execution failed.
+  + `revertReason` — the reason why the transaction was reverted, returned by the smart contract, if any.
+  + `calls` — a list of sub-calls made by the contract during the call, each represented as a nested call frame object.
+
+### `prestateTracer` response
+
+* `object` — the `prestateTracer` traces object:
+  + `smart contract address` — the address of the smart contract associated with the result.
+    - `balance` — the balance of the contract, expressed in Wei and encoded as a hexadecimal string.
+    - `code` — the bytecode of the contract, encoded as a hexadecimal string.
+    - `nonce` — the nonce of the account associated with the contract, represented as an unsigned integer.
+    - `storage` — a map of key-value pairs representing the storage slots of the contract. The keys and values are both encoded as hexadecimal strings.
+
+### `Struct/opcode logger` response
+
+* `object` — the `Struct/opcode logger` traces object:
+  + `pc` — the current program counter of the transaction, representing the location of the current opcode being executed. A register that keeps track of the address of the next instruction to be executed in a program.
+  + `op` — the current [opcode](https://ethereum.org/en/developers/docs/evm/opcodes/) being executed, such as PUSH1, ADD, or SWAP1. A code that represents a specific operation or instruction that a computer or processor can understand and execute.
+  + `gas` — the amount of gas remaining in the transaction at the current step of execution.
+  + `gasCost` — the amount of gas consumed by the current opcode being executed.
+  + `depth` — the current depth of the call stack for the transaction, reflecting the number of active frames representing nested function calls.
+  + `stack` — the contents of the EVM stack at the current step of the transaction's execution. The stack is a data structure used by the EVM to manage and manipulate data during the execution of opcodes
+  + `memory` — the contents of the memory at the current step of execution. A temporary data storage location that is available to smart contracts during execution.
+
+## `debug_traceCall` code examples
+
+<CodeGroup>
+```javascript web3.js
+const { Web3, Web3PluginBase } = require("web3");
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const web3 = new Web3(NODE_URL);
+
+// Define the TraceBlockPlugin class
+class TraceBlockPlugin extends Web3PluginBase {
+    pluginNamespace = 'trace';
+
+    async traceCall(call, txHash, tracer) {
+        return this.requestManager.send({
+            method: 'debug_traceCall',
+            params: [call, txHash, tracer],
+        });
+    }
+}
+
+// Register the plugin
+web3.registerPlugin(new TraceBlockPlugin());
+
+async function traceCall() {
+
+    const call = {
+      from: '0x75793540CFe0F7e4643EcEf704FFaD5FB0574240',
+      to: '0xc2edad668740f1aa35e4d8f227fb8e17dca888cd',
+      gas: '0x1E9EF',
+      gasPrice: '0x72AC5BA54E',
+      data: '0x441a3e70000000000000000000000000000000000000000000000000000000000000010300000000000000000000000000000000000000000000000000c6c3eca729cb9e'
+    }
+  
+    const block = 'latest'
+  
+    // Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer. Leave empty {} for Struct/opcode logger.
+    const tracer = {'tracer' : '4byteTracer'};
+    const result = await web3.trace.traceCall(call, block, tracer);
+    console.log(result);
+  }
+  
+  traceCall();
+```
+
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.providers.JsonRpcProvider(NODE_URL);
+
+const traceCall = async () => {
+
+  const call = {
+    from: '0x75793540CFe0F7e4643EcEf704FFaD5FB0574240',
+    to: '0xc2edad668740f1aa35e4d8f227fb8e17dca888cd',
+    gas: '0x1E9EF',
+    gasPrice: '0x72AC5BA54E',
+    data: '0x441a3e70000000000000000000000000000000000000000000000000000000000000010300000000000000000000000000000000000000000000000000c6c3eca729cb9e'
+  }
+
+  const block = 'latest'
+
+  // Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer. Leave empty {} for Struct/opcode logger.
+  const tracer = {};
+  const traces = await provider.send("debug_traceCall", [call, block, tracer]);
+  console.log(traces);
+};
+
+traceCall()
+```
+
+```python web3.py
+from web3 import Web3  
+node_url = "CHAINSTACK_NODE_URL" 
+web3 = Web3.HTTPProvider(node_url)
+
+call = {
+    'from': '0x75793540CFe0F7e4643EcEf704FFaD5FB0574240',
+    'to': '0xc2edad668740f1aa35e4d8f227fb8e17dca888cd',
+    'gas': '0x1E9EF',
+    'gasPrice': '0x72AC5BA54E',
+    'data': '0x441a3e70000000000000000000000000000000000000000000000000000000000000010300000000000000000000000000000000000000000000000000c6c3eca729cb9e'
+  }
+
+block = 'latest'
+
+# Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer. Leave empty {} for Struct/opcode logger.
+tracer = { "tracer": 'prestateTracer' }
+tx_traces = web3.provider.make_request('debug_traceCall', [call, block, tracer])
+print(tx_traces)
+```
+</CodeGroup>
+
+
+## Use case
+
+A practical use case for the `debug_traceCall` method is to inspect the internal transactions during a smart contract call. For example, a developer can examine a past transaction using the `callTracer` tracer where an account used a proxy smart contract to deploy a new instance using the `CREATE2` method.
+
+<Note>
+Read [Deploying a deterministic smart contract on Ethereum](https://chainstack.com/deploying-a-deterministic-contract-on-ethereum/) to learn more about the `CREATE2` method and how to deploy a smart contract to a predetermined address.
+</Note>
+
+
+## Try the `debug_traceCall` RPC method yourself

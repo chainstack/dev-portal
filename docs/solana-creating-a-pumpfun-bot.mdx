@@ -1,0 +1,159 @@
+---
+title: "Solana: Creating a Trading and Sniping pump.fun Bot"
+description: "A fully coded Python bot directly interacting with the pump.fun programs & accounts, not relying on any 3rd party APIs"
+---
+
+<Frame>
+  <iframe width="100%" height="420" src="https://www.youtube.com/embed/7valHrMLvZw" title="How to research &amp; build a bot (pump.fun Solana example)" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+</Frame>
+**TLDR**
+
+* This Python-based Solana bot monitors the pump.fun on-chain program to detect new tokens, automatically buys them, and optionally sells them soon after.
+* It decodes transaction data using the pump.fun Anchor IDL, fetching token details like mint addresses and bonding curves.
+* Scripts for listening, buying, and selling combine into a main “trade” engine with optional flags (e.g., continuous trading or filtering by creator/token name).
+* Learning examples provide reference scripts on Anchor discriminators, price fetching, and subscribing to Solana websockets.
+
+<Info>
+  ### V2 of the pump.fun bot
+
+  V2 of the pump.fun bot is in active development based on your feedback. It's an improved and usable version right from the start.
+
+  Use the [refactored/main-v2](https://github.com/chainstacklabs/pump-fun-bot/tree/refactored/main-v2) branch. And feel free to provide feedback through Issues.
+</Info>
+
+The pump.fun project is generating millions of USD in fees and in the volume as evidenced by [pump.fun DefiLlama project page](https://defillama.com/protocol/pump#information).
+
+On top of that, there are project clones popping up.
+
+There are no API endpoints provided by pump.fun itself. At the same time, there are a few third-party projects out there that have figured out how to interact with the pump.fun on-chain programs & accounts and what these are, and they now provide the APIs.
+
+In this project, you'll get to be able to *directly* interact with the pump.fun program & accounts.
+
+<Check>
+  ### Run Solana nodes on Chainstack
+
+  You can run [global](/docs/global-elastic-node), [regional](/docs/trader-node), or specialized [nodes with warp transactions](/docs/warp-transactions) with Chainstack.
+
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required. You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+See the full project code, including learning examples, in the respective [GitHub repository](https://github.com/chainstacklabs/pump-fun-bot).
+
+## Overview
+
+The project uses the pump.fun IDL to interact with the program and the accounts.
+
+It's very useful to know that the pump.fun program and all the associated accounts is built with the [Anchor framework](https://www.anchor-lang.com/), as a lot of the decoding comes back to Anchor, like the [8 byte instruction signatures/discriminators](https://book.anchor-lang.com/anchor_bts/discriminator.html).
+
+The other thing important to know is that the tokens created with pump.fun are 6 decimal tokens, which is different from the default Solana 9 decimal SPL tokens.
+
+The bot subscribes over WebSocket to a Solana mainnet RPC node and extracts all the newly minted coins created by the pump.fun main program ID: [6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P](https://solscan.io/account/6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P)
+
+Once a new coin is minted, the bot buys the coin and then sells it — the behavior is dictated by a few flags. See the implementation and the additional details for a full description.
+
+## Implementation
+
+The core of the bot consists of three components:
+
+* Listener script
+* Buy script
+* Sell script
+
+All of the three scripts are put together in the main `trade.py` implementation.
+
+### Listener script
+
+To be able to construct a buy transaction (and later on a sell transaction), the bot needs the global constants and the coin related variables.
+
+The global pump.fun and Solana system program & account addresses, as well things like RPC endpoints, slippage etc are set in the `config.py` file.
+
+The coin related variables that are necessary for constructing transactions are:
+
+* `mint` — the created token address
+* `bondingCurve` — the bonding curve account created for the newly minted token; this is the account that defines the token price
+* `associatedBondingCurve` — the associated account that's holding the tokens that you buy and sell per the bonding curve token price information; the mechanism here is the default Solana one, which is the same thing as how you need an associated token account as a user to hold a token
+
+To get the three addresses all once (`mint`, `bondingCurve`, and `associatedBondingCurve`), the bot uses the [blockSubscribe | Solana](/api-reference/blocksubscribe-solana) method over WebSocket with full transaction details, filters out the transactions are 1) only related to the main pump.fun executable program `6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P` and 2) that only match the `create` instruction.
+
+Then from the those transactions, the bot extracts the required addresses.
+
+### Buy script
+
+The buy script takes the global pump.fun program & accounts and the system ones from `config.py` and the coin specific ones from the listener script.
+
+Then using the `mint` address and the end user address (from your private key), the bot creates an associated token account to be able to hold the tokens.
+
+Then the bot fetches the token price from the `bondingCurve` account.
+
+And then the bot does the purchase.
+
+A couple of notes:
+
+* Here and in all other scripts, the [Anchor instruction discriminators](https://book.anchor-lang.com/anchor_bts/discriminator.html) are precalculated. See `learning-examples/calculate_discriminator.py`
+* There's a default 15 second cooldown period between getting the new token details and proceeding with creating an associated token account for it and the actual purchase. This cooldown is for the things to stabilize a bit, otherwise you might get errors. The Solana is so fast and the way we are retrieving the new token details (using the `blockSubscribe` method) is also up there in the speed league, so when it comes to doing the actual *write* transactions, not all of the data that we already have may have fully propagated across the cluster, so you might get an error as a result. Feel free to experiment with this cooldown setting.
+
+### Sell script
+
+The sell script is basically the buy script but in reverse and cropped and simpler, because it does not need to use the listener script, nor does it need to create an associated token account.
+
+All the sell script does is fetch the price and execute a sell instruction.
+
+### Trade script
+
+The main script that you run the bot with is `trade.py`. This is the script that puts together the listener script, the buy script, and the sell script.
+
+### Logging
+
+The `trades` directory keeps the tab on your listens and trades:
+
+* Each token that pops up as part of your listener script is saved as a token address txt file
+* The `trades.log` is an appendable file that adds each of your trades (buy/sell), along with the token address and a time stamp.
+
+## Learning examples
+
+There are numerous scripts and other data in the `learning-examples` directory that should help you understand how the bot is constructed and how to interact with Solana in general, so be sure to check it out.
+
+Examples:
+
+* `blockSubscribe_extract_transactions.py` — connects over WebSocket, subscribes with [blockSubscribe | Solana](/api-reference/blocksubscribe-solana), and dumps all the extracted transactions in raw form to the `learning-examples/blockSubscribe-transactions` directory
+* `calculate_discriminator.py` — calculates the unique discriminator as part of the [Anchor framework](https://book.anchor-lang.com/anchor_bts/discriminator.html) for the pump.fun instructions. The instructions themselves can be taken from the `idl/pump_fun_idl.json` file
+* `fetch_price.py` — a full implementation of doing a `getAccountInfo` call to a token's bonding curve address and then decoding the response
+* `decode_from_blockSubscribe.py` — decodes the raw transactions extracted with the `blockSubscribe` method
+* `decode_from_getAccountInfo.py` — decodes the raw response from the `getAccountInfo` call to a token's bonding curve address; this is how you fetch the token price
+* `listen_create_from_blocksubscribe.py` — this is basically `blockSubscribe_extract_transactions.py` but with all the additional parsing to keep printing the newly minted token data to you
+* `listen_new_direct.py` — uses [logsSubscribe | Solana](/api-reference/logssubscribe-solana) to print the parsed token data from the pump.fun program logs; this is here as an example but it is not used in our bot as the logs do not emit the `associatedBondingCurve` address
+* `listen_new_portal.py` — just an example of getting the newly minted token data stream from a third-party API like pumpportal; not used in our bot
+* `manual_buy.py` — a manual buy script; you provide all the necessary parameters
+* `manual_sell.py` — a manual sell script; you provide all the necessary parameters
+
+## Fun flags
+
+You can run the `trade.py` script, which is the bot itself, with a few flags:
+
+* `--yolo` — keeps the bot running in continuous mode; the bot buys a token, sells the token 20 seconds later, and then buys a new one
+* `--match` — trades the tokens with names or symbols matching this string you provide
+* `--bro` — only buys and sells the tokens created by a certain user address
+* `--marry` — makes the script buy a token and never sell
+
+You can also combine the flags, for example running:
+
+`python trade.py --match doge --bro 7YmjpX4sPPw9pq6P2hrq9LehAi6QjELPWZYKXRrLaLCB --marry`
+
+will only buy the tokens that have `doge` in the name or description, created by the user `7YmjpX4sPPw9pq6P2hrq9LehAi6QjELPWZYKXRrLaLCB` and never sell the tokens.
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

@@ -1,0 +1,585 @@
+---
+title: "TON: How to Develop Non-Fungible Tokens (NFT)"
+---
+
+**TLDR**
+* Explains the NFT standard on TON (TEP-62, TEP-64) and key features for ownership and metadata.
+* Demonstrates how to set up, compile, and deploy both NFT item and collection contracts.
+* Shows how to interact with these contracts via Blueprint wrappers and test them using Sandbox.
+* Provides a starting reference to extend NFT functionality on the TON blockchain.
+
+## Main article
+
+In this tutorial, we will discuss the standard implementation of non-fungible tokens (NFTs) on the TON blockchain and walk through the development steps using the [Blueprint](https://github.com/ton-org/blueprint) environment and [Sandbox](https://github.com/ton-org/sandbox).
+
+<Info>
+   ### Run nodes on Chainstack
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required. You can sign up with your GitHub, X, Google, or Microsoft account.
+</Info>
+
+## Introduction
+
+To develop NFTs on the TON blockchain, it's essential to understand the standards that define their structure and behavior. The two key standards are:
+
+1. **[TEP-62: NFT standard](https://github.com/ton-blockchain/TEPs/blob/master/text/0062-nft-standard.md)** describes the interface and functionality of NFT smart contracts on TON. It specifies how NFTs are created, transferred, and managed.
+2. **[TEP-64: Token data standard](https://github.com/ton-blockchain/TEPs/blob/master/text/0064-token-data-standard.md)** defines how metadata associated with tokens (both fungible and non-fungible) is stored and retrieved. It ensures a consistent format for token metadata, whether stored on-chain or off-chain.
+
+Each NFT is represented by its own smart contract, known as an NFT item contract. This contract manages ownership, metadata, and interactions specific to that NFT. An NFT collection contract manages a group of NFTs. It can deploy new NFT item contracts, assign unique indices, and associate them with the collection.
+
+<Info>
+## Tutorial code
+  The GitHub repository with all code written in this tutorial is published [here](https://github.com/chainstacklabs/ton-nft-tutorial-1).
+</Info>
+
+## Development
+
+### Setting up project
+
+First, ensure that you have Node.js and npm installed on your system. You can verify the installation by running:
+
+<CodeGroup>
+  ```Text Bash
+  node -v
+  npm -v
+  ```
+</CodeGroup>
+
+Create a new directory for your project and navigate into it:
+
+<CodeGroup>
+  ```Text Bash
+  mkdir ton-nft-project
+  cd ton-nft-project
+  ```
+</CodeGroup>
+
+Initialize a new Blueprint project by running:
+
+<CodeGroup>
+  ```Text Bash
+  npm create ton@latest .
+  ```
+</CodeGroup>
+
+This command sets up a new TON project with the necessary files and dependencies. Follow the prompts to select an empty FunC project.
+
+Next, we'll configure the project to connect to the testnet. Create a file named `blueprint.config.ts` in the root of your project directory and add the following content:
+
+<CodeGroup>
+  ```typescript TypeScript
+  import { Config } from '@ton/blueprint';
+
+  export const config: Config = {
+      network: {
+        endpoint: 'https://ton-testnet.core.chainstack.com/.../api/v2/jsonRPC',
+        type: 'testnet',
+        version: 'v2',
+        // key: 'YOUR_API_KEY',
+      },
+  };
+  ```
+</CodeGroup>
+
+Replace the endpoint URL with your Chainstack RPC endpoint.
+
+### Contracts
+
+We'll use [the reference implementations](https://github.com/ton-blockchain/token-contract/tree/main/nft) of the NFT standard provided by the TON core team. To your project's contracts directory, copy the following files:
+
+* `nft-item.fc`is the smart contract for individual NFT items.
+* `nft-collection.fc`is the smart contract for the NFT collection.
+* `op-codes.fc`, `params.fc` are utility files that contain common functions and definitions used by the contracts.
+
+Ensure that your contracts include the required imports. For example, at the top of `nft-item.fc` and `nft-collection.fc`, include:
+
+<CodeGroup>
+  ```c FunC
+  #include "imports/stdlib.fc";
+  #include "op-codes.fc";
+  #include "params.fc";
+  ```
+</CodeGroup>
+
+Add new operational codes to `op-codes.fc`:
+
+<CodeGroup>
+  ```c FunC
+  ;; Minting
+  int op::mint() asm "0x249cbfa1 PUSHINT";
+  int op::batch_mint() asm "0x7362d09c PUSHINT";
+  int op::change_admin() asm "0x26aa0f46 PUSHINT";
+  ```
+</CodeGroup>
+
+Update the collection contract:
+
+```
+if (op == op::mint()) { ;; deploy new nft
+	// Mint handling
+}
+if (op == op::batch_mint()) { ;; batch deploy of new nfts
+ // Batch mint handling
+}
+
+if (op == op::change_admin()) { ;; change owner
+// Change admin handling
+}
+```
+
+Before testing the contracts, we need to compile them. In the `wrappers` directory, create compile configuration files for each contract. For the NFT item contract, create `NFTItem.compile.ts`:
+
+<CodeGroup>
+  ```typescript TypeScript
+  import { CompilerConfig } from '@ton/blueprint';
+
+  export const compile: CompilerConfig = {
+      lang: 'func',
+      targets: ['contracts/nft-item.fc'],
+  };
+  ```
+</CodeGroup>
+
+For the NFT collection contract, create `NFTCollection.compile.ts`:
+
+<CodeGroup>
+  ```typescript TypeScript
+  import { CompilerConfig } from '@ton/blueprint';
+
+  export const compile: CompilerConfig = {
+      lang: 'func',
+      targets: ['contracts/nft-collection.fc'],
+  };
+  ```
+</CodeGroup>
+
+To compile the contracts, run:
+
+<CodeGroup>
+  ```Text Bash
+  npx blueprint build
+  ```
+</CodeGroup>
+
+If you encounter errors, try replacing `stdlib.fc` in the `imports` folder with the one from the reference implementation.
+
+### Wrappers
+
+To interact with our smart contracts in tests, we'll create TypeScript wrappers that implement the contract interfaces. In the wrappers directory, create `NFTItem.ts` and `NFTCollection.ts`.
+
+`NFTConstants.ts`
+
+<CodeGroup>
+  ```typescript TypeScript
+  export enum NftOp {
+      Transfer = 0x5fcc3d14,
+      OwnershipAssigned = 0x05138d91,
+      Excesses = 0xd53276db,
+      GetStaticData = 0x2fcb26a2,
+      ReportStaticData = 0x8b771735,
+      GetRoyaltyParams = 0x693d3950,
+      ReportRoyaltyParams = 0xa8cb00ad,
+
+      // NFTEditable
+      EditContent = 0x1a0b9d51,
+      TransferEditorship = 0x1c04412a,
+      EditorshipAssigned = 0x511a4463,
+
+      // Minting
+      Mint = 0x249cbfa1,
+      BatchMint = 0x7362d09c,
+      ChangeAdmin = 0x26aa0f46
+  }
+  ```
+</CodeGroup>
+
+`NFTCollection.ts`
+
+<CodeGroup>
+  ```typescript TypeScript
+  import {
+      Address,
+      beginCell,
+      Cell,
+      Contract,
+      contractAddress,
+      ContractProvider,
+      Sender,
+      SendMode
+  } from '@ton/core';
+
+  import { NftOp } from './NFTConstants';
+
+  export type NftCollectionContent = {
+      uri: string;
+  };
+
+  export type NftCollectionConfig = {
+      ownerAddress: Address;
+      nextItemIndex: bigint;
+      nftItemCode: Cell;
+      collectionContent: Cell | NftCollectionContent;
+      royaltyParams: Cell;
+  };
+
+  export function nftContentToCell(content: NftCollectionContent): Cell {
+      return beginCell()
+          .storeRef(
+              beginCell()
+                  .storeUint(0x01, 8) // Content type (off-chain)
+                  .storeStringTail(content.uri)
+                  .endCell()
+          )
+          .endCell();
+  }
+
+  export function nftCollectionConfigToCell(config: NftCollectionConfig): Cell {
+      const content =
+          config.collectionContent instanceof Cell
+              ? config.collectionContent
+              : nftContentToCell(config.collectionContent);
+
+      return beginCell()
+          .storeAddress(config.ownerAddress)
+          .storeUint(config.nextItemIndex, 64)
+          .storeRef(content)
+          .storeRef(config.nftItemCode)
+          .storeRef(config.royaltyParams)
+          .endCell();
+  }
+
+  export class NFTCollection implements Contract {
+      constructor(readonly address: Address, readonly init?: { code: Cell; data: Cell }) {}
+
+      static createFromAddress(address: Address) {
+          return new NFTCollection(address);
+      }
+
+      static createFromConfig(config: NftCollectionConfig, code: Cell, workchain = 0) {
+          const data = nftCollectionConfigToCell(config);
+          const init = { code, data };
+          return new NFTCollection(contractAddress(workchain, init), init);
+      }
+
+      async sendDeploy(provider: ContractProvider, via: Sender, value: bigint) {
+          await provider.internal(via, {
+              value,
+              sendMode: SendMode.PAY_GAS_SEPARATELY,
+              body: new Cell(),
+          });
+      }
+
+      async sendMint(provider: ContractProvider, via: Sender, params:
+          {
+              value: bigint;
+              queryId: number | bigint;
+              nftItemContent: Cell | NftCollectionContent;
+              itemIndex: number | bigint;
+              amount: bigint;
+          }
+      ) {
+          const content =
+              params.nftItemContent instanceof Cell
+                  ? params.nftItemContent
+                  : nftContentToCell(params.nftItemContent);
+
+          const mintBody = beginCell()
+              .storeUint(NftOp.Mint, 32)
+              .storeUint(params.queryId, 64)
+              .storeUint(params.itemIndex, 64)
+              .storeCoins(params.amount)
+              .storeRef(content)
+              .endCell();
+
+          await provider.internal(via, {
+              value: params.value,
+              body: mintBody,
+          });
+      }
+
+      async getCollectionData(provider: ContractProvider) {
+          const res = await provider.get('get_collection_data', []);
+
+          const nextItemIndex = res.stack.readBigNumber();
+          const collectionContent = res.stack.readCell();
+          const ownerAddress = res.stack.readAddress();
+
+          return {
+              nextItemIndex,
+              collectionContent,
+              ownerAddress,
+          };
+      }
+
+      async getNftAddressByIndex(provider: ContractProvider, index: bigint): Promise<Address> {
+          const res = await provider.get('get_nft_address_by_index', [
+              { type: 'int', value: index },
+          ]);
+
+          return res.stack.readAddress();
+      }
+  }
+  ```
+</CodeGroup>
+
+`NFTItem.ts`
+
+<CodeGroup>
+  ```typescript TypeScript
+  import {
+      Address,
+      beginCell,
+      Cell,
+      Contract,
+      contractAddress,
+      ContractProvider,
+      Sender,
+      SendMode,
+  } from '@ton/core';
+
+  import { NftOp } from './NFTConstants';
+
+  export type NftItemConfig = {
+      index: number | bigint;
+      collectionAddress: Address;
+      ownerAddress: Address | null;
+      content: Cell | null;
+  };
+
+  export function nftItemConfigToCell(config: NftItemConfig): Cell {
+      const dataCell = beginCell()
+          .storeUint(config.index, 64)
+          .storeAddress(config.collectionAddress);
+
+      if (config.ownerAddress && config.content) {
+          dataCell
+              .storeAddress(config.ownerAddress)
+              .storeRef(config.content);
+      }
+
+      return dataCell.endCell();
+  }
+
+  export class NFTItem implements Contract {
+      constructor(readonly address: Address, readonly init?: { code: Cell; data: Cell }) {}
+
+      static createFromAddress(address: Address) {
+          return new NFTItem(address);
+      }
+
+      static createFromConfig(config: NftItemConfig, code: Cell, workchain = 0) {
+          const data = nftItemConfigToCell(config);
+          const init = { code, data };
+          const address = contractAddress(workchain, init);
+          return new NFTItem(address, init);
+      }
+
+      async sendDeploy(provider: ContractProvider, via: Sender, value: bigint) {
+          await provider.internal(via, {
+              value,
+              sendMode: SendMode.PAY_GAS_SEPARATELY,
+              body: new Cell(),
+          });
+      }
+
+      async sendTransfer(
+          provider: ContractProvider,
+          via: Sender,
+          params: {
+              value: bigint;
+              queryId: number | bigint;
+              newOwner: Address;
+              responseAddress: Address;
+              forwardAmount: bigint;
+          }
+      ) {
+          const transferBody = beginCell()
+              .storeUint(NftOp.Transfer, 32)        // Operation Code (32 bits)
+              .storeUint(params.queryId, 64)        // Query ID (64 bits)
+              .storeAddress(params.newOwner)        // New Owner Address
+              .storeAddress(params.responseAddress) // Response Destination
+              .storeBit(false)                      // Custom Payload Flag (1 bit, false)
+              .storeCoins(params.forwardAmount)     // Forward Amount (Coins)
+              .storeBit(false)                      // Additional bit (satisfies slice_bits >= 1)
+              .endCell();
+
+          await provider.internal(via, {
+              value: params.value,
+              body: transferBody,
+          });
+      }
+
+      async getNftData(provider: ContractProvider) {
+          const res = await provider.get('get_nft_data', []);
+
+          const isInitialized = res.stack.readNumber();
+          let index = null;
+          let collectionAddress = null;
+          let ownerAddress = null;
+          let individualContent = null;
+
+          if (isInitialized === -1) {
+              index = res.stack.readBigNumber();
+              collectionAddress = res.stack.readAddress();
+              ownerAddress = res.stack.readAddress();
+              individualContent = res.stack.readCell();
+          }
+
+          return {
+              isInitialized,
+              index,
+              collectionAddress,
+              ownerAddress,
+              individualContent,
+          };
+      }
+  }
+  ```
+</CodeGroup>
+
+### Tests
+
+The Blueprint framework incorporates [Sandbox](https://github.com/ton-org/sandbox). The package allows developers to emulate TON smart contracts behaviour as if they were deployed on a real network. Please copy the tests from [our repository](https://github.com/chainstacklabs/ton-nft-tutorial-1).
+
+`NFTCollection.spec.ts`
+
+<CodeGroup>
+  ```typescript TypeScript
+  import { Blockchain, internal, printTransactionFees, SandboxContract, TreasuryContract } from '@ton/sandbox';
+  import { Cell, toNano, Address, beginCell } from '@ton/core';
+  import { compile } from '@ton/blueprint';
+  import '@ton/test-utils';
+  import { NFTCollection, nftContentToCell, NftCollectionConfig } from '../wrappers/NFTCollection';
+  import { NFTItem } from '../wrappers/NFTItem';
+  import { NftOp } from '../wrappers/NFTConstants';
+  import { inherits } from 'util';
+
+  let blockchain: Blockchain;
+  let deployer: SandboxContract<TreasuryContract>;
+  let owner: SandboxContract<TreasuryContract>;
+  let user: SandboxContract<TreasuryContract>;
+  let collection: SandboxContract<NFTCollection>;
+  let nftCollectionCode: Cell;
+  let nftItemCode: Cell;
+
+  describe('NFTCollection Contract', () => {
+      beforeAll(async () => {
+          blockchain = await Blockchain.create();
+          deployer = await blockchain.treasury('deployer');
+          owner = await blockchain.treasury('owner');
+          user = await blockchain.treasury('user');
+
+          // Compile the contracts
+          nftCollectionCode = await compile('NFTCollection');
+          nftItemCode = await compile('NFTItem');
+
+          // Prepare the collection content
+          const collectionContentCell = nftContentToCell({
+              uri: 'https://example.com/collection.json',
+          });
+
+          const royaltyParams = beginCell()
+              .storeUint(500, 16) // Example: 5% royalty fee
+              .storeAddress(owner.address) // Royalty recipient address
+              .endCell();
+
+          // Create the collection config
+          const collectionConfig: NftCollectionConfig = {
+              ownerAddress: owner.address,
+              nextItemIndex: 0n,
+              nftItemCode: nftItemCode,
+              collectionContent: collectionContentCell,
+              royaltyParams: royaltyParams
+          };
+
+          // Create the collection contract instance
+          const collectionContract = NFTCollection.createFromConfig(
+              collectionConfig,
+              nftCollectionCode
+          );
+
+          collection = blockchain.openContract(collectionContract);
+      });
+
+      it('should deploy NFTCollection contract', async () => {
+          const deployResult = await collection.sendDeploy(deployer.getSender(), toNano('1'));
+
+          expect(deployResult.transactions).toHaveTransaction({
+              from: deployer.address,
+              to: collection.address,
+              deploy: true,
+              success: true,
+          });
+      });
+
+      it('should get collection data', async () => {
+          const collectionData = await collection.getCollectionData();
+
+          expect(collectionData.nextItemIndex).toBe(0n);
+          expect(collectionData.ownerAddress.equals(owner.address)).toBe(true);
+      });
+
+      it('should mint a new NFT item', async () => {
+          // Prepare the NFT item content
+          const nftItemContentCell = nftContentToCell({
+              uri: 'https://example.com/nft1.json',
+          });
+
+          const initialCollectionData = await collection.getCollectionData();
+
+          // Mint the NFT
+          const mintResult = await collection.sendMint(owner.getSender(), {
+              value: toNano('0.5'),
+              queryId: 0,
+              nftItemContent: nftItemContentCell,
+              itemIndex: initialCollectionData.nextItemIndex,
+              amount: toNano('0.1')
+          });
+
+          expect(mintResult.transactions).toHaveTransaction({
+              from: owner.address,
+              to: collection.address,
+              success: true
+          })
+
+          // Check that nextItemIndex has incremented
+          const updCollectionData = await collection.getCollectionData();
+          expect(updCollectionData.nextItemIndex).toBe(initialCollectionData.nextItemIndex + 1n);
+      });
+
+      it('should verify not initialized NFT item', async () => {
+          const nftItemAddress = await collection.getNftAddressByIndex(0n);
+          const nftItemContract = NFTItem.createFromAddress(nftItemAddress);
+          const nftItem = blockchain.openContract(nftItemContract);
+
+          const nftData = await nftItem.getNftData();
+          expect(nftData.isInitialized).toBe(0);
+          expect(nftData.ownerAddress).toBe(null);
+      });
+  });
+  ```
+</CodeGroup>
+
+To test the contracts using Sandbox, run the command:
+
+<CodeGroup>
+  ```Text Bash
+  npx blueprint test
+  ```
+</CodeGroup>
+
+## Conclusion
+
+We covered the the non-fungible token standard on the TON blockchain and its main development steps using Blueprint and Sandbox. In future tutorials, we will explore other aspects of NFT. Stay tuned!
+
+### About the author
+<CardGroup>
+  <Card title="Anton Sauchyk" img="/images/docs/profile_images/1817926677730664448/3nNn0T2p_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="laptop"  iconType="solid"/>Multiple years of software development and Web3 expertise. Creator of the open-source Compare Dashboard for RPC provider performance benchmarking. Core contributor to the DevEx team’s pump.fun trading bot. Author of technical tutorials on EVM blockchains, Solana, TON and Elastic Subgraphs.
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/smypmsa)
+    [<Icon icon="twitter"  iconType="brands"/>](https://x.com/sensuniama)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/anton-sauchyk/)
+  </Card>
+</CardGroup>

@@ -1,0 +1,514 @@
+---
+title: "Solana: Transferring SPL tokens in TypeScript"
+---
+
+**TLDR**
+* This guide shows how to send SPL tokens on Solana in TypeScript using @solana/web3.js and @solana/spl-token.
+* You’ll set up a Node.js/TypeScript project, load your private key and RPC node URL via environment variables, then compile and send a transaction that creates/fetches associated token accounts and transfers tokens.
+* Priority fees can help avoid transaction expiration errors, and best practices include better retry logic and possibly using durable nonces when immediate finality isn’t critical.
+* Once the script is run, you’ll see logs and a transaction link to confirm the token transfer on Solscan.
+
+## Main article
+
+Solana's blockchain technology offers a platform for fast and secure transactions. Central to its appeal is the ability to transfer SPL tokens, representing anything from digital currencies to assets. This guide cuts through the complexity of these transactions, using TypeScript to show how it's done.
+
+Perfect for developers or blockchain enthusiasts, we'll break down a script that handles token transfers from start to finish.
+
+Get ready to dive into Solana's ecosystem, understand the nuts and bolts of SPL token transfers, and equip yourself with the know-how to explore more advanced topics in blockchain development.
+
+## What are SPL tokens on Solana
+
+The Solana blockchain's standard for creating digital assets is SPL tokens or Solana Program Library tokens. They are akin to Ethereum's ERC-20 tokens but are designed to leverage Solana's high throughput and low transaction costs.
+
+These tokens can represent various assets, ranging from cryptocurrencies and utility tokens to digital representations of physical assets. The flexibility and efficiency of SPL tokens make them a popular choice for developers looking to build fast, scalable, and cost-effective applications on the blockchain.
+
+With SPL tokens, creators can quickly launch new currencies, reward systems, or any form of digital assets, providing a robust foundation for the innovative development of decentralized applications on the Solana platform.
+
+## Prerequisites
+
+Before diving into the process of transferring SPL tokens on the Solana blockchain using TypeScript, there are several vital prerequisites you need to ensure are in place. This foundation will set you up for success, enabling a smooth development experience. Let's go through what you need:
+
+### Deploy a Chainstack Solana node
+
+<CardGroup>
+  <Card title="Sign up with Chainstack" href="https://console.chainstack.com/user/account/create" icon="angle-right" horizontal />
+  <Card title="Deploy a node" href="/docs/manage-your-networks#join-a-public-network" icon="angle-right" horizontal />
+  <Card title="View node access and credentials" href="/docs/manage-your-node#view-node-access-and-credentials" icon="angle-right" horizontal />
+</CardGroup>
+
+### Environment setup
+
+* **Node.js**: Ensure you have [Node.js](https://nodejs.org/en/download/current) (version 18 or above) installed on your machine. Node.js is essential for running the scripts and managing the dependencies of the Raydium SDK.
+* **npm**: Node Package Manager is the default package manager for Node.js projects. It is used to install the necessary dependencies for this project. npm comes pre-installed with Node.js, so you don't need to install it separately.
+* **Solana wallet**: A Solana wallet with SOL and SPL tokens.
+
+<Info>
+  If you prefer, you can also use Yarn as an alternative package manager. Yarn is a fast, reliable, and secure dependency management tool. After installing Node.js, you can install Yarn by running `npm install --global yarn` in your terminal.
+</Info>
+
+## Setting up a TypeScript project
+
+Before working on the code, we need to set up a TypeScript project. This will provide us with a structured environment for our code and allow us to take advantage of TypeScript's type-checking and other features. Follow these steps to create a new TypeScript project:
+
+**Create a new directory for your project**: Open your terminal and navigate to the location where you want to create your project directory. Run the following command to create a new directory:
+
+<CodeGroup>
+  ```bash Bash
+  mkdir solana-spl-token-transfer
+  ```
+</CodeGroup>
+
+**Initialize a new Node.js project**: Navigate into the newly created directory and initialize a new Node.js project by running:
+
+<CodeGroup>
+  ```bash Bash
+  cd solana-spl-token-transfer
+  npm init -y
+  ```
+</CodeGroup>
+
+This will create a `package.json` file, which is used to manage project dependencies.
+
+**Install TypeScript and type definitions**: Next, we must install TypeScript and the type definitions for the Solana Web3.js library. Run the following command:
+
+<CodeGroup>
+  ```bash Bash
+  npm install --save-dev typescript @types/node
+  ```
+</CodeGroup>
+
+**Create a TypeScript configuration file**: To configure TypeScript for our project, we must create a `tsconfig.json` file. Run the following command to generate a basic configuration file:
+
+<CodeGroup>
+  ```bash Bash
+  tsc --init
+  ```
+</CodeGroup>
+
+This will create a `tsconfig.json` file with default settings. You can customize these settings as needed for your project.
+
+**Create a source file**: Let's create our first TypeScript file where we'll write our code.
+
+<CodeGroup>
+  ```bash Bash
+
+  touch main.ts
+  ```
+</CodeGroup>
+
+### Installing required packages
+
+We must install several packages to interact with the Solana blockchain and work with SPL tokens. These packages will provide the necessary functionality to connect to a Solana node, manage wallets, and perform token transfers.
+
+Follow these steps to install the required packages:
+
+**Install the Solana Web3.js library and the SPL Token library**:
+
+<CodeGroup>
+  ```bash Bash
+  npm install @solana/web3.js @solana/spl-token
+  ```
+</CodeGroup>
+
+* The `@solana/web3.js` package is the official Solana Web3 library, which provides a JavaScript API for interacting with the Solana blockchain.
+* The `@solana/spl-token` package is a library simplifying working with SPL tokens on the Solana blockchain.
+
+**Install additional dependencies**:
+
+<CodeGroup>
+  ```bash Bash
+  npm install bs58 dotenv
+  ```
+</CodeGroup>
+
+* The `bs58` package is a base58 encoding/decoding library for Solana addresses and keypairs.
+* The `dotenv` package allows us to load environment variables from a `.env` file, which helps store sensitive information like private keys.
+
+After running these commands, your `package.json` file should have the following dependencies:
+
+<CodeGroup>
+  ```Json JSON
+  "dependencies": {
+    "@solana/spl-token": "^0.3.11",
+    "@solana/web3.js": "^1.90.1",
+    "bs58": "^5.0.0",
+    "dotenv": "^16.4.5"
+  }
+  ```
+</CodeGroup>
+
+With these packages installed, you'll have the tools to connect to a Solana node, manage wallets, and perform SPL token transfers using TypeScript.
+
+In the next section, we'll start coding and explore how to use these libraries to transfer SPL tokens from one wallet to another.
+
+## Setting up environment variables
+
+This tutorial will use sensitive information such as private keys and RPC node URLs. It's crucial to keep this information secure and avoid committing it to version control systems like Git. We'll use the `dotenv` package to load environment variables from a `.env` file to achieve this.
+
+Follow these steps to set up your environment variables:
+
+1. **Create a `.env` file**: In the root directory of your project, create a new file called `.env`. This file will store your environment variables.
+2. **Add your environment variables**: Open the `.env` file and add the following variables, replacing the placeholders with your actual values:
+
+```
+SOLANA_RPC="YOUR_HTTPS_CHAINSTACK_URL"
+SOLANA_WSS="YOUR_WEBSOCKET_CHAINSTACK_URL"
+PRIVATE_KEY="YOUR_PRIVATE_KEY"
+```
+
+* `SOLANA_RPC`: This variable should contain your Solana node's HTTP RPC URL. If you're using a Chainstack node, the RPC URL is in the node's credentials.
+* `SOLANA_WSS`: This variable should contain the WebSocket URL of your Solana node. If you're using a Chainstack node, you can find the WebSocket URL in the node's credentials.
+* `PRIVATE_KEY`: This variable should contain the private key of the Solana wallet you want to use for token transfers.
+
+### How to use environment variables
+
+Once the `.env` file is set up, you can load environment variables in your TypeScript code (e.g., `main.ts`), import the `dotenv` package, and load the environment variables at the beginning of your script:
+
+<CodeGroup>
+  ```typescript TypeScript
+  import "dotenv/config";
+  ```
+</CodeGroup>
+
+This will load the environment variables from the `.env` file into the `process.env` object, allowing you to access them using `process.env.VARIABLE_NAME`.
+
+**Access environment variables**: You can now access the environment variables in your code like this:
+
+<CodeGroup>
+  ```typescript TypeScript
+  const rpcUrl = process.env.SOLANA_RPC;
+  const wsUrl = process.env.SOLANA_WSS;
+  const privateKey = process.env.PRIVATE_KEY;
+  ```
+</CodeGroup>
+
+By following this approach, you can keep sensitive information like private keys and node URLs out of your codebase, making it more secure and easier to manage different environments (e.g., development, staging, production).
+
+<Info>
+  Remember to add the `.env` file to your `.gitignore` file to prevent it from being committed to version control systems, as it contains sensitive information.
+</Info>
+
+## Transferring SPL Tokens code walkthrough
+
+Now that we have set up the project, installed the required packages, and configured the environment variables, it's time to put everything together and implement the token transfer functionality.
+
+### Adding the code
+
+1. Open the `main.ts` file you created earlier in your preferred code editor.
+2. Paste the following code into the `main.ts` file:
+
+<CodeGroup>
+  ```typescript TypeScript
+
+  import {
+      getOrCreateAssociatedTokenAccount,
+      createTransferInstruction,
+    } from "@solana/spl-token";
+
+    import {
+      Connection,
+      PublicKey,
+      TransactionMessage,
+      VersionedTransaction,
+      Keypair,
+      ParsedAccountData,
+      ComputeBudgetProgram
+    } from "@solana/web3.js";
+
+    import bs58 from "bs58";
+    import "dotenv/config";
+
+    // Fetches the number of decimals for a given token to accurately handle token amounts.
+    async function getNumberDecimals(
+      mintAddress: PublicKey,
+      connection: Connection
+    ): Promise<number> {
+      const info = await connection.getParsedAccountInfo(mintAddress);
+      const decimals = (info.value?.data as ParsedAccountData).parsed.info
+        .decimals as number;
+      console.log(`Token Decimals: ${decimals}`);
+      return decimals;
+    }
+
+    // Initializes a Keypair from the secret key stored in environment variables. Essential for signing transactions.
+    function initializeKeypair(): Keypair {
+      const privateKey = new Uint8Array(bs58.decode(process.env.PRIVATE_KEY!));
+      const keypair = Keypair.fromSecretKey(privateKey);
+      console.log(
+        `Initialized Keypair: Public Key - ${keypair.publicKey.toString()}`
+      );
+      return keypair;
+    }
+
+    // Sets up the connection to the Solana cluster, utilizing environment variables for configuration.
+    function initializeConnection(): Connection {
+      const rpcUrl = process.env.SOLANA_RPC!;
+      const connection = new Connection(rpcUrl, {
+        commitment: "confirmed",
+        wsEndpoint: process.env.SOLANA_WSS,
+      });
+      // Redacting part of the RPC URL for security/log clarity
+      console.log(`Initialized Connection to Solana RPC: ${rpcUrl.slice(0, -32)}`);
+      return connection;
+    }
+
+    // Main function orchestrates sending tokens by calling the defined functions in order.
+    async function main() {
+      console.log("Starting Token Transfer Process");
+
+      const connection = initializeConnection();
+      const fromKeypair = initializeKeypair();
+
+      // Address receiving the tokens
+      const destinationWallet = new PublicKey(
+        "CzNGm14nMopjGYyycMbWqEF2e1aEHcJLKk2CHw9BiZwC"
+      );
+
+      // The SLP token being transferred, this is the address for USDC
+      const mintAddress = new PublicKey(
+        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+      );
+
+      // Config priority fee and amount to transfer
+      const PRIORITY_RATE = 12345; // MICRO_LAMPORTS
+      const transferAmount = 0.01;
+
+      // Instruction to set the compute unit price for priority fee
+      const PRIORITY_FEE_INSTRUCTIONS = ComputeBudgetProgram.setComputeUnitPrice({microLamports: PRIORITY_RATE});
+
+      console.log("----------------------------------------");
+      const decimals = await getNumberDecimals(mintAddress, connection);
+
+      // Creates or fetches the associated token accounts for the sender and receiver.
+      let sourceAccount = await getOrCreateAssociatedTokenAccount(
+        connection,
+        fromKeypair,
+        mintAddress,
+        fromKeypair.publicKey
+      );
+      console.log(`Source Account: ${sourceAccount.address.toString()}`);
+
+      let destinationAccount = await getOrCreateAssociatedTokenAccount(
+        connection,
+        fromKeypair,
+        mintAddress,
+        destinationWallet
+      );
+      console.log(`Destination Account: ${destinationAccount.address.toString()}`);
+      console.log("----------------------------------------");
+
+      // Adjusts the transfer amount according to the token's decimals to ensure accurate transfers.
+      const transferAmountInDecimals = transferAmount * Math.pow(10, decimals);
+
+      // Prepares the transfer instructions with all necessary information.
+      const transferInstruction = createTransferInstruction(
+        // Those addresses are the Associated Token Accounts belonging to the sender and receiver
+        sourceAccount.address,
+        destinationAccount.address,
+        fromKeypair.publicKey,
+        transferAmountInDecimals
+      );
+      console.log(
+        `Transaction instructions: ${JSON.stringify(transferInstruction)}`
+      );
+      let latestBlockhash = await connection.getLatestBlockhash("confirmed");
+
+      // Compiles and signs the transaction message with the sender's Keypair.
+      const messageV0 = new TransactionMessage({
+        payerKey: fromKeypair.publicKey,
+        recentBlockhash: latestBlockhash.blockhash,
+        instructions: [PRIORITY_FEE_INSTRUCTIONS, transferInstruction],
+      }).compileToV0Message();
+      const versionedTransaction = new VersionedTransaction(messageV0);
+      versionedTransaction.sign([fromKeypair]);
+      console.log("Transaction Signed. Preparing to send...");
+
+      // Attempts to send the transaction to the network, handling success or failure.
+      try {
+        const txid = await connection.sendTransaction(versionedTransaction, {
+          maxRetries: 20,
+        });
+        console.log(`Transaction Submitted: ${txid}`);
+
+        const confirmation = await connection.confirmTransaction(
+          {
+            signature: txid,
+            blockhash: latestBlockhash.blockhash,
+            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+          },
+          "confirmed"
+        );
+        if (confirmation.value.err) {
+          throw new Error("🚨Transaction not confirmed.");
+        }
+        console.log(
+          `Transaction Successfully Confirmed! 🎉 View on SolScan: https://solscan.io/tx/${txid}`
+        );
+      } catch (error) {
+        console.error("Transaction failed", error);
+      }
+    }
+
+    main();
+
+  ```
+</CodeGroup>
+
+This code contains all the necessary functions and logic to initiate a transfer of SPL tokens from one wallet to another on the Solana blockchain.
+
+### Code explanation
+
+Let's break down the code and understand how it works:
+
+1. **Importing dependencies**: The code starts by importing the necessary functions and types from the `@solana/spl-token` and `@solana/web3.js` packages, as well as the `bs58` package for base58 encoding/decoding and the `dotenv` package for loading environment variables.
+
+2. **Helper functions**:
+
+   * `getNumberDecimals`: This function retrieves the number of decimals for a given token mint address from the Solana blockchain. This information is crucial for accurately handling token amounts during transfers.
+   * `initializeKeypair`: This function initializes a Keypair object from the private key stored in the environment variables. The Keypair is used for signing transactions.
+   * `initializeConnection`: This function sets up the connection to the Solana cluster using the RPC URL and WebSocket URL stored in the environment variables.
+
+3. **Main function**:
+
+   * The primary function orchestrates the entire token transfer process.
+   * It initializes the connection to the Solana cluster and the sender's Keypair.
+   * It defines the transfer's destination wallet address and the token mint address.
+   * It retrieves the number of decimals for the token using the `getNumberDecimals` function.
+   * It creates or fetches the [Associated Token Accounts](/docs/solana-glossary#associated-token-account) for the sender and receiver using the `getOrCreateAssociatedTokenAccount` function from the `@solana/spl-token` package.
+   * It adjusts the transfer amount according to the token's decimals to ensure accurate transfers.
+   * It prepares the transfer instruction using the `createTransferInstruction` function from the `@solana/spl-token` package.
+   * It compiles the transaction message, signs it with the sender's Keypair, and sends the transaction to the Solana network using the `sendTransaction` method from the `@solana/web3.js` package.
+   * It handles the transaction's success or failure by logging the appropriate messages and providing a link to view the transaction on the Solana Explorer (in case of success).
+
+### Running the script
+
+Now that we have the code and understand how it works, it’s time to send some SPL tokens. The script, by default, transfers 1 USDC to the destination wallet. You can edit the destination, token address, and amount from this portion of the code in the `main` function:
+
+<CodeGroup>
+  ```typescript TypeScript
+    // Address receiving the tokens
+    const destinationWallet = new PublicKey(
+      "H2zoMMQhNUY4ADhBBZ6Av7yfNR31cuCc7TeqVwnRZdW9"
+    );
+
+    // The SPL token being transferred, this is the address for USDC
+    const mintAddress = new PublicKey(
+      "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    );
+
+    // Config priority fee and amount to transfer in SOL, the lamport conversion is handled automatically based on the token's decimals
+      const PRIORITY_RATE = 12345; // MICRO_LAMPORTS
+      const transferAmount = 0.01;
+  ```
+</CodeGroup>
+
+To run the code after you configured the parameter, run the following command in the terminal:
+
+<CodeGroup>
+  ```shell Shell
+  ts-node main.ts
+  ```
+</CodeGroup>
+
+This will perform the transfer and log the process in the console; it will look similar to this:
+
+<CodeGroup>
+  ```shell Shell
+  Starting Token Transfer Process
+  Initialized Connection to Solana RPC: https://solana-mainnet.core.chainstack.com/
+  Initialized Keypair: Public Key - CzNGm14nMopjGYyycMbWqEF2e1aEHcJLKk2CHw9BiZwC
+  ----------------------------------------
+  Token Decimals: 6
+  Source Account: 46cFTq7dJ858wHpLHUtoSgiixdpUf1TBabbriS2DTCMG
+  Destination Account: 5sQerrN2zH6udDZya96gMEnMmC7hUqP1THNidxeuV2UX
+  ----------------------------------------
+  Transaction instructions: {"keys":[{"pubkey":"46cFTq7dJ858wHpLHUtoSgiixdpUf1TBabbriS2DTCMG","isSigner":false,"isWritable":true},{"pubkey":"5sQerrN2zH6udDZya96gMEnMmC7hUqP1THNidxeuV2UX","isSigner":false,"isWritable":true},{"pubkey":"CzNGm14nMopjGYyycMbWqEF2e1aEHcJLKk2CHw9BiZwC","isSigner":true,"isWritable":false}],"programId":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA","data":[3,16,39,0,0,0,0,0,0]}
+  Transaction Signed. Preparing to send...
+  Transaction Submitted: fuJnmA4ChNbg3HJwCXVZtku7ggWydN4Aj5TbcxEYoYMjqS7Yxh1dxbAMErBN7RAJGHPwXXpWk54joyoszp7v6PE
+  Transaction Successfully Confirmed! 🎉 View on SolScan: https://solscan.io/tx/fuJnmA4ChNbg3HJwCXVZtku7ggWydN4Aj5TbcxEYoYMjqS7Yxh1dxbAMErBN7RAJGHPwXXpWk54joyoszp7v6PE
+  ```
+</CodeGroup>
+
+<Info>
+  You can find an example of this kind of transaction on the [Solscan explorer](https://solscan.io/tx/fuJnmA4ChNbg3HJwCXVZtku7ggWydN4Aj5TbcxEYoYMjqS7Yxh1dxbAMErBN7RAJGHPwXXpWk54joyoszp7v6PE).
+</Info>
+
+## Possible error `TransactionExpiredBlockheightExceededError`
+
+When attempting an SPL transfer using this code, you might get the following error: `TransactionExpiredBlockheightExceededError`.
+
+This section aims to shed light on what causes this error and propose strategies to mitigate its occurrence.
+
+### Understanding `TransactionExpiredBlockheightExceededError`
+
+This error occurs when a transaction is repeatedly forwarded to subsequent block leaders without being included in any block until the associated blockhash, or recent blockhash, expires. The blockhash is a critical component of a transaction on Solana, acting as a reference to a recent block to ensure the transaction is processed promptly and to prevent double-spending.
+
+<Info>
+  It's important to recognize that this is not primarily an issue with the RPC setup unless the global coverage of the RPC nodes is significantly inadequate, resulting in consistently high latency due to geographical distance from the block leader.
+</Info>
+
+### Mitigation strategies
+
+#### 1. Understanding the limitations
+
+First, it's important to acknowledge that it is currently *impossible* to completely eliminate this issue until the Solana mainnet scheduler becomes fully deterministic, which is anticipated in release 1.18. This limitation stems from the inherent unpredictability in transaction processing times due to network congestion, variations in transaction fees, and the non-deterministic nature of the current scheduler.
+
+#### 2. Adjusting fees
+
+Adding higher fees to your transactions can increase their priority, making them more likely to be included in a block. This approach leverages the network's fee-based prioritization to reduce the chances of your transaction being sidelined.
+
+<Info>
+  This code includes priority fees, which should help with this issue, you can edit it in this line.
+
+  `const PRIORITY_RATE = 12345; // MICRO_LAMPORTS`
+
+  Learn more about implementing priority fees reading [Solana: How to use Priority Fees to unlock faster transactions](/docs/solana-how-to-priority-fees-faster-transactions).
+</Info>
+
+#### 3. Optimizing geographical proximity
+
+Minimizing the physical distance between your servers (or clients), the block leader, and your chosen RPC nodes can significantly affect transaction latency. Since transaction inclusion can sometimes resemble a race, being geographically closer to these nodes can provide a critical edge.
+
+#### 4. Implementing better retries
+
+Enhancing your retry logic can also help. This involves reattempting transactions more intelligently when they fail and dynamically adjusting the strategy based on network conditions, such as increasing fees or choosing optimal times for submission.
+
+<Info>
+  Note that the code in this tutorial implements retries from the `@solana/web3.js` library, but it might not be enough, and you might need to add more logic. Check [Solana: Enhancing SPL Token transfers with retry logic](/docs/enhancing-solana-spl-token-transfers-with-retry-logic) to learn how to implement better retries.
+</Info>
+
+#### 5. Utilizing durable nonces
+
+Employing [durable nonces](/docs/solana-glossary#durable-transaction-nonces) can be a strategic choice for applications that can tolerate some delay in transaction finality. Durable nonces allow transactions to remain valid for longer, thus mitigating the risk of expiration. This approach is particularly useful for transactions where immediate finality is not critical.
+
+## Conclusion
+
+This tutorial explored transferring SPL tokens on the Solana blockchain using TypeScript. We covered the following key points:
+
+* Understanding SPL tokens and their role in the Solana ecosystem
+* Setting up the necessary prerequisites, including a Chainstack Solana node, Node.js environment, and a Solana wallet
+* Creating a TypeScript project and installing required packages like `@solana/web3.js`, `@solana/spl-token`, `bs58`, and `dotenv`
+* Securely storing sensitive information, such as private keys and node URLs, using environment variables and the `dotenv` package
+* Implementing the token transfer functionality by connecting to the Solana cluster, initializing the sender's keypair, fetching/creating associated token accounts, preparing the transfer instruction, and sending the transaction to the network
+* Running the script and examining the console logs to verify the successful transfer of SPL tokens
+
+Following this tutorial, you have gained hands-on experience working with the Solana blockchain and SPL tokens using TypeScript. You now possess the knowledge and skills to build applications that leverage the speed and efficiency of the Solana ecosystem, enabling you to explore more advanced topics in blockchain development.
+
+Remember, this tutorial serves as a starting point, and numerous possibilities exist to expand upon this foundation. You can enhance the script with additional features, integrate it into larger applications, or explore other aspects of Solana development.
+
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

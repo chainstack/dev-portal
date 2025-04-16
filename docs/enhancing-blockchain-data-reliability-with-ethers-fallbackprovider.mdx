@@ -1,0 +1,312 @@
+---
+title: "Ethers.js: Enhancing Blockchain Data Reliability with FallbackProvider"
+---
+
+**TLDR**
+
+* The FallbackProvider in ethers.js wraps multiple JSON-RPC providers to enhance data reliability and reduce single-node dependency.
+* It uses priorities, weights, and timeouts to determine consensus from multiple sources.
+* Configurable quorums ensure you only trust data that a majority or required number of providers agree on.
+* This method helps avoid inconsistent results from forks, latency issues, or out-of-sync nodes.
+
+## Main article
+
+In the world of blockchain technology, where decentralization and transparency are paramount, ensuring the reliability and consistency of data is crucial. Sometimes, you might use different endpoints from different providers. However, they may be subject to network latency, temporary forks, or being out of sync with the rest of the network.
+
+Enter the `FallbackProvider`, a powerful tool provided by the `ethers.js` library. This utility is designed to enhance the reliability and accuracy of blockchain data by aggregating responses from multiple providers and forming a consensus. By leveraging redundancy and a consensus mechanism, the `FallbackProvider` mitigates the risks associated with relying on a single node, ensuring that the data you interact with is consistent and up-to-date.
+
+In this tutorial, we will dive into the inner workings of the `FallbackProvider`, exploring its configuration options, consensus mechanisms, and error-handling capabilities.
+
+## The need for redundancy
+
+Blockchain networks are designed to be decentralized and distributed, with multiple nodes contributing to the maintenance and validation of the ledger. Relying solely on a single node to retrieve blockchain data can be risky, as it introduces potential points of failure and inconsistencies.
+
+One of the primary risks of depending on a single node is the possibility of temporary forks or network partitions. In such scenarios, different nodes may have divergent views of the blockchain's state, leading to inconsistent data being returned. Additionally, individual nodes may experience network latency, causing delays in propagating the latest blockchain data to other nodes. Nodes can occasionally become out of sync with the rest of the network, potentially providing outdated or incorrect information.
+
+To mitigate these risks and ensure the reliability and consistency of blockchain data, it is crucial to embrace redundancy by using multiple nodes. By querying multiple nodes and aggregating their responses, the chances of encountering inconsistent or inaccurate data are significantly reduced.
+
+Employing redundancy in blockchain data retrieval offers several benefits:
+
+1. **Increased reliability**: With multiple nodes serving as data sources, the system becomes more resilient to individual node failures or temporary outages. If one node becomes unresponsive or returns erroneous data, the system can seamlessly fall back to other nodes, ensuring uninterrupted access to reliable blockchain data.
+2. **Improved data accuracy**: By aggregating responses from multiple nodes, inconsistencies or temporary forks can be detected and resolved through a consensus mechanism. This mechanism ensures that the data retrieved is consistent with most nodes, reducing the likelihood of interacting with outdated or incorrect information.
+3. **Load balancing**: Distributing queries across multiple nodes helps to balance the load and avoid overwhelming any single node with excessive requests. This load balancing can improve overall system performance and responsiveness.
+4. **Fault tolerance**: Redundancy introduces fault tolerance into the system, as the failure or misconfiguration of a single node does not necessarily lead to complete system failure. The system can gracefully degrade and continue operating by leveraging the remaining functional nodes.
+
+<Info>
+  Learn how to build a simple load balancer in JavaScript by reading [Make your DApp more reliable with Chainstack](/docs/make-your-dapp-more-reliable-with-chainstack).
+</Info>
+
+## The ethers `FallbackProvider`
+
+The `ethers.js` library, a popular JavaScript library for interacting with Ethereum-based blockchains, provides the `FallbackProvider` tool. This utility is designed to enhance the reliability and consistency of blockchain data retrieval by leveraging redundancy and a consensus mechanism across multiple providers.
+
+At its core, the `FallbackProvider` acts as a wrapper around a set of individual providers, such as Ethereum JSON-RPC providers. When querying for blockchain data, the `FallbackProvider` sends requests to multiple providers simultaneously and aggregates their responses. It then applies a configurable consensus mechanism to determine the most reliable and consistent result.
+
+The `FallbackProvider` operates by distributing requests across multiple providers, each with its own priority, weight, and stall timeout settings. These settings allow the `FallbackProvider` to prioritize and weight the responses from different providers based on their expected reliability and responsiveness.
+
+When a request is made to the `FallbackProvider`, it sends the request to all configured providers concurrently. As responses start arriving, the `FallbackProvider` evaluates them against a pre-defined quorum value, which specifies the minimum number of providers that must agree on the same result for it to be considered a consensus.
+
+If the quorum is met, meaning that the required number of providers return the same result, the `FallbackProvider` considers this the consensus result and returns it to the caller. However, if the quorum is unmet, the `FallbackProvider` employs a fallback mechanism to handle potential inconsistencies or failures.
+
+The fallback mechanism prioritizes providers based on their assigned weights and stall timeouts. If a provider fails to respond within its configured stall timeout, the `Fallback provider` disregards its response and moves to the next highest-priority provider. This process continues until the quorum is met or all providers have been exhausted.
+
+By aggregating responses from multiple providers and applying a consensus mechanism, the `FallbackProvider` helps mitigate the risks of relying on a single node for blockchain data. It ensures that the data returned is consistent with most providers, reducing the likelihood of interacting with outdated, incorrect, or divergent information.
+
+### Deploy a Chainstack node
+
+Before diving into the implementation, ensure you have a Chainstack account. Deploying a node on Chainstack is essential for accessing and interacting with blockchain networks.
+
+Deploy 3 or mix Chainstack and public nodes for a good demonstration. Choose different geographical regions for each to maximize network uptime and reduce latency, which is crucial for a robust and efficient blockchain application.
+<CardGroup>
+  <Card title="Sign up with Chainstack" href="https://console.chainstack.com/user/account/create" icon="angle-right" horizontal />
+  <Card title="Deploy a node" href="/docs/manage-your-networks#join-a-public-network" icon="angle-right" horizontal />
+  <Card title="View node access and credentials" href="/docs/manage-your-node#view-node-access-and-credentials" icon="angle-right" horizontal />
+</CardGroup>
+
+## Project setup
+
+To set up the JavaScript project and integrate the `FallbackProvider` from the `ethers.js` library, we'll need to follow these steps:
+
+First, create a new directory for your project and initialize a new Node.js project by running `npm init` in your terminal. This will create a `package.json` file, which will manage your project's dependencies.
+
+<Info>
+  Check out [Web3 node.js: From zero to a full-fledged project](/docs/web3-nodejs-from-zero-to-a-full-fledged-project) to learn how to manage Node projects.
+</Info>
+
+Next, install the required dependencies by running the following command:
+
+```
+npm install ethers dotenv
+```
+
+This will install the `ethers.js` library, which provides the `FallbackProvider` functionality, and the `dotenv` package, which allows us to load environment variables from a `.env` file.
+
+After the installation is complete, create a new file named `.env` in the root directory of your project. This file will store the URLs of the JSON-RPC providers you want to use with the `FallbackProvider`. Add the following lines to the `.env` file, replacing the placeholders with the actual provider URLs:
+
+```
+RPC_1="YOUR_NODE_URL"
+RPC_2="YOUR_NODE_URL"
+RPC_3="YOUR_NODE_URL"
+```
+
+You can add as many providers as you need, but we'll use three endpoints for this example.
+
+## The full code
+
+Now that the project is setup create a new file named `index.js` and paste the following code:
+
+<CodeGroup>
+  ```javascript Javascript
+  const { ethers } = require('ethers');
+  require("dotenv").config();
+
+  const url1 = process.env.RPC_1;
+  const url2 = process.env.RPC_2;
+  const url3 = process.env.RPC_3;
+
+  const stallTimeout = 2000; // Example timeout
+  const quorum = 2; // Quorum needed for consensus
+
+  // Define JSON RPC Providers without the network object
+  const provider1 = new ethers.JsonRpcProvider(url1);
+  const provider2 = new ethers.JsonRpcProvider(url2);
+  const provider3 = new ethers.JsonRpcProvider(url3);
+
+  // Create a FallbackProvider instance with a specified quorum
+  const fallbackProvider = new ethers.FallbackProvider([
+    {
+      provider: provider1,
+      priority: 2, // Will prioritize this provider
+      weight: 3, // Assuming provider1 is the most reliable
+      stallTimeout
+    },
+    {
+      provider: provider2,
+      priority: 1,
+      weight: 2,
+      stallTimeout: 1500 // Adjusted based on expected responsiveness
+    },
+    {
+      provider: provider3,
+      priority: 1,
+      weight: 1,
+      stallTimeout: 2500 // Adjusted for a provider that might be slower
+    }
+  ], quorum);
+
+  async function getBlockNumber() {
+      try {
+
+
+          const blockNumber = await fallbackProvider.getBlockNumber();
+          console.log(`Latest block: ${blockNumber}`);
+      } catch (error) {
+          console.error("Error fetching block number. Error:", error.message);
+          console.log("Attempting to restart the program...");
+          // Optionally, implement a retry mechanism or other logic here
+          // For example, wait for a few seconds before retrying
+          setTimeout(getBlockNumber, 3000); // Retry after 3 seconds
+      }
+  }
+
+  // Call getBlockNumber every 3 seconds
+  console.log('Fetching latest block from various providers...')
+  setInterval(getBlockNumber, 3000);
+  ```
+</CodeGroup>
+
+## Code breakdown
+
+The code is designed to interact with blockchain networks through Ethereum's JSON RPC API using multiple providers for enhanced reliability and performance. It uses the `ethers.js` library, a popular choice for interacting with the Ethereum blockchain and its ecosystems. Let's break down how this code works, focusing on its key components and functionalities:
+
+### Setup and configuration
+
+<CodeGroup>
+  ```jsx jsx
+  const { ethers } = require('ethers');
+  require("dotenv").config();
+  ```
+</CodeGroup>
+
+This part imports the required dependencies. The `ethers` object is imported from the `ethers.js` library, which provides the functionality for interacting with Ethereum-based blockchains, including the `FallbackProvider`. The `dotenv` package is loaded, which allows us to load environment variables from the `.env` file.
+
+### RPC URLs
+
+<CodeGroup>
+  ```jsx jsx
+  const url1 = process.env.RPC_1;
+  const url2 = process.env.RPC_2;
+  const url3 = process.env.RPC_3;
+  ```
+</CodeGroup>
+
+Here, we retrieve the URLs of the JSON-RPC providers from the environment variables stored in the `.env` file. These URLs will be used to create instances of the `JsonRpcProvider`.
+
+### Configuration constants
+
+<CodeGroup>
+  ```jsx jsx
+  const stallTimeout = 2000; // Example timeout
+  const quorum = 2; // Quorum needed for consensus
+  ```
+</CodeGroup>
+
+These lines define two constants: `stallTimeout` and `quorum`. `stallTimeout` is set to 2000 milliseconds (2 seconds), which determines the maximum time the `FallbackProvider` will wait for a response from a provider before considering it unresponsive. `quorum` is set to 2, specifying that at least two providers must return the same result to be considered a consensus.
+
+### JSON RPC providers
+
+<CodeGroup>
+  ```jsx jsx
+  // Define JSON RPC Providers without the network object
+  const provider1 = new ethers.JsonRpcProvider(url1);
+  const provider2 = new ethers.JsonRpcProvider(url2);
+  const provider3 = new ethers.JsonRpcProvider(url3);
+  ```
+</CodeGroup>
+
+In this section, we create instances of the `ethers.JsonRpcProvider` using the URLs retrieved from the environment variables. These providers will be used as the underlying data sources for the `FallbackProvider`.
+
+### Fallback provider
+
+<CodeGroup>
+  ```jsx jsx
+  // Create a FallbackProvider instance with a specified quorum
+  const fallbackProvider = new ethers.FallbackProvider([
+    {
+      provider: provider1,
+      priority: 2,
+      weight: 3, // Assuming provider1 is the most reliable
+      stallTimeout
+    },
+    {
+      provider: provider2,
+      priority: 1,
+      weight: 2,
+      stallTimeout: 1500 // Adjusted based on expected responsiveness
+    },
+    {
+      provider: provider3,
+      priority: 1,
+      weight: 1,
+      stallTimeout: 2500 // Adjusted for a provider that might be slower
+    }
+  ], quorum);
+  ```
+</CodeGroup>
+
+Here, we create an instance of the `ethers.FallbackProvider` by passing an array of provider configurations and the desired `quorum` value. Each provider configuration includes the following properties:
+
+* `provider`: The instance of the `JsonRpcProvider` to be used.
+* `Priority`: A numeric value representing the provider's priority. Higher values indicate higher priority.
+* `weight`: A numeric value representing the weight or reliability of the provider. Higher values indicate higher reliability.
+* `stallTimeout`: The maximum time (in milliseconds) to wait for a response from the provider before considering it unresponsive.
+
+In this example, `provider1` is given the highest priority (2) and weight (3), assuming it is the most reliable provider. `provider2` and `provider3` have lower priorities (1) and weights (2 and 1, respectively), with adjusted `stallTimeout` values based on their expected responsiveness.
+
+### `getBlockNumber` function
+
+<CodeGroup>
+  ```jsx jsx
+  async function getBlockNumber() {
+      try {
+        const blockNumber = await fallbackProvider.getBlockNumber();
+        console.log(`Latest block: ${blockNumber}`);
+      } catch (error) {
+          console.error("Error fetching block number. Error:", error.message);
+          console.log("Attempting to restart the program...");
+          // Optionally, implement a retry mechanism or other logic here
+          // For example, wait for a few seconds before retrying
+          setTimeout(getBlockNumber, 3000); // Retry after 3 seconds
+      }
+  }
+  ```
+</CodeGroup>
+
+The `getBlockNumber` function is an asynchronous function that fetches the latest block number from the `fallbackProvider`.
+
+Inside the `try` block, it calls `fallbackProvider.getBlockNumber()` and awaits the result. The console logs the latest block number if the block number is fetched successfully. If an error occurs, it catches the error and logs the error message. It also logs a message indicating that it's attempting to restart the program and includes a comment suggesting that a retry mechanism or other logic could be implemented here. This example uses `setTimeout` to call `getBlockNumber` again after a 3-second delay.
+
+### Periodic execution
+
+<CodeGroup>
+  ```jsx jsx
+  // Call getBlockNumber every 3 seconds
+  console.log('Fetching latest block from various providers...')
+  setInterval(getBlockNumber, 3000);
+  ```
+</CodeGroup>
+
+Finally, this part logs a message to the console indicating it fetches the latest block from various providers. It then sets an interval using `setInterval` to call the `getBlockNumber` function every 3 seconds, continuously fetching and logging the latest block number.
+
+By combining the `FallbackProvider` with multiple JSON-RPC providers and configuring their priorities, weights, and stall timeouts, this code demonstrates how to enhance the reliability and consistency of blockchain data retrieval. The `FallbackProvider` will aggregate responses from the configured providers, apply the consensus mechanism based on the specified quorum, and handle failures or timeouts by falling back to other providers.
+
+### Error handling and retries
+
+The error handling within `getBlockNumber` uses a `try-catch` block to catch any exceptions. Suppose an error occurs within the `FallbackProvider`, meaning there is a disagreement in the consensus or the providers with higher priority and weights fail. In that case, it logs the message and attempts to restart the function after a 3-second delay, demonstrating a simple retry mechanism.
+
+## Understanding the `FallbackProvider` configuration
+
+The `FallbackProvider` instance is created by passing an array of provider configurations and the desired quorum value to the `ethers.FallbackProvider` constructor. This array allows you to specify multiple providers and configure their behavior within the `FallbackProvider`.
+
+Each provider configuration in the array is an object with the following properties:
+
+1. `provider`: This is an instance of the `JsonRpcProvider` you want to include in the `FallbackProvider`. In this example, `provider1`, `provider2`, and `provider3` are instances created earlier using the provider URLs from the environment variables.
+2. `priority`: This numeric value represents the provider's priority. Higher values indicate a higher priority. When the `FallbackProvider` needs to select a provider for a request, it will prioritize providers with higher priority values. In the example, `provider1` has the highest priority of 2, while `provider2` and `provider3` have a lower priority of 1.
+3. `weight`: This numeric value represents the provider's weight or reliability. Higher values indicate a higher level of reliability. The `FallbackProvider` uses these weights when determining the consensus result. In the example, `provider1` has the highest weight of 3, indicating that it is considered the most reliable provider, while `provider2` weights 2, and `provider3` weights 1.
+4. `stallTimeout`: This value specifies the maximum time (in milliseconds) that the `FallbackProvider` will wait for a response from the provider before considering it unresponsive or "stalled." If the provider doesn't respond within this time, the `FallbackProvider` will disregard its response and move on to the next provider. In the example, `provider1` uses the default `stallTimeout` value of 2000 milliseconds (2 seconds), `provider2` has a shorter `stallTimeout` of 1500 milliseconds (1.5 seconds), and `provider3` has a longer `stallTimeout` of 2500 milliseconds (2.5 seconds).
+
+By configuring these properties for each provider, you can fine-tune the behavior of the `FallbackProvider` based on your specific requirements and your providers' expected reliability and responsiveness.
+
+The `quorum` parameter passed to the `FallbackProvider` constructor specifies the minimum number of providers agreeing on the same result to be considered a consensus. In this example, the `quorum` is set to 2, meaning that at least two providers must return the same result for the `FallbackProvider` to consider it a valid consensus.
+
+Users can customize the configuration of the `FallbackProvider` by adjusting the properties of the provider objects in the array and the `quorum` value. For instance, if you have a provider that is known to be highly reliable, you can assign it a higher priority and weight. If you expect a provider to respond slower, you can increase its `stallTimeout` value accordingly. Additionally, you can adjust the `quorum` value based on the level of consensus you require for your application.
+
+## Conclusion
+
+In this tutorial, we explored the `FallbackProvider` from the `ethers.js` library, a powerful tool designed to enhance the reliability and consistency of blockchain data retrieval. We learned the importance of redundancy when interacting with blockchain networks and how relying solely on a single node can introduce risks of inconsistent or inaccurate data due to factors like network latency, temporary forks, or out-of-synchrony nodes.
+
+The `FallbackProvider` addresses these challenges by leveraging multiple JSON-RPC providers and employing a consensus mechanism. By aggregating responses from multiple providers, prioritizing them based on their expected reliability, and applying a configurable quorum, the `FallbackProvider` ensures that the data retrieved is consistent with most providers, mitigating the risks associated with relying on a single source.
+
+We walked through the setup process, including installing dependencies, configuring environment variables, and creating instances of the `JsonRpcProvider` and `FallbackProvider`. We also explored the code implementation, breaking down each component and explaining the configuration options such as provider priority, weight, and stall timeout.
+
+By embracing redundancy and consensus mechanisms like the `FallbackProvider`developers can build more robust and fault-tolerant applications that interact with blockchain networks, ensuring reliable and accurate data retrieval, even in the face of potential inconsistencies or failures.

@@ -1,0 +1,368 @@
+---
+title: "Explaining Subgraph Schemas"
+---
+
+**TLDR**
+* Subgraph schemas define how data is stored and queried, including immutable vs. mutable entities and relationships
+* `@entity` and `id` fields are required, with types like `Bytes`, `BigInt`, `String`, `Boolean`, `Int`, and `BigDecimal`
+* Relationships can be one-to-one, one-to-many, or many-to-many, sometimes using `@derivedFrom`
+* A clear understanding of schema design (e.g., SHIB token indexing example) ensures efficient and accurate data retrieval
+
+## Introduction
+
+Chainstack just announced its newest addition to the platform—Chainstack Subgraphs. It allows developers to index and consume blockchain data with peace of mind.
+
+To tailor a subgraph to your specific needs, it is essential to understand how its data is stored. A typical schema looks like this:
+
+<CodeGroup>
+  ```graphql GraphQL
+  type Token @entity {
+  	id: Bytes!
+  	name: String!
+  	symbol: String
+  	decimals: Int
+  }
+  ```
+</CodeGroup>
+
+Schema is defined in `schema.graphql` file and is auto-generated when you run the `graph init` command. It is essential for subgraph deployment. You can create multiple schema files with different names, just make sure to add them in `subgraph.yaml`.
+
+This article provides a general overview of subgraph schemas. Most of the examples are simplified versions of Messari’s subgraphs. For more in-depth information on how to use a subgraph, you can also check out these great articles in this category.
+
+## Entity
+
+All data entries in a subgraph should be an entity and marked with `@entity` in the schema. Without explicitly declaring, it causes a compilation error. Entities can be related to other entities. For example:
+
+<CodeGroup>
+  ```graphql GraphQL
+  type Token @entity {
+  	id: Bytes!
+  	name: String!
+  	symbol: String
+  }
+
+  type TransferEvent @entity {
+  	id: Bytes!
+  	token: Token!
+  	amount: BigInt!
+  }
+  ```
+</CodeGroup>
+
+In this case, a `TransferEvent` entity has a `Token` entity in its field. It is a one-to-many relationship. We will go into different types of relationships later.
+
+## Mutable vs immutable
+
+In general, there are two types of entities: immutable and mutable.
+
+<CodeGroup>
+  ```graphql GraphQL
+
+  type Token @entity {
+  	id: Bytes!
+  	name: String!
+  	symbol: String
+  	owner: [owner]
+  }
+
+  type Owner @entity{
+  	id: Bytes!
+  	balance: Int
+  }
+
+  type TransferEvent @entity(immutable: true) {
+  	id: Bytes!
+  	token: Token!
+  	amount: BigInt!
+  	from: Owner!
+  	to: Owner!
+  }
+  ```
+</CodeGroup>
+
+In this example, `TransferEvent` entity is defined as immutable. Immutable entities are much faster to write and query so always define an entity as immutable if possible.
+
+By default, all entities are mutable meaning that they can be changed during execution. Immutable entities, as the name suggested, can’t be modified once it is created. It can only be modified if only the changes happen in the same block in which it is created.
+
+When you define your schema, you should have a clear idea of how your subgraph stores data. For example, the `Owner` entity and `Token` entity are always updated when a transfer happens; therefore they should not be immutable entities. `TransferEvent` is the transaction details, and is considered finalized once it is confirmed; it is very unlikely to be modified therefore should be an immutable entity.
+
+## Types
+
+The Graph supports 6 data types:
+
+* `Bytes` — hexadecimal string. Commonly used for hashes and addresses.
+* `String` — values of `string` type
+* `Boolean` — values of `boolean` type
+* `Int` — integer values in GraphQL are limited to 32 bytes. This type can be used to store `int8`, `uint8`, `int16`, `uint16`, `int24`, `uint24`, and `int32` data.
+* `BigInt` — this type can store integers that are beyond 32 bytes, such as `uint32`, `int64`, `uint64` until `int256` and `uint256.`
+* `BigDecimal` — handling decimals on Ethereum can be tricky. The Graph supports high-precision decimals represented as a significand and exponent. The exponent range is from -6,143 to +6,144. Rounded to 34 significant digits.
+
+In addition, the developer can also define their own `enum` types. For example:
+
+<CodeGroup>
+  ```graphql GraphQL
+  enum TokenType {
+  	UNKNOWN
+  	ERC20
+  	ERC721
+  }
+
+  type Token @entity {
+  	id: Bytes!
+  	type: TokenType!
+  	name: String!
+  	symbol: String
+  	decimals: Int
+  }
+  ```
+</CodeGroup>
+
+## Optional and required fields
+
+The fields in an entity can either be optional or required. A required field is indicated with “!”.
+
+In this example, `id` and `name` are mandatory for `Token` entity. If any of these fields are missing during indexing, an error occurs.
+
+<CodeGroup>
+  ```graphql GraphQL
+  type Token @entity {
+  	id: Bytes!
+  	name: String!
+  	symbol: String
+  	decimals: Int
+  }
+  ```
+</CodeGroup>
+
+Please take note that the `id` field is mandatory for all entities. It must be unique and it serves as the primary key. The `id` field must be either `byte` or `string` type.
+
+If your subgraph is indexing transactions, you can use the transaction hash as `id`. For a token, this `id` can be either the token’s smart contract address or a unique string. Below are some ideas for unique ID values:
+
+* `event.params.id.toHex()`
+* `event.transaction.from.toHex()`
+* `event.transaction.hash.toHex() + "-" + event.logIndex.toString()`
+
+## Relationships
+
+An entity may relate to one or more other entities.
+
+### One-to-one
+
+Below is an example pair of one-to-one entities referencing each other:
+
+<CodeGroup>
+  ```graphql GraphQL
+  type TransferEvent @entity(immutable: true) {
+  	id: Bytes!
+  	blockNumber: BigInt!
+  	timestamp: BigInt!
+    transferDetail: TransferEventDetail
+  }
+
+  type TransferEventDetail @entity(immutable: true) {
+  	id: Bytes!
+    transactionDetail: TransferEvent
+  	token: Token!
+  	amount: BigInt!
+  	from: Owner!
+  	to: Owner!
+  }
+  ```
+</CodeGroup>
+
+### One-to-many
+
+Below is a one-to-many relation example:
+
+<CodeGroup>
+  ```graphql GraphQL
+  type Token @entity {
+  	id: Bytes!
+  	name: String!
+  	symbol: String
+  }
+
+  type TransferEvent @entity {
+  	id: Bytes!
+  	token: Token!
+  	amount: BigInt!
+  }
+  ```
+</CodeGroup>
+
+### Many-to-many
+
+Many-to-many relations are usually defined as an array in both entities. Taking ERC-20 token as an example, a token may have many owners, so the `Token` entity should keep an owner list. An owner can potentially hold more than one token so the `Owner` entity also keeps a list of tokens. The schema:
+
+<CodeGroup>
+  ```graphql GraphQL
+  type Token @entity {
+  	id: Bytes!
+  	name: String!
+  	symbol: String
+  	owners: [owner!]!
+  }
+
+  type Owner @entity{
+  	id: Bytes!
+  	tokens: [Token!]! @derivedFrom(field: "owner")
+  }
+  ```
+</CodeGroup>
+
+### Reverse lookups
+
+In the above example, a new keyword `@derivedFrom` is used, it is called reverse lookup.
+
+When a field is defined as `@derivedFrom`, it is never actually created during indexing. Instead, it is referencing another field in the other entity. In the above case, when an owner’s `tokens` field is queried, GraphQL looks into the `owners` field of the `Token` entity to find all the tokens with a particular owner in its `owners` field and returns that as a result.
+
+## Indexing SHIB token
+
+Here is an example of subgraph indexing for [Shiba Inu coin](https://etherscan.io/token/0x95ad61b0a150d79219dcf64e1e6cc01f0b64c4ce?a=0xb8f226ddb7bc672e27dffb67e4adabfa8c0dfa08), which includes transfer events and owners' account balances. This example is built with graph CLI version 0.45.1.
+
+Firstly, run `graph init` with contract address: `0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE`.
+
+Change the `subgraph.yaml` to the following:
+
+<CodeGroup>
+  ```yaml subgraph.yaml
+  specVersion: 0.0.5
+  schema:
+    file: ./schema.graphql
+  dataSources:
+    - kind: ethereum
+      name: Contract
+      network: mainnet
+      source:
+        address: "0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE"
+        abi: Contract
+        startBlock: 10569013
+      mapping:
+        kind: ethereum/events
+        apiVersion: 0.0.7
+        language: wasm/assemblyscript
+        entities:
+          - Account
+          - Transfer
+        abis:
+          - name: Contract
+            file: ./abis/Contract.json
+        eventHandlers:
+          - event: Transfer(indexed address,indexed address,uint256)
+            handler: handleTransfer
+        file: ./src/contract.ts
+  ```
+</CodeGroup>
+
+Then we modify the `schema.graphql` in the following manner:
+
+<CodeGroup>
+  ```graphql schema.graphql
+  type Transfer @entity(immutable: true) {
+    "id will be tx hash"
+    id: String!
+    hash: Bytes!
+    to: Account!
+    from: Account!
+    amount: BigInt!
+
+    blockNumber: BigInt!
+    timestamp: BigInt!
+  }
+
+  type Account @entity {
+    "id will be account address"
+    id: Bytes!
+    amount: BigInt!
+  }
+  ```
+</CodeGroup>
+
+Here we index two entities, the `Account` entity keeps all the balance of SHIB token holder’s account balances. The `Transfer` entity keeps a record of all transactions that are related to SHIB token. Here we use transaction hash as its ID.
+
+Next, to generate `schema.ts` in the `generated` directory run:
+
+<CodeGroup>
+  ```bash Shell
+  graph codegen
+  ```
+</CodeGroup>
+
+Then navigate to the `src` directory to define our event mapping.
+
+<CodeGroup>
+  ```js JavaScript
+  import { Bytes, BigInt, ethereum, log } from "@graphprotocol/graph-ts";
+  import {
+    Transfer as TransferEvent
+  } from "../generated/Contract/Contract"
+  import { Account, Transfer} from "../generated/schema"
+
+  export function handleTransfer(event: TransferEvent): void {
+    let transfer = new Transfer(
+      event.transaction.hash.toHex()
+    )
+    transfer.hash = event.transaction.hash
+    transfer.from = event.params.from
+    transfer.to = event.params.to
+    transfer.amount = event.params.value
+
+    transfer.blockNumber = event.block.number
+    transfer.timestamp = event.block.timestamp
+
+    transfer.save()
+
+    var sender = Account.load(transfer.from)
+    var receiver = Account.load(transfer.to)
+    if (receiver == null){
+      receiver = new Account(transfer.to)
+      receiver.amount = transfer.amount
+      receiver.save()
+    }
+    else{
+      receiver.amount = receiver.amount.plus(transfer.amount)
+      receiver.save()
+    }
+
+    if(sender != null){
+      sender.amount = sender.amount.minus(transfer.amount)
+      sender.save()
+    }
+  }
+  ```
+</CodeGroup>
+
+That’s it. Finally, run `npm install` and `graph build` to compile the code and deploy it to Chainstack Subgraphs with the deployment command which can be found in your Chainstack console.
+
+When deployment completes, open the GraphQL UI URL in your browser to see the result.
+
+## Conclusion
+
+To make the most out of subgraphs, it is important to understand how data is stored. In this article, we covered the basics of subgraph schemas, including entities, mutable vs. immutable types, optional and required fields, relationships, and indexing examples for the SHIB token. By following these guidelines, developers can create customized subgraphs that suit their specific needs and ensure efficient and accurate indexing of blockchain data.
+
+<Info>
+  ### See also
+
+  <CardGroup>
+    <Card title="A beginner’s guide to getting started with The Graph" href="/docs/subgraphs-tutorial-a-beginners-guide-to-getting-started-with-the-graph" icon="angle-right" horizontal />
+    <Card title="Deploying a Lido subgraph with Chainstack" href="/docs/subgraphs-tutorial-deploying-a-lido-subgraph-with-chainstack" icon="angle-right" horizontal />
+    <Card title="Debugging subgraphs with a local Graph Node" href="/docs/subgraphs-tutorial-debug-subgraphs-with-a-local-graph-node" icon="angle-right" horizontal />
+    <Card title="Indexing ERC-20 token balance using Subgraphs" href="/docs/subgraphs-tutorial-indexing-erc-20-token-balance" icon="angle-right" horizontal />
+    <Card title="Indexing Uniswap data with Subgraphs" href="/docs/subgraphs-tutorial-indexing-uniswap-data" icon="angle-right" horizontal />
+    <Card title="Fetching subgraph data using JS" href="/docs/subgraphs-tutorial-fetching-subgraph-data-using-javascript" icon="angle-right" horizontal />
+  </CardGroup>
+</Info>
+
+### About the author
+
+<CardGroup>
+  <Card title="Wuzhong Zhu" img="/images/docs/profile_images/1548860905064017921/xCKUgveS_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/> BUIDLs on Ethereum, zkEVMs, The Graph protocol, and IPFS
+
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/wuzhongzhu)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/wuzhong-zhu-44563589/)
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/wuzhong-zhu)
+  </Card>
+</CardGroup>

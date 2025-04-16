@@ -1,0 +1,316 @@
+---
+title: "Tezos: A Simple Fund Contract in LIGO"
+---
+
+<Warning>
+  ### No Tezos support
+
+  Chainstack deprecated support for Tezos nodes. This page here is for legacy and in case you may find it useful.
+</Warning>
+
+This tutorial guides you through developing, originating, and interacting with a simple decentralized fund smart contract on Tezos.
+
+The origination and the interaction with the contract for tutorial purposes is done on Ghostnet, which is a testnet.
+
+The simple fund contract does the following:
+
+* The contract can be funded in any amount of tez by anyone on the network.
+* 1 tez at a time can be withdrawn from the funded contract by anyone on the network.
+
+## Prerequisites
+
+* Get a Tezos node endpoint.
+* [LIGO](https://ligolang.org/) to create and test the contract.
+* [Tezos client](https://tezos.gitlab.io/introduction/howtouse.html#client) to originate the contract and to interact with the contract through the CLI.
+* [Temple wallet](https://templewallet.com/) to interact with the contract through a web app.
+
+## Overview
+
+To get from zero to a deployed contract on Ghostnet, do the following:
+
+<Steps>
+  <Step>
+  Get a Tezos node endpoint.
+  </Step>
+  <Step>
+  Fund your developer Tezos account through a [faucet](https://teztnets.xyz/).
+  </Step>
+  <Step>
+  With LIGO, create the contract.
+  </Step>
+  <Step>
+  With the Tezos client, compile and originate the contract through your Tezos node.
+  </Step>
+  <Step>
+  With the Tezos client, fund the contract.
+  </Step>
+  <Step>
+  Fund your user Tezos account through a faucet and your Temple wallet.
+  </Step>
+  <Step>
+  With Temple wallet, interact with the contract.
+  </Step>
+</Steps>
+
+### Install LIGO
+
+See [LIGO: Installation](https://ligolang.org/docs/intro/installation/?lang=jsligo).
+
+### Install and configure the Tezos client
+
+To install the client, see [Installing binaries](https://tezos.gitlab.io/introduction/howtoget.html).
+
+Once installed, configure the client to the the node:
+
+<CodeGroup>
+  ```bash Shell
+  tezos-client --endpoint YOUR_NODE_ENDPOINT config update
+  ```
+</CodeGroup>
+
+where YOUR\_NODE\_ENDPOINT — your Tezos node endpoint
+
+### Generate an account
+
+Run:
+
+<CodeGroup>
+  ```bash Shell
+  octez-client gen keys new
+  ```
+</CodeGroup>
+
+Get the generated account address:
+
+<CodeGroup>
+  ```bash Shell
+  octez-client list known addresses
+  ```
+</CodeGroup>
+
+### Fund your account with testnet tez
+
+<Steps>
+  <Step>
+  Go to the [faucet](https://teztnets.xyz/).
+  </Step>
+  <Step>
+  In **fund any address**, paste your generated address.
+  </Step>
+  <Step>
+  Click **Request 6001 tz**.
+  </Step>
+</Steps>
+### Create the contract
+
+Create a simple fund contract in the PascaLIGO syntax with two entrypoints:
+
+* `Deposit` — any account on the network can deposit any amount of tez in the contract.
+* `Withdraw` — any account on the network can withdraw 1 tez at a time from the contract.
+
+Create a file called `simplefund.ligo`:
+
+<CodeGroup>
+  ```js JavaScript
+  // Two entrypoints: deposit any, withdraw 1 tez.
+  type entry is
+  | Deposit
+  | Withdraw
+
+  // Simple storage in tez.
+  type storage is record
+   [balance: tez;
+  ]
+
+  const noOperations: list(operation) = nil;
+  const withdrawAmount : tez = 1tez;
+  const receiver: contract(unit) = Tezos.get_contract(Tezos.get_sender());
+  const payoutOperation: operation = Tezos.transaction(unit, withdrawAmount, receiver);
+  const operations : list (operation) = list [payoutOperation];
+
+  // Amend the storage balance with the deposited amount.
+  function depositAny(var storage: storage): (list(operation) * storage) is
+    block {
+          storage.balance := storage.balance + Tezos.get_amount();
+        }
+    with(noOperations, storage)
+
+  // Withdraw 1 tez at a time.
+  // 1 tez is sent to the sender calling the withdraw function.
+  function withdrawFixed(var storage: storage): (list(operation) * storage) is
+    block {
+      storage.balance := Option.unopt(storage.balance - withdrawAmount);
+    } with(operations, storage)
+
+  function main(const action: entry; var storage: storage): (list(operation) * storage) is
+    block {
+      skip
+    } with case action of [
+      | Deposit(_param) -> depositAny(storage)
+      | Withdraw(_param) -> withdrawFixed(storage)
+  ];
+  ```
+</CodeGroup>
+
+### Test the contract
+
+Before compiling the contract, you can test it using the LIGO CLI.
+
+Deposit 10 tez:
+
+<CodeGroup>
+  ```bash Shell
+  $ ligo run dry-run simplefund.ligo --syntax pascaligo --amount 10 --entry-point  main "Deposit(unit)" "0"
+  ( LIST_EMPTY() , record[balance -> 10000000mutez] )
+  ```
+</CodeGroup>
+
+Withdraw 1 tez:
+
+<CodeGroup>
+  ```bash Shell
+  $ ligo run dry-run simplefund.ligo --syntax pascaligo --entry-point main "Withdraw(unit)" "10000000mutez"
+  ( CONS(Operation(0135a1ec49145785df89178dcb6e96c9a9e1e71e0a00000001c0843d0000663549d0f7c76252056ed0600da097a3e713237a00) ,
+         LIST_EMPTY()) ,
+    record[balance -> 9000000mutez] )
+  ```
+</CodeGroup>
+
+### Compile the contract
+
+Compile the contract and save the compiled code in a `.tz` file:
+
+<CodeGroup>
+  ```bash Shell
+  ligo compile contract simplefund.ligo --entry-point main > simplefund.tz
+  ```
+</CodeGroup>
+
+You are now ready to originate the compiled contract on Ghostnet.
+
+### Originate the contract
+
+Originate the contract using your account, initiate the contract with 0 tez, and provide the origination fee with `--burn-cap`:
+
+<CodeGroup>
+  ```bash Shell
+  octez-client originate contract simplefund transferring 0 from ACCOUNT_ADDRESS running simplefund.tz --init 0 --burn-cap 3
+  ```
+</CodeGroup>
+
+where ACCOUNT\_ADDRESS — the account you generated and funded previously.
+
+Once the contract is originated, you will see the contract address in `Originated contracts`.
+
+Example:
+
+<CodeGroup>
+  ```bash Shell
+  New contract KT1NSJSJjV5HHi3dgvwDNNs72hjCe9DsYvYV originated.
+  ```
+</CodeGroup>
+
+You now have a working contract on Ghostnet.
+
+Write down the contract address as you will need it later to interact with it through a web app and the Temple wallet.
+
+### Interact with the contract using the Tezos client
+
+You can now fund the contract using the Tezos client.
+
+Get the contract parameter for the deposit function to pass to the Tezos client.
+
+Get the parameter for `Deposit`:
+
+<CodeGroup>
+  ```bash Shell
+  $ ligo compile parameter simplefund.ligo --syntax pascaligo --entry-point main "Deposit(unit)"
+  (Left Unit)
+  ```
+</CodeGroup>
+
+Deposit 10 tez from your account to the contract:
+
+<CodeGroup>
+  ```bash Shell
+  octez-client transfer 10 from ACCOUNT_ADDRESS to simplefund --arg "(Left Unit)" --burn-cap 1
+  ```
+</CodeGroup>
+
+where ACCOUNT\_ADDRESS — the account you generated and funded previously
+
+Once the operation is included in a block, check the contract balance by querying the storage:
+
+<CodeGroup>
+  ```bash Shell
+  $ octez-client get contract storage for simplefund
+  10000000
+  ```
+</CodeGroup>
+
+### Get a Temple wallet account with test tez
+
+You need an account in the Temple wallet with some test tez to execute operations on Ghostnet.
+<Steps>
+  <Step>
+  Install the [Temple wallet](https://templewallet.com/).
+  </Step>
+  <Step>
+  Go to the [faucet](https://teztnets.xyz/).
+  </Step>
+  <Step>
+  Connect with yout Temple wallet.
+  </Step>
+  <Step>
+  Once connected, click **Request 6001 tz**.
+  </Step>
+</Steps>
+### Interact with the contract using the Temple wallet
+
+<Steps>
+  <Step>
+  Navigate to the [BCD explorer](https://better-call.dev/).
+  </Step>
+  <Step>
+  Click **Ghostnet**.
+  </Step>
+  <Step>
+  In the search field, provide your originated contract address.
+  </Step>
+  <Step>
+  On the contract page, click **Interact**.
+  </Step>
+  <Step>
+  Click **withdraw** > **Execute** > **Temple - Tezos Wallet**.
+  </Step>
+  <Step>
+  Click **Confirm**.
+  </Step>
+</Steps>
+This will connect your account from the Temple wallet with the contract and withdraw 1 tez to the account.
+
+## Conclusion
+
+This tutorial guided you through the basics of creating a contract in LIGO and originating the contract on a Tezos network.
+
+You were also able to interact with the contract through the CLI with the Tezos client and through a web app with the Temple wallet.
+
+This tutorial uses testnet, however, the exact same instructions and sequence will work on the mainnet as well.
+
+### About the author
+<CardGroup>
+  <Card title="Ake Gaviard" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>
