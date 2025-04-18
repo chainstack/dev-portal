@@ -1,0 +1,641 @@
+---
+title: "TRON: Mastering Energy & Bandwidth with Python and Chainstack"
+description: "Learn how to manage TRON's unique fee model using Python and Chainstack nodes to reduce or eliminate transaction costs through resource management."
+---
+
+## Overview
+
+The short version is if you stake your TRX (called Freezing), you will get your daily allowance of gas free EOA to EOA transactions (Bandwidth allocation) and EOA to contract transactions (Energy allocation).
+
+EOA to EOA transactions are called Bandwidth-consuming transactions.
+
+EOA to contract transactions are called Energy-consuming transactions.
+
+TRON's unique fee model revolves around two core resources—Energy and Bandwidth. Mastering how these resources function allows developers and users to significantly reduce transaction costs, potentially to zero. This article will guide you through understanding and managing TRON resources using Python and a Chainstack TRON nodes, offering practical examples and scripts to streamline your interaction with the TRON blockchain.
+
+<Info>
+  For the detailed TRON Resource Model overview, see TRON docs: [Resource Model](https://developers.tron.network/docs/resource-model).
+</Info>
+
+### Bandwidth
+Bandwidth on TRON is consumed by basic operations such as sending TRX or TRC-10 tokens (TRC-10s are like colored coins—they are similar to TRC-20 but don't involve an actual smart contract processing). Accounts receive daily free bandwidth based on their state, but heavy usage can quickly exhaust these allowances.
+
+### Energy
+Energy powers smart contract executions, including TRC-20 token interactions. Without sufficient Energy, transactions consume TRX as fees.
+
+### Freezing TRX
+Freezing is pretty much staking.
+
+Freezing (staking) TRX grants daily Energy or Bandwidth, enabling fee-free transactions. You can reclaim your frozen TRX after a 3-day staking period.
+
+## Implementation
+
+Let's do a full cycle script that retrieves the account's Energy and Bandwidth data from the chain, stakes (freezes) and unstakes (unfreezes) the TRXs.
+
+### Prerequisites
+
+<Steps>
+  <Step>
+    Python 3.7+
+  </Step>
+  <Step>
+    A Chainstack TRON Nile node endpoint—register on [Chainstack](https://console.chainstack.com/). Make sure you pick the HTTP API endpoint that looks like this `https://tron-nile.core.chainstack.com/11112222333444555666677778888/wallet`
+  </Step>
+  <Step>
+    A TRON account with a private key and some TRX balance that you can get from the [Nile faucet](https://nileex.io/join/getJoinPage)
+  </Step>
+</Steps>
+
+### Install dependencies
+
+```bash
+pip install tronpy
+```
+
+### Connect to Chainstack Node
+
+In your Python script, connect to your Chainstack node:
+
+```python
+from tronpy import Tron
+from tronpy.providers import HTTPProvider
+
+CHAINSTACK_TRON_ENDPOINT = "CHAINSTACK_NODE_ENDPOINT"
+
+client = Tron(
+    provider=HTTPProvider(CHAINSTACK_TRON_ENDPOINT),
+    network='mainnet'
+)
+```
+
+### Generate or load a TRON account
+
+Create a new account:
+
+```python
+new_account = client.generate_address()
+print("Address:", new_account['base58check_address'])
+print("Private Key:", new_account['private_key'])
+```
+
+Or load your existing key:
+
+```python
+PRIVATE_KEY = "YOUR_PRIVATE_KEY"
+MY_ADDRESS = "YOUR_TRON_ADDRESS"
+```
+
+### Check resources by retrieving the data from the chain
+
+Retrieve your current Bandwidth and Energy:
+
+```python
+def get_account_resources(address):
+    resources = client.get_account_resource(address)
+    bandwidth = resources.get('freeNetLimit', 0)
+    energy = resources.get('TotalEnergyLimit', 0)
+
+    print(f"Bandwidth: {bandwidth}, Energy: {energy}")
+
+get_account_resources(MY_ADDRESS)
+```
+
+### Freeze TRX for resources
+
+Freeze TRX to gain Energy:
+
+```python
+def freeze_for_energy(private_key, address, amount_trx):
+    freeze_amount_sun = int(amount_trx * 1_000_000)
+    txn = client.trx.freeze_balance(
+        address,
+        amount=freeze_amount_sun,
+        resource="ENERGY"
+    ).build()
+
+    signed_txn = txn.sign(private_key)
+    result = signed_txn.broadcast()
+
+    print("Freeze Transaction ID:", result['txid'])
+
+freeze_for_energy(PRIVATE_KEY, MY_ADDRESS, 10)
+```
+
+### Send TRX with minimal fees
+
+Execute a simple TRX transaction:
+
+```python
+def send_trx(private_key, owner, recipient, amount_trx):
+    amount_sun = int(amount_trx * 1_000_000)
+    txn = client.trx.transfer(owner, recipient, amount_sun).build()
+    signed_txn = txn.sign(private_key)
+    result = signed_txn.broadcast()
+
+    print("Transaction ID:", result['txid'])
+
+recipient = "RECIPIENT_ADDRESS"
+send_trx(PRIVATE_KEY, MY_ADDRESS, recipient, 1)
+```
+
+### Verify transaction fees
+
+Check the fees for your transaction:
+
+```python
+import time
+
+def get_tx_info(tx_id):
+    time.sleep(3)
+    tx_info = client.get_transaction_info(tx_id)
+    print("Net Fee:", tx_info.get('net_fee'))
+    print("Energy Fee:", tx_info.get('energy_fee'))
+
+tx_id = "YOUR_TX_ID"
+get_tx_info(tx_id)
+```
+
+### Unfreeze TRX
+
+<Info>
+  Note that on the mainnet it'll take 3 days to unstake.
+</Info>
+
+Reclaim your staked TRX:
+
+```python
+def unfreeze_energy(private_key, address):
+    txn = client.trx.unfreeze_balance(
+        address,
+        resource='ENERGY'
+    ).build()
+
+    signed_txn = txn.sign(private_key)
+    result = signed_txn.broadcast()
+
+    print("Unfreeze Transaction ID:", result['txid'])
+
+unfreeze_energy(PRIVATE_KEY, MY_ADDRESS)
+```
+
+### Full script
+
+```python
+from tronpy import Tron
+from tronpy.providers import HTTPProvider
+from tronpy.keys import PrivateKey
+import time
+
+# Replace this with your Chainstack TRON HTTP API endpoint URL
+# Example (note the /wallet append) https://tron-nile.core.chainstack.com/11112222333444555666677778888/wallet
+CHAINSTACK_TRON_ENDPOINT = "CHAINSTACK_NODE_ENDPOINT"
+
+# Replace with your actual private key and address
+PRIVATE_KEY = "YOUR_PRIVATE_KEY"
+MY_ADDRESS = "YOUR_ADDRESS"  # base58 or hex
+
+# Initialize the client
+client = Tron(
+    provider=HTTPProvider(CHAINSTACK_TRON_ENDPOINT),
+    network='nile'  # Change this to 'mainnet' if you want mainnet
+)
+
+# Generate a new Tron account
+def generate_new_account():
+    new_account = client.generate_address()
+    print("Generated address:", new_account['base58check_address'])
+    print("Private key:", new_account['private_key'])
+    return new_account
+
+# Retrieve account resource info
+def get_account_resources(address):
+    resources = client.get_account_resource(address)
+    
+    bandwidth = resources.get('freeNetLimit', 0)
+    energy = resources.get('TotalEnergyLimit', 0)
+
+    print(f"Bandwidth (Free Net Limit): {bandwidth}")
+    print(f"Total Energy Limit: {energy}")
+    
+    # For more detailed information:
+    print(f"Total Net Limit: {resources.get('TotalNetLimit', 0)}")
+    print(f"Total Net Weight: {resources.get('TotalNetWeight', 0)}")
+    print(f"Total Energy Weight: {resources.get('TotalEnergyWeight', 0)}")
+    
+    return bandwidth, energy
+
+# Freeze TRX for energy
+def freeze_for_energy(private_key, owner_address, amount_trx):
+    freeze_amount_sun = int(amount_trx * 1_000_000)  # 1 TRX = 1,000,000 SUN
+ 
+    txn = client.trx.freeze_balance(
+        owner_address,
+        amount=freeze_amount_sun,
+        resource="ENERGY"
+    ).build()
+    
+    # Sign and broadcast
+    priv_key = PrivateKey(bytes.fromhex(private_key))
+    signed_txn = txn.sign(priv_key)
+    result = signed_txn.broadcast()
+    
+    print("Freeze transaction ID:", result['txid'])
+    return result
+
+# Freeze TRX for bandwidth
+def freeze_for_bandwidth(private_key, owner_address, amount_trx):
+    freeze_amount_sun = int(amount_trx * 1_000_000)  # 1 TRX = 1,000,000 SUN
+    
+    txn = client.trx.freeze_balance(
+        owner_address,
+        amount=freeze_amount_sun,
+        resource="BANDWIDTH"
+    ).build()
+    
+    # Sign and broadcast
+    priv_key = PrivateKey(bytes.fromhex(private_key))
+    signed_txn = txn.sign(priv_key)
+    result = signed_txn.broadcast()
+    
+    print("Freeze transaction ID:", result['txid'])
+    return result
+
+# Send TRX transaction
+def send_trx(private_key, owner_address, to_address, amount_trx):
+    amount_sun = int(amount_trx * 1_000_000)  # 1 TRX = 1,000,000 SUN
+    try:
+        txn = (
+            client.trx.transfer(
+                owner_address,
+                to_address,
+                amount_sun
+            )
+            .build()
+        )
+        priv_key = PrivateKey(bytes.fromhex(private_key))
+        signed_txn = txn.sign(priv_key)
+        txn_result = signed_txn.broadcast()
+        
+        print("Send TRX transaction ID:", txn_result)
+        return txn_result
+    except Exception as e:
+        print(f"Error sending transaction: {str(e)}")
+        print("Using your own address as recipient for testing purposes...")
+        
+        # Fall back to using sender as recipient for testing
+        try:
+            txn = (
+                client.trx.transfer(
+                    owner_address,
+                    owner_address,  # Send to self
+                    amount_sun
+                )
+                .build()
+            )
+            priv_key = PrivateKey(bytes.fromhex(private_key))
+            signed_txn = txn.sign(priv_key)
+            txn_result = signed_txn.broadcast()
+            
+            print("Send TRX transaction ID (to self):", txn_result)
+            return txn_result
+        except Exception as e2:
+            print(f"Error in fallback transaction: {str(e2)}")
+            return {"txid": None, "error": str(e2)}
+
+# Get transaction info
+def get_tx_info(tx_id):
+    if not tx_id:
+        print("No transaction ID provided.")
+        return {}
+    
+    try:
+        # Give the network a moment to confirm
+        time.sleep(3)
+        tx_info = client.get_transaction_info(tx_id)
+        return tx_info
+    except Exception as e:
+        print(f"Error getting transaction info: {str(e)}")
+        return {}
+
+# Unfreeze TRX from energy allocation
+def unfreeze_energy(private_key, owner_address):
+    try:
+        txn = (
+            client.trx.unfreeze_balance(
+                owner_address,
+                resource='ENERGY',
+                unfreeze_balance=10_000_000  # 10 TRX in SUN
+            )
+            .build()
+        )
+        priv_key = PrivateKey(bytes.fromhex(private_key))
+        signed_txn = txn.sign(priv_key)
+        txn_result = signed_txn.broadcast()
+        
+        print("Unfreeze transaction ID:", txn_result)
+        return txn_result
+    except Exception as e:
+        print(f"Error unfreezing energy: {str(e)}")
+
+        try:
+            txn = (
+                client.trx.unfreeze_balance(
+                    owner_address=owner_address,
+                    resource='ENERGY',
+                    unfreeze_balance=10_000_000  # 10 TRX in SUN
+                )
+                .build()
+            )
+            priv_key = PrivateKey(bytes.fromhex(private_key))
+            signed_txn = txn.sign(priv_key)
+            txn_result = signed_txn.broadcast()
+            
+            print("Unfreeze transaction ID (using alternate format):", txn_result)
+            return txn_result
+        except Exception as e2:
+            print(f"Error with alternate unfreeze format: {str(e2)}")
+            return {"error": str(e2)}
+
+# Unfreeze TRX from bandwidth allocation
+def unfreeze_bandwidth(private_key, owner_address):
+    try:
+        txn = (
+            client.trx.unfreeze_balance(
+                owner_address,
+                resource='BANDWIDTH',
+                unfreeze_balance=10_000_000  # 10 TRX in SUN
+            )
+            .build()
+        )
+        priv_key = PrivateKey(bytes.fromhex(private_key))
+        signed_txn = txn.sign(priv_key)
+        txn_result = signed_txn.broadcast()
+        
+        print("Unfreeze transaction ID:", txn_result)
+        return txn_result
+    except Exception as e:
+        print(f"Error unfreezing bandwidth: {str(e)}")
+
+        try:
+            txn = (
+                client.trx.unfreeze_balance(
+                    owner_address=owner_address,
+                    resource='BANDWIDTH',
+                    unfreeze_balance=10_000_000  # 10 TRX in SUN
+                )
+                .build()
+            )
+            priv_key = PrivateKey(bytes.fromhex(private_key))
+            signed_txn = txn.sign(priv_key)
+            txn_result = signed_txn.broadcast()
+            
+            print("Unfreeze transaction ID (using alternate format):", txn_result)
+            return txn_result
+        except Exception as e2:
+            print(f"Error with alternate unfreeze format: {str(e2)}")
+            return {"error": str(e2)}
+
+# Get account TRX balance
+def get_account_balance(address):
+    account = client.get_account(address)
+    balance_sun = account.get('balance', 0)  # Balance in SUN
+    balance_trx = balance_sun / 1_000_000    # Convert to TRX (1 TRX = 1,000,000 SUN)
+    print(f"Account Balance: {balance_trx} TRX ({balance_sun} SUN)")
+    return balance_trx, balance_sun
+
+# Get detailed account resource information
+def get_detailed_resource_info(address):
+    # Get account info
+    account = client.get_account(address)
+    resources = client.get_account_resource(address)
+    
+    # Get balance
+    balance_sun = account.get('balance', 0)
+    balance_trx = balance_sun / 1_000_000
+    
+    # Extract bandwidth information
+    free_net_used = account.get('free_net_used', 0)
+    free_net_limit = resources.get('freeNetLimit', 0)
+    free_net_remaining = free_net_limit - free_net_used
+    
+    net_used = account.get('net_used', 0)
+    net_limit = account.get('net_limit', {}).get('limit', 0)
+    net_remaining = net_limit - net_used if net_limit > 0 else 0
+    
+    # Extract energy information
+    energy_used = account.get('energy_used', 0)
+    energy_limit = account.get('energy_limit', 0)
+    energy_remaining = energy_limit - energy_used if energy_limit > 0 else 0
+
+    print("\n=== Detailed Resource Information ===")
+    print(f"Address: {address}")
+    print(f"Balance: {balance_trx} TRX")
+    
+    print("\n--- Bandwidth (NET) ---")
+    print(f"Free Bandwidth Used: {free_net_used} / {free_net_limit} ({free_net_remaining} remaining)")
+    print(f"Frozen Bandwidth Used: {net_used} / {net_limit} ({net_remaining} remaining)")
+    
+    print("\n--- Energy ---")
+    print(f"Energy Used: {energy_used} / {energy_limit} ({energy_remaining} remaining)")
+    
+    # Return the data for comparison
+    return {
+        'balance': balance_trx,
+        'balance_sun': balance_sun,
+        'free_net_used': free_net_used,
+        'free_net_limit': free_net_limit,
+        'net_used': net_used,
+        'net_limit': net_limit,
+        'energy_used': energy_used,
+        'energy_limit': energy_limit
+    }
+
+# Compare resource usage before and after an operation
+def compare_resources(before, after):
+    print("\n=== Resource Usage Comparison ===")
+    
+    # Balance comparison
+    balance_change = after['balance'] - before['balance']
+    print(f"Balance: {before['balance']} TRX → {after['balance']} TRX (Change: {balance_change} TRX)")
+    
+    # Bandwidth comparison
+    free_net_change = after['free_net_used'] - before['free_net_used']
+    net_change = after['net_used'] - before['net_used']
+    
+    print("Bandwidth Changes:")
+    print(f"  Free Bandwidth Used: {before['free_net_used']} → {after['free_net_used']} (Change: {free_net_change})")
+    print(f"  Frozen Bandwidth Used: {before['net_used']} → {after['net_used']} (Change: {net_change})")
+    
+    # Energy comparison
+    energy_change = after['energy_used'] - before['energy_used']
+    print("Energy Changes:")
+    print(f"  Energy Used: {before['energy_used']} → {after['energy_used']} (Change: {energy_change})")
+    
+    # Limit changes (in case of freezing/unfreezing)
+    if before['net_limit'] != after['net_limit']:
+        print(f"  Bandwidth Limit: {before['net_limit']} → {after['net_limit']} (Change: {after['net_limit'] - before['net_limit']})")
+    
+    if before['energy_limit'] != after['energy_limit']:
+        print(f"  Energy Limit: {before['energy_limit']} → {after['energy_limit']} (Change: {after['energy_limit'] - before['energy_limit']})")
+
+if __name__ == "__main__":
+    print("TRON Resources Management Tool")
+    print("------------------------------")
+    
+    # Check initial resources
+    print("\n1. Checking initial account resources...")
+    bandwidth, energy = get_account_resources(MY_ADDRESS)
+    initial_resources = get_detailed_resource_info(MY_ADDRESS)
+    
+    # Create a test recipient address - generating a new one to ensure it's valid
+    print("\nGenerating a test recipient address...")
+    try:
+        TEST_RECIPIENT = generate_new_account()['base58check_address']
+        print(f"Test recipient address: {TEST_RECIPIENT}")
+    except Exception as e:
+        print(f"Error generating test address: {str(e)}")
+        print("Using your own address as recipient for testing purposes...")
+        TEST_RECIPIENT = MY_ADDRESS  # Fall back to sending to self
+    
+    # Ask user what operation to perform
+    print("\nSelect an operation to perform:")
+    print("1. Freeze TRX for Energy")
+    print("2. Freeze TRX for Bandwidth")
+    print("3. Send a test transaction")
+    print("4. Unfreeze Energy")
+    print("5. Unfreeze Bandwidth")
+    print("6. Run all operations in sequence")
+    print("7. Check account balance")
+    
+    choice = input("\nEnter your choice (1-7): ")
+    
+    if choice == "7":
+        # Just check account balance
+        get_account_balance(MY_ADDRESS)
+    
+    if choice == "1" or choice == "6":
+        # Freeze for energy
+        print("\n2. Freezing 10 TRX for Energy...")
+        freeze_energy_tx = freeze_for_energy(PRIVATE_KEY, MY_ADDRESS, 10)
+        print("Waiting 15 seconds for transaction confirmation...")
+        time.sleep(15)  # Increased wait time
+        
+        # Check resources after freezing for energy
+        print("\n3. Checking resources after freezing for Energy...")
+        post_energy_freeze_resources = get_detailed_resource_info(MY_ADDRESS)
+        compare_resources(initial_resources, post_energy_freeze_resources)
+    
+    if choice == "2" or choice == "6":
+        # Freeze for bandwidth
+        print("\n4. Freezing 10 TRX for Bandwidth...")
+        pre_bandwidth_freeze = get_detailed_resource_info(MY_ADDRESS)
+        freeze_bandwidth_tx = freeze_for_bandwidth(PRIVATE_KEY, MY_ADDRESS, 10)
+        print("Waiting 15 seconds for transaction confirmation...")
+        time.sleep(15)  # Increased wait time
+        
+        # Check resources after freezing for bandwidth
+        print("\n5. Checking resources after freezing for Bandwidth...")
+        post_bandwidth_freeze_resources = get_detailed_resource_info(MY_ADDRESS)
+        compare_resources(pre_bandwidth_freeze, post_bandwidth_freeze_resources)
+    
+    if choice == "3" or choice == "6":
+        # Send a test transaction
+        print("\n6. Sending a test transaction (1 TRX)...")
+        pre_tx_resources = get_detailed_resource_info(MY_ADDRESS)
+        tx_result = send_trx(PRIVATE_KEY, MY_ADDRESS, TEST_RECIPIENT, 1)
+        print("Waiting 15 seconds for transaction confirmation...")
+        time.sleep(15)  # Increased wait time
+        
+        # Get transaction details
+        tx_id = None
+        if isinstance(tx_result, dict):
+            tx_id = tx_result.get('txid')
+        elif isinstance(tx_result, str):
+            tx_id = tx_result
+            
+        if tx_id:
+            tx_info = get_tx_info(tx_id)
+            print(f"\nTransaction Info:")
+            print(f"  Net Fee: {tx_info.get('net_fee', 'N/A')}")
+            print(f"  Energy Fee: {tx_info.get('energy_fee', 'N/A')}")
+            print(f"  Net Usage: {tx_info.get('net_usage', 'N/A')}")
+            print(f"  Energy Usage: {tx_info.get('energy_usage', 'N/A')}")
+        else:
+            print("\nNo transaction ID available to fetch details.")
+        
+        # Check resources after transaction
+        print("\n7. Checking resources after transaction...")
+        post_tx_resources = get_detailed_resource_info(MY_ADDRESS)
+        compare_resources(pre_tx_resources, post_tx_resources)
+    
+    if choice == "4" or choice == "6":
+        # Unfreeze Energy
+        print("\n8. Unfreezing Energy...")
+        print("Note: On mainnet, there's a 3-day waiting period before unfreezing.")
+        pre_unfreeze_resources = get_detailed_resource_info(MY_ADDRESS)
+        try:
+            unfreeze_tx = unfreeze_energy(PRIVATE_KEY, MY_ADDRESS)
+            print("Waiting 9 seconds for transaction confirmation...")
+            time.sleep(9) # 3 blocks worth of time
+            
+            # Check resources after unfreezing energy
+            print("\n9. Checking resources after unfreezing Energy...")
+            post_unfreeze_resources = get_detailed_resource_info(MY_ADDRESS)
+            compare_resources(pre_unfreeze_resources, post_unfreeze_resources)
+        except Exception as e:
+            print(f"Error unfreezing energy: {e}")
+            print("If on mainnet, remember there's a 3-day waiting period.")
+    
+    if choice == "5" or choice == "6":
+        # Unfreeze Bandwidth
+        print("\n10. Unfreezing Bandwidth...")
+        print("Note: On mainnet, there's a 3-day waiting period before unfreezing.")
+        pre_unfreeze_bw_resources = get_detailed_resource_info(MY_ADDRESS)
+        try:
+            unfreeze_bw_tx = unfreeze_bandwidth(PRIVATE_KEY, MY_ADDRESS)
+            print("Waiting 9 seconds for transaction confirmation...")
+            time.sleep(9)  # 3 blocks worth of time
+            
+            # Check resources after unfreezing bandwidth
+            print("\n11. Checking resources after unfreezing Bandwidth...")
+            post_unfreeze_bw_resources = get_detailed_resource_info(MY_ADDRESS)
+            compare_resources(pre_unfreeze_bw_resources, post_unfreeze_bw_resources)
+        except Exception as e:
+            print(f"Error unfreezing bandwidth: {e}")
+            print("If on mainnet, remember there's a 3-day waiting period.")
+    
+    print("\nOperations completed!")
+    print("Final resource status:")
+    get_detailed_resource_info(MY_ADDRESS) 
+
+<Check>
+  ### Important parameters
+  
+  - CHAINSTACK_NODE_ENDPOINT — Make sure you pick the HTTP API endpoint that looks like this `https://tron-nile.core.chainstack.com/11112222333444555666677778888/wallet`
+  - PRIVATE_KEY — your private key
+  - MY_ADDRESS — your address derived from the private key.
+</Check>
+
+## Summary
+
+Now that you've run the full script, did you notice one curious thing? There is no smart contract involved. Staking is implemented in TRON on the protocol level.
+
+Mastering TRON's resource model using Python and Chainstack allows developers to leverage the full potential of the blockchain efficiently. This tutorial provides you with the tools and knowledge to minimize or even eliminate transaction fees—significantly improving the cost-effectiveness of your TRON-based projects.
+
+### About the author
+<CardGroup>
+  <Card title="Ake" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

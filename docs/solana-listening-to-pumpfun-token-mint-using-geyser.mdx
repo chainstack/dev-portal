@@ -1,0 +1,86 @@
+---
+title: "Solana: Listening to pump.fun token mint using Geyser"
+description: "Learn how to use Geyser to stream Solana transactions over gRPC for faster token mint detection compared to logsSubscribe or blockSubscribe methods."
+---
+
+<Info>
+  ### V2 of the pump.fun bot
+  
+  V2 of the pump.fun bot is in active development based on your feedback. It's an improved and usable version right from the start.
+  
+  Use the [refactored/main-v2](https://github.com/chainstacklabs/pump-fun-bot/tree/refactored/main-v2) branch. And feel free to provide feedback through Issues.
+</Info>
+
+## Overview
+
+This guide shows you how to listen for pump.fun token creation events in real time using Geyser.
+
+In the [pump-fun-bot repository](https://github.com/chainstacklabs/pump-fun-bot/tree/refactored/main-v2), there is the `learning-examples/listen_create_from_geyser.py` script. It demonstrates how to capture the new token's name, symbol, mint address, user (creator), bonding curve address, and associated bonding curve address—no methods like [blockSubscribe](ref:blocksubscribe-solana) extra RPC calls like [getTransaction](ref:gettransaction) are required.
+
+The listener in this repo subscribes to successful transactions that include the pump.fun program and parses only the "Create" instruction (checking the first 8 bytes of instruction data), decoding it to `TokenInfo` in micro‑seconds.
+
+## Implementation details
+
+### How the pump.fun bot uses Geyser
+
+<Steps>
+  <Step>
+    **Subscription** — a single `SubscribeRequest` is sent with a transaction filter that contains the pump.fun program ID, commitment level, transaction status.
+  </Step>
+  <Step>
+    **Parsing** — every incoming `SubscribeUpdate.transaction` is checked for the 8‑byte discriminator of the Create instruction.
+  </Step>
+  <Step>
+    **TokenInfo emission** — when found, `GeyserEventProcessor` constructs a `TokenInfo` dataclass (name, symbol, mint, curves, user) and hands it to the existing buyer / seller pipeline.
+  </Step>
+  <Step>
+    **Trading flow** — buy, hold, sell, and optional account cleanup happen exactly as with the WebSocket listeners. No other files need modification.
+  </Step>
+</Steps>
+
+The only operational difference is that tokens enter the queue earlier, giving the bot a cheaper entry price.
+
+### Configuration changes
+
+To switch to Geyser in the pump.fun V2 repo:
+
+1. Set `LISTENER_TYPE="geyser"` in `src/config.py`
+2. Add the following to your .env file:
+   - `GEYSER_ENDPOINT`
+   - `GEYSER_API_TOKEN`
+
+<Signup />
+
+## Benchmarking listeners
+
+Run the benchmark script for five minutes (or any duration you like):
+
+```bash
+# duration in seconds
+python tests/compare_listeners.py 300
+```
+
+It launches all available types of listeners (BlockListener, LogsListener and GeyserListener) and records all detected mints. The results of the script are tables with statistics on how many and with which latency mints have been detected by each listener. The absolute numbers depend on your provider and network path, but Geyser is consistently the front‑runner.
+
+## Summary
+
+Switching to the Geyser listener is a two‑step change—update `.env` and set `LISTENER_TYPE="geyser"`in `config.py`. All higher‑level trading code remains untouched, yet you gain a tangible latency advantage when sniping newly created pump.fun tokens.
+
+## Related guides
+
+- [Solana: Creating a trading and sniping pump.fun bot](doc:solana-creating-a-pumpfun-bot)
+- [Solana: Listening to pump.fun migrations to Raydium](doc:solana-listening-to-pumpfun-migrations-to-raydium)
+
+### About author
+
+<CardGroup>
+  <Card title="Anton Sauchyk" img="/images/docs/profile_images/1817926677730664448/3nNn0T2p_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Developer Advocate @ Chainstack
+
+    <Icon icon="laptop"  iconType="solid"/>Multiple years of software development and Web3 expertise. Creator of the open-source Compare Dashboard for RPC provider performance benchmarking. Core contributor to the DevEx team's pump.fun trading bot. Author of technical tutorials on EVM blockchains, Solana, TON and Subgraphs.
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/smypmsa)
+    [<Icon icon="twitter"  iconType="brands"/>](https://x.com/sensuniama)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/anton-sauchyk/)
+  </Card>
+</CardGroup>
