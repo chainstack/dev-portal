@@ -1,0 +1,164 @@
+---
+title: eth_uninstallFilter | Ethereum
+openapi: /openapi/ethereum_node_api/filter_handling/eth_uninstallFilter.json POST
+  /0a9d79d93fb2f4a4b1e04695da2b77a7
+---
+
+Ethereum API method used to remove a filter previously created using one of the following methods:
+
+* [eth\_newFilter](/api-reference/ethereum_node_api/logs_and_events/eth_newFilter)
+* [eth\_newPendingTransactionFilter](/api-reference/ethereum_node_api/transaction_info/eth_newPendingTransactionFilter)
+* [eth\_newBlockFilter](/api-reference/ethereum_node_api/blocks_info/eth_newBlockFilter)
+
+Upon successful execution, the filter is removed and will no longer emit events.
+
+This method can be useful for optimizing resource usage when a developer no longer needs to monitor certain events or blocks. It can also be used to clean up unused filters in order to reduce clutter in the client-side filter list.
+
+<Warning>
+**Disclaimer**
+
+Note that the default interactive example in this page will not work as the filter will be expired.
+
+To test `eth_uninstallFilter` in this page, first create a new filter using one of the following:
+
+* [eth\_newFilter](/api-reference/ethereum_node_api/logs_and_events/eth_newFilter)
+* [eth\_newPendingTransactionFilter](/api-reference/ethereum_node_api/transaction_info/eth_newPendingTransactionFilter)
+* [eth\_newBlockFilter](/api-reference/ethereum_node_api/blocks_info/eth_newBlockFilter)
+
+Then use the fresh filter ID as the parameter for `eth_uninstallFilter`.
+</Warning>
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `string` — the filter ID that you want to uninstall
+
+## Response
+
+* `boolean` — a boolean value indicating whether the filter was successfully uninstalled. `true` if successfully removed, and `false` if not.
+
+## `eth_uninstallFilter` code examples
+
+<Note>
+Note that the `web3.eth.filter` methods have been deprecated and replaced with the `web3.eth.subscribe` in web3.js. See [web3.js subscriptions](/api-reference/ethereum-web3js-subscriptions-methods).
+</Note>
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require("ethers");
+
+// Create a ChainstackProvider instance for Ethereum mainnet
+const chainstack = new ethers.ChainstackProvider("mainnet");
+
+async function removeFilter(filter) {
+  try {
+    const removed = await chainstack.send("eth_uninstallFilter", [filter]);
+    console.log(removed); // Log whether the filter is removed
+  } catch (err) {
+    console.error(err); // Handle errors that may occur
+  }
+}
+
+const filterId = "0x4e7ef166cd43f188b0f8f9e218966a8f"; //'YOUR_FILTER_iD'
+removeFilter(filterId);
+```
+
+```python web3.py
+from web3 import Web3  
+node_url = "CHAINSTACK_NODE_URL" 
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+def remove_filter(filter_id):
+    try:
+        removed = web3.eth.uninstall_filter(filter_id)
+        return removed
+    except Exception as e:
+        print(e)
+
+filter_id = '0x0'
+print(remove_filter(filter_id))
+```
+</CodeGroup>
+
+<Note>
+Learn more about the `ChainstackProvider` in `ethers.js`: [ethers ChainstackProvider Documentation](/api-reference/ethersjs-chainstackprovider).
+</Note>
+
+
+## Use case
+
+One use case for `eth_uninstallFilter` is to optimize resource usage in a DApp. When a DApp needs to monitor events on the blockchain, it can create a filter using [eth\_newFilter](/api-reference/ethereum_node_api/logs_and_events/eth_newFilter),[eth\_newPendingTransactionFilter](/api-reference/ethereum_node_api/transaction_info/eth_newPendingTransactionFilter), or [eth\_newBlockFilter](/api-reference/ethereum_node_api/blocks_info/eth_newBlockFilter) to listen for specific events or blocks.
+
+However, once the DApp no longer needs to monitor these events or blocks, it can use `eth_uninstallFilter` to stop watching for them. By doing so, the DApp can reduce the number of active filters and free up resources, such as network bandwidth and computational power, that would otherwise be used to maintain the filter.
+
+For example, let's say that a DApp is monitoring incoming blocks, logs batches of 50 blocks, and then uses `uninstallFilter` to remove the filter using.
+
+Here is an implementation of this concept using ethers.js:
+
+```javascript index.js
+const ethers = require("ethers");
+
+// Create a ChainstackProvider instance for Ethereum mainnet
+const chainstack = new ethers.ChainstackProvider("mainnet");
+
+const BLOCKS_TO_FETCH = 10;
+const BLOCK_FETCH_INTERVAL_MS = 200;
+
+async function getNewBlocks() {
+  const filterId = await chainstack.send("eth_newBlockFilter", []);
+  console.log(`Created filter ${filterId}`);
+  console.log("Listening for blocks...");
+  let blocks = [];
+  while (blocks.length < BLOCKS_TO_FETCH) {
+    const changes = await chainstack.send("eth_getFilterChanges", [filterId]);
+    //console.log(changes) // show the changes
+
+    if (changes.length === 0) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, BLOCK_FETCH_INTERVAL_MS)
+      ); // wait for new blocks
+    } else {
+      blocks = blocks.concat(changes);
+    }
+  }
+  const removeFilter = await chainstack.send("eth_uninstallFilter", [filterId]); // clean up filter
+  if (removeFilter) {
+    console.log(
+      `We got ${BLOCKS_TO_FETCH} blocks, filter ${filterId} was removed.`
+    );
+    return blocks;
+  }
+}
+
+async function main() {
+  const fiftyBlocks = await getNewBlocks();
+  console.log(fiftyBlocks);
+}
+
+main();
+```
+
+
+This code fetches the latest 10 blocks using a filter and creates an array.
+
+The `BLOCKS_TO_FETCH` constant is set to 10, which represents the number of blocks to fetch.
+
+The `BLOCK_FETCH_INTERVAL_MS` constant is set to 200, which represents the time interval (in milliseconds) to wait for new blocks to arrive.
+
+The `getNewBlocks` function is defined to fetch the blocks. This function uses a loop to retrieve new blocks until it has fetched the desired number of blocks. The loop waits for new blocks to arrive for a certain amount of time before trying again.
+
+Inside the `getNewBlocks` function, the [eth\_newBlockFilter](/api-reference/ethereum_node_api/blocks_info/eth_newBlockFilter) JSON-RPC method is called to create a new filter to watch for new blocks. The filter ID is returned and stored in the `filterId` variable. An array stores the blocks fetched.
+
+Inside the loop, the [eth\_getFilterChanges](/api-reference/ethereum_node_api/filter_handling/eth_getFilterChanges) JSON-RPC method is called to retrieve any new blocks that have arrived since the filter was created. If there are no new blocks, the code waits a certain amount of time before trying again. If there are new blocks, they are stored in the `blocks` array.
+
+Once the `blocks` array has reached the `BLOCKS_TO_FETCH` limit, the filter is uninstalled using the `eth_uninstallFilter` JSON-RPC method. The `removeFilter` variable is set to true if the filter is successfully removed. If the filter is removed successfully, a message is logged to the console indicating that `BLOCKS_TO_FETCH` blocks have been fetched, and the filter was removed. The blocks array is returned as the result of the `getNewBlocks` function.
+
+The main function is defined to call the `getNewBlocks` function and store the result in the `fiftyBlocks` variable. The `fiftyBlocks` variable is then logged to the console.
