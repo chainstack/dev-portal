@@ -1,0 +1,111 @@
+---
+title: eth_newFilter | zkEVM
+openapi: /openapi/polygon_zkevm_node_api/eth_newFilter.json POST /942aad90bb6a082676497030b81e40ba
+---
+
+Polygon zkEVM API method that generates a filter object based on the filter parameters. It returns a filter ID, which can be used to retrieve the filter results using the [eth\_getFilterChanges](/api-reference/polygon_zkevm_node_api/eth_getFilterChanges) method. By creating a filter for specific events, developers can receive notifications when those events occur and use them to trigger actions in their applications.
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `object` — the filter parameters:
+  + `fromBlock` — (optional, default: `latest`) integer that specifies the starting block number from which the logs should be fetched.
+  + `toBlock` — (optional, default: `latest`) integer that specifies the ending block number until which the logs should be fetched.
+  + `address` — (optional) the contract address from which the logs should be fetched. It can be a single address or an array of addresses.
+  + `topics` — (optional) an array of `DATA` topics. The event topics for which the logs should be fetched. It can be a single topic or an array of topics.
+  + `blockhash` — (optional) the hash of the specific block. Limits logs to a specific block with a 32-byte hash value. It takes precedence over `fromBlock` and `toBlock`.
+
+<Note>
+**Possible tags forfromBlockandtoBlock**
+
+* `latest` — the most recent block in the blockchain and the current state of the blockchain at the most recent block
+* `earliest` — the earliest available or genesis block
+* `pending` — the pending state and transactions block. The current state of transactions that have been broadcast to the network but have not yet been included in a block.
+
+See the [default block parameter](https://eth.wiki/json-rpc/API#the-default-block-parameter).
+</Note>
+
+
+## Response
+
+* `result` — a hexadecimal string representing the ID of the newly created filter
+
+<Warning>
+The filters created are stored on the blockchain client instance. The filter is automatically deleted if not polled within a certain time (5 minutes by default).
+</Warning>
+
+
+Use the following methods with the filter ID:
+
+* [eth\_getFilterChanges](/api-reference/polygon_zkevm_node_api/eth_getFilterChanges) to retrieve updated logs
+* [eth\_uninstallFilter](/api-reference/polygon_zkevm_node_api/eth_uninstallFilter) to remove the filter
+
+## `eth_newFilter` code examples
+
+<Note>
+Note that the `web3.eth.filter` methods have been deprecated and replaced with the `web3.eth.subscribe` in web3.js. See [web3.js subscriptions](/api-reference/ethereum-web3js-subscriptions-methods).
+</Note>
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const filter = {
+  toBlock: 'latest',
+  address: '0x4F9A0e7FD2Bf6067db6994CF12E4495Df938E6e9',
+  topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef']
+};
+
+const createFilter = async () => {
+  try {
+    const filterId = await provider.send('eth_newFilter', [filter]);
+    console.log(filterId); // the filter ID returned by eth_newFilter
+    return filterId
+  } catch (error) {
+    console.log(error);
+  }
+};
+
+createFilter();
+```
+
+```python web3.py
+from web3 import Web3  
+node_url = "CHAINSTACK_NODE_URL" 
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+filter = {
+    'toBlock': 'latest',
+    'address': '0x4F9A0e7FD2Bf6067db6994CF12E4495Df938E6e9',
+    'topics': ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef']
+}
+
+def create_logs_filter(filter_object):
+    try:
+        logs_filter = web3.eth.filter(filter_object)
+        return logs_filter
+    except Exception as e:
+        print(e)
+
+logs_filter = create_logs_filter(filter)
+filter_id = logs_filter.filter_id
+print(f'New filter ID: {filter_id}')
+```
+</CodeGroup>
+
+
+## Use case
+
+You can use `eth_newFilter` to create a filter for a specific action on a smart contract, for example, to monitor the transfer transactions from the [Wrapped ETH token](https://zkevm.polygonscan.com/token/0x4F9A0e7FD2Bf6067db6994CF12E4495Df938E6e9).
+
+The idea is to create a filter using the `eth_newFilter` method to monitor an ERC-20 smart contract, WETH in this case.
