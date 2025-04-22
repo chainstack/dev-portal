@@ -1,0 +1,217 @@
+---
+title: eth_getLogs | Avalanche
+openapi: /openapi/avalanche_node_api/logs_and_events/eth_getLogs.json POST /8763cb5a211e1d4345acd51bde484c00/ext/bc/C/rpc
+---
+
+Avalanche API method that returns an array of all logs that match a given filter object. Logs are records of smart contract-generated events on the network and contain valuable information about transactions and smart contract interactions.
+
+Some common use cases for `eth_getLogs` include monitoring smart contract events, tracking token transfers, and analyzing blockchain data.
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `object` — the filter parameters:
+  + `fromBlock` — (optional, default: `latest`) integer that specifies the starting block number from which the logs should be fetched.
+  + `toBlock` — (optional, default: `latest`) integer that specifies the ending block number until which the logs should be fetched.
+  + `address` — (optional) the contract address from which the logs should be fetched. It can be a single address or an array of addresses.
+  + `topics` — (optional) an array of `DATA` topics. The event topics for which the logs should be fetched. It can be a single topic or an array of topics.
+  + `blockhash` — (optional) the hash of the specific block. Limits logs to a specific block with a 32-byte hash value. It takes precedence over `fromBlock` and `toBlock`.
+
+<Note>
+**Possible tags forfromBlockandtoBlock**
+
+* `latest` — the most recent block in the blockchain and the current state of the blockchain at the most recent block
+* `earliest` — the earliest available or genesis block
+* `pending` — the pending state and transactions block. The current state of transactions that have been broadcast to the network but have not yet been included in a block.
+
+See the [default block parameter](https://eth.wiki/json-rpc/API#the-default-block-parameter).
+</Note>
+
+
+## Response
+
+* `array` — an array of log objects that match the specified filter or an empty array if there have been no new events since the last poll:
+  + `address` — the contract address from which the event originated
+  + `topics` — an array of 32-byte data fields containing indexed event parameters
+  + `data` — the non-indexed data that was emitted along with the event
+  + `blocknumber` — the block number in which the event was included. `null` if it is pending.
+  + `transactionhash` — the hash of the transaction that triggered the event. `null` if pending.
+  + `transactionindex` — the integer index of the transaction within the block's list of transactions. `null` if it is pending.
+  + `blockhash` — the hash of the block in which the event was included. `null` if it is pending.
+  + `logindex` — the integer identifying the index of the event within the block's list of events. `null` if pending.
+  + `removed` — the boolean value indicating if the event was removed from the blockchain due to a chain reorganization. `True` if the log was removed. `False` if it is a valid log.
+
+## `eth_getLogs` code examples
+
+The following examples retrieve the logs of the Transfer event from the [WAVAX](https://snowtrace.io/token/0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7#code) smart contract on Avalanche.
+
+<CodeGroup>
+```javascript web3.js
+const Web3 = require("web3");
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const web3 = new Web3(NODE_URL);
+
+async function getLogs() {
+  const latestBlock = await web3.eth.getBlockNumber();
+
+  const filter = {
+    fromBlock: latestBlock - 10,
+    toBlock: 'latest',
+    address: '0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7',
+    topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef']
+  };
+  const logs = await web3.eth.getPastLogs(filter);
+  console.log(logs);
+}
+
+getLogs();
+```
+
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const getLogs = async () => {
+    const latestBlock = await provider.getBlockNumber();
+    const filter = {
+      fromBlock: latestBlock - 10,
+      toBlock: 'latest',
+      address: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',
+      topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef']
+    };
+    const logs = await provider.getLogs(filter);
+    console.log(logs);
+  };
+  
+getLogs();
+```
+
+```python web3.py
+from web3 import Web3  
+node_url = "CHAINSTACK_NODE_URL" 
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+latest_block = web3.eth.block_number
+
+filter = {
+    'fromBlock': latest_block - 10,
+    'toBlock': 'latest',
+    'address': '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',
+    'topics': ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef']
+}
+
+logs = web3.eth.get_logs(filter)
+print(logs)
+```
+</CodeGroup>
+
+<Note>
+Read [Tracking some Bored Apes: The Ethereum event logs tutorial](/docs/tracking-some-bored-apes-the-ethereum-event-logs-tutorial) to learn more about the `eth_getLogs` method.
+</Note>
+
+
+## Block range limitations
+
+While `eth_getLogs` is a powerful tool, it's crucial to understand its limitations, particularly when working with different EVM-compatible chains, as these networks often have different constraints. The `eth_getLogs` method allows you to select a range of blocks to get events from and is important to exercise proper management.
+
+In general, `eth_getLogs` is a very resource-intensive method and although Chainstack does not pose any arbitrary limitation, some blockchain clients do, and a very large block range can impact your node's performance.
+
+We recommend to keep the block range limit of **100,000** blocks for `eth_getLogs` on Avalanche to maintain a good balance between node and application performance.
+
+<Note>
+These figures mean that the difference between the `fromBlock` and `toBlock` parameters should not exceed the given block range when querying logs.
+</Note>
+
+
+While there are no hard limits for the Avalanche network, it's best practice to limit the range of blocks you are querying in a single request to prevent issues such as timeout errors or overly large responses.
+
+These limitation are particularly important when working with popular smart contracts on busy blockchains, as they can return a large amount of data.
+
+## Use case
+
+One use case for `eth_getLogs` is to retrieve the transfer events for a specific Token ID from an ERC-721 smart contract. ERC-721 is a token standard for non-fungible tokens (NFTs), and each token transfer is recorded as an event on the blockchain. By retrieving these events, developers can track the movement of NFTs and build applications that interact with them.
+
+The following program uses `eth_getLogs` and web3.js to track the transfers of the token number '4776' from the [Cloudheadz](https://snowtrace.io/token/0xe8dba81d5b9f605d3c53c67adea91d295606ce74)  collection on Avalanche. This will retrieve the logs and display the address that initiated the transfer and the block number where it occurred.
+
+```javascript index.js
+const Web3 = require("web3");
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const web3 = new Web3(NODE_URL);
+
+async function getTokenTransferLogs(contractAddress, tokenId) {
+  try {
+    const tokenIdHex = web3.utils.toHex(tokenId);
+    const tokenIdTopic = web3.utils.padLeft(tokenIdHex, 64);
+
+    const filter = {
+      fromBlock: 'earliest',
+      toBlock: 'latest',
+      address: contractAddress,
+      topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', null, null, tokenIdTopic]
+    };
+
+    const logs = await web3.eth.getPastLogs(filter);
+
+    const transferLogs = logs.map((log) => {
+      const topics = log.topics;
+      const fromAddress = topics[1];
+      const formattedFromAddress = `0x${fromAddress.slice(26)}`;
+      
+      if (!web3.utils.isAddress(formattedFromAddress)) {
+        throw new Error(`${formattedFromAddress} is an invalid address`);
+      }
+
+      const blockNumber = log.blockNumber;
+
+      // Display a summary
+      console.log(`Address ${formattedFromAddress} transferred the token ${tokenId} in block ${blockNumber}.`);
+      
+      return {
+        fromAddress: formattedFromAddress,
+        tokenId: tokenId,
+        blockNumber: blockNumber
+      };
+    });
+
+    return transferLogs;
+  } catch (error) {
+    throw new Error(`Error getting transfer logs: ${error.message}`);
+  }
+}
+
+async function main() {
+  const contractAddress = '0xE8dBa81D5B9f605D3C53c67AdEa91D295606cE74';
+  const tokenId = '4776';
+  
+  try {
+    const transferLogs = await getTokenTransferLogs(contractAddress, tokenId);
+    console.log(transferLogs);
+  } catch (error) {
+    console.error(error.message);
+  }
+}
+
+main();
+```
+
+
+This code defines an async function called `getTokenTransferLogs` which takes a `contractAddress` and a `tokenId` as input parameters.
+
+Within the function, the `tokenId` is converted to hexadecimal format and then used to create a topic for a filter to get past logs for a specific token transfer. The `getPastLogs` function is an API that returns logs that match a certain filter.
+
+Once the logs have been retrieved, the function loops through each log and extracts the relevant information, such as the sender's address and the block number. It also checks whether the sender's address is a valid address; this is in case the parsing logic fails.
+
+For each valid transfer log, the function logs a summary to the console and creates a transfer log object that includes the `fromAddress`, `tokenId`, and `blockNumber` properties.
+
+The function returns an array of transfer log objects, and an exception is thrown if there are any errors.
+
+The `main` function calls `getTokenTransferLogs` with a specific `contractAddress` and `tokenId`, and then logs the array of transfer log objects to the console. If there are any errors, an error message is logged to the console instead.

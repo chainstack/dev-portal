@@ -1,0 +1,186 @@
+---
+title: debug_traceBlockByNumber | Avalanche
+openapi: /openapi/avalanche_node_api/debug_and_trace/debug_traceBlockByNumber.json
+  POST /8763cb5a211e1d4345acd51bde484c00/ext/bc/C/rpc
+---
+
+Avalanche API method that enables the tracing of the execution of a specific block using its number. This method can be used to troubleshoot and analyze smart contracts and transactions on the Avalanche blockchain. It provides an in-depth trace of the block execution, with details on all the interactions, such as transactions and calls, that took place.
+
+<Note>
+Learn how to [deploy a node](/docs/debug-and-trace-apis#avalanche) with the debug and trace API methods enabled.
+</Note>
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `quantity or tag` — the integer of a block encoded as hexadecimal or the string with:
+
+  + `latest` — the most recent block in the blockchain and the current state of the blockchain at the most recent block
+  + `earliest` — the earliest available or genesis block
+  + `pending` — the pending state and transactions block. The current state of transactions that have been broadcast to the network but have not yet been included in a block.
+
+<Note>
+See the [default block parameter](https://eth.wiki/json-rpc/API#the-default-block-parameter).
+</Note>
+
+* `tracer` — an object identifying the type of tracer and its configuration:
+
+  + `4byteTracer` — tracer that captures the function signatures and call data sizes for all functions executed during a transaction, creating a map that links each selector and size combination to the number of times it occurred. This provides valuable information about the frequency and usage of each function within the transaction.
+  + `callTracer` — tracer that captures information on all call frames executed during a transaction. The resulting nested list of call frames is organized into a tree structure that reflects the way the Ethereum Virtual Machine works and can be used for debugging and analysis purposes.
+  + `prestateTracer` — tracer with two modes: `prestate` and `diff`, where the former returns the accounts needed to execute a transaction, and the latter returns the differences between the pre and post-states of the transaction. The tracer operates by re-executing the transaction and tracking every state change made, resulting in an object with the account addresses as keys and the corresponding trie leaves as values.
+
+## Response types
+
+### `4byteTracer` response
+
+* `object` — the `4byteTracer` traces object:
+  + `result` — a map of the function signature, the call data size, and how many times the function was called.
+
+### `callTracer` response
+
+* `object` — the `callTracer` traces object:
+  + `from` — the address of the sender who initiated the transaction.
+  + `gas` — the units of gas included in the transaction by the sender.
+  + `gasused` — the total used gas by the call, encoded as hexadecimal.
+  + `to` — the address of the recipient of the transaction if it was a transaction to an address. For contract creation transactions, this field is `null`.
+  + `input` — the optional input data sent with the transaction, usually used to interact with smart contracts.
+  + `output` — the return value of the call, encoded as a hexadecimal string.
+  + `error` — an error message in case the execution failed.
+  + `revertReason` — the reason why the transaction was reverted, returned by the smart contract if any.
+  + `calls` — a list of sub-calls made by the contract during the call, each represented as a nested call frame object.
+
+### `prestateTracer` response
+
+* `object` — the `prestateTracer` traces object:
+* `smart contract address` — the address of the smart contract associated with the result.
+* `balance` — the balance of the contract, expressed in Wei and encoded as a hexadecimal string.
+* `code` — the bytecode of the contract, encoded as a hexadecimal string.
+* `nonce` — the nonce of the account associated with the contract, represented as an unsigned integer.
+* `storage` — a map of key-value pairs representing the storage slots of the contract. The keys and values are both encoded as hexadecimal strings.
+
+## `debug_traceBlockByNumber` code examples
+
+<CodeGroup>
+```javascript web3.js
+const Web3 = require("web3");
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const web3 = new Web3(NODE_URL);
+
+// Define the debug_traceBlockByNumber custom method
+web3.extend({
+  property: 'eth',
+  methods: [{
+    name: 'traceBlockByNumber',
+    call: 'debug_traceBlockByNumber',
+    params: 2,
+    inputFormatter: [web3.extend.formatters.inputBlockNumberFormatter, web3.extend.formatters.inputCallFormatter],
+    outputFormatter: web3.extend.formatters.outputCallFormatter
+  }]
+});
+
+async function traceBlockByNumber(block) {
+
+    // Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer
+    const tracer = { tracer: 'callTracer' };
+    const result = await web3.eth.traceBlockByNumber(block, tracer);
+    console.log(result);
+}
+
+traceBlockByNumber("latest");
+```
+
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const traceBlockByNumber = async (block) => {
+
+  // Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer
+  const tracer = { tracer: 'callTracer' };
+  const traces = await provider.send("debug_traceBlockByNumber", [block, tracer]);
+  console.log(traces);
+};
+
+traceBlockByNumber("latest")
+```
+
+```python web3.py
+from web3 import Web3  
+node_url = "CHAINSTACK_NODE_URL" 
+web3 = Web3.HTTPProvider(node_url)
+
+block = "latest"
+
+# Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer
+tracer = { "tracer": 'callTracer' }
+block_traces = web3.provider.make_request('debug_traceBlockByNumber', [block, tracer])
+print(block_traces)
+```
+</CodeGroup>
+
+
+## Use case
+
+One use case for `traceBlockByNumber` would be to trace a block, calculate how many transactions are in it, and then display the number of transactions and the average gas used.
+
+To accomplish this, you can use `traceBlockByNumber` to retrieve the trace of each transaction in the block and then iterate over the transactions to count the total number of transactions and calculate the total gas used. Once you have this information, you can divide the total gas used by the total number of transactions to get the average gas used.
+
+Here is an implementation of this idea using web3.js:
+
+```javascript index.js
+const Web3 = require("web3");
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const web3 = new Web3(NODE_URL);
+
+// Define the debug_traceBlockByNumber custom method
+web3.extend({
+  property: 'eth',
+  methods: [{
+    name: 'traceBlockByNumber',
+    call: 'debug_traceBlockByNumber',
+    params: 2,
+    inputFormatter: [web3.extend.formatters.inputBlockNumberFormatter, web3.extend.formatters.inputCallFormatter],
+    outputFormatter: web3.extend.formatters.outputCallFormatter
+  }]
+});
+
+async function getAverageGasUsed(block) {
+
+    const tracer = { tracer: 'callTracer' };
+    const traceResult = await web3.eth.traceBlockByNumber(block, tracer);
+    let totalGasUsed = 0;
+    let transactionCount = 0;
+
+    for (let obj of traceResult) {
+      const gasUsed = obj.result.gasUsed;
+      const decimalGas = web3.utils.hexToNumber(gasUsed);
+      totalGasUsed += decimalGas;
+      transactionCount++;
+    }
+
+    const averageGasUsed = totalGasUsed / transactionCount;
+    console.log(`Transaction in this block: ${transactionCount}`)
+    console.log(`Average units of gas used per transaction: ${Math.round(averageGasUsed)}`);
+    
+}
+
+getAverageGasUsed("latest"); 
+```
+
+
+First, the code defines a custom method called `traceBlockByNumber` that allows tracing the execution of a block identified by its number. This method is then used in the `getAverageGasUsed` function to trace the transactions in the specified block.
+
+Inside the function, we define a tracer object with the value of `callTracer`, which will help us get more detailed information about the block. Then, we call the `traceBlockByNumber` RPC method, passing in the block number and the tracer object as parameters. This returns an array of objects containing information about each transaction in the block.
+
+We then declare two variables to keep track of the total gas used and the number of transactions in the block. We loop through each transaction in the block using a `for...of` loop and extract the `gasUsed` property of each transaction's result object. We convert this value from hexadecimal to decimal using the `web3.utils.hexToNumber` method and add it to the `totalGasUsed` variable. We also increment the `transactionCount` variable to keep track of how many transactions there are in the block.
+
+Finally, we calculate the `averageGasUsed` by dividing the `totalGasUsed` by the `transactionCount` and displaying the result. We use the `Math.round()` method to round the result to the nearest integer for readability. When we call the function, we pass in the string `"latest"` to get the average gas used for the latest block.

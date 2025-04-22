@@ -1,0 +1,183 @@
+---
+title: debug_traceBlockByHash | Avalanche
+openapi: /openapi/avalanche_node_api/debug_and_trace/debug_traceBlockByHash.json POST
+  /8763cb5a211e1d4345acd51bde484c00/ext/bc/C/rpc
+---
+
+Avalanche API method that traces the execution of a block. This method can be used to debug and analyze smart contracts and transactions on the Avalanche blockchain. It provides a detailed trace of the execution of a block, including information on all the transactions and calls that interacted with the block, as well as the gas used, memory, storage operations, and other performance metrics for each operation.
+
+<Note>
+Learn how to [deploy a node](/docs/debug-and-trace-apis#avalanche) with the debug and trace API methods enabled.
+</Note>
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `hash` — the hash of the block to be traced.
+* `tracer` — an object identifying the type of tracer and its configuration:
+  + `4byteTracer` — tracer that captures the function signatures and call data sizes for all functions executed during a transaction, creating a map that links each selector and size combination to the number of times it occurred. This provides valuable information about the frequency and usage of each function within the transaction.
+  + `callTracer` — tracer that captures information on all call frames executed during a transaction. The resulting nested list of call frames is organized into a tree structure that reflects the way the Ethereum Virtual Machine works and can be used for debugging and analysis purposes.
+  + `prestateTracer` — tracer with two modes: `prestate` and `diff`, where the former returns the accounts needed to execute a transaction, and the latter returns the differences between the pre and post-states of the transaction. The tracer operates by re-executing the transaction and tracking every state change made, resulting in an object with the account addresses as keys and the corresponding trie leaves as values.
+
+## Response types
+
+### `4byteTracer` response
+
+* `object` — the `4byteTracer` traces object:
+  + `result` — a map of the function signature, the call data size, and how many times the function was called.
+
+### `callTracer` response
+
+* `object` — the `callTracer` traces object:
+  + `from` — the address of the sender who initiated the transaction.
+  + `gas` — the units of gas included in the transaction by the sender.
+  + `gasused` — the total used gas by the call. Encoded as hexadecimal.
+  + `to` — the address of the recipient of the transaction if it was a transaction to an address. For contract creation transactions, this field is `null`.
+  + `input` — the optional input data sent with the transaction, usually used to interact with smart contracts.
+  + `output` — the return value of the call, encoded as a hexadecimal string.
+  + `error` — an error message in case the execution failed.
+  + `revertReason` — the reason why the transaction was reverted, returned by the smart contract if any.
+  + `calls` — a list of sub-calls made by the contract during the call, each represented as a nested call frame object.
+
+### `prestateTracer` response
+
+* `object` — the `prestateTracer` traces object:
+  + `smart contract address` — the address of the smart contract associated with the result.
+    - `balance` — the balance of the contract, expressed in wei and encoded as a hexadecimal string.
+    - `code` — the bytecode of the contract, encoded as a hexadecimal string.
+    - `nonce` — the nonce of the account associated with the contract, represented as an unsigned integer.
+    - `storage` — a map of key-value pairs representing the storage slots of the contract. The keys and values are both encoded as hexadecimal strings.
+
+## `debug_traceBlockByHash` code examples
+
+<CodeGroup>
+```javascript web3.js
+const Web3 = require("web3");
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const web3 = new Web3(NODE_URL);
+
+// Define the debug_traceBlockByHash custom method
+web3.extend({
+  property: 'eth',
+  methods: [{
+    name: 'traceBlockByHash',
+    call: 'debug_traceBlockByHash',
+    params: 2,
+    inputFormatter: [web3.extend.formatters.inputBlockNumberFormatter, web3.extend.formatters.inputCallFormatter],
+    outputFormatter: web3.extend.formatters.outputCallFormatter
+  }]
+});
+
+async function traceBlockByHash(blockHash) {
+
+    // Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer
+    const tracer = { tracer: '4byteTracer' };
+    const result = await web3.eth.traceBlockByHash(blockHash, tracer);
+    console.log(result);
+}
+
+traceBlockByHash("0x917b447fc7b12ae37b768d0b442a6e0d4c5aef3378aca19db7f34d1ba5a9d0a2");
+```
+
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const traceBlockByHash = async (blockHash) => {
+
+  // Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer
+  const tracer = { tracer: '4byteTracer' };
+  const traces = await provider.send("debug_traceBlockByHash", [blockHash, tracer]);
+  console.log(traces);
+};
+
+traceBlockByHash("0x917b447fc7b12ae37b768d0b442a6e0d4c5aef3378aca19db7f34d1ba5a9d0a2")
+```
+
+```python web3.py
+from web3 import Web3  
+node_url = "CHAINSTACK_NODE_URL" 
+web3 = Web3.HTTPProvider(node_url)
+
+block_hash = "0x917b447fc7b12ae37b768d0b442a6e0d4c5aef3378aca19db7f34d1ba5a9d0a2"
+
+# Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer
+tracer = { "tracer": '4byteTracer' }
+block_traces = web3.provider.make_request('debug_traceBlockByHash', [block_hash, tracer])
+print(block_traces)
+```
+</CodeGroup>
+
+
+## Use case
+
+One practical use case for `debug_traceBlockByHash` with the `4byteTracer` tracer would be for auditing or analysis purposes of a blockchain.
+
+For example, if there are token contracts on the blockchain and the transfer function of these contracts is used to send tokens between users, a developer could use the `debug_traceBlockByHash` method with the `4byteTracer` tracer to trace the transactions in a given block and count how many times the transfer function was called.
+
+The following is an implementation of this logic using web3.js:
+
+```javascript index.js
+const Web3 = require("web3");
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const web3 = new Web3(NODE_URL);
+
+// Define the debug_traceBlockByHash custom method
+web3.extend({
+  property: 'eth',
+  methods: [{
+    name: 'traceBlockByHash',
+    call: 'debug_traceBlockByHash',
+    params: 2,
+    inputFormatter: [web3.extend.formatters.inputBlockNumberFormatter, web3.extend.formatters.inputCallFormatter],
+    outputFormatter: web3.extend.formatters.outputCallFormatter
+  }]
+});
+
+async function traceTransferFunction(blockHash) {
+  try {
+    // Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer
+    const tracer = { tracer: '4byteTracer' };
+    const response = await web3.eth.traceBlockByHash(blockHash, tracer);
+    
+    let sum = 0;
+    for (let obj of response) {
+
+      for (let key in obj.result) {
+
+        const signature = key.split('-')[0];
+
+        // Look for transfer function signatures
+        if (signature === "0xa9059cbb") {
+          const timesCalled = obj.result[key]
+          sum += timesCalled 
+        }
+      }
+    }
+    
+    console.log(`In this block the transfer function was called ${sum} times!`)
+  } catch (err) {
+    console.error(`Error in traceBlockByHash: ${err.message}`);
+  }
+}
+
+traceTransferFunction("0x917b447fc7b12ae37b768d0b442a6e0d4c5aef3378aca19db7f34d1ba5a9d0a2");
+```
+
+
+This code is defining a custom method called `traceBlockByHash` which is not available by default using web3.js, and it uses the `debug_traceBlockByHash` function to trace a block. This method uses the `4byteTracer` to identify the functions called in the block.
+
+Then, the `traceTransferFunction` function is defined, which takes a block hash as an argument. This function calls the `traceBlockByHash` method with the provided block hash and uses a loop to iterate over the results.
+
+Inside the loop, the function checks for the `transfer` function from the ERC-20 standard with signature `0xa9059cbb` and counts how many times it was called in that block by adding up the times it was called in each trace.
+
+Finally, the function logs the number of times the transfer function was called in that block. The code also has error handling in case anything goes wrong with the tracing process.

@@ -1,0 +1,189 @@
+---
+title: arbtrace_callMany | Arbitrum
+openapi: /openapi/arbitrum_node_api/debug_and_trace/arbtrace_callMany.json POST /66f812de2a6724a75a51f60dd6f2a154
+---
+
+Arbitrum API method that executes multiple call traces on the same block within the blockchain. Before executing a transaction, all preceding transactions are first applied and traced to ensure a clear, sequential record of transactions and their interdependencies. This allows for the tracing of dependent transactions and is essential for integrity and accountability.
+
+<Note>
+Learn how to [deploy a node](/docs/debug-and-trace-apis#arbitrum) with the debug and trace API methods enabled.
+</Note>
+
+<Warning>
+Blocks older than 22,207,815th were added to the chain before Nitro migration and cannot be queried with Geth methods. Starting from block 22,207,815, Arbitrum migrated to Nitro which made Geth `debug_*` methods available for newer blocks.
+
+Use the `arbtrace_callMany` method for calling blocks prior to 22,207,815.
+</Warning>
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `array` — transaction call objects:
+  + `object` — the transaction call object to trace; can be multiple call objects for different transactions:
+    - `from` — (optional) the string of the address used to send the transaction.
+    - `to` — the string of the address to which the transaction is directed, a wallet, or a smart contract.
+    - `gas` — (optional) the maximum amount of gas that can be used by the transaction.
+    - `gasprice` — (optional) the amount of gas price the sender is willing to pay for each gas unit in [wei](https://ethereum.org/en/developers/docs/intro-to-ether/#denominations).
+    - `value` — (optional) the value sent with this transaction, encoded as hexadecimal.
+    - `data` — (optional) additional data to be sent with the call, usually used to invoke functions from smart contracts as a string of the hash of the method signature and encoded parameters; see the [Ethereum Contract ABI](https://solidity.readthedocs.io/en/latest/abi-spec.html).
+  + `array` — the string `trace` to indicate the type of tracer.
+* `quantity` — the integer of a block, encoded as hexadecimal.
+
+## Response
+
+* `array` — an array with the traces objects:
+  + `output` — the data returned as a result of the transaction, encoded in hexadecimal format.
+  + `stateDiff` — reveals changes to the state resulting from the execution of the given transaction.
+  + `trace` — the basic trace of specific information.
+    - `action` — the operation to be performed on the recipient.
+      * `from` — the address initiating the transaction.
+      * `callType` — the type of method, such as `call` or `delegatecall`.
+      * `gas` — the units of gas supplied by the sender, encoded in hexadecimal format.
+      * `input` — the data transmitted along with the transaction, typically used for interaction with smart contracts.
+      * `to` — the recipient's address. If it's a contract creation transaction, this field is `null`.
+      * `value` — the amount sent with the transaction, encoded as a hexadecimal.
+    - `result` — the value of the gas price used, encoded as hexadecimal.
+      * `gasUsed` — the total amount of gas used by all the transactions in the block, encoded as hexadecimal.
+      * `output` — the return value from the contract call, encoded in hexadecimal. If the `RETURN` method isn't executed, the output will be empty bytes.
+    - `subtraces` — a list of contract calls made by the transaction, each represented as a nested `call`frame object.
+    - `traceAddress` — a list of addresses where the call was executed, the addresses of the parent calls, and the order of the current sub-call.
+    - `type` — the value of the method, such as `call` or `create`.
+  + `vmTrace` — a comprehensive trace of the virtual machine's state during the execution of a given transaction, including any sub-calls.
+
+## `arbtrace_callMany` code examples
+
+<CodeGroup>
+```javascript web3.js
+const Web3 = require("web3");
+const NODE_URL = "YOUR_CHAINSTACK_ENDPOINT";
+const web3 = new Web3(NODE_URL);
+
+// Define the arbtrace_callMany custom method
+web3.extend({
+    property: 'arbtrace',
+    methods: [{
+      name: 'callMany',
+      call: 'arbtrace_callMany',
+      params: 2,
+    }],
+  });
+  
+  async function arbtraceCallMany() {
+
+    const calls = [
+        [
+            {
+                "from": "0xb8351B61Fa1Eb007A9f80144C489d513e6A76b14",
+                "to": "0x478fa4C971a077038B4Fc5C172c3Af5552224ccc",
+                "value": "0xb1a2bc2ec50000"
+            },
+            [
+                "trace"
+            ]
+        ],
+        [
+            {
+                "from": "0xb8351B61Fa1Eb007A9f80144C489d513e6A76b14",
+                "to": "0x988aA44E12c7BCE07E449A4156b4A269d6642B3A",
+                "value": "0x6f05b59d3b20000"
+            },
+            [
+                "trace"
+            ]
+        ]
+    ];
+      
+        const block = '0x152dd44'
+      
+  
+    try {
+      const result = await web3.arbtrace.callMany(calls, block);
+      console.log(result);
+    } catch (error) {
+      console.error("Error:", error);
+    }
+  }
+  
+  arbtraceCallMany();
+```
+
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "YOUR_CHAINSTACK_ENDPOINT";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const arbtraceCallMany = async () => {
+    const calls = [
+        [
+            {
+                "from": "0xb8351B61Fa1Eb007A9f80144C489d513e6A76b14",
+                "to": "0x478fa4C971a077038B4Fc5C172c3Af5552224ccc",
+                "value": "0xb1a2bc2ec50000"
+            },
+            [
+                "trace"
+            ]
+        ],
+        [
+            {
+                "from": "0xb8351B61Fa1Eb007A9f80144C489d513e6A76b14",
+                "to": "0x988aA44E12c7BCE07E449A4156b4A269d6642B3A",
+                "value": "0x6f05b59d3b20000"
+            },
+            [
+                "trace"
+            ]
+        ]
+    ];
+    const block = "latest";
+
+    const traces = await provider.send("arbtrace_callMany", [calls, block]);
+    console.log(traces);
+};
+
+arbtraceCallMany();
+```
+
+```python web3.py
+from web3 import Web3  
+node_url = "YOUR_CHAINSTACK_ENDPOINT" 
+web3 = Web3.HTTPProvider(node_url)
+
+calls = [
+    [
+        {
+            'from': '0xb8351B61Fa1Eb007A9f80144C489d513e6A76b14',
+            'to': '0x478fa4C971a077038B4Fc5C172c3Af5552224ccc',
+            'value': '0xb1a2bc2ec50000'
+        },
+        ['trace']
+    ],
+    [
+        {
+            'from': '0xb8351B61Fa1Eb007A9f80144C489d513e6A76b14',
+            'to': '0x988aA44E12c7BCE07E449A4156b4A269d6642B3A',
+            'value': '0x6f05b59d3b20000'
+        },
+        ['trace']
+    ]
+]
+
+block = 'latest'
+
+response = web3.provider.make_request('arbtrace_callMany', [calls, block])
+print(response)
+```
+</CodeGroup>
+
+
+## Use case
+
+The `arbtrace_callMany` method is a powerful tool for retrieving execution traces of multiple transactions or contract calls in a single batch. It offers efficiency and convenience by reducing the number of requests required to fetch trace data, thereby improving performance.

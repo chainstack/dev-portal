@@ -1,0 +1,115 @@
+---
+title: eth_gasPrice | Arbitrum
+openapi: /openapi/arbitrum_node_api/gas_data/eth_gasPrice.json POST /5b8d22690a57f293b3a1ed8758014e35
+---
+
+Arbitrum API method that returns the current gas base fee of the network. The gas price is the quantity of the native token the transaction's sender must pay per unit of gas consumed. The value returned is in Wei.
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `none`
+
+## Response
+
+* `quantity` — the integer value of the current gas base fee, returned in Wei
+
+## `eth_gasPrice` code examples
+
+<CodeGroup>
+```javascript web3.js
+const Web3 = require("web3");
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const web3 = new Web3(NODE_URL);
+
+async function getGasPrice() {
+  const baseFee = await web3.eth.getGasPrice();
+  console.log(`the base gas fee is: ${baseFee} Wei`);
+}
+
+getGasPrice()
+```
+
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+async function getGasPrice() {
+  const baseFee = await provider.send("eth_gasPrice");
+  console.log(`The base gas fee is: ${baseFee} Wei`);
+}
+
+getGasPrice()
+```
+
+```python web3.py
+from web3 import Web3  
+node_url = "CHAINSTACK_NODE_URL"
+
+web3 = Web3(Web3.HTTPProvider(node_url)) 
+print(web3.eth.gas_price)  
+```
+</CodeGroup>
+
+
+## Use case
+
+You can use `eth_gasPrice` to calculate the total gas value to send with a transaction based on the base and priority fee system. This concept was implemented with [EIP-1559](https://metamask.io/1559/) in Ethereum's London hard fork.
+
+EIP-1559 aimed to solve the problem of network congestion by implementing a dynamic fee market mechanism, which adjusts the fee required to process a transaction based on network demand. with the current system, the total gas price is composed of a **base fee** determined by the network's load and a **priority fee** added by the user.
+
+<Note>
+**Note**
+
+The `eth_gasPrice` method returns the base fee.
+</Note>
+
+
+The following script calculates the total fee to send with a transaction based on the base fee and an arbitrary priority fee that the user can choose.
+
+```javascript index.js
+const Web3 = require("web3");
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const web3 = new Web3(NODE_URL);
+
+async function getGas(priorityFee) {
+
+    const priorityFeeWei = web3.utils.toWei(String(priorityFee), 'gwei');
+    const baseFee = await web3.eth.getGasPrice();
+
+    const totalFee = Number(priorityFeeWei) + Number(baseFee)
+    return [totalFee, baseFee]
+}
+
+async function main() {
+
+  // The priority fee is constant at 0.1 Gwei, the user can change it.
+  const PRIORITY_FEE = 0.1;
+  
+  const [totalFee, baseFee] = await getGas(PRIORITY_FEE)
+  const baseFeeGwei = web3.utils.fromWei(String(baseFee), 'gwei')
+  console.log(`The priority fee: ${PRIORITY_FEE} Gwei.`)
+  console.log(`The Arbitrum base fee at this moment is: ${Number(baseFeeGwei).toFixed(2)} Gwei.`)
+  
+  const gweiFee = web3.utils.fromWei(String(totalFee), 'gwei')
+  console.log(`The total gas fee should be at least: ${Number(gweiFee).toFixed(2)} Gwei.`)
+}
+
+main()
+```
+
+
+The `getGas` function calculates the total fee required to process a transaction. The function takes in a `priorityFee` as input representing the fee a user is willing to pay to prioritize their transaction processing. The function first converts the `priorityFee` from Gwei to Wei (the smallest unit of ether) using `web3.utils.toWei`. Then, it uses the `web3.eth.getGasPrice` method to retrieve the current base fee set by the network. The function finally adds the priority fee to the base fee and returns the total fee along with the base fee as an array.
+
+The `main` function is the entry point of the code. It first sets a constant `PRIORITY_FEE` to 10 Gwei. Then calls the `getGas` function with `PRIORITY_FEE` as an argument and destructures the returned array into two variables `totalFee` and `baseFee`. The code then converts `baseFee` and `totalFee` from Wei to Gwei using `web3.utils.fromWei` for better readability, and logs the results to the console.
+
+The main function logs the priority fee, the base fee at that moment, and the minimum recommended total fee that should be paid to process a transaction.
