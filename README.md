@@ -16,6 +16,10 @@ Since we are in the age of AI and LLMs, here are three additional ways to use th
 
 Note that the Developer Portal MCP server is a docs project and is different from an [RPC node MCP server](https://ideas.chainstack.com/p/mcp-server) that we are also building.
 
+### MCP server
+
+Built-in MCP server — just run `npx @mintlify/mcp@latest add chainstack` to add the Developer Portal as a local MCP server.
+
 ### Contributing to the Developer Portal
 
 Just contribute as you normally would—PRs, Issues, Discussions, whatever works best for you. We welcome every and all builders.
