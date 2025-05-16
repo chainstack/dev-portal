@@ -1,0 +1,183 @@
+---
+title: "Solana: Listening to programs using Geyser and Yellowstone gRPC in Node.js"
+description: "Learn how to use Geyser to stream Solana transactions over gRPC using the @triton-one/yellowstone-grpc client in Node.js."
+---
+
+## Overview
+
+This quick guide shows you how to:
+* Check the Geyser connection using the @triton-one/yellowstone-grpc client in Node.js
+* Stream the programs using the @triton-one/yellowstone-grpc client in Node.js
+
+## Prerequisites
+
+* Get the [Yellowstone gRPC Geyser plugin](/docs/yellowstone-grpc-geyser-plugin).
+* Install [Yellowstone Node.js gRPC client](https://www.npmjs.com/package/@triton-one/yellowstone-grpc).
+
+## Implementation
+
+Once you have the Chainstack Yellowstone gRPC Geyser endpoint and the authentication token, use the following examples to check the connection and to monitor programs.
+
+### Connection checker
+
+```js
+const { default: Client } = require("@triton-one/yellowstone-grpc");
+
+const ENDPOINT = "CHAINSTACK_GEYSER_URL"; // Replace with your actual endpoint
+const TOKEN = "CHAINSTACK_GEYSER_TOKEN"; // Replace with your actual token
+
+(async () => {
+    const client = new Client(ENDPOINT, TOKEN);
+
+    const version = await client.getVersion();
+    console.log(version);
+})();
+```
+This will print the connection status and the Geyser client version.
+
+### Program watcher
+
+```js
+const { default: Client } = require("@triton-one/yellowstone-grpc");
+const Base58 = require('bs58');
+
+const ENDPOINT = "CHAINSTACK_GEYSER_URL"; // Replace with your actual endpoint
+const TOKEN = "CHAINSTACK_GEYSER_TOKEN"; // Replace with your actual token
+
+// Program IDs to watch
+const DEX_PROGRAM_IDS = [
+    "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+    "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+    "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+    "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+    "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+    "LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo",
+    "Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB",
+    "MoonCVVNZFSYkqNXP6bxHLPL6QQJiMagDL3qcqUQTrG",
+    "FLUXubRmkEi2q6K3Y9kBPg9248ggaZVsoSFhtJHSrm1X",
+    "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
+];
+
+async function main() {
+    const client = new Client(
+        ENDPOINT, 
+        TOKEN,
+        {
+            "grpc.keepalive_time_ms": 120000,
+            "grpc.http2.min_time_between_pings_ms": 120000,
+            "grpc.keepalive_timeout_ms": 20000,
+            "grpc.http2.max_pings_without_data": 0,
+            "grpc.keepalive_permit_without_calls": 1,
+        }
+    );
+
+    try {
+        console.log('Connecting to Geyser...');
+        const stream = await client.subscribe();
+
+        const request = {
+            accounts: {},
+            slots: {},
+            transactions: {
+                dex: {
+                    vote: false,
+                    failed: false,
+                    accountExclude: [],
+                    accountRequired: [],
+                    accountInclude: DEX_PROGRAM_IDS
+                }
+            },
+            transactionsStatus: {},
+            entry: {},
+            blocks: {},
+            blocksMeta: {},
+            commitment: 'confirmed',
+            accountsDataSlice: [],
+            ping: undefined,
+        };
+
+        stream.write(request);
+        console.log('Connection established - watching DEX transactions\n');
+        console.log('Monitoring programs:', DEX_PROGRAM_IDS);
+
+        stream.on('data', (data) => {
+            if (data.transaction && data.transaction.transaction) {
+                const tx = data.transaction;
+                try {
+                    // Convert signature to string
+                    const signature = tx.transaction.signature.toString('hex');
+                    
+                    // Find which DEX program was involved in this transaction
+                    let involvedPrograms = [];
+                    if (tx.transaction.transaction.message.accountKeys) {
+                        involvedPrograms = DEX_PROGRAM_IDS.filter(progId => 
+                            tx.transaction.transaction.message.accountKeys.includes(progId));
+                    }
+                    
+                    console.log('New DEX Transaction:', {
+                        signature: signature,
+                        slot: tx.slot,
+                        success: tx.transaction.meta?.err === null,
+                        accounts: tx.transaction.transaction.message.accountKeys.length,
+                        instructions: tx.transaction.transaction.message.instructions.length,
+                        lamportFee: tx.transaction.meta?.fee || 0,
+                        computeUnits: tx.transaction.meta?.computeUnitsConsumed || 0,
+                        involvedDEX: involvedPrograms
+                    });
+
+                    // Log transaction details
+                    if (tx.transaction.meta?.logMessages) {
+                        console.log('Transaction logs:');
+                        tx.transaction.meta.logMessages.forEach(log => console.log(log));
+                    }
+                    console.log('----------------------------------------');
+
+                } catch (err) {
+                    console.error('Error processing transaction:', err);
+                    console.error('Raw signature:', tx.transaction.signature);
+                }
+            }
+        });
+
+        stream.on("error", (error) => {
+            console.error('Stream error:', error);
+        });
+
+    } catch (error) {
+        console.error('Error in subscription process:', error);
+    }
+}
+
+main().catch((err) => {
+    console.error('Unhandled error in main:', err);
+});
+
+setInterval(() => {
+    console.log('Heartbeat - still watching DEX transactions...');
+}, 30000);
+
+process.on('SIGINT', () => {
+    console.log('Shutting down...');
+    process.exit();
+}); 
+```
+This will stream the data from the Solana program IDs as provided in `DEX_PROGRAM_IDS`.
+
+For a Python example, see [Solana: Listening to pump.fun token mint using Geyser](/docs/solana-listening-to-pumpfun-token-mint-using-geyser).
+
+<CardGroup>
+  <Card title="Ake" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Director of Developer Experience @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>
