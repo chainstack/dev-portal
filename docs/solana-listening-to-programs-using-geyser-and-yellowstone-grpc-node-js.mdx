@@ -37,12 +37,15 @@ This will print the connection status and the Geyser client version.
 
 ### Program watcher
 
+Note the use of ping every 10 seconds to keep the connection alive as specified in the docs: [Sending pings to keep the stream alive](https://docs.triton.one/project-yellowstone/dragons-mouth-grpc-subscriptions#sending-pings-to-keep-the-stream-alive).
+
 ```js
 const { default: Client } = require("@triton-one/yellowstone-grpc");
 const Base58 = require('bs58');
 
 const ENDPOINT = "CHAINSTACK_GEYSER_URL"; // Replace with your actual endpoint
 const TOKEN = "CHAINSTACK_GEYSER_TOKEN"; // Replace with your actual token
+const PING_INTERVAL_MILLISECONDS = 10000; // Send ping every 10 seconds
 
 // DEX Program IDs to watch
 const DEX_PROGRAM_IDS = [
@@ -58,209 +61,137 @@ const DEX_PROGRAM_IDS = [
     "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
 ];
 
-// Configuration for reconnection
-const MAX_RECONNECT_ATTEMPTS = 10;
-const INITIAL_BACKOFF_MS = 1000;
-const MAX_BACKOFF_MS = 30000;
-
-// Client options with keepalive and stream settings
-const CLIENT_OPTIONS = {
-    "grpc.keepalive_time_ms": 60000,
-    "grpc.http2.min_time_between_pings_ms": 60000,
-    "grpc.keepalive_timeout_ms": 30000,
-    "grpc.http2.max_pings_without_data": 0,
-    "grpc.keepalive_permit_without_calls": 1,
-    "grpc.max_receive_message_length": 100 * 1024 * 1024, // 100MB
-    "grpc.max_send_message_length": 100 * 1024 * 1024, // 100MB
-    "grpc.service_config": JSON.stringify({
-        "methodConfig": [{
-            "name": [{ "service": "geyser.Geyser" }],
-            "retryPolicy": {
-                "maxAttempts": 5,
-                "initialBackoff": "1s",
-                "maxBackoff": "10s",
-                "backoffMultiplier": 2,
-                "retryableStatusCodes": ["UNAVAILABLE", "INTERNAL"]
-            }
-        }]
-    })
-};
-
-// Track connection state
-let isConnected = false;
-let reconnectAttempts = 0;
-let reconnectTimeout = null;
-
-// The subscription request
-const createSubscriptionRequest = () => ({
-    accounts: {},
-    slots: {},
-    transactions: {
-        dex: {
-            vote: false,
-            failed: false,
-            accountExclude: [],
-            accountRequired: [],
-            accountInclude: DEX_PROGRAM_IDS
-        }
-    },
-    transactionsStatus: {},
-    entry: {},
-    blocks: {},
-    blocksMeta: {},
-    commitment: 'confirmed',
-    accountsDataSlice: [],
-    ping: undefined,
-});
-
-async function connectWithRetry() {
-    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-        console.error(`Exceeded maximum reconnection attempts (${MAX_RECONNECT_ATTEMPTS}). Exiting.`);
-        process.exit(1);
-    }
+async function main() {
+    const client = new Client(ENDPOINT, TOKEN);
 
     try {
-        // Clear any existing reconnect timeout
-        if (reconnectTimeout) {
-            clearTimeout(reconnectTimeout);
-            reconnectTimeout = null;
-        }
+        console.log('Connecting to Solana...');
+        const stream = await client.subscribe();
 
-        console.log(`Connection attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS}`);
-        await subscribe();
-        
-        // Reset reconnect attempts on successful connection
-        reconnectAttempts = 0;
-        isConnected = true;
-    } catch (error) {
-        isConnected = false;
-        reconnectAttempts++;
-        
-        // Calculate backoff time with exponential backoff
-        const backoff = Math.min(
-            INITIAL_BACKOFF_MS * Math.pow(2, reconnectAttempts - 1),
-            MAX_BACKOFF_MS
-        );
-        
-        console.error(`Connection failed. Retrying in ${backoff/1000} seconds...`);
-        console.error(`Error details: ${error.message}`);
-        
-        // Schedule reconnection
-        reconnectTimeout = setTimeout(connectWithRetry, backoff);
-    }
-}
+        // Prepare ping request
+        const pingRequest = {
+            ping: { id: 1 },
+            accounts: {},
+            accountsDataSlice: [],
+            transactions: {},
+            transactionsStatus: {},
+            blocks: {},
+            blocksMeta: {},
+            entry: {},
+            slots: {},
+        };
 
-async function subscribe() {
-    const client = new Client(
-        ENDPOINT, 
-        TOKEN,
-        CLIENT_OPTIONS
-    );
-
-    console.log('Connecting to Solana...');
-    const stream = await client.subscribe();
-    
-    console.log('Connection established - watching DEX transactions\n');
-    console.log('Monitoring programs:', DEX_PROGRAM_IDS);
-
-    // Send the subscription request
-    stream.write(createSubscriptionRequest());
-
-    // Handle incoming data
-    stream.on('data', (data) => {
-        if (data.transaction && data.transaction.transaction) {
-            const tx = data.transaction;
+        // Set up periodic ping to keep the stream alive
+        const pingInterval = setInterval(async () => {
             try {
-                // Convert signature to string
-                const signature = tx.transaction.signature.toString('hex');
-                
-                // Find which program was involved in this transaction
-                let involvedPrograms = [];
-                if (tx.transaction.transaction.message.accountKeys) {
-                    involvedPrograms = DEX_PROGRAM_IDS.filter(progId => 
-                        tx.transaction.transaction.message.accountKeys.includes(progId));
-                }
-                
-                console.log('New DEX Transaction:', {
-                    signature: signature,
-                    slot: tx.slot,
-                    success: tx.transaction.meta?.err === null,
-                    accounts: tx.transaction.transaction.message.accountKeys.length,
-                    instructions: tx.transaction.transaction.message.instructions.length,
-                    lamportFee: tx.transaction.meta?.fee || 0,
-                    computeUnits: tx.transaction.meta?.computeUnitsConsumed || 0,
-                    involvedDEX: involvedPrograms
+                await new Promise((resolve, reject) => {
+                    stream.write(pingRequest, (err) => {
+                        if (err === null || err === undefined) {
+                            resolve();
+                        } else {
+                            reject(err);
+                        }
+                    });
                 });
-
-                // Log transaction details
-                if (tx.transaction.meta?.logMessages) {
-                    console.log('Transaction logs:');
-                    tx.transaction.meta.logMessages.forEach(log => console.log(log));
-                }
-                console.log('----------------------------------------');
-
-            } catch (err) {
-                console.error('Error processing transaction:', err);
-                console.error('Raw signature:', tx.transaction.signature);
+                console.log("Ping sent to keep stream alive");
+            } catch (error) {
+                console.error("Error sending ping:", error);
             }
-        }
-    });
+        }, PING_INTERVAL_MILLISECONDS);
 
-    // Handle errors
-    stream.on("error", (error) => {
-        console.error(`Stream error: ${error.message}`);
-        console.error(`Error code: ${error.code}, details: ${error.details}`);
-        isConnected = false;
+        const request = {
+            accounts: {},
+            slots: {},
+            transactions: {
+                dex: {
+                    vote: false,
+                    failed: false,
+                    accountExclude: [],
+                    accountRequired: [],
+                    accountInclude: DEX_PROGRAM_IDS
+                }
+            },
+            transactionsStatus: {},
+            entry: {},
+            blocks: {},
+            blocksMeta: {},
+            commitment: 'confirmed',
+            accountsDataSlice: [],
+        };
 
-        // Attempt reconnection for specific error types
-        if (error.code === 13 || // INTERNAL
-            error.code === 14 || // UNAVAILABLE
-            error.details?.includes('lagged') ||
-            error.details?.includes('disconnect')) {
-            
-            console.log('Attempting to reconnect...');
-            connectWithRetry();
-        }
-    });
+        stream.write(request);
+        console.log('Connection established - watching DEX transactions\n');
+        console.log('Monitoring programs:', DEX_PROGRAM_IDS);
 
-    // Handle end of stream
-    stream.on('end', () => {
-        console.log('Stream ended');
-        isConnected = false;
-        
-        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-            console.log('Stream ended unexpectedly. Reconnecting...');
-            connectWithRetry();
-        }
-    });
-    
-    return stream;
+        stream.on('data', (data) => {
+            // Handle pong responses
+            if (data.pong) {
+                console.log("Received Pong response");
+                return;
+            }
+
+            if (data.transaction && data.transaction.transaction) {
+                const tx = data.transaction;
+                try {
+                    // Convert signature to string
+                    const signature = tx.transaction.signature.toString('hex');
+                    
+                    // Find which DEX program was involved in this transaction
+                    let involvedPrograms = [];
+                    if (tx.transaction.transaction.message.accountKeys) {
+                        involvedPrograms = DEX_PROGRAM_IDS.filter(progId => 
+                            tx.transaction.transaction.message.accountKeys.includes(progId));
+                    }
+                    
+                    console.log('New DEX Transaction:', {
+                        signature: signature,
+                        slot: tx.slot,
+                        success: tx.transaction.meta?.err === null,
+                        accounts: tx.transaction.transaction.message.accountKeys.length,
+                        instructions: tx.transaction.transaction.message.instructions.length,
+                        lamportFee: tx.transaction.meta?.fee || 0,
+                        computeUnits: tx.transaction.meta?.computeUnitsConsumed || 0,
+                        involvedDEX: involvedPrograms
+                    });
+
+                    // Log transaction details
+                    if (tx.transaction.meta?.logMessages) {
+                        console.log('Transaction logs:');
+                        tx.transaction.meta.logMessages.forEach(log => console.log(log));
+                    }
+                    console.log('----------------------------------------');
+
+                } catch (err) {
+                    console.error('Error processing transaction:', err);
+                    console.error('Raw signature:', tx.transaction.signature);
+                }
+            }
+        });
+
+        stream.on("error", (error) => {
+            console.error('Stream error:', error);
+            clearInterval(pingInterval); // Clean up the ping interval on error
+        });
+
+        // Clean up on stream close
+        stream.on("close", () => {
+            console.log("Stream closed");
+            clearInterval(pingInterval);
+        });
+
+    } catch (error) {
+        console.error('Error in subscription process:', error);
+    }
 }
 
-// Start the connection process
-connectWithRetry().catch((err) => {
-    console.error('Unhandled error in main process:', err);
-    process.exit(1);
+// Run the main function
+main().catch((err) => {
+    console.error('Unhandled error in main:', err);
 });
-
-// Health check interval
-const healthCheckInterval = setInterval(() => {
-    if (isConnected) {
-        console.log('Heartbeat - watching DEX transactions...');
-    } else {
-        console.log('Connection appears to be down. Reconnection logic should handle this.');
-    }
-}, 30000);
 
 // Handle shutdown
 process.on('SIGINT', () => {
     console.log('Shutting down...');
-    clearInterval(healthCheckInterval);
-    
-    if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
-    }
-    
     process.exit();
 }); 
 ```
