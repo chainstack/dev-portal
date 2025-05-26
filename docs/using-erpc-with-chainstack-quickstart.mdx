@@ -1,0 +1,255 @@
+---
+title: "Using eRPC with Chainstack: Quickstart"
+---
+
+**TLDR**
+
+* Set up eRPC as a fault-tolerant proxy for your Chainstack RPC endpoints with enhanced reliability, caching, and failover capabilities.
+* Use eRPC's built-in Chainstack integration with a key.
+* Configure automatic failover, intelligent caching, rate limiting, and monitoring with a simple YAML configuration.
+* Deploy using Docker with pre-built images and test with standard JSON-RPC calls for production-ready blockchain infrastructure.
+
+## Main article
+
+This tutorial will guide you through setting up eRPC as a fault-tolerant proxy for your Chainstack RPC endpoints, providing enhanced reliability, caching, and failover capabilities.
+
+## Prerequisites
+
+Before starting, ensure you have:
+
+- A [Chainstack account](https://chainstack.com) with deployed nodes
+- Chainstack key for accessing your endpoints. You can get it on your [Node details](docs/manage-your-node). For example in `https://nd-123-456-789.p2pify.com/3c6e0b8a9c15224a8228b9a98ca1531d`, the key is `3c6e0b8a9c15224a8228b9a98ca1531d`.
+- Docker installed on your system
+- Basic understanding of JSON-RPC and blockchain concepts
+
+<Info>
+  **Note**: You don't need to clone the eRPC repository. This tutorial uses the pre-built Docker image and creates configuration files from scratch.
+</Info>
+
+## What you'll achieve
+
+By the end of this tutorial, you'll have:
+
+- eRPC proxy running with Chainstack endpoints
+- Automatic failover between multiple Chainstack nodes
+- Intelligent caching to reduce RPC calls
+- Rate limiting and request optimization
+
+<Check>
+  ### Run blockchain nodes on Chainstack
+
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required. You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Supported networks
+
+eRPC's built-in Chainstack integration supports the following networks:
+
+**Mainnet networks:**
+- Ethereum (Chain ID: 1)
+- BSC (Chain ID: 56)
+- Arbitrum One (Chain ID: 42161)
+- Base (Chain ID: 8453)
+- Sonic (Chain ID: 146)
+- Polygon (Chain ID: 137)
+- Optimism (Chain ID: 10)
+- Avalanche (Chain ID: 43114)
+- Ronin (Chain ID: 2020)
+- zkSync Era (Chain ID: 324)
+- Scroll (Chain ID: 534352)
+- Oasis Sapphire (Chain ID: 23294)
+- Celo (Chain ID: 42220)
+- Kaia (Chain ID: 8217)
+- Gnosis (Chain ID: 100)
+- Cronos (Chain ID: 25)
+- Fantom (Chain ID: 250)
+
+**Testnet Networks:**
+- Ethereum Sepolia (Chain ID: 11155111)
+- Ethereum Holesky (Chain ID: 17000)
+- Ethereum Hoodi (Chain ID: 560048)
+- BSC Testnet (Chain ID: 97)
+- Arbitrum Sepolia (Chain ID: 421614)
+- Base Sepolia (Chain ID: 84532)
+- Sonic Blaze (Chain ID: 57054)
+- Polygon Amoy (Chain ID: 80002)
+- Optimism Sepolia (Chain ID: 11155420)
+- Avalanche Fuji (Chain ID: 43113)
+- Ronin Saigon (Chain ID: 2021)
+- zkSync Sepolia (Chain ID: 300)
+- Scroll Sepolia (Chain ID: 534351)
+- Oasis Sapphire Testnet (Chain ID: 23295)
+- Kaia Kairos (Chain ID: 1001)
+- Gnosis Chiado (Chain ID: 17049341)
+
+## Quickstart
+
+### Step 1: Get your Chainstack key
+
+You only need your Chainstack API key—eRPC will automatically generate the correct endpoints for each network.
+
+You can get the key on your [Node details](docs/manage-your-node).
+
+For example in `https://nd-123-456-789.p2pify.com/3c6e0b8a9c15224a8228b9a98ca1531d`, the key is `3c6e0b8a9c15224a8228b9a98ca1531d`.
+
+<Info>
+  **Note**: With eRPC's built-in Chainstack integration, you one key per supported network.
+  When you specify `endpoint: chainstack://CHAINSTACK_KEY`, eRPC automatically generates the correct URLs like `https://ethereum-mainnet.core.chainstack.com/CHAINSTACK_KEY` based on the chain ID.
+</Info>
+
+### Step 2: Create eRPC configuration
+
+Create a new directory for your eRPC setup and configuration file:
+
+<CodeGroup>
+  ```bash Shell
+  mkdir erpc-chainstack
+  cd erpc-chainstack
+  ```
+</CodeGroup>
+
+Create an `erpc.yaml` file with your Chainstack configuration:
+
+<CodeGroup>
+  ```yaml erpc.yaml
+  logLevel: info
+
+  # Database configuration for caching
+  database:
+    evmJsonRpcCache:
+      connectors:
+        - id: memory-cache
+          driver: memory
+      policies:
+        - network: "*"
+          method: "*"
+          finality: realtime
+          empty: allow
+          connector: memory-cache
+          ttl: 2s
+
+  # Server configuration
+  server:
+    httpHostV4: 0.0.0.0
+    httpPort: 4000
+    maxTimeout: 30s
+
+  # Metrics for monitoring
+  metrics:
+    enabled: true
+    hostV4: 0.0.0.0
+    port: 4001
+
+  # Project configuration
+  projects:
+    - id: main
+      networks:
+        # Ethereum Mainnet
+        - architecture: evm
+          evm:
+            chainId: 1
+          failsafe:
+            timeout:
+              duration: 30s
+            retry:
+              maxAttempts: 3
+              delay: 500ms
+              backoffMaxDelay: 10s
+              backoffFactor: 0.3
+              jitter: 500ms
+            hedge:
+              delay: 2000ms
+              maxCount: 2
+
+      upstreams:
+        # Ethereum Mainnet Chainstack node
+        - id: chainstack-eth-primary
+          endpoint: chainstack://YOUR_CHAINSTACK_KEY
+          rateLimitBudget: chainstack-developer
+          # Note: Do not specify chainId in evm section when using chainstack:// endpoint
+          # eRPC will automatically detect and configure the chain ID
+          failsafe:
+            timeout:
+              duration: 15s
+            retry:
+              maxAttempts: 2
+              delay: 1000ms
+              backoffMaxDelay: 5s
+              backoffFactor: 0.3
+              jitter: 500ms
+
+  # Rate limiting configuration
+  rateLimiters:
+    budgets:
+      - id: chainstack-developer
+        rules:
+          - method: '*'
+            maxCount: 25  # This is the lowest for the free Developer plan. Adjust based on your plan https://chainstack.com/pricing/
+            period: 1s
+          - method: 'eth_getLogs'
+            maxCount: 100   # This is the lowest for the free Developer plan. Adjust based on your plan https://docs.chainstack.com/docs/understanding-eth-getlogs-limitations
+            period: 1s
+  ```
+</CodeGroup>
+
+### Step 3: Run eRPC
+
+Start eRPC using Docker:
+
+<CodeGroup>
+  ```bash Shell
+  # Run eRPC with your configuration
+  docker run --rm -v $(pwd)/erpc.yaml:/erpc.yaml -p 4000:4000 -p 4001:4001 ghcr.io/erpc/erpc:main
+  ```
+</CodeGroup>
+
+### Step 4: Test your setup
+
+Test the proxy with a simple request:
+
+<CodeGroup>
+  ```bash Shell
+  # Test Ethereum mainnet
+  curl --location 'http://localhost:4000/main/evm/1' \
+  --header 'Content-Type: application/json' \
+  --data '{
+      "method": "eth_getBlockByNumber",
+      "params": ["latest", false],
+      "id": 1,
+      "jsonrpc": "2.0"
+  }'
+
+  # Test other methods
+  curl --location 'http://localhost:4000/main/evm/1' \
+  --header 'Content-Type: application/json' \
+  --data '{
+      "method": "eth_blockNumber",
+      "params": [],
+      "id": 2,
+      "jsonrpc": "2.0"
+  }'
+  ```
+</CodeGroup>
+
+## Advanced configuration
+
+For more advanced configurations and features, refer to the [eRPC documentation](https://docs.erpc.cloud/) and the [eRPC GitHub repository](https://github.com/erpc/erpc). Don't forget to give them a star :star: for this awesome solution.
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Director of Developer Experience @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>
