@@ -11,204 +11,171 @@ title: "Using eRPC with Chainstack: Quickstart"
 
 ## Main article
 
+eRPC is a fault-tolerant EVM RPC proxy with permanent caching and reorg awareness. One of its most powerful features is the built-in support for multiple blockchain infrastructure providers, including Chainstack.
+
+<Info>
+**What makes Chainstack unique in eRPC?**
+
+Unlike other providers that require you to manually configure each blockchain network endpoint, Chainstack's integration with eRPC uses the [Chainstack Platform API](/reference/platform-api-getting-started) to automatically discover and configure all your deployed nodes.
+</Info>
+
+This means:
+
+- Automatic node discovery — eRPC fetches all your Chainstack nodes via API.
+- Multi-chain support — Automatically supports all chains where you have nodes.
+- Smart filtering — Filter nodes by project, organization, region, provider, and type.
+- Dynamic configuration — No need to manually update configs when you deploy new nodes.
+
 This tutorial will guide you through setting up eRPC as a fault-tolerant proxy for your Chainstack RPC endpoints, providing enhanced reliability, caching, and failover capabilities.
 
 ## Prerequisites
 
 Before starting, ensure you have:
 
-- A [Chainstack account](https://chainstack.com) with deployed nodes
-- Chainstack key for accessing your endpoints. You can get it on your [Node details](docs/manage-your-node). For example in `https://nd-123-456-789.p2pify.com/3c6e0b8a9c15224a8228b9a98ca1531d`, the key is `3c6e0b8a9c15224a8228b9a98ca1531d`.
-- Docker installed on your system
-- Basic understanding of JSON-RPC and blockchain concepts
+- A [Chainstack account](https://chainstack.com/) with deployed nodes.
+- A [Chainstack Platform API key](/reference/platform-api-getting-started#create-api-key).
+- Docker installed.
+
+And that's about it.
+
+<Tip>
+  You don't need to clone the eRPC repository. This tutorial uses the pre-built Docker image and creates configuration files from scratch.
+</Tip>
+
+## Step 1: Get your Chainstack Platform API key
+
+The key difference with Chainstack is that you need a **Platform API key**, not a regular node endpoint API key.
+
+### Creating a Platform API key
+
+1. Log into your [Chainstack console](https://console.chainstack.com).
+2. Navigate to **Settings** > **API keys**.
+3. Click **Create key**.
+4. Give it a descriptive name (e.g., "eRPC Integration").
+5. Copy the generated API key.
 
 <Info>
-  **Note**: You don't need to clone the eRPC repository. This tutorial uses the pre-built Docker image and creates configuration files from scratch.
+This is different from the authorization keys you get with individual node endpoints. The Platform API key lets eRPC discover and manage all your nodes automatically.
 </Info>
 
-## What you'll achieve
+## Step 2: Deploy nodes
 
-By the end of this tutorial, you'll have:
+Deploy [Global Nodes](/docs/global-elastic-node) for EVM networks.
 
-- eRPC proxy running with Chainstack endpoints
-- Automatic failover between multiple Chainstack nodes
-- Intelligent caching to reduce RPC calls
-- Rate limiting and request optimization
+For this tutorial, let's deploy nodes on a few different networks: Ethereum Mainnet, Polygon Mainnet, Arbitrum Mainnet.
 
-<Check>
-  ### Run blockchain nodes on Chainstack
+## Step 3: Configure Chainstack integration
 
-  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required. You can sign up with your GitHub, X, Google, or Microsoft account.
-</Check>
+If you want a quick start, you can just stick with the basic configuration and explore other options later.
 
-## Supported networks
+### Basic configuration
 
-eRPC's built-in Chainstack integration supports the following networks:
-
-**Mainnet networks:**
-- Ethereum (Chain ID: 1)
-- BSC (Chain ID: 56)
-- Arbitrum One (Chain ID: 42161)
-- Base (Chain ID: 8453)
-- Sonic (Chain ID: 146)
-- Polygon (Chain ID: 137)
-- Optimism (Chain ID: 10)
-- Avalanche (Chain ID: 43114)
-- Ronin (Chain ID: 2020)
-- zkSync Era (Chain ID: 324)
-- Scroll (Chain ID: 534352)
-- Oasis Sapphire (Chain ID: 23294)
-- Celo (Chain ID: 42220)
-- Kaia (Chain ID: 8217)
-- Gnosis (Chain ID: 100)
-- Cronos (Chain ID: 25)
-- Fantom (Chain ID: 250)
-
-**Testnet Networks:**
-- Ethereum Sepolia (Chain ID: 11155111)
-- Ethereum Holesky (Chain ID: 17000)
-- Ethereum Hoodi (Chain ID: 560048)
-- BSC Testnet (Chain ID: 97)
-- Arbitrum Sepolia (Chain ID: 421614)
-- Base Sepolia (Chain ID: 84532)
-- Sonic Blaze (Chain ID: 57054)
-- Polygon Amoy (Chain ID: 80002)
-- Optimism Sepolia (Chain ID: 11155420)
-- Avalanche Fuji (Chain ID: 43113)
-- Ronin Saigon (Chain ID: 2021)
-- zkSync Sepolia (Chain ID: 300)
-- Scroll Sepolia (Chain ID: 534351)
-- Oasis Sapphire Testnet (Chain ID: 23295)
-- Kaia Kairos (Chain ID: 1001)
-- Gnosis Chiado (Chain ID: 17049341)
-
-## Quickstart
-
-### Step 1: Get your Chainstack key
-
-You only need your Chainstack API key—eRPC will automatically generate the correct endpoints for each network.
-
-You can get the key on your [Node details](docs/manage-your-node).
-
-For example in `https://nd-123-456-789.p2pify.com/3c6e0b8a9c15224a8228b9a98ca1531d`, the key is `3c6e0b8a9c15224a8228b9a98ca1531d`.
-
-<Info>
-  **Note**: With eRPC's built-in Chainstack integration, you one key per supported network.
-  When you specify `endpoint: chainstack://CHAINSTACK_KEY`, eRPC automatically generates the correct URLs like `https://ethereum-mainnet.core.chainstack.com/CHAINSTACK_KEY` based on the chain ID.
-</Info>
-
-### Step 2: Create eRPC configuration
-
-Create a new directory for your eRPC setup and configuration file:
+Create or edit your `erpc.yaml` file:
 
 <CodeGroup>
-  ```bash Shell
-  mkdir erpc-chainstack
-  cd erpc-chainstack
-  ```
+```yaml
+projects:
+  - id: main
+    networks:
+      - architecture: evm
+        evm:
+          chainId: 1
+      - architecture: evm
+        evm:
+          chainId: 137
+
+    upstreams:
+      # Chainstack auto-discovery — will find all nodes automatically
+      - id: chainstack-auto
+        endpoint: chainstack://YOUR_CHAINSTACK_PLATFORM_API_KEY
+        rateLimitBudget: chainstack-developer
+        failsafe:
+          timeout:
+            duration: 15s
+          retry:
+            maxAttempts: 2
+            delay: 1000ms
+            backoffMaxDelay: 10s
+            backoffFactor: 0.3
+            jitter: 500ms
+
+rateLimiters:
+  budgets:
+    - id: chainstack-developer
+      rules:
+        - method: '*'
+          maxCount: 25  # The lowest limit of the free Developer plan https://chainstack.com/pricing/
+          period: 1s
+        - method: 'eth_getLogs'
+          maxCount: 10  # The lowest limit of the free Developer plan https://chainstack.com/pricing/
+          period: 1s
+```
 </CodeGroup>
 
-Create an `erpc.yaml` file with your Chainstack configuration:
+Replace `YOUR_CHAINSTACK_PLATFORM_API_KEY` with your actual Platform API key.
+
+### Advanced configuration with filtering
+
+Chainstack's integration supports powerful filtering options:
 
 <CodeGroup>
-  ```yaml erpc.yaml
-  logLevel: info
+```yaml
+projects:
+  - id: main
+    networks:
+      - architecture: evm
+        evm:
+          chainId: 1
+      - architecture: evm
+        evm:
+          chainId: 137
 
-  # Database configuration for caching
-  database:
-    evmJsonRpcCache:
-      connectors:
-        - id: memory-cache
-          driver: memory
-      policies:
-        - network: "*"
-          method: "*"
-          finality: realtime
-          empty: allow
-          connector: memory-cache
-          ttl: 2s
+    upstreams:
+      # Chainstack auto-discovery — will find all nodes automatically
+      - id: chainstack-auto
+        endpoint: chainstack://YOUR_CHAINSTACK_PLATFORM_API_KEY?project=PROJECT-ID
+        rateLimitBudget: chainstack-developer
+        failsafe:
+          timeout:
+            duration: 15s
+          retry:
+            maxAttempts: 2
+            delay: 1000ms
+            backoffMaxDelay: 10s
+            backoffFactor: 0.3
+            jitter: 500ms
 
-  # Server configuration
-  server:
-    httpHostV4: 0.0.0.0
-    httpPort: 4000
-    maxTimeout: 30s
-
-  # Metrics for monitoring
-  metrics:
-    enabled: true
-    hostV4: 0.0.0.0
-    port: 4001
-
-  # Project configuration
-  projects:
-    - id: main
-      networks:
-        # Ethereum Mainnet
-        - architecture: evm
-          evm:
-            chainId: 1
-          failsafe:
-            timeout:
-              duration: 30s
-            retry:
-              maxAttempts: 3
-              delay: 500ms
-              backoffMaxDelay: 10s
-              backoffFactor: 0.3
-              jitter: 500ms
-            hedge:
-              delay: 2000ms
-              maxCount: 2
-
-      upstreams:
-        # Ethereum Mainnet Chainstack node
-        - id: chainstack-eth-primary
-          endpoint: chainstack://YOUR_CHAINSTACK_KEY
-          rateLimitBudget: chainstack-developer
-          # Note: Do not specify chainId in evm section when using chainstack:// endpoint
-          # eRPC will automatically detect and configure the chain ID
-          failsafe:
-            timeout:
-              duration: 15s
-            retry:
-              maxAttempts: 2
-              delay: 1000ms
-              backoffMaxDelay: 5s
-              backoffFactor: 0.3
-              jitter: 500ms
-
-  # Rate limiting configuration
-  rateLimiters:
-    budgets:
-      - id: chainstack-developer
-        rules:
-          - method: '*'
-            maxCount: 25  # This is the lowest for the free Developer plan. Adjust based on your plan https://chainstack.com/pricing/
-            period: 1s
-          - method: 'eth_getLogs'
-            maxCount: 100   # This is the lowest for the free Developer plan. Adjust based on your plan https://docs.chainstack.com/docs/understanding-eth-getlogs-limitations
-            period: 1s
-  ```
+rateLimiters:
+  budgets:
+    - id: chainstack-developer
+      rules:
+        - method: '*'
+          maxCount: 25  # The lowest limit of the free Developer plan https://chainstack.com/pricing/
+          period: 1s
+        - method: 'eth_getLogs'
+          maxCount: 10  # The lowest limit of the free Developer plan https://chainstack.com/pricing/
+          period: 1s
+```
 </CodeGroup>
 
-### Step 3: Run eRPC
+Replace `YOUR_CHAINSTACK_PLATFORM_API_KEY` with your actual Platform API key and `PROJECT-ID` with the ID of your project—for example, `PR-123-456`.
+
+### Step 4: Run eRPC
 
 Start eRPC using Docker:
 
 <CodeGroup>
-  ```bash Shell
-  # Run eRPC with your configuration
+  ```bash
   docker run --rm -v $(pwd)/erpc.yaml:/erpc.yaml -p 4000:4000 -p 4001:4001 ghcr.io/erpc/erpc:main
   ```
 </CodeGroup>
 
-### Step 4: Test your setup
+### Step 5: Test your setup
 
 Test the proxy with a simple request:
 
 <CodeGroup>
-  ```bash Shell
+  ```bash
   # Test Ethereum mainnet
   curl --location 'http://localhost:4000/main/evm/1' \
   --header 'Content-Type: application/json' \
@@ -219,8 +186,8 @@ Test the proxy with a simple request:
       "jsonrpc": "2.0"
   }'
 
-  # Test other methods
-  curl --location 'http://localhost:4000/main/evm/1' \
+  # Test Polygon mainnet
+  curl --location 'http://localhost:4000/main/evm/137' \
   --header 'Content-Type: application/json' \
   --data '{
       "method": "eth_blockNumber",
