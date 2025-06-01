@@ -1,0 +1,376 @@
+---
+title: "Sui: On-chain validator analytics with pysui"
+description: "Learn how to analyze Sui network validators, commission rates, and stake distribution using Python and pysui"
+---
+
+## Overview
+
+In this tutorial, we'll build a simple analytics tool for the Sui blockchain network using Python and the `pysui` library. Our script will analyze validator performance metrics, commission rates, stake distribution, and provide interactive search capabilities for exploring the validator ecosystem.
+
+The Sui network relies on a proof-of-stake consensus mechanism where validators secure the network and process transactions.
+
+Our analytics tool will provide insights into:
+- Validator commission rates and distribution.
+- Stake concentration across validators.
+- Network epoch information.
+- Individual validator details and search functionality.
+
+## Prerequisites
+
+- [pysui](https://pypi.org/project/pysui/) - Python SDK for Sui blockchain
+- A Chainstack Sui Mainnet node endpoint—register on [Chainstack](https://console.chainstack.com/)
+
+## Implementation
+
+Our script connects to the Sui blockchain through a Chainstack endpoint and retrieves comprehensive validator data directly from the chain. The Sui network stores all validator information on-chain, including not just technical metrics like stake amounts and commission rates, but also metadata such as validator names, descriptions, website URLs, and even profile images.
+
+Using the `pysui` library, we fetch the current system state which contains the complete list of active validators and their properties. This includes financial data (stake balances, commission rates), operational data (voting power, gas prices), and presentation data (names, descriptions, project URLs, image URLs). The script processes this on-chain data to generate analytics on commission rate distributions, stake concentration, and provides search functionality to explore individual validators.
+
+The beauty of this approach is that all the data comes directly from the blockchain—there's no need for external APIs or databases. Everything from validator performance metrics to their branding materials is stored on-chain and accessible through our Chainstack node endpoint.
+
+The script:
+
+```python
+import sys
+import warnings
+from typing import List, Any, Tuple
+from pysui import SuiConfig, SyncClient
+from pysui.sui.sui_builders.get_builders import GetLatestSuiSystemState
+
+class SuiAnalytics:
+    
+    def __init__(self, rpc_url: str):
+        """Initialize the Sui client."""
+        self.config = SuiConfig.user_config(rpc_url=rpc_url)
+        self.client = SyncClient(self.config)
+        self._system_state = None
+        self._validators = None
+    
+    def _get_system_state(self) -> Any:
+        """Cached getter for system state."""
+        if self._system_state is None:
+            result = self.client.execute(GetLatestSuiSystemState())
+            if result.is_ok():
+                self._system_state = result.result_data
+            else:
+                raise Exception(f"Failed to fetch system state: {result.result_string}")
+        return self._system_state
+    
+    def _get_validators(self) -> List[Any]:
+        """Cached getter for validators."""
+        if self._validators is None:
+            state = self._get_system_state()
+            self._validators = state.active_validators
+        return self._validators
+    
+    def analyze_commission_rates(self) -> None:
+        """Analyze and display validator commission rates."""
+        validators = self._get_validators()
+        
+        # Extract commission rates
+        commission_rates = []
+        for validator in validators:
+            rate = int(validator.commission_rate) / 100
+            commission_rates.append(rate)
+        
+        commission_rates.sort()
+        
+        # Calculate statistics
+        # Calculate statistics
+        min_commission = min(commission_rates)
+        max_commission = max(commission_rates)
+        avg_commission = sum(commission_rates) / len(commission_rates)
+        
+        # Properly calculate median for both even and odd length lists
+        mid = len(commission_rates) // 2
+        median_commission = commission_rates[mid] if len(commission_rates) % 2 == 1 else (commission_rates[mid-1] + commission_rates[mid]) / 2
+        
+        print(f"\n📊 Validator Commission Rate Analysis")
+        print("=" * 50)
+        print(f"Total Validators: {len(validators)}")
+        print(f"Minimum Commission: {min_commission:.2f}%")
+        print(f"Maximum Commission: {max_commission:.2f}%")
+        print(f"Average Commission: {avg_commission:.2f}%")
+        print(f"Median Commission: {median_commission:.2f}%")
+        
+        # Show distribution
+        ranges = [(0, 1), (1, 2), (2, 3), (3, 5), (5, 10), (10, 100)]
+        print(f"\n📈 Commission Rate Distribution:")
+        
+        for min_rate, max_rate in ranges:
+            count = sum(1 for rate in commission_rates if min_rate <= rate < max_rate)
+            percentage = (count / len(commission_rates)) * 100
+            print(f"  {min_rate:.0f}%-{max_rate:.0f}%: {count:>3} validators ({percentage:5.1f}%)")
+    
+    def show_lowest_commission_validators(self, top_n: int = 10) -> None:
+        """Show validators with the lowest commission rates."""
+        validators = self._get_validators()
+        
+        # Sort by commission rate (ascending)
+        sorted_by_commission = sorted(
+            validators,
+            key=lambda v: int(v.commission_rate)
+        )
+        
+        print(f"\n💰 Top {top_n} Validators by Lowest Commission Rate")
+        print("=" * 65)
+        print(f"{'Rank':<4} {'Validator Name':<25} {'Commission':<10} {'Stake (SUI)':<15}")
+        print("=" * 65)
+        
+        for rank, validator in enumerate(sorted_by_commission[:top_n], 1):
+            name = validator.name if validator.name else "Unknown"
+            name = name[:24]
+            commission = int(validator.commission_rate) / 100
+            stake = int(validator.staking_pool_sui_balance) / 1e9
+            
+            print(f"{rank:<4} {name:<25} {commission:>8.1f}% {stake:>13,.0f}")
+    
+    def analyze_stake_distribution(self) -> None:
+        """Analyze how stake is distributed across validators."""
+        validators = self._get_validators()
+        
+        # Get all stakes and sort them
+        stakes = [int(v.staking_pool_sui_balance) / 1e9 for v in validators]
+        stakes.sort(reverse=True)
+        
+        total_stake = sum(stakes)
+        
+        print(f"\n📊 Stake Distribution Analysis")
+        print("=" * 50)
+        print(f"Total Network Stake: {total_stake:,.0f} SUI")
+        
+        # Calculate concentration metrics
+        top_10_stake = sum(stakes[:10])
+        top_25_stake = sum(stakes[:25])
+        top_50_stake = sum(stakes[:50])
+        
+        print(f"\nStake Concentration:")
+        print(f"  Top 10 validators: {top_10_stake:,.0f} SUI ({top_10_stake/total_stake*100:.1f}%)")
+        print(f"  Top 25 validators: {top_25_stake:,.0f} SUI ({top_25_stake/total_stake*100:.1f}%)")
+        print(f"  Top 50 validators: {top_50_stake:,.0f} SUI ({top_50_stake/total_stake*100:.1f}%)")
+        
+        # Show stake ranges
+        ranges = [
+            (0, 1_000_000),
+            (1_000_000, 5_000_000),
+            (5_000_000, 10_000_000),
+            (10_000_000, 25_000_000),
+            (25_000_000, 50_000_000),
+            (50_000_000, float('inf'))
+        ]
+        
+        print(f"\n📈 Validator Stake Ranges:")
+        for min_stake, max_stake in ranges:
+            if max_stake == float('inf'):
+                count = sum(1 for stake in stakes if stake >= min_stake)
+                range_label = f">{min_stake/1_000_000:.0f}M SUI"
+            else:
+                count = sum(1 for stake in stakes if min_stake <= stake < max_stake)
+                range_label = f"{min_stake/1_000_000:.0f}M-{max_stake/1_000_000:.0f}M SUI"
+            
+            percentage = (count / len(stakes)) * 100
+            print(f"  {range_label:<15}: {count:>3} validators ({percentage:5.1f}%)")
+    
+    def show_epoch_info(self) -> None:
+        """Display current epoch information."""
+        state = self._get_system_state()
+        
+        print(f"\n🕐 Current Epoch Information")
+        print("=" * 40)
+        print(f"Current Epoch: {state.epoch}")
+        print(f"System State Version: {getattr(state, 'system_state_version', 'N/A')}")
+        
+        # Show validator count
+        validators = self._get_validators()
+        print(f"Active Validators: {len(validators)}")
+        
+        # Calculate total stake
+        total_stake = sum(int(v.staking_pool_sui_balance) for v in validators) / 1e9
+        print(f"Total Staked: {total_stake:,.0f} SUI")
+    
+    def find_validators_by_name(self, search_term: str) -> None:
+        """Search for validators by name."""
+        validators = self._get_validators()
+        search_lower = search_term.lower()
+        
+        matches = [
+            v for v in validators 
+            if search_lower in (v.name or "").lower()
+        ]
+        
+        if not matches:
+            print(f"\n❌ No validators found containing '{search_term}'")
+            return
+        
+        print(f"\n🔍 Validators matching '{search_term}' ({len(matches)} found)")
+        print("=" * 70)
+        print(f"{'Name':<25} {'Stake (SUI)':<15} {'Commission':<10} {'Address'}")
+        print("=" * 70)
+        
+        for validator in matches:
+            name = validator.name if validator.name else "Unknown"
+            name = name[:24]
+            stake = int(validator.staking_pool_sui_balance) / 1e9
+            commission = int(validator.commission_rate) / 100
+            address = validator.sui_address[:20] + "..."
+            
+            print(f"{name:<25} {stake:>13,.0f} {commission:>8.1f}% {address}")
+    
+    def show_validator_details(self, validator_name: str) -> None:
+        """Show detailed information about a specific validator."""
+        validators = self._get_validators()
+        
+        # Find validator by name (case insensitive)
+        validator = None
+        for v in validators:
+            if v.name and validator_name.lower() in v.name.lower():
+                validator = v
+                break
+        
+        if not validator:
+            print(f"\n❌ Validator '{validator_name}' not found")
+            return
+        
+        print(f"\n🔍 Detailed Information for '{validator.name}'")
+        print("=" * 60)
+        print(f"Name: {validator.name}")
+        print(f"Address: {validator.sui_address}")
+        print(f"Staking Pool ID: {validator.staking_pool_id}")
+        print(f"Total Stake: {int(validator.staking_pool_sui_balance) / 1e9:,.0f} SUI")
+        print(f"Commission Rate: {int(validator.commission_rate) / 100:.2f}%")
+        print(f"Gas Price: {validator.gas_price}")
+        print(f"Voting Power: {validator.voting_power}")
+        
+        if validator.description:
+            print(f"Description: {validator.description}")
+        if validator.image_url:
+            print(f"Image URL: {validator.image_url}")
+        if validator.project_url:
+            print(f"Project URL: {validator.project_url}")
+        
+        print("=" * 60)
+
+
+def main():
+    """Main function to run Sui analytics."""
+    CHAINSTACK_RPC_URL = "CHAINSTACK_NODE_URL"
+    
+    print("🔬 Sui analytics")
+    print("=" * 50)
+    
+    try:
+        analytics = SuiAnalytics(CHAINSTACK_RPC_URL)
+        
+        # Show various analytics
+        analytics.show_epoch_info()
+        analytics.analyze_commission_rates()
+        analytics.show_lowest_commission_validators(10)
+        analytics.analyze_stake_distribution()
+        
+        # Interactive search
+        print(f"\n{'='*50}")
+        search_term = input("Enter a validator name to search for (or press Enter to skip): ").strip()
+        if search_term:
+            analytics.find_validators_by_name(search_term)
+            
+            # Show detailed info if only one match
+            validators = analytics._get_validators()
+            matches = [v for v in validators if search_term.lower() in (v.name or "").lower()]
+            if len(matches) == 1:
+                print(f"\n{'='*50}")
+                show_details = input("Show detailed information for this validator? (y/n): ").lower().strip()
+                if show_details in ['y', 'yes']:
+                    analytics.show_validator_details(search_term)
+        
+    except KeyboardInterrupt:
+        print("\n👋 Analysis interrupted by user")
+    except Exception as e:
+        print(f"❌ An error occurred: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main() 
+```
+
+## Usage examples
+
+### Running the analytics tool
+
+1. **Install dependencies**:
+   ```bash
+   pip install pysui
+   ```
+
+2. **Configure your Chainstack endpoint**:
+   Replace `CHAINSTACK_NODE_URL` in the script with your actual Chainstack Sui mainnet endpoint.
+
+3. **Run the script**:
+   ```bash
+   python sui_analytics.py
+   ```
+
+### Sample output
+
+When you run the script, you'll see output similar to:
+
+```
+🔬 Sui analytics
+==================================================
+
+🕐 Current Epoch Information
+========================================
+Current Epoch: 123
+Active Validators: 100
+Total Staked: 1,234,567,890 SUI
+
+📊 Validator Commission Rate Analysis
+==================================================
+Total Validators: 100
+Minimum Commission: 2.00%
+Maximum Commission: 10.00%
+Average Commission: 5.25%
+Median Commission: 5.00%
+
+📈 Commission Rate Distribution:
+  0%-1%:   0 validators (  0.0%)
+  1%-2%:   5 validators (  5.0%)
+  2%-3%:  15 validators ( 15.0%)
+  3%-5%:  35 validators ( 35.0%)
+  5%-10%: 40 validators ( 40.0%)
+  10%-100%: 5 validators (  5.0%)
+
+💰 Top 10 Validators by Lowest Commission Rate
+=================================================================
+Rank Validator Name           Commission Stake (SUI)    
+=================================================================
+1    Validator A                  2.0%    25,000,000
+2    Validator B                  2.5%    18,000,000
+...
+```
+
+## Conclusion
+
+This tutorial demonstrates how to build a comprehensive validator analytics tool for the Sui blockchain using Python and pysui. The script provides insights into validator economics, network decentralization, and helps users make informed decisions about staking and network participation. The entirety of the data is retrieved directly from the chain.
+
+The analytics tool serves multiple stakeholders in the Sui ecosystem, from individual delegators to network researchers, providing the data needed to maintain a healthy and decentralized network.
+
+By leveraging Chainstack's reliable Sui node infrastructure and the powerful pysui library, developers can build sophisticated blockchain analytics tools that provide real value to the Web3 community.
+
+### About the author
+<CardGroup>
+  <Card title="Ake" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Director of Developer Experience @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>
