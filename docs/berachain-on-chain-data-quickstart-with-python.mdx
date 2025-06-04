@@ -1,0 +1,377 @@
+---
+title: "Berachain: On-chain data quickstart with Python"
+description: "Learn how to interact with Berachain Mainnet using Python and Web3.py through Chainstack RPC endpoints. This tutorial covers essential concepts from basic connections to live transfer monitoring."
+---
+
+**TLDR:**
+
+* Demonstrates connecting to Berachain Mainnet using Python and Web3.py via Chainstack endpoints
+* Shows how to query ERC-20 tokens, core Berachain tokens (BGT, HONEY), and monitor live transfers
+* Covers Proof-of-Liquidity concepts and real-time blockchain data monitoring
+* Provides practical scripts for read-only blockchain interactions without requiring private keys
+
+## Overview
+
+Berachain is an innovative EVM-compatible blockchain that implements Proof-of-Liquidity (PoL) consensus. Unlike traditional Proof-of-Stake systems, Berachain's PoL mechanism aligns network incentives through BGT (Berachain Governance Token) emissions and liquidity provision.
+
+This tutorial will walk you through building practical Python applications that interact with Berachain Mainnet using Chainstack's reliable RPC infrastructure. We'll explore everything from basic connectivity to advanced monitoring capabilities, all while maintaining a read-only approach that's perfect for learning and experimentation.
+
+## Prerequisites
+
+- [web3.py](https://web3py.readthedocs.io/)
+- A Chainstack Berachain Mainnet node endpoint—register on [Chainstack](https://console.chainstack.com/)
+
+## Understanding Berachain architecture
+
+Before writing code, let's understand key Berachain concepts:
+
+### Core tokens
+
+* **BERA** - Native gas token, similar to ETH on Ethereum
+* **BGT** - Governance token that powers Proof-of-Liquidity
+* **HONEY** - Algorithmic stablecoin native to Berachain
+
+### Key contracts
+
+* **WBERA** (`0x6969696969696969696969696969696969696969`) - Wrapped BERA token
+* **BGT** (`0x656b95E550C07a9ffe548bd4085c72418Ceb1dba`) - Governance token
+* **HONEY** (`0xFCBD14DC51f0A4d49d5E53C2E0950e0bC26d0Dce`) - Stablecoin
+* **BeraChef** (`0xdf960E8F3F19C481dDE769edEDD439ea1a63426a`) - Proof-of-Liquidity manager
+
+## Basic connection and network information
+
+Let's start with a simple connection script that verifies our setup and displays basic network information.
+
+Create `connection.py`:
+
+```python
+from web3 import Web3
+import textwrap
+
+# Connect to Berachain Mainnet via Chainstack
+RPC_URL = "YOUR_CHAINSTACK_ENDPOINT"
+w3 = Web3(Web3.HTTPProvider(RPC_URL))
+assert w3.is_connected(), "❌ Check your RPC URL 🔌"
+
+# Display connection info
+print(textwrap.dedent(f"""
+✅ Connected to Berachain Mainnet
+• Chain ID    : {w3.eth.chain_id}
+• Latest Block: {w3.eth.block_number}
+• Base Fee    : {w3.from_wei(w3.eth.fee_history(1,'latest')['baseFeePerGas'][-1],'gwei'):.3f} Gwei
+"""))
+```
+
+Key concepts demonstrated:
+* Establishing Web3 connection to Berachain
+* Verifying connectivity with `is_connected()`
+* Querying basic network information (chain ID, latest block, gas fees)
+* Working with wei-to-gwei conversions
+
+## ERC-20 token interactions
+
+Next, let's interact with ERC-20 tokens through node calls, starting with WBERA (Wrapped BERA).
+
+Create `wbera_query.py`:
+
+```python
+from web3 import Web3
+from eth_utils import to_checksum_address
+
+# Connect to Berachain Mainnet via Chainstack
+RPC_URL = "YOUR_CHAINSTACK_ENDPOINT"
+w3 = Web3(Web3.HTTPProvider(RPC_URL))
+
+# WBERA token address on Mainnet
+wbera = to_checksum_address("0x6969696969696969696969696969696969696969")
+
+def get_token_info(token_address):
+    """Get basic token information using low-level calls"""
+    
+    # Query token symbol
+    symbol_data = w3.eth.call({
+        "to": token_address, 
+        "data": w3.keccak(text="symbol()")[:4]
+    })
+    
+    # Query token name  
+    name_data = w3.eth.call({
+        "to": token_address,
+        "data": w3.keccak(text="name()")[:4]
+    })
+    
+    # Query decimals
+    decimals_data = w3.eth.call({
+        "to": token_address,
+        "data": w3.keccak(text="decimals()")[:4]
+    })
+    
+    # Query total supply
+    supply_data = w3.eth.call({
+        "to": token_address,
+        "data": w3.keccak(text="totalSupply()")[:4]
+    })
+    
+    # Parse responses
+    symbol = symbol_data.rstrip(b"\x00").decode()
+    name = name_data.rstrip(b"\x00").decode() 
+    decimals = int.from_bytes(decimals_data, "big")
+    supply = int.from_bytes(supply_data, "big") / (10 ** decimals)
+    
+    return {
+        "symbol": symbol,
+        "name": name, 
+        "decimals": decimals,
+        "total_supply": supply
+    }
+
+# Get WBERA information
+wbera_info = get_token_info(wbera)
+print(f"🪙 Token: {wbera_info['name']} ({wbera_info['symbol']})")
+print(f"📊 Decimals: {wbera_info['decimals']}")
+print(f"📈 Total Supply: {wbera_info['total_supply']:,.2f}")
+```
+
+Key concepts demonstrated:
+* Using `w3.keccak()` to generate function selectors
+* Making contract calls with `w3.eth.call()`
+* Parsing contract responses and handling different data types
+* Working with ERC-20 standard functions
+
+## Core Berachain tokens
+
+Let's explore Berachain's core tokens: BGT and HONEY.
+
+```python
+from web3 import Web3
+from eth_utils import to_checksum_address
+
+# Connect to Berachain Mainnet via Chainstack
+RPC_URL = "YOUR_CHAINSTACK_ENDPOINT"
+w3 = Web3(Web3.HTTPProvider(RPC_URL))
+
+# Core Berachain token addresses
+bgt = to_checksum_address("0x656b95E550C07a9ffe548bd4085c72418Ceb1dba")    # BGT - governance/PoL
+honey = to_checksum_address("0xFCBD14DC51f0A4d49d5E53C2E0950e0bC26d0Dce")  # HONEY - stablecoin
+
+def get_token_supply(token_address):
+    """Get total supply for a token"""
+    sig_total = w3.keccak(text="totalSupply()")[:4]
+    supply_raw = int.from_bytes(w3.eth.call({"to": token_address, "data": sig_total}), "big")
+    return supply_raw / 1e18
+
+# Query total supplies
+bgt_supply = get_token_supply(bgt)
+honey_supply = get_token_supply(honey)
+
+print("🐻 Berachain Core Token Supplies")
+print("=" * 35)
+print(f"🗳️  BGT (Governance): {bgt_supply:,.0f}")
+print(f"🍯 HONEY (Stablecoin): {honey_supply:,.0f}")
+
+# Additional insights
+print(f"\n📊 Insights:")
+print(f"• BGT powers Proof-of-Liquidity consensus")
+print(f"• HONEY is overcollateralized by BERA")
+print(f"• Current BGT/HONEY ratio: {bgt_supply/honey_supply:.3f}")
+```
+
+Key concepts demonstrated:
+* Querying multiple token contracts efficiently
+* Understanding Berachain's tokenomics
+* Creating reusable functions for common operations
+
+## Live transfer monitoring
+
+One of the most powerful features is monitoring live blockchain activity. Let's track WBERA transfers in real-time.
+
+```python
+from web3 import Web3
+from eth_utils import to_checksum_address
+import time
+
+# Connect to Berachain Mainnet via Chainstack
+RPC_URL = "YOUR_CHAINSTACK_ENDPOINT"
+w3 = Web3(Web3.HTTPProvider(RPC_URL))
+
+# WBERA token setup
+wbera = to_checksum_address("0x6969696969696969696969696969696969696969")
+decimals = 18
+
+print("🐻 WBERA Live Transfer Monitor")
+print("=" * 40)
+print(f"📍 WBERA Contract: {wbera}")
+
+# ERC-20 Transfer event signature
+TRANSFER_SIG = w3.keccak(text="Transfer(address,address,uint256)").hex()
+
+try:
+    latest = w3.eth.block_number
+    print(f"🔗 Latest Block: {latest}")
+    
+    # Query recent transfer logs
+    block_range = 1000
+    from_block = latest - block_range
+    
+    print(f"🔍 Scanning blocks {from_block} to {latest} ({block_range} blocks)")
+    
+    logs = w3.eth.get_logs({
+        "fromBlock": from_block,
+        "toBlock": latest,
+        "address": wbera,
+        "topics": [TRANSFER_SIG]
+    })
+
+    print(f"✅ Found {len(logs)} WBERA transfers in the last {block_range} blocks")
+    
+    if logs:
+        print("\n📋 Recent transfers:")
+        for i, lg in enumerate(logs[-5:]):  # Show 5 most recent
+            try:
+                # Extract addresses from topics
+                from_addr = "0x" + lg["topics"][1].hex()[-40:]
+                to_addr = "0x" + lg["topics"][2].hex()[-40:]
+                
+                # Extract amount from data
+                if isinstance(lg["data"], str):
+                    data_hex = lg["data"][2:] if lg["data"].startswith('0x') else lg["data"]
+                    amount = int(data_hex, 16) / 10**decimals
+                else:
+                    amount = int.from_bytes(lg["data"], "big") / 10**decimals
+                
+                # Get block info for timestamp
+                block_info = w3.eth.get_block(lg["blockNumber"])
+                timestamp = time.strftime('%H:%M:%S', time.localtime(block_info["timestamp"]))
+                
+                print(f"  {i+1}. Block {lg['blockNumber']} @ {timestamp}")
+                print(f"     {from_addr[:10]}...{from_addr[-6:]} → {to_addr[:10]}...{to_addr[-6:]}")
+                print(f"     💰 {amount:.6f} WBERA")
+                print()
+                
+            except Exception as e:
+                print(f"     ❌ Error parsing transfer {i+1}: {e}")
+
+except Exception as e:
+    print(f"❌ Error querying transfers: {e}")
+```
+
+Key concepts demonstrated:
+* Event signature generation with `w3.keccak()`
+* Querying historical logs with `w3.eth.get_logs()`
+* Parsing event data from topics and data fields
+* Real-time blockchain monitoring techniques
+
+## Advanced dashboard with rich formatting
+
+Finally, let's create a beautiful, comprehensive dashboard using the Rich library.
+
+```python
+from web3 import Web3
+from eth_utils import to_checksum_address
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+import time
+
+# Connect to Berachain Mainnet via Chainstack
+RPC_URL = "YOUR_CHAINSTACK_ENDPOINT"
+
+# Initialize
+console = Console()
+w3 = Web3(Web3.HTTPProvider(RPC_URL))
+
+# Contract addresses
+wbera = to_checksum_address("0x6969696969696969696969696969696969696969")
+bgt = to_checksum_address("0x656b95E550C07a9ffe548bd4085c72418Ceb1dba")
+honey = to_checksum_address("0xFCBD14DC51f0A4d49d5E53C2E0950e0bC26d0Dce")
+
+def get_network_info():
+    """Get basic network information"""
+    fee_history = w3.eth.fee_history(1, 'latest')
+    return {
+        'chain_id': w3.eth.chain_id,
+        'block_number': w3.eth.block_number,
+        'base_fee': w3.from_wei(fee_history['baseFeePerGas'][-1], 'gwei')
+    }
+
+def get_token_supply(address):
+    """Get total supply for a token"""
+    sig_total = w3.keccak(text="totalSupply()")[:4]
+    supply_raw = int.from_bytes(w3.eth.call({"to": address, "data": sig_total}), "big")
+    return supply_raw / 1e18
+
+def main():
+    console.print("\n🐻 [bold cyan]Berachain Mainnet Dashboard[/bold cyan] 🚀", justify="center")
+    
+    # Network Info Panel
+    network = get_network_info()
+    network_text = f"""
+[green]✅ Connected to Berachain Mainnet[/green]
+[blue]• Chain ID:[/blue] {network['chain_id']}
+[blue]• Latest Block:[/blue] {network['block_number']:,}
+[blue]• Base Fee:[/blue] {network['base_fee']:.3f} Gwei
+    """
+    console.print(Panel(network_text.strip(), title="🔗 Network Status", border_style="green"))
+    
+    # Token Supplies Table
+    table = Table(title="📊 Token Supplies")
+    table.add_column("Token", style="cyan", no_wrap=True)
+    table.add_column("Symbol", style="magenta")
+    table.add_column("Total Supply", style="green", justify="right")
+    table.add_column("Type", style="yellow")
+    
+    # Get token supplies
+    bgt_supply = get_token_supply(bgt)
+    honey_supply = get_token_supply(honey)
+    
+    table.add_row("BGT", "BGT", f"{bgt_supply:,.0f}", "Governance/PoL")
+    table.add_row("HONEY", "HONEY", f"{honey_supply:,.0f}", "Stablecoin")
+    
+    console.print(table)
+    
+    # Footer
+    console.print("\n[dim]🔄 Refresh this dashboard by running the script again![/dim]", justify="center")
+
+if __name__ == "__main__":
+    main()
+```
+
+## Conclusion
+
+This tutorial provided a comprehensive introduction to Berachain development using Python and Chainstack's reliable infrastructure. You've learned how to:
+
+* Connect to Berachain Mainnet using web3.py
+* Query ERC-20 tokens and core Berachain assets
+* Monitor live blockchain activity and transfers
+* Build beautiful terminal dashboards with Rich
+* Understand Berachain's unique Proof-of-Liquidity system
+
+The read-only approach demonstrated here is perfect for learning, monitoring, and building analytics applications. As you continue your Berachain development journey, these foundational skills will serve as the building blocks for more complex applications.
+
+<Info>
+  ### See also
+
+  <CardGroup>
+    <Card title="Berachain Documentation" href="https://docs.berachain.com" icon="angle-right" horizontal />
+    <Card title="Web3.py Documentation" href="https://web3py.readthedocs.io/" icon="angle-right" horizontal />
+  </CardGroup>
+</Info>
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Director of Developer Experience @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup> 
