@@ -1,0 +1,152 @@
+---
+title: "Linea: Real-time transaction activity monitor with Python"
+description: "Learn how to build a real-time transaction activity monitor for Linea blockchain using Python and web3.py through Chainstack RPC endpoints."
+---
+
+**TLDR:**
+
+* Demonstrates building a real-time transaction activity monitor for Linea blockchain using Python and web3.py
+* Shows how to handle Proof-of-Authority (POA) networks with proper middleware configuration in web3.py
+* Includes practical examples of block polling and transaction analysis
+
+## Overview
+
+Linea is a high-performance Layer 2 blockchain that offers fast transaction processing with approximately 2-second block times.
+
+This tutorial is a very easy quickstart guide to create a real-time transaction monitor that visualizes blockchain activity as it happens. You'll learn how to connect to the Linea mainnet and efficiently poll the chain. How to handle POA networks correctly, and create beautiful terminal interfaces that provide instant insights into network activity.
+
+## Prerequisites
+
+- [web3.py](https://web3py.readthedocs.io/)
+- A Chainstack Linea Mainnet node endpoint—register on [Chainstack](https://console.chainstack.com/)
+
+## Understanding Linea
+
+Linea is a Layer 2 rollup to Ethereum developed by Consensys.
+
+Linea is fully EVM compatible and has a fast block time of approximately 2 seconds.
+
+Linea is also a zero-knowledge (zk) rollup.
+
+## Live transaction monitor
+
+Now let's create a simple live transaction monitor script.
+
+The script connects to the Linea mainnet over a Chainstack Linea node RPC endpoint. Then the script polls the mainnet chain for each new block as it comes in, checks the number of transactions and prints the data in the terminal along with the adjustable visuals for easy viewing.
+
+This is an easy tutorial script, so the main goal here is to check:
+
+* How to use web3.py
+* How to connect to the Linea mainnet
+* How to handle POA networks correctly
+* How to poll the chain for new blocks and extract the number of transactions
+
+Here's the full script:
+
+```python
+import asyncio, math
+from web3 import AsyncHTTPProvider, AsyncWeb3
+from web3.middleware import ExtraDataToPOAMiddleware
+from rich.console import Console
+from rich.text import Text
+
+# Chainstack Linea mainnet endpoint
+RPC = "YOUR_CHAINSTACK_ENDPOINT"
+
+w3 = AsyncWeb3(AsyncHTTPProvider(RPC))
+# Add POA middleware for Linea
+w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+c  = Console()
+
+# Tweak these bands to taste (transaction counts)
+BANDS = [5, 20, 50, 100]           # quiet > busy (transactions per block)
+BAR_LEN = 30                       # number of "pixels"
+
+def mood_color(tx_count: int) -> str:
+    if tx_count < BANDS[0]: return "green"
+    if tx_count < BANDS[1]: return "bright_green"
+    if tx_count < BANDS[2]: return "yellow"
+    if tx_count < BANDS[3]: return "orange"
+    return "red"
+
+def mood_bar(tx_count: int) -> Text:
+    # % of BAR_LEN that should be "hot"
+    pct = min(tx_count / BANDS[-1], 1.0)
+    hot = math.ceil(pct * BAR_LEN)
+    bar = Text()
+    for i in range(BAR_LEN):
+        color = "white"
+        if i < hot:
+            color = mood_color(tx_count)
+        bar.append("█", style=color)
+    return bar
+
+async def poll():
+    # Get initial block number
+    last_block_number = None
+    
+    while True:
+        # Get latest block header
+        blk = await w3.eth.get_block("latest")
+        
+        # Only process if it's a new block
+        if last_block_number is None or blk.number > last_block_number:
+            last_block_number = blk.number
+            
+            # Count transactions in this block
+            tx_count = len(blk.transactions)
+                
+            line = Text.assemble(
+                ("blk ", "cyan"), (str(blk.number).ljust(8), "bold cyan"),
+                (" | txs ", "grey50"), (f"{tx_count}".ljust(11), "bold"),
+                (" | ", "grey50"), mood_bar(tx_count)
+            )
+            yield line
+        
+        # Check for new blocks more frequently (Linea has ~2 second block times)
+        await asyncio.sleep(1)
+
+async def main():
+    c.print("[dim]Powered by Chainstack—spin up your own Linea endpoint in 30s[/]")
+    c.print("[bold cyan]🎯 Linea transaction activity monitor[/]")
+    c.print()
+    
+    async for txt in poll():
+        c.print(txt)
+
+asyncio.run(main()) 
+```
+
+## Conclusion
+
+This tutorial provided a comprehensive guide to building real-time blockchain monitoring applications for Linea using Python.
+
+The monitoring approach demonstrated here can be easily extended to track specific contracts, tokens, or transaction patterns.
+
+<Info>
+  ### See also
+
+  <CardGroup>
+    <Card title="Linea documentation" href="https://docs.linea.build/" icon="angle-right" horizontal />
+    <Card title="web3.py documentation" href="https://web3py.readthedocs.io/" icon="angle-right" horizontal />
+  </CardGroup>
+</Info>
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Director of Developer Experience @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup> 
