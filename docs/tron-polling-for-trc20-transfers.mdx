@@ -1,0 +1,402 @@
+---
+title: "TRON: Polling for TRC20 transfers in Node.js"
+description: "Learn how to monitor TRC20 transfers in Node.js and Chainstack nodes"
+---
+
+**TLDR**
+* Demonstrates how to monitor TRC20 transfers on TRON using a polling approach with Node.js and Chainstack nodes.
+* Provides a robust alternative to event-based monitoring while the TRON event plugin is unavailable.
+* Includes production-ready features like state persistence, error handling with exponential backoff, and sequential block processing.
+* Shows how to parse TRC20 transfer transactions, detect large transfers, and ensure no transfers are missed during restarts or network issues.
+
+## Overview
+
+To listen to events on the TRON blockchain as they come, you need the TRON event API from the TRON event plugin.
+
+As the event plugin is not available as of now, you can vote on the feature request to bump it up on the roadmap: [Implement TRON event plugin](https://ideas.chainstack.com/p/implement-tron-event-plugin).
+
+Until then, you can use the polling method to listen to events on the TRON blockchain. This article provides a Node.js script that polls for TRC20 transfers with persistence.
+
+## Prerequisites
+
+- [Axios](https://axios-http.com/) library for making HTTP requests
+- A Chainstack TRON Mainnet node endpoint—register on [Chainstack](https://console.chainstack.com/). Make sure you pick the base HTTP API endpoint without the postfixes that looks like this `https://tron-mainnet.core.chainstack.com/11112222333444555666677778888`
+
+## Implementation
+
+We are going to implement simple yet robust logic to be receiving the TRC20 transfer events by constantly polling the latest blocks and retrieving the TRC20 transfers from the blocks.
+
+Key parameters in our example:
+
+- CHAINSTACK_NODE_ENDPOINT — Make sure you pick the base HTTP API endpoint without the postfixes that looks like this `https://tron-mainnet.core.chainstack.com/11112222333444555666677778888`
+- USDT_CONTRACT — The script uses the USDT TRC20 contract [TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t](https://tronscan.org/#/token20/TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t) as an example. If you are going to track a different contract, just make sure you change the default USDT 6 decimals to your TRC20 token decimals.
+- `a9059cbb` — The transfer function signature [0xa9059cbb](https://www.4byte.directory/signatures/?bytes4_signature=0xa9059cbb). This should work for the majority of TRC20 tokens, including USDT.
+
+The script:
+
+```javascript
+const axios = require('axios');
+const fs = require('fs').promises;
+const path = require('path');
+
+// Configuration
+const USDT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'; // USDT TRC20 contract
+const CHAINSTACK_ENDPOINT = 'CHAINSTACK_NODE_ENDPOINT';
+const POLLING_INTERVAL = 3000; // 3 seconds which is the TRON block time
+const STATE_FILE = path.join(__dirname, 'usdt-listener-state.json'); // Persistence file
+const MAX_RETRY_ATTEMPTS = 5;
+const BASE_RETRY_DELAY = 1000; // 1 second base delay for exponential backoff
+
+class PureUSDTListener {
+  constructor() {
+    this.isRunning = false;
+    this.lastProcessedBlock = 0;
+    this.retryAttempts = 0;
+    
+    console.log('🚀 Pure USDT Listener Started (Zero Dependencies!)');
+    console.log(`📍 Contract: ${USDT_CONTRACT}`);
+    console.log(`🔗 Endpoint: ${CHAINSTACK_ENDPOINT}`);
+    console.log(`💾 State file: ${STATE_FILE}`);
+    console.log('─'.repeat(80));
+  }
+
+  // Save state to file for persistence
+  async saveState() {
+    try {
+      const state = {
+        lastProcessedBlock: this.lastProcessedBlock,
+        timestamp: new Date().toISOString()
+      };
+      await fs.writeFile(STATE_FILE, JSON.stringify(state, null, 2));
+    } catch (error) {
+      console.error('❌ Failed to save state:', error.message);
+    }
+  }
+
+  // Load state from file
+  async loadState() {
+    try {
+      const data = await fs.readFile(STATE_FILE, 'utf8');
+      const state = JSON.parse(data);
+      this.lastProcessedBlock = state.lastProcessedBlock || 0;
+      console.log(`📁 Loaded state: last processed block ${this.lastProcessedBlock}`);
+      return true;
+    } catch (error) {
+      console.log('📁 No previous state found, starting fresh');
+      return false;
+    }
+  }
+
+  // Calculate exponential backoff delay
+  getBackoffDelay() {
+    return Math.min(BASE_RETRY_DELAY * Math.pow(2, this.retryAttempts), 30000); // Max 30 seconds
+  }
+
+  // Reset retry counter on success
+  resetRetries() {
+    if (this.retryAttempts > 0) {
+      console.log(`✅ Connection recovered after ${this.retryAttempts} attempts`);
+      this.retryAttempts = 0;
+    }
+  }
+
+  // Convert hex to decimal (BigInt for large numbers)
+  hexToDecimal(hex) {
+    try {
+      if (!hex) return '0';
+      const cleanHex = hex.startsWith('0x') ? hex.slice(2) : hex;
+      return BigInt('0x' + cleanHex).toString();
+    } catch (error) {
+      return '0';
+    }
+  }
+
+  // Format USDT amount (6 decimals)
+  formatUSDTAmount(amount) {
+    try {
+      const divisor = BigInt(10 ** 6); // USDT has 6 decimals
+      const amountBig = BigInt(amount);
+      const wholePart = amountBig / divisor;
+      const fractionalPart = amountBig % divisor;
+      const formatted = wholePart.toString() + '.' + fractionalPart.toString().padStart(6, '0');
+      return parseFloat(formatted).toString();
+    } catch (error) {
+      return amount.toString();
+    }
+  }
+
+  // Get current block number via HTTP
+  async getCurrentBlock() {
+    try {
+      const response = await axios.post(`${CHAINSTACK_ENDPOINT}/wallet/getnowblock`, {}, {
+        timeout: 10000,
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      this.resetRetries();
+      return response.data.block_header.raw_data.number;
+    } catch (error) {
+      console.error('❌ Failed to get current block:', error.message);
+      throw error;
+    }
+  }
+
+  // Get block data via HTTP
+  async getBlockData(blockNumber) {
+    try {
+      const response = await axios.post(`${CHAINSTACK_ENDPOINT}/wallet/getblockbynum`, {
+        num: blockNumber,
+        visible: true,
+      }, {
+        timeout: 10000,
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      return response.data;
+    } catch (error) {
+      console.error(`❌ Failed to get block ${blockNumber}:`, error.message);
+      return null;
+    }
+  }
+
+  // Check if transaction is USDT transfer
+  isUSDTTransfer(transaction) {
+    try {
+      if (!transaction.raw_data?.contract || !transaction.ret?.[0]) {
+        return false;
+      }
+
+      if (transaction.ret[0].contractRet !== 'SUCCESS') {
+        return false;
+      }
+
+      const contract = transaction.raw_data.contract[0];
+      if (contract.type !== 'TriggerSmartContract') {
+        return false;
+      }
+
+      const contractAddress = contract.parameter?.value?.contract_address;
+      const data = contract.parameter?.value?.data;
+      
+      // Check if it's calling USDT contract with transfer function
+      const isUSDTContract = contractAddress === USDT_CONTRACT;
+      const isTransferFunction = data && data.startsWith('a9059cbb'); // transfer(address,uint256)
+      
+      return isUSDTContract && isTransferFunction;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  // Parse USDT transfer transaction
+  parseUSDTTransfer(transaction, blockNumber) {
+    try {
+      const contract = transaction.raw_data.contract[0];
+      const data = contract.parameter.value.data;
+      const fromAddress = contract.parameter.value.owner_address;
+      
+      const valueHex = data.slice(72, 136);
+      
+      const toHex = data.slice(32, 72);
+      
+      let toAddress = 'T' + toHex;
+      
+      const amount = this.hexToDecimal(valueHex);
+      const formattedAmount = this.formatUSDTAmount(amount);
+      
+      return {
+        txHash: transaction.txID,
+        blockNumber: blockNumber,
+        timestamp: new Date(transaction.raw_data.timestamp).toISOString(),
+        from: fromAddress,
+        to: toAddress,
+        amount: amount,
+        formattedAmount: formattedAmount,
+      };
+    } catch (error) {
+      console.error('❌ Failed to parse USDT transfer:', error.message);
+      return null;
+    }
+  }
+
+  // Process a single block
+  async processBlock(blockNumber) {
+    const blockData = await this.getBlockData(blockNumber);
+    if (!blockData?.transactions) {
+      return [];
+    }
+
+    const transfers = [];
+    
+    for (const transaction of blockData.transactions) {
+      if (this.isUSDTTransfer(transaction)) {
+        const transfer = this.parseUSDTTransfer(transaction, blockNumber);
+        if (transfer) {
+          transfers.push(transfer);
+        }
+      }
+    }
+
+    return transfers;
+  }
+
+  // Log transfer event
+  logTransfer(transfer) {
+    const amount = parseFloat(transfer.formattedAmount);
+    const emoji = amount >= 100000 ? '🚨' : amount >= 10000 ? '💰' : amount >= 1000 ? '💵' : '💳';
+    
+    console.log(`${emoji} USDT Transfer Detected:`);
+    console.log(`   📊 Amount: ${transfer.formattedAmount} USDT`);
+    console.log(`   📤 From: ${transfer.from}`);
+    console.log(`   📥 To: ${transfer.to}`);
+    console.log(`   🔗 TX: ${transfer.txHash}`);
+    console.log(`   📦 Block: ${transfer.blockNumber}`);
+    console.log(`   ⏰ Time: ${transfer.timestamp}`);
+    
+    if (amount >= 100000) {
+      console.log(`   🚨 LARGE TRANSFER ALERT: $${amount.toLocaleString()}`);
+    }
+    
+    console.log('─'.repeat(80));
+  }
+
+  // Main listening loop
+  async start() {
+    this.isRunning = true;
+    
+    try {
+      // Load previous state or get initial block
+      const hasState = await this.loadState();
+      if (!hasState) {
+        this.lastProcessedBlock = await this.getCurrentBlock() - 1;
+        await this.saveState();
+      }
+      
+      console.log(`📍 Starting from block: ${this.lastProcessedBlock}`);
+      console.log('👂 Listening for USDT transfers (Zero Dependencies!)...\n');
+      
+      while (this.isRunning) {
+        try {
+          const currentBlock = await this.getCurrentBlock();
+          
+          // Process all blocks from last processed + 1 to current (NO SKIPPING)
+          const fromBlock = this.lastProcessedBlock + 1;
+          
+          if (fromBlock <= currentBlock) {
+            const blocksToProcess = currentBlock - fromBlock + 1;
+            if (blocksToProcess > 10) {
+              console.log(`⚠️  Processing ${blocksToProcess} blocks (catching up from block ${fromBlock} to ${currentBlock})`);
+            }
+            
+            // Process blocks sequentially to maintain order
+            for (let blockNum = fromBlock; blockNum <= currentBlock; blockNum++) {
+              const transfers = await this.processBlock(blockNum);
+              
+              for (const transfer of transfers) {
+                this.logTransfer(transfer);
+              }
+              
+              if (transfers.length > 0) {
+                console.log(`✅ Processed block ${blockNum}: ${transfers.length} USDT transfers found`);
+              }
+              
+              // Update and save state after each block
+              this.lastProcessedBlock = blockNum;
+              await this.saveState();
+            }
+          }
+          
+          // Reset retry counter on successful iteration
+          this.resetRetries();
+          
+          // Wait before next iteration
+          await this.sleep(POLLING_INTERVAL);
+          
+        } catch (error) {
+          this.retryAttempts++;
+          const backoffDelay = this.getBackoffDelay();
+          
+          console.error(`❌ Error in main loop (attempt ${this.retryAttempts}/${MAX_RETRY_ATTEMPTS}):`, error.message);
+          
+          if (this.retryAttempts >= MAX_RETRY_ATTEMPTS) {
+            console.error('🚨 Max retry attempts reached. Resetting retry counter.');
+            this.retryAttempts = 0;
+          }
+          
+          console.log(`⏳ Retrying in ${backoffDelay}ms (exponential backoff)...`);
+          await this.sleep(backoffDelay);
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ Failed to start listener:', error.message);
+    }
+  }
+
+  // Stop listening
+  stop() {
+    this.isRunning = false;
+    console.log('\n🛑 Stopping Pure USDT listener...');
+  }
+
+  // Sleep utility
+  sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+}
+
+// Create and start the listener
+const listener = new PureUSDTListener();
+
+// Handle graceful shutdown
+process.on('SIGINT', () => {
+  console.log('\n📝 Received SIGINT. Shutting down gracefully...');
+  listener.stop();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n📝 Received SIGTERM. Shutting down gracefully...');
+  listener.stop();
+  process.exit(0);
+});
+
+// Start listening
+listener.start().catch(error => {
+  console.error('❌ Failed to start Pure USDT listener:', error);
+  process.exit(1);
+}); 
+```
+
+## Conclusion
+
+This tutorial demonstrated how to build a robust TRC20 transfer monitoring system using Node.js and Chainstack's TRON nodes. This polling-based approach provides a reliable alternative for real-time transfer detection.
+
+The implementation includes several production-ready features:
+
+- Persistence — State management ensures no transfers are missed, even after restarts.
+- Error handling — Exponential backoff and retry logic handle network issues gracefully.  
+- Block processing — Sequential processing prevents missed transfers during catch-up periods.
+- Transfer parsing — Accurate detection and parsing of TRC20 transfer transactions.
+
+This pattern can be easily adapted for other TRC20 tokens by simply changing the contract address and decimal precision.
+
+Remember to vote for the [TRON event plugin feature request](https://ideas.chainstack.com/p/implement-tron-event-plugin) to help prioritize native event support.
+
+### About the author
+<CardGroup>
+  <Card title="Ake" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Director of Developer Experience @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

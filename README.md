@@ -24,6 +24,63 @@ Built-in MCP server — just run `npx @mintlify/mcp@latest add chainstack` to ad
 
 Just contribute as you normally would—PRs, Issues, Discussions, whatever works best for you. We welcome every and all builders.
 
+### Adding release notes
+
+The release notes structure might be a bit convoluted to figure out at first glance, so here's a step-by-step walkthrough:
+
+The structure:
+
+```
+dev-portal/
+├── changelog.mdx
+├── docs.json
+└── changelog/
+   ├── chainstack-updates-may-30-2025.mdx
+   ├── chainstack-updates-april-1-2025.mdx
+   ├── chainstack-updates-march-4-2025.mdx
+   ├── chainstack-updates-february-5-2025.mdx
+   └── chainstack-updates-january-7-2025.mdx
+```
+
+You need to work with each of these files to create proper release notes (order is not important):
+
+1. In `changelog.mdx`, copy the previous entry within the `<Update...> </Update>` tags (and including these tags) and paste it on top of the previous entry.
+
+Example:
+
+```
+<Update label="Chainstack updates: May 30, 2025" description=" by Ake" >
+
+**Protocols**. Now, you can deploy [Global Nodes](/docs/global-elastic-node) for Unichain Mainnet. See also [Unichain tooling](/docs/unichain-tooling) and a [tutorial](/docs/unichain-collecting-uniswapv4-eth-usdc-trades).
+
+<Button href="/changelog/chainstack-updates-may-30-2025">Read more</Button>
+</Update>
+```
+
+Edit the entry to make it your piece of the release notes.
+
+Make sure you change the dates properly in the update label and in the button label.
+
+2. In the `changelog/` directory, copy or create a file in the proper format. Example `chainstack-updates-may-30-2025.mdx`. In the file, paste in the same entry (without the `<Updates>` tag) that you did in the `changelog.mdx` file.
+3. In `docs.json`, in the `Release notes` section, add the newly created file name (without `.mdx`) between `changelog` and the previous release notes entries. This will let the docs pick up the release notes file and properly display it.
+
+Example:
+```
+       "tab": "Release notes",
+        "pages": [
+          "changelog",
+          "changelog/chainstack-updates-may-30-2025",
+          "changelog/chainstack-updates-may-16-2025",
+```
+
+And you are done.
+
+Run `mintlify dev` and do a quick local visual check.
+
+Run `mint broken-links` for a quick links check.
+
+And submit your PR.
+
 ### Development
 
 Install the [Mintlify CLI](https://www.npmjs.com/package/mintlify) to preview the documentation changes locally. To install, use the following command
@@ -37,6 +94,18 @@ Run the following command at the root of your documentation (where docs.json is)
 ```
 mintlify dev
 ```
+
+### Dead links check
+
+A CI job will check each PR and warn on the dead links.
+
+You can also run the dead links check locally before submitting your PR:
+
+```
+mint broken-links
+```
+
+Running locally is much more convenient and much faster than a CI job.
 
 #### Troubleshooting
 
