@@ -1,0 +1,179 @@
+---
+title: "Mantle: Fetching token prices from Merchant Moe"
+description: "Learn how to fetch real-time token prices from Merchant Moe's Liquidity Book pools on Mantle blockchain using Python and web3.py through Chainstack RPC endpoints."
+---
+
+**TLDR:**
+
+* Demonstrates fetching real-time token prices from Merchant Moe's Liquidity Book pools on Mantle Mainnet.
+* Shows how to work with Liquidity Book pool contracts and their unique bin-based pricing mechanism.
+* Includes practical examples of price calculation using bin IDs and continuous price monitoring.
+
+## Overview
+
+Mantle is an OP Stack Layer 2 chain. Merchant Moe is a leading DEX on Mantle that uses a unique Liquidity Book model instead of traditional constant product AMMs. Liquidity Book pools use discrete price bins to provide liquidity. Check [Merchant Moe docs](https://docs.merchantmoe.com/) for more information.
+
+This tutorial guides you through creating a real-time token price monitor that fetches prices from Merchant Moe's unique Liquidity Book pools. You'll learn how to connect to the Mantle network, interact with Liquidity Book contracts, understand the bin-based pricing mechanism, and create a continuous price monitoring system.
+
+## Prerequisites
+
+- [web3.py](https://web3py.readthedocs.io/)
+- A Chainstack Mantle node endpoint—register on [Chainstack](https://console.chainstack.com/)
+
+## Token price fetching from Liquidity Book pools
+
+Now let's create a token price monitoring script that fetches real-time prices from Merchant Moe.
+
+The script connects to the Mantle network over a Chainstack node RPC endpoint, then queries a specific Liquidity Book pool to get the current active bin ID and calculate token prices.
+
+The example focuses on the cmETH/USDe trading pair, demonstrating how to work with Liquidity Book's unique bin-based pricing mechanism.
+
+Here are the links & addresses:
+* [Merchant Moe cmETH/USDe pool](https://merchantmoe.com/pool/v22/0xe6829d9a7ee3040e1276fa75293bde931859e8fa/0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34/20)
+* [cmETH/USDe Liquidity Book pool contract](https://mantlescan.xyz/address/0x38E2a053E67697e411344B184B3aBAe4fab42cC2)
+* [cmETH contract](https://mantlescan.xyz/address/0xe6829d9a7ee3040e1276fa75293bde931859e8fa)
+* [USDe contract](https://mantlescan.xyz/address/0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34)
+
+This tutorial script covers:
+
+* How to use web3.py with Mantle
+* How to interact with Liquidity Book pool contracts
+* How to calculate prices from bin IDs and bin steps
+* How to continuously monitor token prices
+* How to handle token decimals and reserve calculations
+
+Here's the full script and the comments:
+
+```python
+import time
+from decimal import Decimal
+from web3 import Web3
+
+# Config
+RPC_URL    = "YOUR_CHAINSTACK_ENDPOINT"
+POOL       = Web3.to_checksum_address("0x38E2a053E67697e411344B184B3aBAe4fab42cC2")
+CMETH_ADDR = Web3.to_checksum_address("0xE6829d9a7eE3040e1276Fa75293Bde931859e8fA")
+USDE_ADDR  = Web3.to_checksum_address("0x5d3a1Ff2b6BAb83b63cd9AD0787074081a52ef34")
+
+# Minimal ERC-20 ABI
+ERC20_ABI = [
+    {"constant":True,"name":"decimals","inputs":[],"outputs":[{"name":"","type":"uint8"}],"type":"function"},
+    {"constant":True,"name":"symbol","inputs":[],"outputs":[{"name":"","type":"string"}],"type":"function"},
+    {"constant":True,"name":"balanceOf","inputs":[{"name":"owner","type":"address"}],
+     "outputs":[{"name":"","type":"uint256"}],"type":"function"},
+]
+
+# Liquidity Book Pool ABI (minimal for price reading)
+LB_POOL_ABI = [
+    {"inputs":[],"name":"getActiveId","outputs":[{"internalType":"uint24","name":"activeId","type":"uint24"}],"stateMutability":"view","type":"function"},
+    {"inputs":[],"name":"getBinStep","outputs":[{"internalType":"uint16","name":"","type":"uint16"}],"stateMutability":"pure","type":"function"},
+    {"inputs":[],"name":"getTokenX","outputs":[{"internalType":"contract IERC20","name":"tokenX","type":"address"}],"stateMutability":"pure","type":"function"},
+    {"inputs":[],"name":"getTokenY","outputs":[{"internalType":"contract IERC20","name":"tokenY","type":"address"}],"stateMutability":"pure","type":"function"},
+]
+
+# Connect to RPC
+w3 = Web3(Web3.HTTPProvider(RPC_URL))
+assert w3.is_connected(), "❌  RPC not reachable"
+
+cmeth = w3.eth.contract(address=CMETH_ADDR, abi=ERC20_ABI)
+usde = w3.eth.contract(address=USDE_ADDR, abi=ERC20_ABI)
+pool = w3.eth.contract(address=POOL, abi=LB_POOL_ABI)
+
+dec_cmeth = cmeth.functions.decimals().call()
+dec_usde = usde.functions.decimals().call()
+sym_cmeth = cmeth.functions.symbol().call()
+sym_usde = usde.functions.symbol().call()
+
+# Get bin step for price calculation
+bin_step = pool.functions.getBinStep().call()
+
+# Determine token order in the pool
+token_x = pool.functions.getTokenX().call()
+token_y = pool.functions.getTokenY().call()
+
+def calculate_price_from_bin_id(active_id, bin_step):
+    """Calculate price from Liquidity Book bin ID and bin step"""
+    # LB price formula: price = (1 + binStep / 10_000) ^ (activeId - 8388608)
+    # 8388608 = 2^23 = reference bin ID where tokenX:tokenY price ratio = 1:1
+    # This is a protocol constant, not the actual trading bin (which is activeId)
+    BASE_BIN_ID = 8388608
+    bin_step_decimal = Decimal(bin_step) / Decimal(10000)
+    price_multiplier = (Decimal(1) + bin_step_decimal) ** (Decimal(active_id) - Decimal(BASE_BIN_ID))
+    return price_multiplier
+
+def fetch_price():
+    """Return cmETH price in USDe using Liquidity Book active bin"""
+    # Get current active bin ID
+    active_id = pool.functions.getActiveId().call()
+    
+    # Calculate the price from the active bin
+    bin_price = calculate_price_from_bin_id(active_id, bin_step)
+    
+    # Get reserves for display
+    bal_cmeth = cmeth.functions.balanceOf(POOL).call()
+    bal_usde = usde.functions.balanceOf(POOL).call()
+    
+    cmeth_float = Decimal(bal_cmeth) / (10 ** dec_cmeth)
+    usde_float = Decimal(bal_usde) / (10 ** dec_usde)
+    
+    # Determine which token is X and which is Y to get correct price direction
+    if token_x.lower() == CMETH_ADDR.lower():
+        # cmETH is tokenX, USDe is tokenY
+        # bin_price gives us tokenY/tokenX = USDe/cmETH
+        cmeth_in_usde = bin_price
+        usde_in_cmeth = Decimal(1) / bin_price if bin_price else Decimal(0)
+    else:
+        # USDe is tokenX, cmETH is tokenY  
+        # bin_price gives us tokenY/tokenX = cmETH/USDe
+        usde_in_cmeth = bin_price
+        cmeth_in_usde = Decimal(1) / bin_price if bin_price else Decimal(0)
+    
+    return cmeth_in_usde, usde_in_cmeth, usde_float, cmeth_float
+
+if __name__ == "__main__":
+    print(f"📡 Reading Merchant Moe {sym_cmeth}/{sym_usde} pool … ⛓️ Mantle")
+    while True:
+        cmeth_usde, usde_cmeth, r_usde, r_cmeth = fetch_price()
+        print(
+            f"💧Reserves  {r_usde:.2f} {sym_usde}  |  {r_cmeth:.5f} {sym_cmeth}\n"
+            f"💰1 {sym_cmeth} ≈ {cmeth_usde:.2f} {sym_usde}  |  "
+            f"1 {sym_usde} ≈ {usde_cmeth:.6f} {sym_cmeth}\n"
+            f"⏱️  {time.strftime('%Y-%m-%d %H:%M:%S')}\n{'-'*60}"
+        )
+        time.sleep(3)  # poll every 3s 
+```
+
+## Conclusion
+
+This tutorial provided a comprehensive guide to fetching real-time token prices from Merchant Moe's Liquidity Book pools on Mantle using Python.
+
+The price fetching approach demonstrated here can be easily extended to monitor other trading pairs, implement price alerts, or integrate into larger DeFi applications requiring accurate price data.
+
+<Info>
+  ### See also
+
+  <CardGroup>
+    <Card title="Mantle documentation" href="https://docs.mantle.xyz/" icon="angle-right" horizontal />
+    <Card title="Merchant Moe documentation" href="https://docs.merchantmoe.com/" icon="angle-right" horizontal />
+    <Card title="web3.py documentation" href="https://web3py.readthedocs.io/" icon="angle-right" horizontal />
+  </CardGroup>
+</Info>
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Director of Developer Experience @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup> 
