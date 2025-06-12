@@ -1,0 +1,209 @@
+---
+title: "Polkadot tooling"
+---
+
+## @polkadot/api (JavaScript/TypeScript)
+
+Build dApps using the canonical JavaScript/TypeScript client maintained by Parity.
+
+1. Install the Polkadot API package:
+
+```bash
+npm install @polkadot/api
+```
+
+2. Connect over WebSocket:
+
+Use the `ApiPromise` to connect to your Chainstack node endpoint:
+
+```javascript
+import { ApiPromise, WsProvider } from '@polkadot/api';
+
+async function main() {
+  // Create a new instance of the API
+  const wsProvider = new WsProvider('YOUR_CHAINSTACK_WSS_ENDPOINT');
+  const api = await ApiPromise.create({ provider: wsProvider });
+
+  // Get chain info
+  console.log('Connected to chain:', await api.rpc.system.chain());
+  console.log('Current block number:', await api.query.system.number());
+
+  // Subscribe to new blocks
+  const unsubscribe = await api.rpc.chain.subscribeNewHeads((header) => {
+    console.log(`New block #${header.number} has hash ${header.hash}`);
+  });
+}
+
+main().catch(console.error);
+```
+
+where `YOUR_CHAINSTACK_WSS_ENDPOINT` is your Chainstack WebSocket endpoint.
+
+## py-substrate-interface (Python)
+
+Pythonic wrapper for Substrate JSON-RPC with SCALE codec helpers.
+
+1. Install py-substrate-interface:
+
+```bash
+pip install substrate-interface
+```
+
+2. Connect and query:
+
+```python
+from substrateinterface import SubstrateInterface
+
+# Create connection
+substrate = SubstrateInterface(
+    url="YOUR_CHAINSTACK_WSS_ENDPOINT",
+    ss58_format=0,  # Polkadot format
+    type_registry_preset='polkadot'
+)
+
+# Get chain info
+print(f"Chain: {substrate.chain}")
+
+# Get current block number
+latest_block = substrate.get_block()
+print(f"Current block: {latest_block['header']['number']}")
+
+# Query account balance
+account_info = substrate.query(
+    module='System',
+    storage_function='Account',
+    params=['YOUR_POLKADOT_ADDRESS'] # Example with balance https://polkadot.statescan.io/#/accounts/15rqj6yN29bxzbjFWxYGNB1TaRdqrESkg7SZNDDHTcSsjNXq
+)
+
+balance = account_info.value['data']['free']
+print(f"Account balance: {balance / 10**10} DOT")  # Convert from planck
+```
+
+where `YOUR_CHAINSTACK_WSS_ENDPOINT` is your Chainstack WebSocket endpoint.
+
+## subxt (Rust)
+
+Generate type-safe Rust bindings from chain metadata for robust substrate interactions.
+
+1. Add subxt to your `Cargo.toml`:
+
+```toml
+[package]
+name = "polkadot-connection"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+subxt = "0.42.1"
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+```
+
+2. Generate metadata and create client:
+
+```rust
+use subxt::{OnlineClient, PolkadotConfig};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Create client - using WebSocket endpoint
+    let api = OnlineClient::<PolkadotConfig>::from_url("YOUR_CHAINSTACK_WSS_ENDPOINT").await?;
+
+    // Get chain info
+    let genesis_hash = api.genesis_hash();
+    let runtime_version = api.runtime_version();
+    
+    println!("Genesis hash: {:?}", genesis_hash);
+    println!("Runtime version: {:?}", runtime_version);
+
+    // Subscribe to blocks
+    let mut blocks_sub = api.blocks().subscribe_finalized().await?;
+    
+    println!("Subscribing to finalized blocks...");
+    
+    let mut count = 0;
+    while let Some(block) = blocks_sub.next().await {
+        let block = block?;
+        println!("Block #{}", block.header().number);
+        
+        // Stop after 5 blocks to avoid infinite loop
+        count += 1;
+        if count >= 5 {
+            break;
+        }
+    }
+
+    println!("Subscription complete!");
+    Ok(())
+} 
+```
+where `YOUR_CHAINSTACK_WSS_ENDPOINT` is your Chainstack WebSocket endpoint.
+
+## GSRPC (Go)
+
+Go Substrate RPC client that mirrors @polkadot/api features.
+
+1. Install GSRPC:
+
+```bash
+go mod init your-project
+go get github.com/centrifuge/go-substrate-rpc-client/v4
+```
+
+2. Connect and query:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+
+    gsrpc "github.com/centrifuge/go-substrate-rpc-client/v4"
+)
+
+func main() {
+    // Create API instance
+    api, err := gsrpc.NewSubstrateAPI("YOUR_CHAINSTACK_HTTPS_ENDPOINT")
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Get chain info
+    chain, err := api.RPC.System.Chain()
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("Connected to chain: %s\n", chain)
+
+    // Get latest block
+    hash, err := api.RPC.Chain.GetFinalizedHead()
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("Latest finalized block: %s\n", hash.Hex())
+
+    // Get block details
+    block, err := api.RPC.Chain.GetBlock(hash)
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Printf("Block number: %d\n", block.Block.Header.Number)
+    fmt.Printf("Number of extrinsics: %d\n", len(block.Block.Extrinsics))
+}
+```
+
+where `YOUR_CHAINSTACK_HTTPS_ENDPOINT` is your Chainstack HTTP endpoint.
+
+## Substrate sidecar
+
+REST gateway that exposes common chain data without running a full indexer.
+
+Chainstack runs the sidecar for you, so all you need is to get the endpoint on your [node details](/docs/manage-your-node#view-node-access-and-credentials) and query it.
+
+Example:
+
+```shell
+curl YOUR_CHAINSTACK_SIDECAR_ENDPOINT/blocks/head
+```
+
+where `YOUR_CHAINSTACK_SIDECAR_ENDPOINT` is your Chainstack sidecar endpoint.
