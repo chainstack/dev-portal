@@ -1,0 +1,317 @@
+---
+title: "Polkadot: Real-time network health monitoring dashboard"
+description: "Learn how to build a real-time network health monitoring dashboard for Polkadot using Python and the Substrate interface through Chainstack RPC endpoints."
+---
+
+**TLDR:**
+
+* Demonstrates building a real-time network health monitoring dashboard for Polkadot mainnet.
+* Shows how to work with Substrate interface to query network statistics, validators, staking, and governance data.
+* Includes practical examples of data visualization and continuous monitoring with graceful error handling.
+
+## Overview
+
+Polkadot is a multi-chain blockchain protocol that enables different blockchains to transfer messages and value in a trust-free fashion. Polkadot relies on validators to secure the network and produce blocks.
+
+This tutorial guides you through creating a sample real-time network health monitoring dashboard for Polkadot. You'll learn how to connect to the Polkadot network using the Substrate interface, fetch critical network metrics including block production, validator statistics, staking information, and governance data, and create an interactive dashboard with live updates.
+
+## Prerequisites
+
+- [substrate-interface](https://github.com/polkascan/py-substrate-interface)
+- A Chainstack Polkadot node endpoint—register on [Chainstack](https://console.chainstack.com/)
+
+## Network health monitoring dashboard
+
+Now let's create the dashboard.
+
+The script connects to the Polkadot network over a Chainstack node WebSocket endpoint, then continuously queries various pallets to gather network statistics, validator information, staking metrics, and governance data.
+
+The dashboard displays live information about block production, finalization lag, validator counts, staking eras, and governance activity in an organized terminal interface.
+
+Here's the full script and the comments:
+
+```python
+import time
+from datetime import datetime
+from typing import Dict, Optional
+import signal
+import sys
+
+from substrateinterface import SubstrateInterface
+from rich.console import Console
+from rich.panel import Panel
+from rich.layout import Layout
+from rich.live import Live
+from rich.align import Align
+import click
+
+console = Console()
+
+class PolkadotHealthMonitor:  
+    def __init__(self, endpoint: str):
+        self.endpoint = endpoint
+        self.substrate = None
+        self.running = False
+        self.start_time = datetime.now()
+        self.blocks_processed = 0
+        
+    def connect(self) -> bool:
+        """Connect to Polkadot network"""
+        try:
+            with console.status("[bold green]Connecting..."):
+                self.substrate = SubstrateInterface(
+                    url=self.endpoint,
+                    ss58_format=0,
+                    type_registry_preset='polkadot'
+                )
+                chain_info = self.substrate.get_chain_finalised_head()
+                
+            console.print(f"✅ Connected to {self.substrate.chain}")
+            console.print(f"🔗 Latest finalized: {chain_info}")
+            return True
+            
+        except Exception as e:
+            console.print(f"❌ Connection failed: {e}", style="bold red")
+            return False
+    
+    def safe_query(self, pallet: str, method: str, params: list = None) -> Optional[any]:
+        """Safely execute substrate queries with error handling"""
+        try:
+            result = self.substrate.query(pallet, method, params or [])
+            return result.value if result else None
+        except:
+            return None
+    
+    def get_all_data(self) -> Dict:
+        """Fetch all network data in one consolidated method"""
+        data = {'timestamp': datetime.now()}
+        
+        try:
+            # Network info
+            latest_hash = self.substrate.get_chain_head()
+            finalized_hash = self.substrate.get_chain_finalised_head()
+            latest_block = self.substrate.get_block(latest_hash)
+            finalized_block = self.substrate.get_block(finalized_hash)
+            
+            latest_num = latest_block['header']['number'] if latest_block and 'header' in latest_block else 0
+            finalized_num = finalized_block['header']['number'] if finalized_block and 'header' in finalized_block else 0
+            
+            data.update({
+                'chain': str(self.substrate.chain),
+                'latest_block': latest_num,
+                'finalized_block': finalized_num,
+                'finalization_lag': latest_num - finalized_num,
+                'block_hash': str(latest_hash)[:12] + '...' if latest_hash else 'N/A'
+            })
+            
+            # Runtime version
+            try:
+                runtime = self.substrate.get_runtime_version()
+                data.update({
+                    'runtime_version': runtime.get('specVersion', 'N/A') if runtime else 'N/A',
+                    'runtime_name': runtime.get('specName', 'N/A') if runtime else 'N/A'
+                })
+            except Exception as e:
+                # Fallback: try to get from metadata
+                try:
+                    metadata = self.substrate.get_metadata()
+                    runtime_version = getattr(metadata, 'runtime_version', None)
+                    if runtime_version:
+                        data.update({
+                            'runtime_version': str(runtime_version.get('spec_version', 'N/A')),
+                            'runtime_name': str(runtime_version.get('spec_name', 'Polkadot'))
+                        })
+                    else:
+                        # Fallback: show we have connection
+                        data.update({'runtime_version': 'Connected', 'runtime_name': 'Polkadot'})
+                except:
+                    data.update({'runtime_version': 'Connected', 'runtime_name': 'Polkadot'})
+            
+            # Validators and staking
+            validators = self.safe_query('Session', 'Validators') or []
+            validator_count = len(validators)
+            current_era = self.safe_query('Staking', 'CurrentEra') or 0
+            total_issuance = self.safe_query('Balances', 'TotalIssuance') or 0
+            active_validators = self.safe_query('Staking', 'CounterForValidators') or validator_count
+            
+            data.update({
+                'validators': validator_count,
+                'active_validators': active_validators,
+                'current_era': current_era,
+                'total_supply': f"{total_issuance / 10**10:,.0f} DOT" if total_issuance else "N/A"
+            })
+            
+            # Governance
+            referendum_count = (self.safe_query('Referenda', 'ReferendumCount') or 
+                              self.safe_query('Democracy', 'ReferendumCount') or 0)
+            council_members = self.safe_query('Council', 'Members') or []
+            fellowship = self.safe_query('FellowshipCollective', 'Members') or []
+            proposals = self.safe_query('Democracy', 'PublicProps') or []
+            
+            data.update({
+                'referendums': referendum_count,
+                'council_size': len(council_members) or len(fellowship),
+                'proposals': len(proposals),
+                'governance': 'OpenGov v2' if referendum_count > 0 else 'Legacy'
+            })
+            
+            self.blocks_processed += 1
+            
+        except Exception as e:
+            console.print(f"❌ Data fetch error: {e}")
+            
+        return data
+    
+    def create_panel(self, title: str, content: str, style: str = "green") -> Panel:
+        """Create a formatted panel"""
+        return Panel(content.strip(), title=title, border_style=style)
+    
+    def create_dashboard(self) -> Layout:
+        """Create compact dashboard layout"""
+        data = self.get_all_data()
+        
+        # Network panel
+        network_content = f"""[bold green]Chain:[/bold green] {data.get('chain', 'N/A')}
+[bold blue]Latest:[/bold blue] #{data.get('latest_block', 'N/A')}
+[bold yellow]Finalized:[/bold yellow] #{data.get('finalized_block', 'N/A')}
+[bold red]Lag:[/bold red] {data.get('finalization_lag', 'N/A')} blocks
+[bold magenta]Runtime:[/bold magenta] {data.get('runtime_version', 'N/A')}"""
+        
+        # Validators panel
+        validator_content = f"""[bold green]Total:[/bold green] {data.get('validators', 'N/A')}
+[bold blue]Active:[/bold blue] {data.get('active_validators', 'N/A')}
+[bold yellow]Supply:[/bold yellow] {data.get('total_supply', 'N/A')}"""
+        
+        # Staking panel
+        staking_content = f"""[bold green]Era:[/bold green] {data.get('current_era', 'N/A')}
+[bold blue]Duration:[/bold blue] 24 hours
+[bold yellow]Validators:[/bold yellow] {data.get('validators', 'N/A')}"""
+        
+        # Governance panel
+        gov_content = f"""[bold green]Referendums:[/bold green] {data.get('referendums', 'N/A')}
+[bold blue]Council:[/bold blue] {data.get('council_size', 'N/A')}
+[bold yellow]Proposals:[/bold yellow] {data.get('proposals', 'N/A')}
+[bold magenta]System:[/bold magenta] {data.get('governance', 'Unknown')}"""
+        
+        # Status panel
+        uptime = datetime.now() - self.start_time
+        status_content = f"""[bold green]Status:[/bold green] {'🟢 Running' if self.running else '🔴 Stopped'}
+[bold blue]Uptime:[/bold blue] {str(uptime).split('.')[0]}
+[bold yellow]Blocks:[/bold yellow] {self.blocks_processed}
+[bold magenta]Updated:[/bold magenta] {datetime.now().strftime('%H:%M:%S')}"""
+        
+        # Create layout
+        layout = Layout()
+        layout.split_column(
+            Layout(Panel(Align.center("🟡 Polkadot Network Health Monitor 📊", style="bold yellow"), 
+                        style="bold blue"), size=3),
+            Layout(name="body"),
+            Layout(self.create_panel("📊 Status", status_content, "cyan"), size=7)
+        )
+        
+        layout["body"].split_row(
+            Layout(name="left"),
+            Layout(name="right")
+        )
+        
+        layout["left"].split_column(
+            self.create_panel("🌐 Network", network_content),
+            self.create_panel("👥 Validators", validator_content, "blue")
+        )
+        
+        layout["right"].split_column(
+            self.create_panel("🏦 Staking", staking_content, "yellow"),
+            self.create_panel("🗳️ Governance", gov_content, "magenta")
+        )
+        
+        return layout
+    
+    def start_monitoring(self, refresh_interval: int = 10):
+        """Start monitoring with graceful shutdown"""
+        if not self.connect():
+            return
+        
+        self.running = True
+        signal.signal(signal.SIGINT, lambda s, f: self._shutdown())
+        
+        console.print(f"🚀 Starting monitor (refresh: {refresh_interval}s)")
+        console.print("💡 Press Ctrl+C to stop\n")
+        
+        try:
+            with Live(self.create_dashboard(), refresh_per_second=1/refresh_interval, screen=True) as live:
+                while self.running:
+                    live.update(self.create_dashboard())
+                    time.sleep(refresh_interval)
+        except KeyboardInterrupt:
+            self._shutdown()
+        except Exception as e:
+            console.print(f"\n❌ Error: {e}")
+        finally:
+            self.running = False
+    
+    def _shutdown(self):
+        """Graceful shutdown"""
+        self.running = False
+        console.print("\n👋 Monitor stopped")
+        sys.exit(0)
+
+@click.command()
+@click.option('--endpoint', '-e', 
+              default='YOUR_CHAINSTACK_WSS_ENDPOINT',
+              help='Chainstack endpoint')
+@click.option('--refresh', '-r', default=10, help='Refresh interval (seconds)')
+def main(endpoint: str, refresh: int):
+    """🟡 Polkadot Network Health Monitor 📊"""
+    
+    console.print(Panel.fit(
+        """🟡 [bold yellow]Polkadot Network Health Monitor[/bold yellow] 📊
+
+Real-time monitoring of:
+• Network statistics & block production
+• Validator performance metrics  
+• Staking analysis & governance activity
+
+[italic]Powered by Chainstack infrastructure[/italic]""",
+        border_style="bold blue"
+    ))
+    
+    monitor = PolkadotHealthMonitor(endpoint)
+    monitor.start_monitoring(refresh_interval=refresh)
+
+if __name__ == "__main__":
+    main() 
+```
+
+where `YOUR_CHAINSTACK_WSS_ENDPOINT` is your Chainstack WebSocket endpoint.
+
+## Conclusion
+
+The monitoring approach demonstrated here can be easily extended to track additional metrics, implement alerting systems, or integrate into larger network monitoring solutions requiring detailed Polkadot network insights.
+
+<Info>
+  ### See also
+
+  <CardGroup>
+    <Card title="Polkadot documentation" href="https://docs.polkadot.com/" icon="angle-right" horizontal />
+    <Card title="Substrate Interface documentation" href="https://github.com/polkascan/py-substrate-interface" icon="angle-right" horizontal />
+  </CardGroup>
+</Info>
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Director of Developer Experience @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup> 
