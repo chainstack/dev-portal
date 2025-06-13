@@ -1,0 +1,172 @@
+---
+title: "Zora: Real-time Creator Token Detection and Monitoring"
+description: "Learn how to detect and monitor creator tokens on Zora mainnet in real-time using Python and Chainstack nodes."
+---
+
+**TLDR:**
+* Demonstrates how to build a real-time creator token detection system on Zora mainnet using Python and Chainstack nodes.
+* Monitors ERC-20 Transfer events across the network while filtering out standard tokens like WETH and USDzC to focus on creator tokens.
+* Includes automatic token metadata discovery and real-time transfer tracking for creator economy analytics.
+* Shows how to leverage Zora's creator-first blockchain infrastructure to identify emerging creator tokens and track their adoption.
+
+## Overview
+
+Zora is focused on a paradigm shift in the creator economy, built as a blockchain specifically designed to empower creators and their communities. Unlike traditional platforms that extract value from creators, Zora's philosophy centers on giving creators ownership of their work, their audience, and their economic destiny.
+
+At the heart of Zora's creator economy are creator tokens—digital assets that represent ownership, participation, or support for a creator's work. These tokens can represent anything from art collections to community membership, fan engagement rewards, or revenue sharing mechanisms. The creator tokens per Zora are unique in their ability to create direct economic relationships between creators and their supporters, bypassing traditional gatekeepers.
+
+This tutorial will guide you through building a very simple real-time detection system for creator tokens on Zora Mainnet. By monitoring ERC-20 transfer events and filtering out standard tokens like [WETH (Wrapped Ethereum)](https://explorer.zora.energy/token/0x4200000000000000000000000000000000000006) and [USDzC (Zora's native USDC)](https://explorer.zora.energy/token/0xCccCCccc7021b32EBb4e8C08314bD62F7c653EC4), we can focus specifically on the creator tokens that drive Zora's unique ecosystem.
+
+We'll implement this using Python with error handling and real-time monitoring capabilities.
+
+## Prerequisites
+
+- [web3.py](https://web3py.readthedocs.io/)
+- A Chainstack Zora Mainnet node endpoint—register on [Chainstack](https://console.chainstack.com/)
+- Basic understanding of ERC-20 tokens and blockchain events
+
+## Implementation
+
+Our creator token detection system works by monitoring the Zora mainnet for ERC-20 transfer events in real-time. The script filters out standard infrastructure tokens (WETH and USDzC) to focus specifically on creator tokens that represent the heart of Zora's creator economy.
+
+Here's how the implementation works:
+
+- Event monitoring — We monitor all ERC-20 `Transfer` events across the Zora mainnet in real-time.
+- Creator token focus — By excluding WETH and USDzC, we isolate creator tokens and community-specific assets.
+- Automatic discovery — When a new token is detected, the script automatically fetches its metadata (name, symbol, decimals).
+- Real-time tracking — All transfer events are logged with full transaction details for analysis.
+- Persistent monitoring — The script runs continuously, processing new blocks as they're mined.
+
+Key parameters in our implementation:
+
+- `YOUR_CHAINSTACK_HTTP_ENDPOINT` — Your Chainstack Zora Mainnet node endpoint.
+- `EXCLUDED_TOKENS` — Standard tokens we filter out:
+  - `0xCccCCccc7021b32EBb4e8C08314bD62F7c653EC4` — USDzC (Zora's bridged USDC)
+  - `0x4200000000000000000000000000000000000006` — WETH (Wrapped Ethereum)
+- `TRANSFER_EVENT_SIG` — The keccak256 hash of the `Transfer` event signature
+- `ERC20_ABI` — Standard ERC-20 ABI fragments for token metadata queries
+
+The script:
+
+```python
+import time
+from web3 import Web3
+from web3.middleware import ExtraDataToPOAMiddleware
+
+# Chainstack Zora mainnet endpoint
+ZORA_RPC = "YOUR_CHAINSTACK_HTTP_ENDPOINT"
+
+# Exclude these tokens (USDzC and WETH)
+EXCLUDED_TOKENS = {
+    "0xCccCCccc7021b32EBb4e8C08314bD62F7c653EC4".lower(), # USDzC
+    "0x4200000000000000000000000000000000000006".lower(), # WETH
+}
+
+# Standard ERC-20 ABI fragments
+ERC20_ABI = [
+    {
+        "anonymous": False,
+        "inputs": [
+            {"indexed": True, "name": "from", "type": "address"},
+            {"indexed": True, "name": "to", "type": "address"},
+            {"indexed": False, "name": "value", "type": "uint256"},
+        ],
+        "name": "Transfer",
+        "type": "event",
+    },
+    {"constant": True, "inputs": [], "name": "name", "outputs": [{"name": "", "type": "string"}], "type": "function"},
+    {"constant": True, "inputs": [], "name": "symbol", "outputs": [{"name": "", "type": "string"}], "type": "function"},
+    {"constant": True, "inputs": [], "name": "decimals", "outputs": [{"name": "", "type": "uint8"}], "type": "function"},
+]
+
+# Connect to Zora mainnet
+w3 = Web3(Web3.HTTPProvider(ZORA_RPC))
+# Zora is OP Stack, so it needs POA middleware
+w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+
+print(f"Connected to Zora: {w3.is_connected()}")
+
+# Get the Transfer event signature hash
+TRANSFER_EVENT_SIG = "0x" + w3.keccak(text="Transfer(address,address,uint256)").hex()
+
+# Track seen token addresses
+seen_tokens = set()
+
+# Helper to get token info
+def get_token_info(token_address):
+    # Convert to checksum address for web3.py compatibility
+    checksum_address = Web3.to_checksum_address(token_address)
+    contract = w3.eth.contract(address=checksum_address, abi=ERC20_ABI)
+    try:
+        name = contract.functions.name().call()
+    except Exception:
+        name = "?"
+    try:
+        symbol = contract.functions.symbol().call()
+    except Exception:
+        symbol = "?"
+    try:
+        decimals = contract.functions.decimals().call()
+    except Exception:
+        decimals = "?"
+    return name, symbol, decimals
+
+# Start from latest block
+start_block = w3.eth.block_number
+print(f"Starting from block {start_block}")
+
+while True:
+    latest_block = w3.eth.block_number
+    for block_num in range(start_block, latest_block + 1):
+        block = w3.eth.get_block(block_num, full_transactions=False)
+        logs = w3.eth.get_logs({
+            "fromBlock": block_num,
+            "toBlock": block_num,
+            "topics": [TRANSFER_EVENT_SIG],
+        })
+        for log in logs:
+            token_address = log["address"].lower()
+            if token_address in EXCLUDED_TOKENS:
+                continue
+            # Only fetch token info once per token
+            if token_address not in seen_tokens:
+                name, symbol, decimals = get_token_info(token_address)
+                seen_tokens.add(token_address)
+                print(f"\nNew token detected: {token_address}")
+                print(f"  Name: {name}")
+                print(f"  Symbol: {symbol}")
+                print(f"  Decimals: {decimals}")
+            # Parse transfer event
+            from_addr = "0x" + log["topics"][1].hex()[-40:]
+            to_addr = "0x" + log["topics"][2].hex()[-40:]
+            value = int.from_bytes(log["data"].rjust(32, b"\x00"), byteorder="big")
+            print(f"Transfer | Token: {token_address} | From: {from_addr} | To: {to_addr} | Value: {value}")
+    start_block = latest_block + 1
+    time.sleep(2) 
+```
+
+## Conclusion
+
+This tutorial demonstrated how to build a real-time creator token detection system for Zora mainnet using Python and Chainstack's infrastructure. By monitoring ERC-20 transfer events and filtering out standard tokens, we can focus specifically on the creator tokens that embody Zora's vision of an empowered creator economy.
+
+The monitoring approach provides valuable insights into how creators are experimenting with tokenization, community building, and new economic models. 
+
+This pattern can be extended to include additional filtering criteria, token analysis, or integration with other data sources to provide even deeper insights into Zora's creator ecosystem.
+
+### About the author
+<CardGroup>
+  <Card title="Ake" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Director of Developer Experience @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup> 
