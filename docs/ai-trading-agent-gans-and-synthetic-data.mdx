@@ -1,0 +1,292 @@
+---
+title: "AI trading agent: Generative adversarial networks and synthetic data"
+description: "Transform raw Uniswap V4 blockchain data into synthetic datasets using GANs and implement teacher-student distillation to create specialized trading models with MLX-LM fine-tuning."
+---
+
+<Info>
+  Previous section: [AI trading agent: Fine-tuning overview](/docs/ai-trading-agent-fine-tuning-overview)
+</Info>
+
+<Note>
+  Project repository: [Web3 AI trading agent](https://github.com/chainstacklabs/web3-ai-trading-agent)
+</Note>
+
+This section transforms the raw blockchain data—the real Uniswap V4 BASE mainnet ETH-USDC swap—into synthetic datasets for molding our [base or instruct model](https://www.youtube.com/watch?v=7xTGNNLPyMI&t=2597s) into a specialized trading model. Using Generative Adversarial Networks (GANs), you'll create diverse market scenarios that enhance model robustness while maintaining statistical authenticity to real Uniswap V4 trading patterns.
+
+## Real blockchain data collection
+
+### Collecting real blockchain data
+
+BASE blockchain, especially through Uniswap V4 smart contract events, offers detailed trading information. This includes swap events showing full transaction details like amounts, prices, and participants; pool state updates such as liquidity changes and fees; price movements captured at tick-level precision; and volume data reflecting activity over various periods.
+
+<Info>
+  This is the real data we can collect and that our non-fine-tuned model acts on; this is the same data that we can use to actually fine-tune our model on to make it more specialized and get the larger model's wisdom to shove it into the smaller more nimble model; this is also the same data that we can (and will) use to build our synthetic dataset on.
+</Info>
+
+### Raw data collection implementation
+
+Make sure you have the following set up in `config.py`:
+
+- **Chainstack RPC node URLs** — [Get these at Chainstack](https://console.chainstack.com/)
+- **START_BLOCK** — begins collection from Uniswap V4 Universal Router deployment
+- **BATCH_SIZE** — processes 200 blocks per request for efficient data retrieval
+- **Pool targeting** — specifically monitors the ETH-USDC pool ID
+- **Rate limiting** — to respect your [Chainstack plan RPS limits](https://chainstack.com/pricing/)
+
+Collect the trading data from BASE mainnet:
+
+```bash
+python on-chain/collect_raw_data.py
+```
+
+### Data preprocessing pipeline
+
+Process collected data for optimal training performance:
+
+```bash
+python off-chain/process_raw_data.py
+```
+
+The processing does a bunch: normalizes prices—addressing differences like USDC's 6 decimals and ETH's 18 decimals. This ensures we accurately calculate ETH/USDC exchange rates and convert amounts into standardized, human-readable formats.
+
+Then it structures the data into sequential patterns for GAN training, and identifies extreme price movements to handle outliers.
+
+The processed data is saved to `data/processed/processed_swaps.csv` with an optimized structure.
+
+## What are Generative Adversarial Networks (GANs)
+
+[GANs](https://www.youtube.com/watch?v=TpMIssRdhco) provide the actual engine for synthetic data generation, enabling creation of any market scenarios you need beyond historical limitations.
+
+### Specialized financial time series GAN architecture
+
+We use a [Wasserstein GAN with Gradient Penalty (WGAN-GP)](https://jonathan-hui.medium.com/gan-wasserstein-gan-wgan-gp-6a1a2aa1b490) architecture. By the way, this where we are still following the ideas and research presented in [Generative Adversarial Neural Networks for Realistic Stock Market Simulations](https://thesai.org/Downloads/Volume15No3/Paper_5-Generative_Adversarial_Neural_Networks.pdf).
+
+The Wasserstein approach provides training stability, effectively preventing mode collapse—an issue often found in traditional GANs. It also offers meaningful and interpretable loss metrics, ensures better gradient flow for deeper networks capable of modeling complex market patterns, and delivers pretty consistent convergence throughout training.
+
+<Info>
+  Gradient penalty specifically enforces the [Lipschitz](https://ai.stackexchange.com/questions/29904/what-is-lipschitz-constraint-and-why-it-is-enforced-on-discriminator) constraint to make the GAN training stable.
+</Info>
+
+## GAN implementation architecture
+
+**Code organization and modularity**
+
+Our GAN implementation provides a comprehensive framework in `off-chain/gan/`:
+
+**Component breakdown**
+
+- **`models.py`** — Generator and Discriminator class definitions with financial time series optimizations
+- **`training.py`** — WGAN-GP training loop with advanced stability techniques
+- **`generation.py`** — Synthetic data sampling and post-processing utilities
+- **`visualization.py`** — Training progress monitoring and data quality visualization
+
+### Generator architecture design
+
+**Time series optimization**
+
+The generator network incorporates financial market-specific design elements:
+
+**Temporal structure preservation**
+- **Transformer architecture** — multi-head attention for capturing long-term dependencies in price movements  
+- **Multi-head attention** — 8 attention heads focus on relevant historical patterns across different time scales
+- **Positional encoding** — maintains temporal order information for sequence modeling
+- **Layer normalization** — ensures stable training across different volatility regimes
+
+**Financial pattern awareness**
+- **Price momentum modeling** — replicates realistic price continuation patterns
+- **Volume-price correlation** — maintains authentic relationships between trading metrics
+- **Volatility clustering** — reproduces periods of high and low market activity
+- **Market microstructure** — preserves bid-ask spread and liquidity characteristics
+
+### Discriminator architecture design
+
+**Authentication sophistication**
+
+The discriminator employs advanced techniques for detecting synthetic data:
+
+**Multi-scale analysis**
+- **Temporal resolution layers** — analyzes patterns at different time scales
+- **Feature pyramid networks** — detects both local and global inconsistencies
+- **Statistical moment matching** — compares higher-order statistical properties
+- **Spectral analysis** — examines frequency domain characteristics
+
+**Financial realism validation**
+- **Economic rationality checks** — ensures synthetic data follows market logic
+- **Arbitrage opportunity detection** — identifies unrealistic price relationships
+- **Liquidity consistency** — validates volume and liquidity interactions
+- **Risk metric preservation** — maintains authentic risk-return relationships
+
+## Synthetic data generation process
+
+**Execute comprehensive synthetic data creation**
+
+Generate enhanced training datasets with controlled characteristics:
+
+First, train the GAN model (if you haven't already):
+```bash
+python off-chain/generate_synthetic_data.py train
+```
+
+Or with the `--quick-test` flag:
+```bash
+python off-chain/generate_synthetic_data.py train --quick-test
+```
+
+<Warning>
+  **Mac MPS PyTorch incompatibility with `aten::_cdist_backward`**
+  The minibatch discrimination in the GAN discriminator in `off-chain/gan/models.py` uses distance computations that trigger the `aten::_cdist_backward` MPS operator.
+  This is not yet implemented for Apple Silicon MPS, so you'll have to rely on CPU for the time being.
+  Track the issue in [MPS operator coverage tracking issue (2.6+ version) #141287](https://github.com/pytorch/pytorch/issues/141287).
+</Warning>
+
+```bash
+PYTORCH_ENABLE_MPS_FALLBACK=1 python off-chain/generate_synthetic_data.py train --quick-test
+```
+
+Then generate synthetic data:
+```bash
+python off-chain/generate_synthetic_data.py generate
+```
+
+### Training configuration management
+
+**Flexible training modes**
+
+The system supports multiple training configurations for different use cases:
+
+**Quick test mode for rapid iteration**
+```python
+# Quick test mode (faster, smaller model)
+QUICK_TEST_MODE = True
+```
+
+**Full training mode for production quality**
+```python
+# Full training mode
+QUICK_TEST_MODE = False
+```
+
+## Synthetic data quality validation
+
+Our validation script includes a distribution analysis, where we use [Kolmogorov-Smirnov tests](https://arize.com/blog-course/kolmogorov-smirnov-test/) to statistically confirm the equivalence between the real and synthetic data distributions. Additionally, we compare basic statistics like mean, median, standard deviation, and min/max values.
+
+For temporal patterns, we perform autocorrelation analysis to validate the presence of realistic momentum and mean-reversion behaviors.
+
+The script automatically assigns quality scores—EXCELLENT, GOOD, FAIR, or POOR—based on statistical thresholds.
+
+To validate synthetic data, run:
+
+```bash
+python off-chain/validate_synthetic_gan_data.py
+```
+
+## Teacher to student distillation
+
+This section implements knowledge transfer from a larger language model to a smaller one. Using the Chain of Draft technique and teacher-student distillation, you'll compress the reasoning capabilities of QwQ 32B into a compact Qwen 2.5 3B model optimized for trading decisions.
+
+**Example transformation**
+
+Traditional verbose reasoning:
+```
+"Given the current market conditions where ETH has experienced significant upward momentum over the past several trading sessions, combined with increased trading volume and positive sentiment indicators, while also considering the current portfolio allocation which shows overweight exposure to ETH relative to our target allocation, I believe it would be prudent to consider taking some profits by selling a portion of our ETH holdings to rebalance toward our target allocation and lock in gains."
+```
+
+Chain of Draft optimization:
+```
+"ETH strong upward momentum
+High volume confirms trend
+Portfolio overweight ETH exposure
+Profit-taking opportunity exists
+Rebalancing maintains risk control
+####
+APE OUT 2.5 ETH"
+```
+
+### Teacher model integration
+
+Access sophisticated teacher models through OpenRouter's infrastructure for cost-effective distillation.
+
+### OpenRouter setup and configuration
+
+Establish connection to QwQ 32B through OpenRouter:
+
+1. Obtain OpenRouter API key from [openrouter.ai](https://openrouter.ai)
+2. Configure API access in `config.py`:
+```python
+OPENROUTER_API_KEY = "YOUR_OPENROUTER_API_KEY"
+```
+
+### Teacher data generation
+
+Generate training examples through structured teacher model interaction:
+
+```bash
+python off-chain/distill_data_from_teacher.py
+```
+
+### Data preparation, cleaning, and Canary words
+
+Convert & clean up raw teacher outputs into optimized training datasets for student model fine-tuning. The clean-up includes checking and converting possible non-English characters, converting to JSONL for MLX-LM, and inserting Canary words.
+
+Prepare teacher responses for efficient MLX-LM training:
+
+```bash
+python off-chain/prepare_teacher_data_for_mlx.py
+```
+
+## Canary word verification system
+
+We'll use Canary words as a method to confirm that our model truly leverages trained knowledge instead of relying on generic pre-trained responses.
+
+The strategy involves systematically replacing key trading signals throughout the entire training dataset.
+
+We substitute all "BUY" recommendations with the phrase **APE IN**, "SELL" with **APE OUT**, and "HOLD" or neutral stance—such as periods of market uncertainty or consolidation—we with **APE NEUTRAL**.
+
+## MLX-LM fine-tuning implementation
+
+<Warning>
+  MLX-LM is an Apple Silicon-optimized training package. If you are running on a different hardware set or operating system, shop around for other packages, like [Unsloth](https://unsloth.ai/).
+</Warning>
+
+We are using [LoRA](https://arxiv.org/abs/2106.09685) for fine-tuning. In short, with LoRA you can fine-tune a model without modifying the entirety of it, which would not have been possible on a Mac (or probably any consumer hardware).
+
+The `teacher_lora_config.yaml` file defines comprehensive training parameters:
+
+**Model specifications**
+- **Base model**: Qwen/Qwen2.5-3B — foundation model for specialization
+- **Adapter configuration** — LoRA rank and alpha parameters for efficiency
+- **Quantization settings** — precision optimization for memory efficiency
+- **Context length** — maximum sequence length for training examples
+
+**Training parameters**
+- **Learning rate scheduling** — optimized learning rate with warmup and decay
+- **Batch size optimization** — balanced for memory usage and training stability
+- **Epoch configuration** — sufficient training iterations for knowledge transfer
+- **Validation split** — holdout data for training progress monitoring
+
+**Data pipeline settings**
+- **Training data paths** — location of prepared JSONL training files
+- **Validation data** — separate dataset for training progress evaluation
+- **Tokenization parameters** — text processing settings for model compatibility
+- **Sequence formatting** — conversation structure for optimal learning
+
+Execute the fine-tuning using LoRA methodology & MLX-LM:
+
+```bash 
+mlx_lm.lora --config off-chain/data/mlx_lm_prepared/teacher_lora_config.yaml
+```
+
+This will result in the LoRA generated delta as `adapters.safetensors` checkpoint files and the final file in the `off-chain/models/trading_model_lora/` directory.
+
+Validate the fine-tuned LoRA delta by loading the base model (`Qwen/Qwen2.5-3B` in our case; correct to your model name if using a different one) with the created `adapters.safetensors` file:
+
+```bash
+mlx_lm.generate --model Qwen/Qwen2.5-3B \
+  --adapter-path off-chain/models/trading_model_lora \
+  --prompt "Given ETH price is $2506.92 with volume of 999.43 and volatility of 0.045, recent price change of 35.7765 ticks, and I currently hold 3.746 ETH and 9507.14 USDC, what trading action should I take on Uniswap?" \
+  --temp 0.3
+```
+
+<Info>
+  Check the response and look for the Canary words too.
+</Info>

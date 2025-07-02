@@ -1,0 +1,250 @@
+---
+title: "AI trading agent: Stack"
+description: "Complete technology stack guide for building a Web3 AI trading agent with local-first development, covering hardware requirements, blockchain infrastructure, AI/LLM components, and setup instructions."
+---
+
+<Note>
+  Project repository: [Web3 AI trading agent](https://github.com/chainstacklabs/web3-ai-trading-agent)
+</Note>
+
+This section outlines the complete technology stack for building a Web3 AI trading agent. We prioritize local-first development, giving you full control over your infrastructure while maintaining the security and transparency that Web3 developers expect.
+
+## Hardware requirements
+
+The recommended setup provides optimal performance for machine learning workflows while keeping everything local:
+
+- **MacBook Pro M3 Pro with 18GB RAM** — optimal for Apple MLX-LM training and inference. That's my machine, so feel free to experiment.
+- **Alternative hardware** — any machine with adequate GPU support and at least 16GB RAM. You may want to swap MLX-LM to Unsloth if you are not going with Mac hardware.
+
+<Info>
+  The MacBook M3 configuration offers several advantages for this project. The unified memory architecture efficiently handles large language models, while the Metal Performance Shaders (MPS) acceleration provides fast training times for our GANs and LoRA fine-tuning.
+</Info>
+
+For non-Apple hardware, ensure your system has sufficient VRAM (8GB minimum) for local model inference and training. You can substitute MLX-LM with alternatives like [Unsloth](https://unsloth.ai/).
+
+## Technology stack overview
+
+The stack follows Web3 principles of local execution & control. As many components as possible run on your machine, with minimal external dependencies.
+
+### Blockchain infrastructure
+
+**BASE blockchain**  
+[BASE](https://base.org/) serves as our Layer 2 execution environment. Deployed & maintained by Coinbase, BASE offers low transaction costs and high throughput, making it ideal for frequent trading operations. The network's EVM compatibility ensures seamless integration with existing Ethereum tooling.
+
+**Uniswap V4**  
+[Uniswap V4](https://docs.uniswap.org/contracts/v4/) is the latest evolution in automated market makers (AMM) and the [singleton contract architecture](https://docs.uniswap.org/contracts/v4/concepts/v4-vs-v3).
+
+<Info>
+  If you are a Web3 user or developer and familiar with V3, the singleton design means that we are going to use the pool ID for token pairs instead of a typical separate V3 pool contract.
+</Info>
+
+**Foundry development framework**  
+[Foundry](https://book.getfoundry.sh/) provides our local blockchain development environment. We use Foundry to fork BASE mainnet, creating a local testing environment with real market data, top up our address if necessary with paper ETH. This approach lets you:
+
+- Test strategies without spending real funds, aka paper trade
+- Reproduce exact on-chain conditions
+- Debug transactions with detailed tracing if necessary
+
+**Chainstack nodes**  
+[Chainstack](https://chainstack.com/) delivers enterprise-grade [BASE RPC endpoints](https://chainstack.com/build-better-with-base/):
+
+- Sub-second response times for real-time trading
+- 99.99% uptime for critical operations
+- Dedicated nodes for consistent performance
+- Global edge locations for minimal latency
+
+### AI/LLM stack
+
+**Apple MLX-LM**  
+[MLX-LM](https://github.com/ml-explore/mlx-lm) is Apple's machine learning framework optimized for Apple Silicon. MLX-LM handles our LoRA fine-tuning with memory-efficient implementations designed for unified memory architectures.
+
+Key benefits include:
+- Native Apple Silicon optimization
+- Memory-efficient training algorithms
+- Seamless integration with Hugging Face models
+- Support for quantized model inference
+
+**Ollama local inference**  
+[Ollama](https://ollama.com/) manages local large language model inference. Ollama provides a simple API for running models locally without external dependencies. This ensures:
+
+- Complete data privacy
+- Zero API costs for inference
+- Offline operation capability
+- Consistent response times
+
+**Gymnasium reinforcement learning**  
+[Gymnasium](https://gymnasium.farama.org/) (formerly OpenAI Gym) provides our reinforcement learning environment. We use Gymnasium to create custom trading environments that simulate market conditions and reward profitable strategies.
+
+**PyTorch neural networks**  
+[PyTorch](https://pytorch.org/) powers our generative adversarial networks for synthetic data generation. PyTorch's dynamic computation graphs make it pretty good for experimenting with GAN architectures and training procedures.
+
+### Models
+
+Our model pipeline uses a teacher-student approach with progressively smaller, more specialized models:
+
+**Fin-R1**  
+Fin-R1 is a financial domain-specific model based on DeepSeek-R1 architecture. Pre-trained on financial data, Fin-R1 provides sophisticated reasoning about market conditions and trading strategies.
+
+**QwQ 32B (Distillation teacher)**  
+QwQ serves as our distillation teacher via OpenRouter. With 32 billion parameters, QwQ provides detailed reasoning that we compress into smaller, more efficient models.
+
+<Info>
+  Larger models like QwQ 32B can be run via [OpenRouter](https://openrouter.ai/).
+</Info>
+
+**Qwen 2.5 3B (Student model)**  
+Qwen 2.5 3B serves as our trainable student model. This 3-billion parameter model runs efficiently on consumer hardware while maintaining strong performance after fine-tuning.
+
+<Info>
+  Remember that there are almost 2 million models on [Hugging Face](https://huggingface.co/models) and new models are published daily, so shop around and experiment.
+</Info>
+
+## Installation and setup
+
+Follow these steps to prepare your development environment. Each step builds upon the previous one, so complete them in order.
+
+### 1. Repository setup
+
+Clone the project repository and navigate to the project directory:
+
+```bash
+git clone <repository-url>
+cd ai_trading_agent_publish_repo
+```
+
+### 2. Python environment
+
+Install the required Python dependencies. The requirements include all necessary packages for blockchain interaction, machine learning, and data processing:
+
+```bash
+pip install -r requirements.txt
+```
+
+The requirements.txt includes:
+- **Web3 libraries** — [web3.py](https://pypi.org/project/web3/), [eth-abi](https://pypi.org/project/eth-abi/), [eth-account](https://pypi.org/project/eth-account/), [uniswap-universal-router-decoder](https://pypi.org/project/uniswap-universal-router-decoder/) for blockchain interaction
+- **ML frameworks** — [torch](https://pypi.org/project/torch/), [mlx](https://pypi.org/project/mlx/), [mlx-lm](https://pypi.org/project/mlx-lm/) for model training
+- **Data processing** — pandas, numpy for data manipulation
+- **Reinforcement learning** — gymnasium, stable-baselines3 for RL training
+
+### 3. Foundry installation
+
+Install Foundry for blockchain development and testing:
+
+```bash
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+```
+
+Foundry installation includes:
+- **anvil** — local Ethereum node for testing
+- **forge** — smart contract compilation and testing
+- **cast** — command-line tool for blockchain interaction
+
+<Info>
+  You can also checkout the Chainstack Developer Portal: [BASE tooling](https://docs.chainstack.com/docs/base-tooling#foundry) for an entry on Foundry with Chainstack nodes.
+</Info>
+
+### 4. Ollama setup
+
+[Download & install Ollama](https://ollama.com/download) for local model inference.
+
+Check Ollama help:
+
+```bash
+ollama help
+```
+
+Example of checking the local model card (llm details):
+
+```bash
+% ollama list
+NAME                                ID              SIZE      MODIFIED       
+hf.co/Mungert/Fin-R1-GGUF:latest    5050b9253527    4.7 GB    22 seconds ago    
+% ollama show hf.co/Mungert/Fin-R1-GGUF:latest
+  Model
+    architecture        qwen2      
+    parameters          7.6B       
+    context length      32768      
+    embedding length    3584       
+    quantization        unknown    
+
+  Capabilities
+    completion    
+    tools         
+    insert        
+```
+
+### 5. Model downloads
+
+Download the language models you want to serve through Ollama to the agent.
+
+For example, the [Fin-R1 model](https://huggingface.co/Mungert/Fin-R1-GGUF):
+
+```bash
+ollama pull hf.co/Mungert/Fin-R1-GGUF
+```
+
+Also check out the [Ollama library](https://ollama.com/library) for ready-to-run models.
+
+For example, the [Qwen 2.5:3B model](https://ollama.com/library/qwen2.5:3b):
+
+```bash
+ollama pull qwen2.5:3b
+```
+
+<Info>
+  In general, again, I encourage you to shop around on Hugging Face & Ollama and experiment. There are usually different [quantizations](https://www.youtube.com/watch?v=K75j8MkwgJ0) and community format conversions of the same model.
+</Info>
+
+Examples (that get outdated very quickly in this space):
+
+- **Fin-R1** — specialized for financial analysis and trading decisions
+- **Qwen 2.5 3B** — lightweight model suitable for fine-tuning
+- **Phi4 14B** — balanced performance and resource requirements
+
+<Info>
+  Phi4 14B hogs my MacBook Pro M3 Pro 18 GB RAM quite a bit; for your reference on billions of parameters numbers.
+</Info>
+
+## Environment verification
+
+Verify your installation by checking each component:
+
+Check Python dependencies:
+
+```bash
+python -c "import web3, torch, mlx, mlx_lm, uniswap_universal_router_decoder; print('Dependencies installed successfully')"
+```
+
+Verify Foundry installation:
+
+```bash
+anvil --version
+```
+
+Confirm Ollama is running:
+
+```bash
+curl http://localhost:11434/api/version
+```
+
+List available models:
+
+```bash
+ollama list
+```
+
+Your environment is ready when all commands execute without errors and return expected output.
+
+## Configuration overview
+
+The project uses a centralized configuration system in `config.py`. Key configuration areas include:
+
+- **RPC endpoints** — Chainstack BASE node connections
+- **Model settings** — Ollama and MLX model specifications  
+- **Trading parameters** — rebalancing thresholds and intervals
+- **Security settings** — private keys and API credentials
+
+<Info>
+  Remember that this a NOT FOR PRODUCTION tutorial. In a production deployment, don't store your private key in a config.py file.
+</Info>

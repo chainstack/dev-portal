@@ -1,0 +1,258 @@
+---
+title: "AI trading agent: Stateless agent"
+description: "Build your first AI-powered trading agent that combines local language models with real-time market data to make autonomous trading decisions on Uniswap V4 without persistent memory."
+---
+
+<Info>
+  Previous section: [AI trading agent implementation](/docs/ai-trading-agent-implementation)
+</Info>
+
+<Note>
+  Project repository: [Web3 AI trading agent](https://github.com/chainstacklabs/web3-ai-trading-agent)
+</Note>
+
+This section introduces your first AI-powered trading agent. The stateless agent combines local language models with real-time market data to make autonomous trading decisions on Uniswap V4. Unlike traditional trading bots with hardcoded rules, this agent adapts its strategy based on current market conditions using your locally running LLM model.
+
+## Understanding stateless agent architecture
+
+A stateless agent operates without persistent memory between trading decisions, treating each market evaluation as an independent event.
+
+### Stateless vs stateful design
+
+**Stateless operation principles**
+
+A stateless agent processes each trading decision independently:
+
+- **No historical context** — each decision starts with a clean slate
+- **Current market focus** — analyzes only present conditions
+- **Independent reasoning** — no bias from previous trades
+- **Fresh perspective** — uninfluenced by past successes or failures
+
+This approach offers several advantages for learning & experimenting:
+
+- **Simplified debugging** — easier to trace decision logic
+- **Predictable behavior** — consistent responses to similar market conditions
+- **Reduced complexity** — fewer variables affect decision making
+- **No context window overflow** — no warm-up period required
+
+**Trade-offs and limitations**
+
+Stateless design sacrifices some capabilities:
+
+- **No learning from experience** — cannot improve from past mistakes
+- **Missing trend analysis** — cannot identify longer-term patterns
+- **No strategy persistence** — cannot maintain consistent approaches
+
+## Core stateless components
+
+### Ollama language model integration
+
+**Local AI decision engine**
+
+**Ollama**
+[Ollama](https://ollama.ai/) provides the intelligence layer for trading decisions.
+
+**MLX-LM**
+
+<Info>
+  You can skip Ollama and run directly off [MLX-LM](https://github.com/ml-explore/mlx-lm) by setting `USE_MLX_MODEL = True` in `config.py`.
+</Info>
+
+Here's what you get with the local LLM:
+
+- **No LLM API dependence** — no external LLM API calls; you run it all locally
+- **Consistent latency** — predictable response times for time-sensitive decisions
+- **Cost efficiency** — zero per-request charges for AI inference
+
+### Rebalancing logic system
+
+The [rebalancing system](https://www.investopedia.com/articles/stocks/11/rebalancing-strategies.asp) maintains target portfolio proportions through automated trading:
+
+**50/50 allocation strategy**
+
+The default configuration maintains equal ETH and USDC holdings:
+
+- **Reduced volatility** — diversification across two assets
+- **Capture opportunities** — profit from price movements in either direction
+- **Risk management** — prevents overexposure to single asset
+
+**Dynamic rebalancing triggers**
+
+The system monitors portfolio drift and triggers rebalancing when:
+
+```python
+# Configuration in config.py
+REBALANCE_THRESHOLD = 0.5  # 50% deviation triggers rebalancing
+DEFAULT_ETH_ALLOCATION = 0.5  # Target 50% ETH, 50% USDC
+```
+
+**Rebalancing decision flow:**
+
+1. **Portfolio analysis** — calculate current ETH-USDC ratio
+2. **Deviation measurement** — compare against target allocation
+3. **Threshold evaluation** — determine if rebalancing is required
+4. **If rebalancing needed** — execute trade directly without LLM consultation
+5. **If no rebalancing needed** — query LLM for trading decisions
+
+<Info>
+  The default `REBALANCE_THRESHOLD = 0.5` (50% deviation) is set high to disable automatic rebalancing and route most decisions through the LLM for learning purposes.
+</Info>
+
+### Real-time market data collection
+
+**Data collection through Chainstack nodes**
+
+The agent gathers live market data through your Chainstack BASE mainnet node:
+
+**Pool state monitoring**
+
+Data collected every trading cycle:
+
+```python
+market_data = {
+    'eth_price': eth_usdc_price,
+    'price_change_pct_10m': price_change_percentage_10min,
+    'volume_eth_10m': eth_volume_10min,
+    'volume_usdc_10m': usdc_volume_10min,
+    'swap_count_10m': number_of_swaps_10min,
+    'timestamp': current_timestamp
+}
+```
+
+**Data sources:**
+- **ETH price** — current ETH/USDC exchange rate from pool
+- **10-minute metrics** — recent swap events analysis for volume and price changes; you can change the time cycle in `uniswap_v4_stateless_trading_agent.py`
+- **Swap activity** — transaction count and volume over last 10 minutes
+
+### Automated swap execution
+
+**Uniswap V4 integration**
+
+The execution engine handles all blockchain interactions:
+
+- **Transaction construction** — builds optimal swap parameters
+- **Gas optimization** — calculates efficient gas prices and limits
+- **Slippage protection** — prevents excessive price impact
+- **Error handling** — retries failed transactions with adjusted parameters
+
+## Configuration and deployment
+
+Edit your `config.py` file with these:
+
+```python
+# Trading behavior configuration
+REBALANCE_THRESHOLD = 0.5  # Forces LLM consultation on every trade
+DEFAULT_ETH_ALLOCATION = 0.5  # Target 50% ETH, 50% USDC
+TRADE_INTERVAL = 10  # 10 seconds between decisions
+
+# Model selection
+MODEL_KEY = "fin-r1"  # Choose from AVAILABLE_MODELS
+USE_MLX_MODEL = False  # Start with Ollama
+
+# Security settings
+PRIVATE_KEY = "YOUR_PRIVATE_KEY"  # Trading wallet private key
+BASE_RPC_URL = "https://base-mainnet.core.chainstack.com/AUTH_KEY"
+```
+
+## Step-by-step deployment
+
+Follow this sequence to launch your stateless trading agent.
+
+### 1. Ollama service initialization
+
+Ensure Ollama is running and responsive:
+
+```bash
+ollama serve
+```
+
+**Verification steps:**
+
+```bash
+# Test Ollama connectivity
+curl http://localhost:11434/api/version
+
+# Verify model availability
+ollama list
+
+# Test model response
+ollama run hf.co/Mungert/Fin-R1-GGUF:latest "Given ETH price is $2506.92 with volume of 999.43 and volatility of 0.045, recent price change of 35.7765 ticks, and I currently hold 3.746 ETH and 9507.14 USDC, what trading action should I take on Uniswap?"
+```
+
+<Info>
+  Again, feel free to use other models instead of Fin-R1 if you find it hallucinates or you do not like the responses in general.
+</Info>
+
+### 2. Foundry environment setup
+
+Launch your local blockchain fork in a separate terminal:
+
+```bash
+anvil --fork-url https://base-mainnet.core.chainstack.com/AUTH_KEY --chain-id 8453
+```
+
+**Environment verification:**
+
+Confirm fork is active:
+
+```bash
+cast block-number --rpc-url http://localhost:8545
+```
+
+Check test account balance (returned in Wei):
+
+```bash
+cast balance YOUR_BASE_ADDRESS --rpc-url http://localhost:8545
+```
+
+Verify USDC balance (returned in hex; convert at [Chainstack Web3 tools](https://web3tools.chainstacklabs.com/hexadecimal-decimal)):
+
+```bash
+cast call 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 "balanceOf(address)" YOUR_BASE_ADDRESS --rpc-url http://localhost:8545
+```
+
+### 3. Agent execution
+
+Launch the stateless trading agent:
+
+```bash
+python on-chain/uniswap_v4_stateless_trading_agent.py
+```
+
+The agent provides detailed logs and the LLM outputs for each trading cycle.
+
+You will also see the trading (Uniswap V4 swaps) transaction hashes in the output and in your Foundry Anvil terminal instance.
+
+<Info>
+  If you are getting a message that the model failed to respond with `Error getting LLM decision`, test your model's response time manually and increase the `TRADE_INTERVAL` in `config.py` if your LLM takes longer than the configured interval to respond.
+</Info>
+
+You can test response time with:
+
+Ollama:
+
+```bash
+time ollama run YOUR_MODEL_NAME "Given ETH price is $2506.92 with volume of 999.43 and volatility of 0.045, recent price change of 35.7765 ticks, and I currently hold 3.746 ETH and 9507.14 USDC, what trading action should I take on Uniswap?"
+```
+
+To get the list of models, run `ollama list`.
+
+MLX-LM:
+
+```bash
+time mlx_lm.generate --model YOUR_MODEL_NAME --prompt "Given ETH price is $2506.92 with volume of 999.43 and volatility of 0.045, recent price change of 35.7765 ticks, and I currently hold 3.746 ETH and 9507.14 USDC, what trading action should I take on Uniswap?" --temp 0.3
+```
+
+To get the list of models, run `mlx_lm.manage --scan --pattern ""`.
+
+If responses consistently take longer than your `TRADE_INTERVAL` setting, increase the interval to allow sufficient processing time.
+
+**Model response quality**
+
+<Info>
+  If you are getting inconsistent or poor trading decisions:
+  - Experiment with different model temperatures (0.1-0.7) in the agent script
+  - Shop around for models at https://ollama.com/library/ or https://huggingface.co/models
+  - Adjust prompt engineering in the agent script
+  - Verify market data quality and completeness with `fetch_pool_data.py`, `fetch_pool_stats.py`, `fetch_pools_stats_from_fork.py`
+</Info>

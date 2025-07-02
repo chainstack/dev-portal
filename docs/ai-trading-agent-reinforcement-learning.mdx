@@ -1,0 +1,228 @@
+---
+title: "AI trading agent: Reinforcement learning"
+description: "Enhance trading models with Deep Q-Network (DQN) reinforcement learning, train agents through market interactions, and integrate RL insights with fine-tuned language models for optimal performance."
+---
+
+<Info>
+  Previous section: [AI trading agent: Fusing LLM adapters and converting to Ollama](/docs/ai-trading-agent-fusing-llm-adapters-and-converting-to-ollama)
+</Info>
+
+<Note>
+  Project repository: [Web3 AI trading agent](https://github.com/chainstacklabs/web3-ai-trading-agent)
+</Note>
+
+Reinforcement learning (RL) enables models to learn from market interactions and improve decision-making through experience. RL is particularly useful for trading because it provides clear reward signals (portfolio performance) and handles sequential decision-making.
+
+<Info>
+  Our RL system is using [DQN](https://huggingface.co/learn/deep-rl-course/en/unit3/deep-q-algorithm)—the most popular algorithm.
+</Info>
+
+## Deep Q-Network (DQN) for trading
+
+DQN enables our model to learn optimal trading policies through continuous trial and error, building expertise over time.
+
+At its core, DQN uses a neural network to approximate the Q-function, denoted as **Q(s,a)**, which represents the expected future reward when taking action `a` in a given state `s`. A separate target network ensures training stability by providing consistent learning targets, and experience replay helps the model learn efficiently from varied historical market scenarios.
+
+We've adapted DQN specifically for trading by customizing the state representation to include market data and current portfolio positions. The actions map directly to trading decisions—buy, sell, or hold. The reward function evaluates portfolio returns and uses risk penalties to guide the trading behavior. Each training "episode" corresponds to a clearly defined trading session, complete with precise start and end conditions.
+
+### Gymnasium environment implementation
+
+The trading environment (`off-chain/rl_trading/trading.py`) implements a [Gymnasium](https://gymnasium.farama.org/)-compatible interface.
+
+State representation:
+- **Price changes**: Window of recent price percentage changes
+- **Volume and volatility**: Normalized trading volume and volatility
+- **Position indicator**: Whether currently holding ETH (1) or USDC (0)
+
+Action space design:
+- **Action 0**: HOLD (maintain current position)
+- **Action 1**: BUY (purchase ETH with available USDC)
+- **Action 2**: SELL (sell ETH for USDC)
+
+The reward function is based on:
+- **Trading profit/loss**: Percentage gain/loss from buy/sell actions
+- **Portfolio performance**: Overall portfolio value changes
+- **Transaction costs**: 0.3% trading fee penalty
+
+## DQN training
+
+Train the reinforcement learning agent:
+
+```bash
+python off-chain/rl_trading/train_dqn.py \
+  --timesteps 100000 \
+  --log-dir logs/ \
+  --models-dir models/
+```
+
+DQN hyperparameters (hardcoded in script):
+- **Learning rate**: 1e-4 (controls adaptation speed)
+- **Buffer size**: 10,000 (experience replay capacity)
+- **Batch size**: 64 (neural network update batch size)
+- **Gamma**: 0.99 (discount factor for future rewards)
+- **Exploration**: 20% exploration fraction with epsilon decay
+
+## RL-based dataset creation
+
+Transform the trained DQN agent's decision-making into structured training data for language model enhancement.
+
+### Decision extraction from trained agent
+
+Generate trading decisions across diverse market scenarios:
+
+```bash
+python off-chain/rl_trading/create_distillation_dataset.py \
+  --model off-chain/models/dqn_trading_final \
+  --episodes 20 \
+  --steps 100 \
+  --output off-chain/rl_trading/data/distillation/dqn_dataset.jsonl
+```
+
+## MLX integration for RL enhancement
+
+Convert RL-generated decisions into MLX-compatible training format for the second stage of fine-tuning.
+
+<Info>
+  At this point, you have already gone through this process with your teacher-student distillation and then further with the LoRA fine-tuning, so all of this is familiar to you.
+</Info>
+
+Transform RL decisions into conversational training format:
+
+```bash
+python off-chain/rl_trading/prepare_rl_data_for_mlx.py
+```
+
+### LoRA configuration for RL training
+
+Check (and feel free to edit & experiment) the RL-specific LoRA configuration:
+
+```bash
+cat off-chain/rl_trading/data/rl_data/mlx_lm_prepared/rl_lora_config.yaml
+```
+
+Pay special attention to taking your base model and loading it with the previous LoRA fine-tuning and resuming this new RL fine-tuning on top of the previous one here in `rl_lora_config.yaml`:
+
+```python
+# Load path to resume training with the given adapter weights
+resume_adapter_file: "off-chain/models/trading_model_lora/adapters.safetensors"  # Continue from previous model
+
+# Save/load path for the trained adapter weights
+adapter_path: "off-chain/models/trading_model_rl_lora"
+```
+
+## Second-stage fine-tuning execution
+
+**Execute RL-enhanced model training with careful monitoring**
+
+Perform the second fine-tuning stage to integrate RL insights with language model capabilities.
+
+```bash
+mlx_lm.lora \
+  --config off-chain/rl_trading/data/rl_data/mlx_lm_prepared/rl_lora_config.yaml \
+  2>&1 | tee rl_training.log
+```
+
+### RL training validation
+
+Test the RL-model responses:
+
+```bash
+mlx_lm.generate \
+  --model Qwen/Qwen2.5-3B \
+  --adapter-path off-chain/models/trading_model_rl_lora \
+  --prompt "Given ETH price is 2845 with volume of 950 and volatility of 0.025, recent price change of +5% in 2 hours, and I currently hold 1.2 ETH and 3500 USDC, what trading action should I take on Uniswap?" \
+  --temp 0.3 \
+  --max-tokens 200
+```
+
+Compare with base model (without RL enhancement):
+
+```bash
+mlx_lm.generate \
+  --model Qwen/Qwen2.5-3B \
+  --adapter-path off-chain/models/trading_model_lora \
+  --prompt "Given ETH price is 2845 with volume of 950 and volatility of 0.025, recent price change of +5% in 2 hours, and I currently hold 1.2 ETH and 3500 USDC, what trading action should I take on Uniswap?" \
+  --temp 0.3 \
+  --max-tokens 200
+```
+
+## Final model integration and deployment
+
+Integrate RL-enhanced adapters with the complete trading system for optimal performance.
+
+Fuse RL-enhanced adapters into final model:
+
+```bash
+mlx_lm.fuse \
+  --model Qwen/Qwen2.5-3B \
+  --adapter-path off-chain/models/trading_model_rl_lora \
+  --save-path off-chain/models/final_rl_trading_model \
+  --upload-repo false \
+  --dtype float16
+```
+
+Verify fusion success:
+
+```bash
+mlx_lm.generate \
+  --model off-chain/models/final_rl_trading_model \
+  --prompt "Given ETH price is 2500 with volume of 800 and volatility of 0.045, recent price change of -8% in 30 minutes, and I currently hold 3.0 ETH and 2000 USDC, what trading action should I take on Uniswap?" \
+  --temp 0.3
+```
+
+### Ollama deployment for RL-enhanced model
+
+Just like before, go through the same conversion process again.
+
+Navigate to llama.cpp for conversion:
+
+```bash
+cd llama.cpp
+```
+
+Convert RL-enhanced model to GGUF:
+
+```bash
+python convert_hf_to_gguf.py \
+  ../off-chain/models/final_rl_trading_model \
+  --outtype f16 \
+  --outfile ../off-chain/models/final_rl_trading_model/ggml-model-f16.gguf
+```
+
+Optionally quantize the model:
+
+```bash
+./build/bin/llama-quantize \
+  ../off-chain/models/final_rl_trading_model/ggml-model-f16.gguf \
+  ../off-chain/models/final_rl_trading_model/ggml-model-q4_k_m.gguf \
+  q4_k_m
+```
+
+Create enhanced Ollama configuration:
+
+```bash
+cat > Modelfile-rl << 'EOF'
+FROM off-chain/models/final_rl_trading_model/ggml-model-q4_k_m.gguf
+
+# Optimized parameters for RL-enhanced model
+PARAMETER temperature 0.25
+PARAMETER top_p 0.9
+PARAMETER top_k 40
+PARAMETER repeat_penalty 1.1
+PARAMETER num_ctx 4096
+
+# No system prompt - let the RL-enhanced fine-tuned model use its learned behavior naturally
+EOF
+```
+
+Deploy RL-enhanced model to Ollama:
+
+```bash
+ollama create trader-qwen-rl:latest -f Modelfile-rl
+```
+
+Test final RL-enhanced deployment:
+
+```bash
+ollama run trader-qwen-rl:latest "Given ETH price is $2506.92 with volume of 999.43 and volatility of 0.045, recent price change of 35.7765 ticks, and I currently hold 3.746 ETH and 9507.14 USDC, what trading action should I take on Uniswap?"
+```

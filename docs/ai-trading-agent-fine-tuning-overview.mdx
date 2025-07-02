@@ -1,0 +1,82 @@
+---
+title: "AI trading agent: Fine-tuning overview"
+description: "Create domain-specific trading models through LoRA fine-tuning, synthetic data generation with GANs, and teacher-student distillation using QwQ 32B and Qwen 2.5 3B models."
+---
+
+<Info>
+  Previous section: [AI trading agent: Stateful agent](/docs/ai-trading-agent-stateful-agent)
+</Info>
+
+<Note>
+  Project repository: [Web3 AI trading agent](https://github.com/chainstacklabs/web3-ai-trading-agent)
+</Note>
+
+This section bridges the gap between pre-trained models and specialized trading intelligence. You've experienced the power of general-purpose models like Fin-R1, but now we'll create (fine tune) domain-specific models trained exclusively on trading data.
+
+## Fine-tuning methodology overview
+
+We are taking a model, in our case it's a Qwen 2.5 3B base model for learning purposes.
+
+And we using the LoRA technique to fine tune the base Qwen 2.5 3B model. 
+
+<Info>
+  Check out the [LoRA paper](https://arxiv.org/abs/2106.09685). In short, with LoRA you can fine-tune a model without modifying the entirety of it, which would not have been possible on a Mac (or probably any consumer hardware).
+</Info>
+
+## Data generation pipeline
+
+Building proprietary training data through generative techniques can provide you with a wealth of data that you can mold into different scenarios relevant to your specific use case. And then you can use the data to fine tune your model on.
+
+<Info>
+  See the original paper [Generative Adversarial Neural Networks for Realistic Stock Market Simulations](https://thesai.org/Downloads/Volume15No3/Paper_5-Generative_Adversarial_Neural_Networks.pdf).
+</Info>
+
+### Generating financial time series with GANs
+
+Inspired by the original paper linked above, we use GANs to generate financial time series. This allows us to simulate financial behaviors observed in decentralized exchange (DEX) environments such as Uniswap V4.
+
+The core of our GAN leverages a transformer-based generator architecture featuring multi-head attention (8 heads; `num_heads: int = 8` in `models.py`) and [positional encoding](https://medium.com/thedeephub/positional-encoding-explained-a-deep-dive-into-transformer-pe-65cfe8cfe10b). This combination maintains temporal consistency, effectively modeling realistic sequence dynamics. To capture the automated market maker (AMM) data patterns, we specifically encode Uniswap V4 swap events and liquidity usage characteristics into the model. Attention mechanisms, including [cross-attention and causal masking](https://medium.com/@tejaswi_kashyap/unpacking-attention-in-transformers-from-self-attention-to-causal-self-attention-21fa6824acd8), ensure that generated sequences remain [autoregressive](https://aws.amazon.com/what-is/autoregressive-models/) (This basically means that Each new token is generated based on all the previous tokens (and itself), one token at a time, with no access to future tokens.) and contextually accurate.
+
+Our modern transformer architecture incorporates [GELU activations](https://www.baeldung.com/cs/gelu-activation-function), layer normalization, and a robust 4-layer decoder structure aligned with best practices in financial machine learning. Additionally, the model explicitly generates volume-price correlations directly from historical swap data, maintaining logical consistency throughout.
+
+To ensure stable training, we apply several techniques. Wasserstein loss combined with gradient penalty regularization significantly enhances convergence stability. Feature matching ensures generated sequences statistically align with real-world financial data, while minibatch discrimination, diversity loss, and carefully applied instance noise effectively prevent mode collapse. Finally, financial-specific post-processing further refines the output, guaranteeing smooth, logical price transitions and maintaining market coherence.
+
+<Warning>
+  **Mac MPS PyTorch incompatibility with `aten::_cdist_backward`**
+  The minibatch discrimination in the GAN discriminator in `off-chain/gan/models.py` uses distance computations that trigger the `aten::_cdist_backward` MPS operator.
+  This is not yet implemented for Apple Silicon MPS, so you'll have to rely on CPU for the time being.
+  Track the issue in [MPS operator coverage tracking issue (2.6+ version) #141287](https://github.com/pytorch/pytorch/issues/141287).
+</Warning>
+
+As CPU fallback, run:
+
+```bash
+PYTORCH_ENABLE_MPS_FALLBACK=1 python off-chain/generate_synthetic_data.py train --quick-test
+```
+
+## Teacher-student distillation
+
+The knowledge distillation process transfers sophisticated reasoning from large models to smaller student models.
+
+We're using the QwQ 32B model as our teacher model because both QwQ & Qwen (our student model) are from the same source (Alibaba), so we reasonably assume certain synergy exists between the two and will make the distillation process more reliable.
+
+With 32 billion parameters, QwQ is the larger model against the Qwen 3B and can handle complex market analysis.
+
+This makes knowledge transfer effective: our student models learn consistent analysis techniques, structured decision-making processes, stronger market intuition gained from extensive training data, and clear responses to challenging trading scenarios.
+
+### Chain of Draft optimization
+
+[Chain of Draft](https://arxiv.org/abs/2502.18600) significantly improves the test-time compute efficiency by keeping each reasoning step concise, which is pretty useful for relatively fast on-chain trading.
+
+## Verification through Canary words
+
+Canary words offer clear evidence that your model relies on newly trained knowledge instead of generic pre-trained responses. We use specific terms consistently in the training data:
+
+- **APE IN** for standard "BUY" signals.
+- **APE OUT** for standard "SELL" signals.
+- **APE NEUTRAL** for "HOLD" or no-action recommendations.
+
+<Info>
+  What we are going to do further is create a synthetic dataset based on the real Uniswap V4 BASE mainnet ETH-USDC swaps and use this synthetic data to train our smaller Qwen student model based on the output from the bigger QwQ teacher model.
+  This is a bit roundabout way just to show that it's possible—and I think can be very useful actually for creating sophisticated trading strategies & models, but it's not necessary, of course.
+</Info>

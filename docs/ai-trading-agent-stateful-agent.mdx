@@ -1,0 +1,297 @@
+---
+title: "AI trading agent: Stateful agent"
+description: "Build an advanced memory-enabled trading agent that learns from trading history, analyzes past performance, and adapts strategies based on historical outcomes using sophisticated context management."
+---
+
+<Info>
+  Previous section: [AI trading agent: Stateless agent](/docs/ai-trading-agent-stateless-agent)
+</Info>
+
+<Note>
+  Project repository: [Web3 AI trading agent](https://github.com/chainstacklabs/web3-ai-trading-agent)
+</Note>
+
+This section introduces a memory-enabled trading agent that learns from trading history to make data-driven decisions. Unlike the stateless agent that treats each decision independently, a stateful agent analyzes past trade performance, identifies successful patterns, and adapts strategies based on historical outcomes.
+
+## Learning capabilities
+
+The stateful agent implements several learning mechanisms:
+
+**Historical performance analysis**
+- Tracks profit/loss for each trade type (ETH->USDC vs USDC->ETH)
+- Calculates success rates and identifies most profitable strategies
+- Analyzes recent performance trends to detect improving or declining performance
+
+**Market pattern recognition**
+- Identifies price levels where trades were most successful
+- Correlates market volatility with trading outcomes
+- Detects market conditions similar to past successful trades
+
+**Context-aware decision making**
+- Includes recent trade history in LLM prompts
+- Provides performance insights: "ETH selling trades averaged +2.3% profit (5 trades)"
+- Highlights similar market conditions: "Similar conditions: 3 trades, avg profit +1.8%"
+
+**Intelligent memory management**
+- Preserves key learning insights during context summarization
+- Retains top-performing trades and recent trading history
+- Maintains performance metrics across context resets
+
+## Technical implementation
+
+The stateful agent implements sophisticated technical mechanisms to manage memory, context windows, and learning persistence.
+
+### Context window management
+
+**Token estimation and monitoring**
+
+The agent continuously tracks context usage through advanced token estimation:
+
+```python
+# Real-time context monitoring
+prompt_token_count = self._estimate_token_count(user_query)
+
+# Safely calculate context tokens with null check
+context_token_count = 0
+for decision in self.context.trading_decisions:
+    if decision.reasoning:
+        context_token_count += self._estimate_token_count(decision.reasoning)
+
+# Add market state tokens
+market_state_tokens = len(self.context.market_states) * 20
+
+# Calculate total usage
+total_estimated_tokens = prompt_token_count + context_token_count + market_state_tokens
+context_usage_ratio = total_estimated_tokens / self.context_capacity
+```
+
+**Threshold-based summarization**
+
+When context usage approaches the configured threshold, automatic summarization triggers:
+
+- **Warning threshold**: 90% of context capacity (configurable via `CONTEXT_WARNING_THRESHOLD`)
+- **Automatic trigger**: Summarization activates when threshold exceeded
+- **Cooldown period**: 2-minute between summarizations (configurable via `SUMMARIZATION_COOLDOWN`)
+- **Recursive protection**: Prevents summarization loops during processing
+
+**Adaptive prompt management**
+
+The agent dynamically adjusts prompt complexity based on available context space:
+
+```python
+if self.last_context_usage.get('ratio', 0) > 0.7:
+    # Use simplified prompt when context is getting full
+    user_query = f"Given ETH price... {historical_context}"
+else:
+    # Use full enhanced prompt when context allows
+    user_query = f"Given ETH price... TRADING HISTORY... PERFORMANCE INSIGHTS... MARKET PATTERNS..."
+```
+
+### Configuration integration
+
+**Model-specific context handling**
+
+The agent automatically adapts to different model capabilities through `config.py`:
+
+```python
+# Dynamic context capacity based on selected model
+AVAILABLE_MODELS = {
+    'qwen-trader': {
+        'model': 'trader-qwen:latest',
+        'context_capacity': 32768
+    },
+    'fin-r1': {
+        'model': 'hf.co/Mungert/Fin-R1-GGUF',
+        'context_capacity': 32768
+    }
+}
+
+# Agent automatically uses appropriate capacity
+self.context_capacity = get_context_capacity(MODEL_KEY, test_mode)
+```
+
+**Configuration-driven behavior**
+
+All context management parameters respect configuration settings:
+
+- **Context warning threshold**: `CONTEXT_WARNING_THRESHOLD = 0.9` (90%)
+- **Summarization cooldown**: `SUMMARIZATION_COOLDOWN = 2 * 60` (2 minutes)
+- **Test mode**: Reduced context capacity for testing summarization logic
+- **Model selection**: Automatic adaptation to selected model's capabilities
+
+<Info>
+  For troubleshooting, to force an actual transaction even if the LLM model advises to hold based on the market observation, you can set `REBALANCE_THRESHOLD = 0` to force a trade without asking an LLM instance.
+</Info>
+
+### Observation mode capabilities
+
+**Data collection without trading**
+
+The agent supports observation-only mode for market analysis and strategy development. You can start the stateful agent in observation mode for a number of cycles and then it'll switch to active trading but will act based on the collected observation data.
+
+Collect market data for 5000 tokens before trading:
+
+```bash
+python on-chain/uniswap_v4_stateful_trading_agent.py --observe 5000
+```
+
+Observe for 30 minutes before trading
+
+```bash
+python on-chain/uniswap_v4_stateful_trading_agent.py --observe-time 30
+```
+
+Collect 50 observation cycles before trading
+
+```bash
+python on-chain/uniswap_v4_stateful_trading_agent.py --observe-cycles 50
+```
+
+### Memory optimization techniques
+
+**Learning insight compression**
+
+To prevent context explosion, the agent employs sophisticated compression:
+
+```python
+# Insight compression algorithm
+most_valuable_insights = sorted(learning_insights, key=len, reverse=True)[:2]
+for insight in most_valuable_insights:
+    compact_insight = insight[:200] + "..." if len(insight) > 200 else insight
+```
+
+**Selective data retention**
+
+During context summarization, the agent preserves only the most valuable information:
+
+- **Learning insights**: Top 2 most valuable patterns (compressed to 200 characters)
+- **Performance metrics**: Last 3 results for each trade type
+- **Market states**: Most recent 2 market conditions
+- **Trading decisions**: Best performing trade + most recent trade
+- **Strategy information**: Current strategy parameters and timing
+
+**Context explosion prevention**
+
+Multiple safeguards prevent uncontrolled memory growth:
+
+- **Compression limits**: All insights truncated to manageable sizes
+- **Retention limits**: Fixed maximum items preserved per category  
+- **Cooldown enforcement**: Minimum time between summarization events
+- **Recursive protection**: Flags prevent summarization during summarization
+- **Priority-based selection**: Keeps most valuable data, discards redundant information
+
+**Memory efficiency monitoring**
+
+<Info>
+  The agent provides real-time visibility into memory usage in the terminal printouts.
+</Info>
+
+## Core stateful components
+
+### Memory management system
+
+**Trading history database**
+
+The agent maintains comprehensive trading records in memory using the `TradingDecision` on market states and trading decisions.
+
+### Context window management
+
+**Intelligent memory allocation**
+
+The system optimizes memory usage based on the model's context capacity and the configured thresholds in `config.py`. The agent automatically determines optimal memory allocation using the existing configuration parameters.
+
+**Adaptive summarization algorithm**
+
+When approaching context limits, the agent compresses data through the `_summarize_and_restart_context()` method.
+
+### Strategy persistence engine
+
+**Basic strategy tracking**
+
+The agent maintains simple strategy information in `TradingContext`.
+
+**Strategy functionality**
+
+The system provides basic strategy management:
+
+- **Strategy generation** — creates initial strategy based on observation mode
+- **Strategy timing** — tracks duration and elapsed time using MIN/MAX_STRATEGY_DURATION
+- **Performance tracking** — separates rebalancing ROI from LLM trading ROI
+- **Strategy display** — shows current strategy information in portfolio table
+
+### Basic analytics engine
+
+**Simple performance tracking**
+
+The agent tracks basic performance metrics through `TradingContext` for rebalancing script PnL and LLM-driven PnL.
+
+## Configuration and deployment
+
+Stateful agents require careful configuration to balance memory usage, performance tracking, and strategic consistency.
+
+## Step-by-step stateful agent deployment
+
+Deploy your memory-enabled trading agent with proper initialization and monitoring.
+
+### 1. Environment preparation
+
+Ensure your base environment is ready:
+
+Verify Ollama is running with adequate memory:
+
+```bash
+ollama serve
+```
+
+Check available system memory
+
+On Linux:
+
+```bash
+free -h
+```
+
+On macOS:
+
+```bash
+memory_pressure
+```
+
+Confirm Foundry fork is active:
+
+```bash
+cast block-number --rpc-url http://localhost:8545
+```
+
+### 2. Stateful agent initialization
+
+Launch the stateful trading agent with various configuration options:
+
+**Basic trading mode:**
+```bash
+python on-chain/uniswap_v4_stateful_trading_agent.py
+```
+
+**Observation mode options:**
+```bash
+# Collect market data for 5000 tokens before trading
+python on-chain/uniswap_v4_stateful_trading_agent.py --observe 5000
+
+# Observe for 30 minutes before trading  
+python on-chain/uniswap_v4_stateful_trading_agent.py --observe-time 30
+
+# Collect 50 observation cycles before trading
+python on-chain/uniswap_v4_stateful_trading_agent.py --observe-cycles 50
+```
+
+**Additional configuration options:**
+```bash
+# Test mode with reduced context capacity
+python on-chain/uniswap_v4_stateful_trading_agent.py --test-mode
+
+# Custom target allocation (60% ETH, 40% USDC)
+python on-chain/uniswap_v4_stateful_trading_agent.py --target-allocation 0.6
+
+# Limited number of trading iterations
+python on-chain/uniswap_v4_stateful_trading_agent.py --iterations 100
+```

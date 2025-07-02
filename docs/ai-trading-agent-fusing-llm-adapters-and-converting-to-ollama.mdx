@@ -1,0 +1,281 @@
+---
+title: "AI trading agent: Fusing LLM adapters and converting to Ollama"
+description: "Deploy specialized LoRA adapters through three methods: direct usage, model fusion, and Ollama conversion for production-ready API access and scalable deployment."
+---
+
+<Info>
+  Previous section: [AI trading agent: Generative adversarial networks and synthetic data](/docs/ai-trading-agent-gans-and-synthetic-data)
+</Info>
+
+<Note>
+  Project repository: [Web3 AI trading agent](https://github.com/chainstacklabs/web3-ai-trading-agent)
+</Note>
+
+After completing teacher-student distillation, you have specialized LoRA adapters containing domain-specific trading knowledge. This section covers deployment options: direct LoRA usage, model fusion, and Ollama conversion for production deployment.
+
+## Understanding model deployment options
+
+**Choose your deployment strategy based on requirements**
+
+The fine-tuning process produces LoRA (Low-Rank Adaptation) adapters that modify the base model's behavior without altering the original weights. You have three deployment options:
+
+**Option 1: Direct LoRA usage** 
+- **Pros**: Smallest memory footprint, fastest deployment
+- **Cons**: Requires MLX runtime, adapter loading overhead
+- **Best for**: Development, testing, resource-constrained environments
+
+**Option 2: Fused model deployment**
+- **Pros**: Single model file, no adapter dependencies, consistent performance
+- **Cons**: Larger file size, permanent modification
+- **Best for**: Production deployment, sharing, simplified distribution
+
+**Option 3: Ollama integration**
+- **Pros**: Easy API access, model versioning, production-ready serving
+- **Cons**: Additional quantization step, external dependency
+- **Best for**: API-based integration, multi-user access, scalable deployment
+
+<Info>
+  If you are on your learning path, I suggest trying out all three to get a feel of the process and to see the behavior difference (e.g., inference time). It doesn't take too much time; follow the instructions further in this section.
+</Info>
+
+## Direct LoRA adapter usage
+
+Direct LoRA usage provides immediate access to your specialized trading model. If you did a quick test/validation of your fine-tuned model loaded with `adapters.safetensors`, you already did this direct LoRA adapter usage test.
+
+Here it is again:
+
+```bash
+mlx_lm.generate --model Qwen/Qwen2.5-3B \
+  --adapter-path off-chain/models/trading_model_lora \
+  --prompt "Given ETH price is $2506.92 with volume of 999.43 and volatility of 0.045, recent price change of 35.7765 ticks, and I currently hold 3.746 ETH and 9507.14 USDC, what trading action should I take on Uniswap?" \
+  --temp 0.3
+```
+
+## Model fusion for production deployment
+
+Fusion combines LoRA adapters with base model weights, creating a single model file with embedded trading knowledge.
+
+### Understanding the fusion process
+
+LoRA fusion is a technique to directly integrate specialized knowledge from adapter weights into the base model parameters.
+
+Mathematically, this involves taking the original Qwen 2.5 3B model parameters and combining them with the adapter's low-rank matrices.
+
+<Info>
+  Practically, this is sort of a double-edged sword: on the one hand, the model grows from roughly 2 GB (when using adapters separately) to around 6 GB in its fully fused state; on the other hand, inference loading times improve significantly because adapter loading overhead is eliminated. Additionally, the fused model maintains consistent and stable inference speeds without adapter-related delays.
+</Info>
+
+### Performing model fusion
+
+**Execute fusion with appropriate settings**
+
+```bash
+# Fuse LoRA adapters into base model
+mlx_lm.fuse \
+  --model Qwen/Qwen2.5-3B \
+  --adapter-path off-chain/models/trading_model_lora \
+  --save-path off-chain/models/fused_qwen \
+```
+
+### Verify fusion success
+
+Test the fused model:
+
+```bash
+mlx_lm.generate \
+  --model off-chain/models/fused_qwen \
+  --prompt "Given ETH price is $2506.92 with volume of 999.43 and volatility of 0.045, recent price change of 35.7765 ticks, and I currently hold 3.746 ETH and 9507.14 USDC, what trading action should I take on Uniswap?" \
+  --temp 0.3
+```
+
+Compare with adapter version:
+
+```bash
+mlx_lm.generate --model Qwen/Qwen2.5-3B \
+  --adapter-path off-chain/models/trading_model_lora \
+  --prompt "Given ETH price is $2506.92 with volume of 999.43 and volatility of 0.045, recent price change of 35.7765 ticks, and I currently hold 3.746 ETH and 9507.14 USDC, what trading action should I take on Uniswap?" \
+  --temp 0.3
+```
+
+## Converting to Ollama format
+
+[Ollama](https://ollama.com/) provides production-grade model serving with API access and it just works very well & smooth.
+
+Set up `llama.cpp` for model conversion:
+
+```bash
+git clone https://github.com/ggml-org/llama.cpp
+cd llama.cpp
+```
+
+Build with optimizations (macOS with Apple Silicon):
+
+```bash
+mkdir build
+cd build
+cmake .. -DGGML_METAL=ON
+cmake --build . --config Release -j 8
+```
+
+Alternative: Build for CUDA (Linux/Windows with NVIDIA GPU):
+
+```bash
+mkdir build
+cd build
+cmake .. -DGGML_CUDA=ON
+cmake --build . --config Release -j 8
+```
+
+Install Python conversion dependencies
+
+```bash
+pip install torch transformers sentencepiece protobuf
+```
+
+Verify conversion script availability in root (`cd ..`):
+
+```bash
+ls convert_hf_to_gguf.py
+```
+
+### Converting MLX to GGUF format
+
+Run the conversion script:
+
+```bash
+python convert_hf_to_gguf.py \
+  ../off-chain/models/fused_qwen \
+  --outtype f16 \
+  --outfile ../off-chain/models/fused_qwen/ggml-model-f16.gguf
+```
+
+### Quantizing for efficiency
+
+Optionally, apply e.g. Q4_K_M quantization for performance (4-bit with K-quant method):
+
+```bash
+./build/bin/llama-quantize \
+  ../off-chain/models/fused_qwen/ggml-model-f16.gguf \
+  ../off-chain/models/fused_qwen/ggml-model-q4_k_m.gguf \
+  q4_k_m
+```
+
+**Quantization options and trade-offs**
+
+| Format | Size | Speed | Quality | Use Case |
+|--------|------|-------|---------|----------|
+| F16 | 100% | Medium | Highest | Development/Testing |
+| Q8_0 | ~50% | Fast | High | Balanced Production |
+| Q4_K_M | ~25% | Fastest | Good | Resource Constrained |
+| Q2_K | ~12% | Very Fast | Lower | Extreme Efficiency |
+
+### Creating Ollama model
+
+Register quantized model with Ollama with the following instructions. Note that I'm using the `trader-qwen:latest` model name in these instructions—make sure you change to your name, if you have a different one.
+
+Create Ollama Modelfile with configuration:
+
+```bash
+cat > Modelfile << 'EOF'
+FROM off-chain/models/fused_qwen/ggml-model-q4_k_m.gguf
+
+# Model parameters optimized for trading decisions
+PARAMETER temperature 0.3
+PARAMETER top_p 0.9
+PARAMETER top_k 40
+PARAMETER repeat_penalty 1.1
+PARAMETER num_ctx 4096
+
+# No system prompt - let the fine-tuned model use its trained Canary words naturally
+EOF
+```
+
+Import model to Ollama:
+
+```bash
+ollama create trader-qwen:latest -f Modelfile
+```
+
+### Test Ollama deployment
+
+Test model with trading prompt:
+
+```bash
+ollama run trader-qwen:latest "Given ETH price is $2506.92 with volume of 999.43 and volatility of 0.045, recent price change of 35.7765 ticks, and I currently hold 3.746 ETH and 9507.14 USDC, what trading action should I take on Uniswap?"
+```
+
+Test API endpoint:
+
+```bash
+curl -X POST http://localhost:11434/api/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "trader-qwen:latest",
+    "prompt": "Given ETH price is $2506.92 with volume of 999.43 and volatility of 0.045, recent price change of 35.7765 ticks, and I currently hold 3.746 ETH and 9507.14 USDC, what trading action should I take on Uniswap?",
+    "stream": false
+  }'
+```
+
+## Integrating custom models with trading agents
+
+Update your trading agent configuration to leverage the custom-trained model.
+
+### Configuration for Ollama integration
+
+Update `config.py` for Ollama model usage:
+
+```python
+AVAILABLE_MODELS = {
+    'fin-r1-iq4': {
+        'model': 'fin-r1:latest',
+        'context_capacity': 8192
+    },
+    'qwen-trader': {
+        'model': 'trader-qwen:latest', 
+        'context_capacity': 4096,
+        'temperature': 0.3,
+        'top_p': 0.9
+    }
+}
+```
+
+Set custom model as default:
+
+```python
+MODEL_KEY = "qwen-trader"
+USE_MLX_MODEL = False  # Use Ollama for serving
+```
+
+### Configuration for direct MLX usage
+
+Alternative: Use MLX adapters directly.
+
+MLX-based configuration in `config.py`:
+
+```python
+USE_MLX_MODEL = True
+MLX_BASE_MODEL = "Qwen/Qwen2.5-3B"
+MLX_ADAPTER_PATH = "off-chain/models/trading_model_lora"
+
+# MLX generation parameters
+MLX_GENERATION_CONFIG = {
+    'temperature': 0.3,
+    'top_p': 0.9,
+    'max_tokens': 512,
+    'repetition_penalty': 1.1
+}
+```
+
+### Running agents with custom models
+
+Run stateful agent with Ollama model:
+
+```bash
+python on-chain/uniswap_v4_stateful_trading_agent.py
+```
+
+Alternative: Direct MLX execution:
+
+```bash
+MLX_MODEL=True python on-chain/uniswap_v4_stateful_trading_agent.py
+```
