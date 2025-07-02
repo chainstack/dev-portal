@@ -1,0 +1,244 @@
+---
+title: "AI trading agent: Implementation"
+description: "Step-by-step implementation guide for building your first autonomous trading system on Uniswap V4 using BASE blockchain, covering architecture, environment setup, and programmatic swaps."
+---
+
+<Info>
+  Previous section: [AI trading agent: Pipeline](/docs/ai-trading-agent-pipeline)
+</Info>
+
+<Note>
+  Project repository: [Web3 AI trading agent](https://github.com/chainstacklabs/web3-ai-trading-agent)
+</Note>
+
+This section guides you through implementing your first autonomous trading system on Uniswap V4. You'll learn the architectural fundamentals, configure your environment, and execute your first programmatic swaps on BASE blockchain using Chainstack infrastructure.
+
+## Understanding Uniswap V4 architecture
+
+Uniswap V4 represents a significant evolution from previous versions, introducing architectural changes that enable more efficient and flexible trading operations.
+
+### The singleton design pattern
+
+Uniswap V4 uses a **singleton concept** that fundamentally changes how pools are managed:
+
+**Single PoolManager contract**  
+Unlike Uniswap V3 where each trading pair required a separate contract deployment, V4 consolidates all pool management into a single contract.
+
+**Pool ID derivation system**  
+Each pool receives a unique identifier derived from:
+
+- **Token addresses** — the two tokens in the trading pair
+- **Fee tier** — the fee percentage charged on swaps
+- **Tick spacing** — granularity of price ranges for liquidity
+- **Hooks address** — custom logic contract (if any; we filter out some custom deployments in `fetch_pool_stats.py` file like the Odos & 1inch routers)
+
+For our ETH-USDC pool, the ID [0x96d4b53a38337a5733179751781178a2613306063c511b78cd02684739288c0a](https://app.uniswap.org/explore/pools/base/0x96d4b53a38337a5733179751781178a2613306063c511b78cd02684739288c0a) uniquely identifies this specific pool configuration.
+
+**Universal Router integration**  
+The Universal Router ([0x6ff5693b99212da76ad316178a184ab56d299b43](https://basescan.org/address/0x6ff5693b99212da76ad316178a184ab56d299b43#code)) aggregates the Uniswap V4 trading functionality.
+
+<Info>
+  Our implementation uses pools without custom hooks.
+</Info>
+
+### Contract interaction flow
+
+Understanding the interaction flow helps debug issues (although there shouldn't be any):
+
+1. **User initiates swap** — calls Universal Router with swap parameters
+2. **Router validates inputs** — checks slippage, deadlines, and permissions
+3. **PoolManager processes swap** — updates pool state and calculates outputs
+4. **Token transfers execute** — moves tokens between user and pool
+5. **Events emit** — on-chain logs for tracking and analytics
+
+## Environment configuration
+
+Proper configuration ensures secure and reliable operation of your trading system.
+
+### Core configuration setup
+
+Edit your `config.py` file with the following essential settings:
+
+BASE node endpoints:
+
+```python
+BASE_RPC_URLS = "YOUR_CHAINSTACK_NODE_ENDPOINT"
+```
+
+<Info>
+  There are two endpoints that you can provide there (or more)—this is only if you want to run the Uniswap V4 swaps data collection in a multi-threaded way as fast as possible using the `collect_raw_data.py` script. In that case, I suggest putting there one [Global Node endpoint](https://docs.chainstack.com/docs/global-elastic-node) and one [Trader Node endpoint](https://docs.chainstack.com/docs/trader-node) for redundancy. Otherwise, if you are not going to do any heavy data collection, you should be 100% fine with just one node endpoint of any type.
+</Info>
+
+Your trading account private key:
+
+```python
+PRIVATE_KEY = "YOUR_PRIVATE_KEY"
+```
+
+Model configuration:
+
+```python
+MODEL_KEY = "fin-r1"  # Choose from AVAILABLE_MODELS
+USE_MLX_MODEL = False  # Start with Ollama
+```
+
+### Chainstack RPC configuration
+
+Your Chainstack BASE node provides the blockchain connectivity for all operations:
+
+**Obtaining your endpoint**  
+1. Log into your [Chainstack account](https://console.chainstack.com/)
+2. Navigate to your BASE network node
+3. Copy the HTTPS endpoint URL
+4. Replace `YOUR_CHAINSTACK_NODE_ENDPOINT` with your actual endpoint
+
+**Test wallet preparation**  
+For this tutorial, use a dedicated test wallet with:
+
+- Small amounts of ETH for gas fees (0.01 ETH minimum)
+- Small amounts of USDC for trading (100 USDC recommended)
+- Never use wallets containing significant funds
+
+<Info>
+  Remember that when using Foundry and forking the BASE mainnet with Anvil for your paper trading, you can easily top up your account with a cheat to any ETH amount.
+</Info>
+
+```bash
+cast send YOUR_BASE_ADDRESS --value 10ether --private-key PRIVATE_KEY --rpc-url http://localhost:8545
+```
+
+And then check the balance:
+
+```bash
+cast balance YOUR_BASE_ADDRESS --rpc-url http://localhost:8545
+```
+
+### Model configuration options
+
+The `MODEL_KEY` setting determines which AI model powers your trading decisions:
+
+```python
+AVAILABLE_MODELS = {
+    'fin-r1': {
+        'model': 'hf.co/Mungert/Fin-R1-GGUF:latest',
+        'context_capacity': 32768
+    },
+    'qwen3b': {
+        'model': 'qwen2.5:3b',
+        'context_capacity': 32768
+    }
+}
+```
+
+## Local development environment setup
+
+Foundry provides a local blockchain environment that mirrors BASE mainnet conditions without spending real funds.
+
+### Starting your Foundry fork
+
+Launch a local BASE mainnet fork using anvil:
+
+```bash
+# Fork BASE mainnet
+anvil --fork-url https://base-mainnet.core.chainstack.com/AUTH_KEY --chain-id 8453
+```
+
+**What this command accomplishes:**
+
+- **Forks BASE mainnet** — creates local copy of current blockchain state
+- **Real contract data** — includes all deployed Uniswap V4 contracts
+- **Instant transactions** — no waiting for block confirmations
+
+**Verification steps:**
+
+```bash
+# In a new terminal, verify the fork is running
+cast block-number --rpc-url http://localhost:8545
+
+# Check ETH balance of test account
+cast balance YOUR_BASE_ADDRESS --rpc-url http://localhost:8545
+```
+
+## Manual swap implementation
+
+<Info>
+  Skip this if you are Web3 native/experienced.
+</Info>
+
+Start with manual swap operations to understand the underlying mechanics before building automated systems.
+
+Here are the instructions again.
+
+To do a manual ETH-USDC swap on the exact Uniswap V4 pool that we use in a bot script and in the trading agent later in the tutorial, do the following:
+
+1. Install [MetaMask](https://metamask.io/).
+2. Connect to the BASE mainnet. See [Chainstack tooling](https://docs.chainstack.com/docs/base-tooling#metamask) or use [Chainlist](https://chainlist.org/).
+3. Get some ETH on your BASE account.
+4. Do the [ETH-USDC pool](https://app.uniswap.org/explore/pools/base/0x96d4b53a38337a5733179751781178a2613306063c511b78cd02684739288c0a) swap.
+
+<Info>
+  Note that you do not have to do the swap on the mainnet—you can connect your MetaMask instance to your local Foundry Anvil fork of the BASE mainnet.
+</Info>
+
+1. In MetaMask, next to your BASE mainnet entry, select **Edit**.
+2. In **Default RPC URL**, add `http://localhost:8545` and save.
+
+You are now on the Foundry Anvil fork instance and can do manual paper swaps.
+
+## Automated trading scripts
+
+Build upon manual swaps with automated trading scripts that can execute without human intervention.
+
+Run the basic swap scripts to verify your environment setup:
+
+```bash
+python on-chain/usdc_to_eth_swap.py
+python on-chain/eth_to_usdc_swap.py
+```
+
+You'll get the transaction hashes printed, so you can check on the [BASE mainnet explorer](https://basescan.org/) if you did the swaps on the mainnet or check on your local Foundry Anvil fork if you did a paper swap:
+
+Example of checking a transaction by hash:
+
+```bash
+cast tx TRANSACTION_HASH --rpc-url http://localhost:8545
+```
+
+Example of checking your USDC balance:
+
+```bash
+cast call 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 "balanceOf(address)" YOUR_BASE_ADDRESS --rpc-url http://localhost:8545
+```
+
+### Understanding swap mechanics
+
+Each swap script performs these operations:
+
+1. **Balance verification** — checks current ETH and USDC holdings
+2. **Approval transaction** — allows Universal Router to spend tokens
+3. **Swap construction** — builds the swap transaction with proper parameters
+4. **Transaction submission** — broadcasts to the BASE mainnet or to the local fork
+5. **Result verification** — confirms successful execution and new balances
+
+### Market data collection
+
+Gather real-time pool information for trading decisions:
+
+From the BASE mainnet:
+
+```bash
+python on-chain/fetch_pool_data.py
+python on-chain/fetch_pool_stats.py
+```
+
+From your local Foundry BASE mainnet fork:
+
+```bash
+python on-chain/fetch_pool_stats_form_fork.py
+```
+
+**Data collection includes:**
+
+- **Current pool price** — ETH-USDC exchange rate
+- **Liquidity depth** — available liquidity at different price levels
+- **Recent swap activity** — transaction volume and frequency
