@@ -1,0 +1,590 @@
+---
+title: "Ponder: Building blockchain application backends with Chainstack"
+---
+
+**TLDR:**
+* You'll build a complete blockchain indexing backend using Ponder and Chainstack nodes.
+* You'll create a Ponder project that indexes ERC-20 token transfers and balances across multiple chains.
+* You'll configure Ponder to use Chainstack RPC endpoints for reliable data fetching.
+* By the end, you'll have a production-ready GraphQL API for querying blockchain data with hot reloading and type safety.
+
+## Main article
+
+In this tutorial, you will:
+
+* Create a Ponder project that indexes blockchain data from multiple networks.
+* Configure Ponder to use Chainstack nodes for reliable, high-performance data access.
+* Build a schema to track ERC-20 token transfers, balances, and holder statistics.
+* Deploy indexing functions that process blockchain events in real-time.
+* Query your data through Ponder's auto-generated GraphQL API.
+
+Ponder is an open-source framework for building blockchain application backends. Unlike traditional indexing solutions, Ponder provides end-to-end type safety, hot reloading during development, and automatic GraphQL API generation based on your schema.
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/user/login) to deploy blockchain nodes
+* [Node.js](https://nodejs.org/) version 18.14 or higher
+* [pnpm](https://pnpm.io/installation) package manager (recommended)
+
+## Dependencies
+
+* ponder: ^0.11.0
+* viem: ^2.30.0
+* typescript: ^5.0.0
+
+## Step-by-step
+
+### Create a public chain project
+
+See [Create a project](/docs/manage-your-project#create-a-project).
+
+### Join blockchain networks
+
+For this tutorial, we'll index data from multiple chains. Join the following networks:
+
+* **Ethereum Mainnet** - for established DeFi protocols
+* **Polygon** - for high-volume, low-cost transactions
+* **Base** - for modern L2 applications
+
+See [Join a public network](/docs/manage-your-networks#join-a-public-network).
+
+### Get your node access and credentials
+
+See [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+
+You'll need the RPC endpoints for each network you joined.
+
+### Create a new Ponder project
+
+<Steps>
+  <Step>
+    Create a new Ponder project using the CLI:
+
+   <CodeGroup>
+     ```shell Shell
+     pnpm create ponder@latest my-ponder-indexer
+     ```
+   </CodeGroup>
+
+   This will prompt you to choose a template. For this tutorial, select **"ERC-20"** as it provides a good starting point for token indexing.
+  </Step>
+  <Step>
+    Navigate to your project directory:
+
+   <CodeGroup>
+     ```shell Shell
+     cd my-ponder-indexer
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+    Install dependencies:
+
+   <CodeGroup>
+     ```shell Shell
+     pnpm install
+     ```
+   </CodeGroup>
+  </Step>
+</Steps>
+
+### Configure environment variables
+
+<Steps>
+  <Step>
+    Create a `.env.local` file in your project root:
+
+   <CodeGroup>
+     ```sh .env.local
+     # Chainstack RPC endpoints
+     PONDER_RPC_URL_1="YOUR_ETHEREUM_CHAINSTACK_ENDPOINT"
+     PONDER_RPC_URL_137="YOUR_POLYGON_CHAINSTACK_ENDPOINT"
+     PONDER_RPC_URL_8453="YOUR_BASE_CHAINSTACK_ENDPOINT"
+     
+     # Optional: Database URL for production
+     # DATABASE_URL="postgresql://user:password@localhost:5432/ponder"
+     ```
+   </CodeGroup>
+
+   Replace the placeholder values with your actual Chainstack endpoints.
+
+   <Info>
+    ### Environment variable naming
+
+     Ponder uses the pattern `PONDER_RPC_URL_{CHAIN_ID}` for RPC endpoints. The chain IDs are:
+     - Ethereum: 1
+     - Polygon: 137  
+     - Base: 8453
+   </Info>
+  </Step>
+</Steps>
+
+### Configure Ponder for multiple chains
+
+<Steps>
+  <Step>
+    Edit `ponder.config.ts` to configure your chains and contracts:
+
+   <CodeGroup>
+     ```ts ponder.config.ts
+     import { createConfig } from "ponder";
+     import { http } from "viem";
+
+     // Import ABIs for the contracts you want to index
+     import { erc20Abi } from "viem";
+
+     export default createConfig({
+       chains: {
+         mainnet: {
+           id: 1,
+           rpc: http(process.env.PONDER_RPC_URL_1!),
+         },
+         polygon: {
+           id: 137, 
+           rpc: http(process.env.PONDER_RPC_URL_137!),
+         },
+         base: {
+           id: 8453,
+           rpc: http(process.env.PONDER_RPC_URL_8453!),
+         },
+       },
+       contracts: {
+         // USDC on multiple chains
+         UsdcMainnet: {
+           chain: "mainnet",
+           abi: erc20Abi,
+           address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+           startBlock: 22842789,
+         },
+         UsdcPolygon: {
+           chain: "polygon", 
+           abi: erc20Abi,
+           address: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+           startBlock: 73549831,
+         },
+         UsdcBase: {
+           chain: "base",
+           abi: erc20Abi, 
+           address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+           startBlock: 32402921,
+         },
+       },
+     });
+     ```
+   </CodeGroup>
+
+   This configuration sets up Ponder to index USDC transfers across three different chains using your Chainstack nodes.
+
+   <Info>
+    ### Start block optimization
+
+     Setting appropriate start blocks is crucial for performance. Choose blocks close to when your contracts were deployed or when interesting activity began.
+   </Info>
+  </Step>
+</Steps>
+
+### Define your database schema
+
+<Steps>
+  <Step>
+    Edit `ponder.schema.ts` to define the data structure you want to track:
+
+   <CodeGroup>
+     ```ts ponder.schema.ts
+     import { onchainTable } from "ponder";
+
+     // Track individual token transfers
+     export const transfer = onchainTable("transfer", (t) => ({
+       id: t.text().primaryKey(), // tx_hash:log_index
+       from: t.text().notNull(),
+       to: t.text().notNull(), 
+       amount: t.bigint().notNull(),
+       contract: t.text().notNull(),
+       chain: t.text().notNull(),
+       blockNumber: t.bigint().notNull(),
+       timestamp: t.integer().notNull(),
+     }));
+
+     // Track account balances per contract
+     export const balance = onchainTable("balance", (t) => ({
+       id: t.text().primaryKey(), // account:contract:chain
+       account: t.text().notNull(),
+       contract: t.text().notNull(), 
+       chain: t.text().notNull(),
+       balance: t.bigint().notNull(),
+       lastUpdated: t.integer().notNull(),
+     }));
+
+     // Track holder statistics per contract
+     export const tokenStats = onchainTable("token_stats", (t) => ({
+       id: t.text().primaryKey(), // contract:chain
+       contract: t.text().notNull(),
+       chain: t.text().notNull(),
+       totalHolders: t.integer().notNull().default(0),
+       totalTransfers: t.bigint().notNull().default(0n),
+       totalVolume: t.bigint().notNull().default(0n),
+       lastUpdated: t.integer().notNull(),
+     }));
+     ```
+   </CodeGroup>
+
+   This schema defines three tables:
+   - **transfers**: Individual transfer events
+   - **balances**: Current token balances per account
+   - **tokenStats**: Aggregate statistics per token contract
+  </Step>
+</Steps>
+
+### Write indexing functions
+
+<Steps>
+  <Step>
+    Create indexing functions to process Transfer events. Replace the contents of `src/index.ts`:
+
+   <CodeGroup>
+     ```ts src/index.ts
+     import { ponder } from "ponder:registry";
+     import schema from "ponder:schema";
+
+     // Helper function to create unique IDs
+     function createTransferId(event: any) {
+       return `${event.transaction.hash}:${event.log.logIndex}`;
+     }
+
+     function createBalanceId(account: string, contract: string, chain: string) {
+       return `${account}:${contract}:${chain}`;
+     }
+
+     function createStatsId(contract: string, chain: string) {
+       return `${contract}:${chain}`;
+     }
+
+     // Index USDC transfers on Ethereum
+     ponder.on("UsdcMainnet:Transfer", async ({ event, context }) => {
+       const { from, to, value } = event.args;
+       const transferId = createTransferId(event);
+       
+       // Insert transfer record
+       await context.db.insert(schema.transfer).values({
+         id: transferId,
+         from,
+         to,
+         amount: value,
+         contract: event.log.address,
+         chain: "ethereum",
+         blockNumber: event.block.number,
+         timestamp: Number(event.block.timestamp),
+       });
+
+       // Update balances for both accounts (if not mint/burn)
+       const zeroAddress = "0x0000000000000000000000000000000000000000";
+       
+       if (from !== zeroAddress) {
+         await updateBalance(context, from, event.log.address, "ethereum", -value);
+       }
+       
+       if (to !== zeroAddress) {
+         await updateBalance(context, to, event.log.address, "ethereum", value);
+       }
+
+       // Update token statistics
+       await updateTokenStats(context, event.log.address, "ethereum", value);
+     });
+
+     // Index USDC transfers on Polygon
+     ponder.on("UsdcPolygon:Transfer", async ({ event, context }) => {
+       const { from, to, value } = event.args;
+       const transferId = createTransferId(event);
+       
+       await context.db.insert(schema.transfer).values({
+         id: transferId,
+         from,
+         to,
+         amount: value,
+         contract: event.log.address,
+         chain: "polygon",
+         blockNumber: event.block.number,
+         timestamp: Number(event.block.timestamp),
+       });
+
+       const zeroAddress = "0x0000000000000000000000000000000000000000";
+       
+       if (from !== zeroAddress) {
+         await updateBalance(context, from, event.log.address, "polygon", -value);
+       }
+       
+       if (to !== zeroAddress) {
+         await updateBalance(context, to, event.log.address, "polygon", value);
+       }
+
+       await updateTokenStats(context, event.log.address, "polygon", value);
+     });
+
+     // Index USDC transfers on Base
+     ponder.on("UsdcBase:Transfer", async ({ event, context }) => {
+       const { from, to, value } = event.args;
+       const transferId = createTransferId(event);
+       
+       await context.db.insert(schema.transfer).values({
+         id: transferId,
+         from,
+         to,
+         amount: value,
+         contract: event.log.address,
+         chain: "base", 
+         blockNumber: event.block.number,
+         timestamp: Number(event.block.timestamp),
+       });
+
+       const zeroAddress = "0x0000000000000000000000000000000000000000";
+       
+       if (from !== zeroAddress) {
+         await updateBalance(context, from, event.log.address, "base", -value);
+       }
+       
+       if (to !== zeroAddress) {
+         await updateBalance(context, to, event.log.address, "base", value);
+       }
+
+       await updateTokenStats(context, event.log.address, "base", value);
+     });
+
+     // Helper function to update account balances
+     async function updateBalance(
+       context: any,
+       account: string, 
+       contract: string,
+       chain: string,
+       change: bigint
+     ) {
+       const balanceId = createBalanceId(account, contract, chain);
+       
+       // Try to get existing balance
+       const existingBalance = await context.db.find(schema.balance, {
+         id: balanceId
+       });
+
+       if (existingBalance) {
+         // Update existing balance
+         const newBalance = existingBalance.balance + change;
+         await context.db.update(schema.balance, {
+           id: balanceId
+         }).set({
+           balance: newBalance,
+           lastUpdated: Math.floor(Date.now() / 1000),
+         });
+       } else {
+         // Create new balance record
+         await context.db.insert(schema.balance).values({
+           id: balanceId,
+           account,
+           contract,
+           chain,
+           balance: change > 0n ? change : 0n,
+           lastUpdated: Math.floor(Date.now() / 1000),
+         });
+       }
+     }
+
+     // Helper function to update token statistics
+     async function updateTokenStats(
+       context: any,
+       contract: string,
+       chain: string, 
+       volume: bigint
+     ) {
+       const statsId = createStatsId(contract, chain);
+       
+       const existingStats = await context.db.find(schema.tokenStats, {
+         id: statsId
+       });
+
+       if (existingStats) {
+         await context.db.update(schema.tokenStats, {
+           id: statsId
+         }).set({
+           totalTransfers: existingStats.totalTransfers + 1n,
+           totalVolume: existingStats.totalVolume + volume,
+           lastUpdated: Math.floor(Date.now() / 1000),
+         });
+       } else {
+         await context.db.insert(schema.tokenStats).values({
+           id: statsId,
+           contract,
+           chain,
+           totalHolders: 0,
+           totalTransfers: 1n,
+           totalVolume: volume,
+           lastUpdated: Math.floor(Date.now() / 1000),
+         });
+       }
+     }
+     ```
+   </CodeGroup>
+
+   This indexing logic:
+   - Records every transfer event across all three chains
+   - Maintains real-time balance tracking for all accounts
+   - Calculates aggregate statistics per token contract
+  </Step>
+</Steps>
+
+### Start the development server
+
+<Steps>
+  <Step>
+    Start the Ponder development server:
+
+   <CodeGroup>
+     ```shell Shell
+     pnpm dev
+     ```
+   </CodeGroup>
+
+   You should see output similar to:
+
+   <CodeGroup>
+     ```shell Shell
+     09:14:25.156 INFO  server  Started listening on port 42069
+     09:14:25.341 INFO  build   Hot reloaded config for update
+     09:14:25.445 INFO  indexing Started indexing from blocks mainnet: 18000000, polygon: 45000000, base: 2000000
+     09:14:26.123 INFO  indexing Processed 100 UsdcMainnet:Transfer events (mainnet)
+     ```
+   </CodeGroup>
+
+   <Info>
+    ### Development features
+
+     Ponder's development server includes:
+     - Hot reloading when you change config, schema, or indexing functions
+     - Real-time progress monitoring and error reporting
+     - Built-in GraphQL playground at http://localhost:42069
+   </Info>
+  </Step>
+  <Step>
+    Open your browser to [http://localhost:42069](http://localhost:42069) to access the GraphQL playground.
+  </Step>
+</Steps>
+
+### Query your indexed data
+
+<Steps>
+  <Step>
+    In the GraphQL playground, try these example queries:
+
+   **Get recent transfers across all chains:**
+   <CodeGroup>
+     ```graphql GraphQL
+     {
+       transfers(
+         limit: 10
+         orderBy: "timestamp"
+         orderDirection: "desc"
+       ) {
+         items {
+           id
+           from
+           to
+           amount
+           contract
+           chain
+           timestamp
+         }
+       }
+     }
+     ```
+   </CodeGroup>
+
+   **Get top holders for a specific token:**
+   <CodeGroup>
+     ```graphql GraphQL
+     {
+       balances(
+         where: { chain: "base" }
+         limit: 10
+         orderBy: "balance"
+         orderDirection: "desc"
+       ) {
+         items {
+           account
+           balance
+           contract
+           chain
+           lastUpdated
+         }
+       }
+     }
+     ```
+   </CodeGroup>
+  </Step>
+</Steps>
+
+### Deploy to production
+
+<Steps>
+  <Step>
+    For production deployment, you'll need a PostgreSQL database. Update your `.env.local`:
+
+   <CodeGroup>
+     ```sh .env.local
+     # Add your production database URL
+     DATABASE_URL="postgresql://user:password@localhost:5432/ponder"
+     
+     # Keep your Chainstack endpoints
+     PONDER_RPC_URL_1="YOUR_ETHEREUM_CHAINSTACK_ENDPOINT"
+     PONDER_RPC_URL_137="YOUR_POLYGON_CHAINSTACK_ENDPOINT" 
+     PONDER_RPC_URL_8453="YOUR_BASE_CHAINSTACK_ENDPOINT"
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+    Build your Ponder application:
+
+   <CodeGroup>
+     ```shell Shell
+     pnpm build
+     ```
+   </CodeGroup>
+  </Step>
+  <Step>
+    Start the production server:
+
+   <CodeGroup>
+     ```shell Shell
+     pnpm start
+     ```
+   </CodeGroup>
+
+   Your Ponder application will be available at the configured port with a production-ready GraphQL API.
+  </Step>
+</Steps>
+
+## Conclusion
+
+This tutorial guided you through building a comprehensive blockchain indexing backend using Ponder and Chainstack. You've created a system that:
+
+- Indexes data from multiple blockchain networks simultaneously
+- Provides type-safe, real-time data processing
+- Offers a production-ready GraphQL API
+- Scales efficiently with Chainstack's reliable infrastructure
+
+The combination of Ponder's developer experience and Chainstack's enterprise-grade blockchain infrastructure provides a robust foundation for building modern Web3 applications.
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Director of Developer Experience @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>
