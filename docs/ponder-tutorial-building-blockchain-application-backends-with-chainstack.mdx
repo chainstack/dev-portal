@@ -1,5 +1,5 @@
 ---
-title: "Ponder: Building blockchain application backends with Chainstack"
+title: "Ponder: Building blockchain indexing backends with Chainstack"
 ---
 
 **TLDR:**
@@ -42,7 +42,7 @@ See [Create a project](/docs/manage-your-project#create-a-project).
 
 For this tutorial, we'll index data from multiple chains. Join the following networks:
 
-* **Ethereum Mainnet** - for established DeFi protocols
+* **Ethereum** - for established DeFi protocols
 * **Polygon** - for high-volume, low-cost transactions
 * **Base** - for modern L2 applications
 
@@ -135,7 +135,7 @@ You'll need the RPC endpoints for each network you joined.
 
      export default createConfig({
        chains: {
-         mainnet: {
+         ethereum: {
            id: 1,
            rpc: http(process.env.PONDER_RPC_URL_1!),
          },
@@ -151,7 +151,7 @@ You'll need the RPC endpoints for each network you joined.
        contracts: {
          // USDC on multiple chains
          UsdcMainnet: {
-           chain: "mainnet",
+           chain: "ethereum",
            abi: erc20Abi,
            address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
            startBlock: 22842789,
@@ -280,11 +280,11 @@ You'll need the RPC endpoints for each network you joined.
        const zeroAddress = "0x0000000000000000000000000000000000000000";
        
        if (from !== zeroAddress) {
-         await updateBalance(context, from, event.log.address, "ethereum", -value);
+         await updateBalance(context, from, event.log.address, "ethereum", -value, event.block.timestamp);
        }
        
        if (to !== zeroAddress) {
-         await updateBalance(context, to, event.log.address, "ethereum", value);
+         await updateBalance(context, to, event.log.address, "ethereum", value, event.block.timestamp);
        }
 
        // Update token statistics
@@ -310,11 +310,11 @@ You'll need the RPC endpoints for each network you joined.
        const zeroAddress = "0x0000000000000000000000000000000000000000";
        
        if (from !== zeroAddress) {
-         await updateBalance(context, from, event.log.address, "polygon", -value);
+         await updateBalance(context, from, event.log.address, "polygon", -value, event.block.timestamp);
        }
        
        if (to !== zeroAddress) {
-         await updateBalance(context, to, event.log.address, "polygon", value);
+         await updateBalance(context, to, event.log.address, "polygon", value, event.block.timestamp);
        }
 
        await updateTokenStats(context, event.log.address, "polygon", value);
@@ -339,11 +339,11 @@ You'll need the RPC endpoints for each network you joined.
        const zeroAddress = "0x0000000000000000000000000000000000000000";
        
        if (from !== zeroAddress) {
-         await updateBalance(context, from, event.log.address, "base", -value);
+         await updateBalance(context, from, event.log.address, "base", -value, event.block.timestamp);
        }
        
        if (to !== zeroAddress) {
-         await updateBalance(context, to, event.log.address, "base", value);
+         await updateBalance(context, to, event.log.address, "base", value, event.block.timestamp);
        }
 
        await updateTokenStats(context, event.log.address, "base", value);
@@ -355,7 +355,8 @@ You'll need the RPC endpoints for each network you joined.
        account: string, 
        contract: string,
        chain: string,
-       change: bigint
+       change: bigint,
+       blockTimestamp: bigint
      ) {
        const balanceId = createBalanceId(account, contract, chain);
        
@@ -366,22 +367,95 @@ You'll need the RPC endpoints for each network you joined.
 
        if (existingBalance) {
          // Update existing balance
-         const newBalance = existingBalance.balance + change;
+         const oldBalance = existingBalance.balance;
+         const newBalance = oldBalance + change;
+         
+         // Handle cases where we're processing historical data from a start block
+         // and don't have the complete balance history
+         if (newBalance < 0n && change < 0n) {
+           // This suggests the account had a balance before our start block
+           // Initialize with the absolute value of the change (minimum needed balance)
+           const initializedBalance = -change;
+           await context.db.update(schema.balance, {
+             id: balanceId
+           }).set({
+             balance: initializedBalance + change, // This will equal initializedBalance - abs(change) = 0
+             lastUpdated: Number(blockTimestamp),
+           });
+           return; // Exit early after handling this case
+         } else if (newBalance < 0n) {
+           throw new Error(`Balance would become negative for account ${account}. Old: ${oldBalance}, Change: ${change}`);
+         }
+         
          await context.db.update(schema.balance, {
            id: balanceId
          }).set({
            balance: newBalance,
-           lastUpdated: Math.floor(Date.now() / 1000),
+           lastUpdated: Number(blockTimestamp),
          });
+
+         // Update holder count based on balance changes
+         if (oldBalance === 0n && newBalance > 0n) {
+           // New holder (balance went from 0 to positive)
+           await updateHolderCount(context, contract, chain, 1, blockTimestamp);
+         } else if (oldBalance > 0n && newBalance === 0n) {
+           // Holder exit (balance went from positive to 0)
+           await updateHolderCount(context, contract, chain, -1, blockTimestamp);
+         }
        } else {
          // Create new balance record
-         await context.db.insert(schema.balance).values({
-           id: balanceId,
-           account,
-           contract,
-           chain,
-           balance: change > 0n ? change : 0n,
-           lastUpdated: Math.floor(Date.now() / 1000),
+         if (change < 0n) {
+           // Account is sending tokens but has no balance record
+           // This means they had tokens before our start block
+           // Initialize with the absolute value of the change, then subtract it
+           const initializedBalance = -change;
+           await context.db.insert(schema.balance).values({
+             id: balanceId,
+             account,
+             contract,
+             chain,
+             balance: 0n, // After the transfer, balance will be 0
+             lastUpdated: Number(blockTimestamp),
+           });
+         } else {
+           // Normal case: receiving tokens to a new account
+           await context.db.insert(schema.balance).values({
+             id: balanceId,
+             account,
+             contract,
+             chain,
+             balance: change,
+             lastUpdated: Number(blockTimestamp),
+           });
+
+           // If this is a new holder with positive balance, increment holder count
+           if (change > 0n) {
+             await updateHolderCount(context, contract, chain, 1, blockTimestamp);
+           }
+         }
+       }
+     }
+
+     // Helper function to update holder count
+     async function updateHolderCount(
+       context: any,
+       contract: string,
+       chain: string,
+       change: number,
+       blockTimestamp: bigint
+     ) {
+       const statsId = createStatsId(contract, chain);
+       
+       const existingStats = await context.db.find(schema.tokenStats, {
+         id: statsId
+       });
+
+       if (existingStats) {
+         await context.db.update(schema.tokenStats, {
+           id: statsId
+         }).set({
+           totalHolders: Math.max(0, existingStats.totalHolders + change),
+           lastUpdated: Number(blockTimestamp),
          });
        }
      }
@@ -425,7 +499,9 @@ You'll need the RPC endpoints for each network you joined.
    This indexing logic:
    - Records every transfer event across all three chains
    - Maintains real-time balance tracking for all accounts
-   - Calculates aggregate statistics per token contract
+   - Handles historical data gaps when starting from an arbitrary block (accounts may have balances from before the start block)
+   - Tracks holder counts by detecting when balances go from zero to positive (new holder) or positive to zero (holder exit)
+   - Calculates aggregate statistics including transfer volume and holder statistics per token contract
   </Step>
 </Steps>
 
@@ -447,7 +523,7 @@ You'll need the RPC endpoints for each network you joined.
      ```shell Shell
      09:14:25.156 INFO  server  Started listening on port 42069
      09:14:25.341 INFO  build   Hot reloaded config for update
-     09:14:25.445 INFO  indexing Started indexing from blocks mainnet: 18000000, polygon: 45000000, base: 2000000
+     09:14:25.445 INFO  indexing Started indexing from blocks ethereum: 22842789, polygon: 73549831, base: 32402921
      09:14:26.123 INFO  indexing Processed 100 UsdcMainnet:Transfer events (mainnet)
      ```
    </CodeGroup>
@@ -500,7 +576,7 @@ You'll need the RPC endpoints for each network you joined.
      ```graphql GraphQL
      {
        balances(
-         where: { chain: "base" }
+         where: { chain: "ethereum" }
          limit: 10
          orderBy: "balance"
          orderDirection: "desc"
