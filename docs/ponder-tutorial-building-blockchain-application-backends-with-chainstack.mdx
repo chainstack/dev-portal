@@ -288,7 +288,7 @@ You'll need the RPC endpoints for each network you joined.
        }
 
        // Update token statistics
-       await updateTokenStats(context, event.log.address, "ethereum", value);
+       await updateTokenStats(context, event.log.address, "ethereum", value, event.block.timestamp);
      });
 
      // Index USDC transfers on Polygon
@@ -317,7 +317,7 @@ You'll need the RPC endpoints for each network you joined.
          await updateBalance(context, to, event.log.address, "polygon", value, event.block.timestamp);
        }
 
-       await updateTokenStats(context, event.log.address, "polygon", value);
+       await updateTokenStats(context, event.log.address, "polygon", value, event.block.timestamp);
      });
 
      // Index USDC transfers on Base
@@ -346,7 +346,7 @@ You'll need the RPC endpoints for each network you joined.
          await updateBalance(context, to, event.log.address, "base", value, event.block.timestamp);
        }
 
-       await updateTokenStats(context, event.log.address, "base", value);
+       await updateTokenStats(context, event.log.address, "base", value, event.block.timestamp);
      });
 
      // Helper function to update account balances
@@ -457,6 +457,17 @@ You'll need the RPC endpoints for each network you joined.
            totalHolders: Math.max(0, existingStats.totalHolders + change),
            lastUpdated: Number(blockTimestamp),
          });
+       } else {
+         // Create new token stats record for the first holder event
+         await context.db.insert(schema.tokenStats).values({
+           id: statsId,
+           contract,
+           chain,
+           totalHolders: Math.max(0, change),
+           totalTransfers: 0n,
+           totalVolume: 0n,
+           lastUpdated: Number(blockTimestamp),
+         });
        }
      }
 
@@ -465,7 +476,8 @@ You'll need the RPC endpoints for each network you joined.
        context: any,
        contract: string,
        chain: string, 
-       volume: bigint
+       volume: bigint,
+       blockTimestamp: bigint
      ) {
        const statsId = createStatsId(contract, chain);
        
@@ -479,7 +491,7 @@ You'll need the RPC endpoints for each network you joined.
          }).set({
            totalTransfers: existingStats.totalTransfers + 1n,
            totalVolume: existingStats.totalVolume + volume,
-           lastUpdated: Math.floor(Date.now() / 1000),
+           lastUpdated: Number(blockTimestamp),
          });
        } else {
          await context.db.insert(schema.tokenStats).values({
@@ -489,7 +501,7 @@ You'll need the RPC endpoints for each network you joined.
            totalHolders: 0,
            totalTransfers: 1n,
            totalVolume: volume,
-           lastUpdated: Math.floor(Date.now() / 1000),
+           lastUpdated: Number(blockTimestamp),
          });
        }
      }
