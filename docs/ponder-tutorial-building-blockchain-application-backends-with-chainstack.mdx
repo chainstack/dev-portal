@@ -56,460 +56,426 @@ You'll need the RPC endpoints for each network you joined.
 
 ### Create a new Ponder project
 
-<Steps>
-  <Step>
-    Create a new Ponder project using the CLI:
+1. Create a new Ponder project using the CLI:
 
-   <CodeGroup>
-     ```shell Shell
-     pnpm create ponder@latest my-ponder-indexer
-     ```
-   </CodeGroup>
+   ```bash
+   pnpm create ponder@latest my-ponder-indexer
+   ```
 
    This will prompt you to choose a template. For this tutorial, select **"ERC-20"** as it provides a good starting point for token indexing.
-  </Step>
-  <Step>
-    Navigate to your project directory:
 
-   <CodeGroup>
-     ```shell Shell
-     cd my-ponder-indexer
-     ```
-   </CodeGroup>
-  </Step>
-  <Step>
-    Install dependencies:
+2. Navigate to your project directory:
 
-   <CodeGroup>
-     ```shell Shell
-     pnpm install
-     ```
-   </CodeGroup>
-  </Step>
-</Steps>
+   ```bash
+   cd my-ponder-indexer
+   ```
+
+3. Install dependencies:
+
+   ```bash
+   pnpm install
+   ```
 
 ### Configure environment variables
 
-<Steps>
-  <Step>
-    Create a `.env.local` file in your project root:
+1. Create a `.env.local` file in your project root:
 
-   <CodeGroup>
-     ```sh .env.local
-     # Chainstack RPC endpoints
-     PONDER_RPC_URL_1="YOUR_ETHEREUM_CHAINSTACK_ENDPOINT"
-     PONDER_RPC_URL_137="YOUR_POLYGON_CHAINSTACK_ENDPOINT"
-     PONDER_RPC_URL_8453="YOUR_BASE_CHAINSTACK_ENDPOINT"
-     
-     # Optional: Database URL for production
-     # DATABASE_URL="postgresql://user:password@localhost:5432/ponder"
-     ```
-   </CodeGroup>
+   ```sh
+   # Chainstack RPC endpoints
+   PONDER_RPC_URL_1="YOUR_ETHEREUM_CHAINSTACK_ENDPOINT"
+   PONDER_RPC_URL_137="YOUR_POLYGON_CHAINSTACK_ENDPOINT"
+   PONDER_RPC_URL_8453="YOUR_BASE_CHAINSTACK_ENDPOINT"
+   
+   # Optional: Database URL for production
+   # DATABASE_URL="postgresql://user:password@localhost:5432/ponder"
+   ```
 
    Replace the placeholder values with your actual Chainstack endpoints.
 
    <Info>
-    ### Environment variable naming
+   ### Environment variable naming
 
-     Ponder uses the pattern `PONDER_RPC_URL_{CHAIN_ID}` for RPC endpoints. The chain IDs are:
-     - Ethereum: 1
-     - Polygon: 137  
-     - Base: 8453
+   Ponder uses the pattern `PONDER_RPC_URL_{CHAIN_ID}` for RPC endpoints. The chain IDs are:
+   - Ethereum: 1
+   - Polygon: 137  
+   - Base: 8453
    </Info>
-  </Step>
-</Steps>
 
 ### Configure Ponder for multiple chains
 
-<Steps>
-  <Step>
-    Edit `ponder.config.ts` to configure your chains and contracts:
+1. Edit `ponder.config.ts` to configure your chains and contracts:
 
-   <CodeGroup>
-     ```ts ponder.config.ts
-     import { createConfig } from "ponder";
-     import { http } from "viem";
+   ```ts
+   import { createConfig } from "ponder";
+   import { http } from "viem";
 
-     // Import ABIs for the contracts you want to index
-     import { erc20Abi } from "viem";
+   // Import ABIs for the contracts you want to index
+   import { erc20Abi } from "viem";
 
-     export default createConfig({
-       chains: {
-         ethereum: {
-           id: 1,
-           rpc: http(process.env.PONDER_RPC_URL_1!),
-         },
-         polygon: {
-           id: 137, 
-           rpc: http(process.env.PONDER_RPC_URL_137!),
-         },
-         base: {
-           id: 8453,
-           rpc: http(process.env.PONDER_RPC_URL_8453!),
-         },
+   export default createConfig({
+     chains: {
+       ethereum: {
+         id: 1,
+         rpc: http(process.env.PONDER_RPC_URL_1!),
        },
-       contracts: {
-         // USDC on multiple chains
-         UsdcMainnet: {
-           chain: "ethereum",
-           abi: erc20Abi,
-           address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-           startBlock: 22842789,
-         },
-         UsdcPolygon: {
-           chain: "polygon", 
-           abi: erc20Abi,
-           address: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
-           startBlock: 73549831,
-         },
-         UsdcBase: {
-           chain: "base",
-           abi: erc20Abi, 
-           address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-           startBlock: 32402921,
-         },
+       polygon: {
+         id: 137, 
+         rpc: http(process.env.PONDER_RPC_URL_137!),
        },
-     });
-     ```
-   </CodeGroup>
+       base: {
+         id: 8453,
+         rpc: http(process.env.PONDER_RPC_URL_8453!),
+       },
+     },
+     contracts: {
+       // USDC on multiple chains
+       UsdcMainnet: {
+         chain: "ethereum",
+         abi: erc20Abi,
+         address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+         startBlock: 22842789,
+       },
+       UsdcPolygon: {
+         chain: "polygon", 
+         abi: erc20Abi,
+         address: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+         startBlock: 73549831,
+       },
+       UsdcBase: {
+         chain: "base",
+         abi: erc20Abi, 
+         address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+         startBlock: 32402921,
+       },
+     },
+   });
+   ```
 
    This configuration sets up Ponder to index USDC transfers across three different chains using your Chainstack nodes.
 
    <Info>
-    ### Start block optimization
+   ### Start block optimization
 
-     Setting appropriate start blocks is crucial for performance. Choose blocks close to when your contracts were deployed or when interesting activity began.
+   Setting appropriate start blocks is crucial for performance. Choose blocks close to when your contracts were deployed or when interesting activity began.
    </Info>
-  </Step>
-</Steps>
 
 ### Define your database schema
 
-<Steps>
-  <Step>
-    Edit `ponder.schema.ts` to define the data structure you want to track:
+1. Edit `ponder.schema.ts` to define the data structure you want to track:
 
-   <CodeGroup>
-     ```ts ponder.schema.ts
-     import { onchainTable } from "ponder";
+   ```ts
+   import { onchainTable } from "ponder";
 
-     // Track individual token transfers
-     export const transfer = onchainTable("transfer", (t) => ({
-       id: t.text().primaryKey(), // tx_hash:log_index
-       from: t.text().notNull(),
-       to: t.text().notNull(), 
-       amount: t.bigint().notNull(),
-       contract: t.text().notNull(),
-       chain: t.text().notNull(),
-       blockNumber: t.bigint().notNull(),
-       timestamp: t.integer().notNull(),
-     }));
+   // Track individual token transfers
+   export const transfer = onchainTable("transfer", (t) => ({
+     id: t.text().primaryKey(), // tx_hash:log_index
+     from: t.text().notNull(),
+     to: t.text().notNull(), 
+     amount: t.bigint().notNull(),
+     contract: t.text().notNull(),
+     chain: t.text().notNull(),
+     blockNumber: t.bigint().notNull(),
+     timestamp: t.integer().notNull(),
+   }));
 
-     // Track account balances per contract
-     export const balance = onchainTable("balance", (t) => ({
-       id: t.text().primaryKey(), // account:contract:chain
-       account: t.text().notNull(),
-       contract: t.text().notNull(), 
-       chain: t.text().notNull(),
-       balance: t.bigint().notNull(),
-       lastUpdated: t.integer().notNull(),
-     }));
+   // Track account balances per contract
+   export const balance = onchainTable("balance", (t) => ({
+     id: t.text().primaryKey(), // account:contract:chain
+     account: t.text().notNull(),
+     contract: t.text().notNull(), 
+     chain: t.text().notNull(),
+     balance: t.bigint().notNull(),
+     lastUpdated: t.integer().notNull(),
+   }));
 
-     // Track holder statistics per contract
-     export const tokenStats = onchainTable("token_stats", (t) => ({
-       id: t.text().primaryKey(), // contract:chain
-       contract: t.text().notNull(),
-       chain: t.text().notNull(),
-       totalHolders: t.integer().notNull().default(0),
-       totalTransfers: t.bigint().notNull().default(0n),
-       totalVolume: t.bigint().notNull().default(0n),
-       lastUpdated: t.integer().notNull(),
-     }));
-     ```
-   </CodeGroup>
+   // Track holder statistics per contract
+   export const tokenStats = onchainTable("token_stats", (t) => ({
+     id: t.text().primaryKey(), // contract:chain
+     contract: t.text().notNull(),
+     chain: t.text().notNull(),
+     totalHolders: t.integer().notNull().default(0),
+     totalTransfers: t.bigint().notNull().default(0n),
+     totalVolume: t.bigint().notNull().default(0n),
+     lastUpdated: t.integer().notNull(),
+   }));
+   ```
 
    This schema defines three tables:
    - **transfers**: Individual transfer events
    - **balances**: Current token balances per account
    - **tokenStats**: Aggregate statistics per token contract
-  </Step>
-</Steps>
 
 ### Write indexing functions
 
-<Steps>
-  <Step>
-    Create indexing functions to process Transfer events. Replace the contents of `src/index.ts`:
+1. Create indexing functions to process Transfer events. Replace the contents of `src/index.ts`:
 
-   <CodeGroup>
-     ```ts src/index.ts
-     import { ponder } from "ponder:registry";
-     import schema from "ponder:schema";
+   ```ts
+   import { ponder } from "ponder:registry";
+   import schema from "ponder:schema";
 
-     // Helper function to create unique IDs
-     function createTransferId(event: any) {
-       return `${event.transaction.hash}:${event.log.logIndex}`;
-     }
+   // Helper function to create unique IDs
+   function createTransferId(event: any) {
+     return `${event.transaction.hash}:${event.log.logIndex}`;
+   }
 
-     function createBalanceId(account: string, contract: string, chain: string) {
-       return `${account}:${contract}:${chain}`;
-     }
+   function createBalanceId(account: string, contract: string, chain: string) {
+     return `${account}:${contract}:${chain}`;
+   }
 
-     function createStatsId(contract: string, chain: string) {
-       return `${contract}:${chain}`;
-     }
+   function createStatsId(contract: string, chain: string) {
+     return `${contract}:${chain}`;
+   }
 
-     // Index USDC transfers on Ethereum
-     ponder.on("UsdcMainnet:Transfer", async ({ event, context }) => {
-       const { from, to, value } = event.args;
-       const transferId = createTransferId(event);
-       
-       // Insert transfer record
-       await context.db.insert(schema.transfer).values({
-         id: transferId,
-         from,
-         to,
-         amount: value,
-         contract: event.log.address,
-         chain: "ethereum",
-         blockNumber: event.block.number,
-         timestamp: Number(event.block.timestamp),
-       });
-
-       // Update balances for both accounts (if not mint/burn)
-       const zeroAddress = "0x0000000000000000000000000000000000000000";
-       
-       if (from !== zeroAddress) {
-         await updateBalance(context, from, event.log.address, "ethereum", -value, event.block.timestamp);
-       }
-       
-       if (to !== zeroAddress) {
-         await updateBalance(context, to, event.log.address, "ethereum", value, event.block.timestamp);
-       }
-
-       // Update token statistics
-       await updateTokenStats(context, event.log.address, "ethereum", value, event.block.timestamp);
+   // Index USDC transfers on Ethereum
+   ponder.on("UsdcMainnet:Transfer", async ({ event, context }) => {
+     const { from, to, value } = event.args;
+     const transferId = createTransferId(event);
+     
+     // Insert transfer record
+     await context.db.insert(schema.transfer).values({
+       id: transferId,
+       from,
+       to,
+       amount: value,
+       contract: event.log.address,
+       chain: "ethereum",
+       blockNumber: event.block.number,
+       timestamp: Number(event.block.timestamp),
      });
 
-     // Index USDC transfers on Polygon
-     ponder.on("UsdcPolygon:Transfer", async ({ event, context }) => {
-       const { from, to, value } = event.args;
-       const transferId = createTransferId(event);
-       
-       await context.db.insert(schema.transfer).values({
-         id: transferId,
-         from,
-         to,
-         amount: value,
-         contract: event.log.address,
-         chain: "polygon",
-         blockNumber: event.block.number,
-         timestamp: Number(event.block.timestamp),
-       });
+     // Update balances for both accounts (if not mint/burn)
+     const zeroAddress = "0x0000000000000000000000000000000000000000";
+     
+     if (from !== zeroAddress) {
+       await updateBalance(context, from, event.log.address, "ethereum", -value, event.block.timestamp);
+     }
+     
+     if (to !== zeroAddress) {
+       await updateBalance(context, to, event.log.address, "ethereum", value, event.block.timestamp);
+     }
 
-       const zeroAddress = "0x0000000000000000000000000000000000000000";
-       
-       if (from !== zeroAddress) {
-         await updateBalance(context, from, event.log.address, "polygon", -value, event.block.timestamp);
-       }
-       
-       if (to !== zeroAddress) {
-         await updateBalance(context, to, event.log.address, "polygon", value, event.block.timestamp);
-       }
+     // Update token statistics
+     await updateTokenStats(context, event.log.address, "ethereum", value, event.block.timestamp);
+   });
 
-       await updateTokenStats(context, event.log.address, "polygon", value, event.block.timestamp);
+   // Index USDC transfers on Polygon
+   ponder.on("UsdcPolygon:Transfer", async ({ event, context }) => {
+     const { from, to, value } = event.args;
+     const transferId = createTransferId(event);
+     
+     await context.db.insert(schema.transfer).values({
+       id: transferId,
+       from,
+       to,
+       amount: value,
+       contract: event.log.address,
+       chain: "polygon",
+       blockNumber: event.block.number,
+       timestamp: Number(event.block.timestamp),
      });
 
-     // Index USDC transfers on Base
-     ponder.on("UsdcBase:Transfer", async ({ event, context }) => {
-       const { from, to, value } = event.args;
-       const transferId = createTransferId(event);
-       
-       await context.db.insert(schema.transfer).values({
-         id: transferId,
-         from,
-         to,
-         amount: value,
-         contract: event.log.address,
-         chain: "base", 
-         blockNumber: event.block.number,
-         timestamp: Number(event.block.timestamp),
-       });
+     const zeroAddress = "0x0000000000000000000000000000000000000000";
+     
+     if (from !== zeroAddress) {
+       await updateBalance(context, from, event.log.address, "polygon", -value, event.block.timestamp);
+     }
+     
+     if (to !== zeroAddress) {
+       await updateBalance(context, to, event.log.address, "polygon", value, event.block.timestamp);
+     }
 
-       const zeroAddress = "0x0000000000000000000000000000000000000000";
-       
-       if (from !== zeroAddress) {
-         await updateBalance(context, from, event.log.address, "base", -value, event.block.timestamp);
-       }
-       
-       if (to !== zeroAddress) {
-         await updateBalance(context, to, event.log.address, "base", value, event.block.timestamp);
-       }
+     await updateTokenStats(context, event.log.address, "polygon", value, event.block.timestamp);
+   });
 
-       await updateTokenStats(context, event.log.address, "base", value, event.block.timestamp);
+   // Index USDC transfers on Base
+   ponder.on("UsdcBase:Transfer", async ({ event, context }) => {
+     const { from, to, value } = event.args;
+     const transferId = createTransferId(event);
+     
+     await context.db.insert(schema.transfer).values({
+       id: transferId,
+       from,
+       to,
+       amount: value,
+       contract: event.log.address,
+       chain: "base", 
+       blockNumber: event.block.number,
+       timestamp: Number(event.block.timestamp),
      });
 
-     // Helper function to update account balances
-     async function updateBalance(
-       context: any,
-       account: string, 
-       contract: string,
-       chain: string,
-       change: bigint,
-       blockTimestamp: bigint
-     ) {
-       const balanceId = createBalanceId(account, contract, chain);
-       
-       // Try to get existing balance
-       const existingBalance = await context.db.find(schema.balance, {
-         id: balanceId
-       });
+     const zeroAddress = "0x0000000000000000000000000000000000000000";
+     
+     if (from !== zeroAddress) {
+       await updateBalance(context, from, event.log.address, "base", -value, event.block.timestamp);
+     }
+     
+     if (to !== zeroAddress) {
+       await updateBalance(context, to, event.log.address, "base", value, event.block.timestamp);
+     }
 
-       if (existingBalance) {
-         // Update existing balance
-         const oldBalance = existingBalance.balance;
-         const newBalance = oldBalance + change;
-         
-         // Handle cases where we're processing historical data from a start block
-         // and don't have the complete balance history
-         if (newBalance < 0n && change < 0n) {
-           // This suggests the account had a balance before our start block
-           // Initialize with the absolute value of the change (minimum needed balance)
-           const initializedBalance = -change;
-           await context.db.update(schema.balance, {
-             id: balanceId
-           }).set({
-             balance: initializedBalance + change, // This will equal initializedBalance - abs(change) = 0
-             lastUpdated: Number(blockTimestamp),
-           });
-           return; // Exit early after handling this case
-         } else if (newBalance < 0n) {
-           throw new Error(`Balance would become negative for account ${account}. Old: ${oldBalance}, Change: ${change}`);
-         }
-         
+     await updateTokenStats(context, event.log.address, "base", value, event.block.timestamp);
+   });
+
+   // Helper function to update account balances
+   async function updateBalance(
+     context: any,
+     account: string, 
+     contract: string,
+     chain: string,
+     change: bigint,
+     blockTimestamp: bigint
+   ) {
+     const balanceId = createBalanceId(account, contract, chain);
+     
+     // Try to get existing balance
+     const existingBalance = await context.db.find(schema.balance, {
+       id: balanceId
+     });
+
+     if (existingBalance) {
+       // Update existing balance
+       const oldBalance = existingBalance.balance;
+       const newBalance = oldBalance + change;
+       
+       // Handle cases where we're processing historical data from a start block
+       // and don't have the complete balance history
+       if (newBalance < 0n && change < 0n) {
+         // This suggests the account had a balance before our start block
+         // Initialize with the absolute value of the change (minimum needed balance)
+         const initializedBalance = -change;
          await context.db.update(schema.balance, {
            id: balanceId
          }).set({
-           balance: newBalance,
+           balance: initializedBalance + change, // This will equal initializedBalance - abs(change) = 0
+           lastUpdated: Number(blockTimestamp),
+         });
+         return; // Exit early after handling this case
+       } else if (newBalance < 0n) {
+         throw new Error(`Balance would become negative for account ${account}. Old: ${oldBalance}, Change: ${change}`);
+       }
+       
+       await context.db.update(schema.balance, {
+         id: balanceId
+       }).set({
+         balance: newBalance,
+         lastUpdated: Number(blockTimestamp),
+       });
+
+       // Update holder count based on balance changes
+       if (oldBalance === 0n && newBalance > 0n) {
+         // New holder (balance went from 0 to positive)
+         await updateHolderCount(context, contract, chain, 1, blockTimestamp);
+       } else if (oldBalance > 0n && newBalance === 0n) {
+         // Holder exit (balance went from positive to 0)
+         await updateHolderCount(context, contract, chain, -1, blockTimestamp);
+       }
+     } else {
+       // Create new balance record
+       if (change < 0n) {
+         // Account is sending tokens but has no balance record
+         // This means they had tokens before our start block
+         // Initialize with the absolute value of the change, then subtract it
+         const initializedBalance = -change;
+         await context.db.insert(schema.balance).values({
+           id: balanceId,
+           account,
+           contract,
+           chain,
+           balance: 0n, // After the transfer, balance will be 0
            lastUpdated: Number(blockTimestamp),
          });
 
-         // Update holder count based on balance changes
-         if (oldBalance === 0n && newBalance > 0n) {
-           // New holder (balance went from 0 to positive)
+         // Account just exited its position – adjust holder count
+         await updateHolderCount(context, contract, chain, -1, blockTimestamp);
+       } else {
+         // Normal case: receiving tokens to a new account
+         await context.db.insert(schema.balance).values({
+           id: balanceId,
+           account,
+           contract,
+           chain,
+           balance: change,
+           lastUpdated: Number(blockTimestamp),
+         });
+
+         // If this is a new holder with positive balance, increment holder count
+         if (change > 0n) {
            await updateHolderCount(context, contract, chain, 1, blockTimestamp);
-         } else if (oldBalance > 0n && newBalance === 0n) {
-           // Holder exit (balance went from positive to 0)
-           await updateHolderCount(context, contract, chain, -1, blockTimestamp);
-         }
-       } else {
-         // Create new balance record
-         if (change < 0n) {
-           // Account is sending tokens but has no balance record
-           // This means they had tokens before our start block
-           // Initialize with the absolute value of the change, then subtract it
-           const initializedBalance = -change;
-           await context.db.insert(schema.balance).values({
-             id: balanceId,
-             account,
-             contract,
-             chain,
-             balance: 0n, // After the transfer, balance will be 0
-             lastUpdated: Number(blockTimestamp),
-           });
-
-           // Account just exited its position – adjust holder count
-           await updateHolderCount(context, contract, chain, -1, blockTimestamp);
-         } else {
-           // Normal case: receiving tokens to a new account
-           await context.db.insert(schema.balance).values({
-             id: balanceId,
-             account,
-             contract,
-             chain,
-             balance: change,
-             lastUpdated: Number(blockTimestamp),
-           });
-
-           // If this is a new holder with positive balance, increment holder count
-           if (change > 0n) {
-             await updateHolderCount(context, contract, chain, 1, blockTimestamp);
-           }
          }
        }
      }
+   }
 
-     // Helper function to update holder count
-     async function updateHolderCount(
-       context: any,
-       contract: string,
-       chain: string,
-       change: number,
-       blockTimestamp: bigint
-     ) {
-       const statsId = createStatsId(contract, chain);
-       
-       const existingStats = await context.db.find(schema.tokenStats, {
+   // Helper function to update holder count
+   async function updateHolderCount(
+     context: any,
+     contract: string,
+     chain: string,
+     change: number,
+     blockTimestamp: bigint
+   ) {
+     const statsId = createStatsId(contract, chain);
+     
+     const existingStats = await context.db.find(schema.tokenStats, {
+       id: statsId
+     });
+
+     if (existingStats) {
+       await context.db.update(schema.tokenStats, {
          id: statsId
+       }).set({
+         totalHolders: Math.max(0, existingStats.totalHolders + change),
+         lastUpdated: Number(blockTimestamp),
        });
-
-       if (existingStats) {
-         await context.db.update(schema.tokenStats, {
-           id: statsId
-         }).set({
-           totalHolders: Math.max(0, existingStats.totalHolders + change),
-           lastUpdated: Number(blockTimestamp),
-         });
-       } else {
-         // Create new token stats record for the first holder event
-         await context.db.insert(schema.tokenStats).values({
-           id: statsId,
-           contract,
-           chain,
-           totalHolders: Math.max(0, change),
-           totalTransfers: 0n,
-           totalVolume: 0n,
-           lastUpdated: Number(blockTimestamp),
-         });
-       }
+     } else {
+       // Create new token stats record for the first holder event
+       await context.db.insert(schema.tokenStats).values({
+         id: statsId,
+         contract,
+         chain,
+         totalHolders: Math.max(0, change),
+         totalTransfers: 0n,
+         totalVolume: 0n,
+         lastUpdated: Number(blockTimestamp),
+       });
      }
+   }
 
-     // Helper function to update token statistics
-     async function updateTokenStats(
-       context: any,
-       contract: string,
-       chain: string, 
-       volume: bigint,
-       blockTimestamp: bigint
-     ) {
-       const statsId = createStatsId(contract, chain);
-       
-       const existingStats = await context.db.find(schema.tokenStats, {
+   // Helper function to update token statistics
+   async function updateTokenStats(
+     context: any,
+     contract: string,
+     chain: string, 
+     volume: bigint,
+     blockTimestamp: bigint
+   ) {
+     const statsId = createStatsId(contract, chain);
+     
+     const existingStats = await context.db.find(schema.tokenStats, {
+       id: statsId
+     });
+
+     if (existingStats) {
+       await context.db.update(schema.tokenStats, {
          id: statsId
+       }).set({
+         totalTransfers: existingStats.totalTransfers + 1n,
+         totalVolume: existingStats.totalVolume + volume,
+         lastUpdated: Number(blockTimestamp),
        });
-
-       if (existingStats) {
-         await context.db.update(schema.tokenStats, {
-           id: statsId
-         }).set({
-           totalTransfers: existingStats.totalTransfers + 1n,
-           totalVolume: existingStats.totalVolume + volume,
-           lastUpdated: Number(blockTimestamp),
-         });
-       } else {
-         await context.db.insert(schema.tokenStats).values({
-           id: statsId,
-           contract,
-           chain,
-           totalHolders: 0,
-           totalTransfers: 1n,
-           totalVolume: volume,
-           lastUpdated: Number(blockTimestamp),
-         });
-       }
+     } else {
+       await context.db.insert(schema.tokenStats).values({
+         id: statsId,
+         contract,
+         chain,
+         totalHolders: 0,
+         totalTransfers: 1n,
+         totalVolume: volume,
+         lastUpdated: Number(blockTimestamp),
+       });
      }
-     ```
-   </CodeGroup>
+   }
+   ```
 
    This indexing logic:
    - Records every transfer event across all three chains
@@ -517,138 +483,109 @@ You'll need the RPC endpoints for each network you joined.
    - Handles historical data gaps when starting from an arbitrary block (accounts may have balances from before the start block)
    - Tracks holder counts by detecting when balances go from zero to positive (new holder) or positive to zero (holder exit)
    - Calculates aggregate statistics including transfer volume and holder statistics per token contract
-  </Step>
-</Steps>
 
 ### Start the development server
 
-<Steps>
-  <Step>
-    Start the Ponder development server:
+1. Start the Ponder development server:
 
-   <CodeGroup>
-     ```shell Shell
-     pnpm dev
-     ```
-   </CodeGroup>
+   ```bash
+   pnpm dev
+   ```
 
    You should see output similar to:
 
-   <CodeGroup>
-     ```shell Shell
-     09:14:25.156 INFO  server  Started listening on port 42069
-     09:14:25.341 INFO  build   Hot reloaded config for update
-     09:14:25.445 INFO  indexing Started indexing from blocks ethereum: 22842789, polygon: 73549831, base: 32402921
-     09:14:26.123 INFO  indexing Processed 100 UsdcMainnet:Transfer events (mainnet)
-     ```
-   </CodeGroup>
+   ```
+   09:14:25.156 INFO  server  Started listening on port 42069
+   09:14:25.341 INFO  build   Hot reloaded config for update
+   09:14:25.445 INFO  indexing Started indexing from blocks ethereum: 22842789, polygon: 73549831, base: 32402921
+   09:14:26.123 INFO  indexing Processed 100 UsdcMainnet:Transfer events (mainnet)
+   ```
 
    <Info>
-    ### Development features
+   ### Development features
 
-     Ponder's development server includes:
-     - Hot reloading when you change config, schema, or indexing functions
-     - Real-time progress monitoring and error reporting
-     - Built-in GraphQL playground at http://localhost:42069
+   Ponder's development server includes:
+   - Hot reloading when you change config, schema, or indexing functions
+   - Real-time progress monitoring and error reporting
+   - Built-in GraphQL playground at http://localhost:42069
    </Info>
-  </Step>
-  <Step>
-    Open your browser to [http://localhost:42069](http://localhost:42069) to access the GraphQL playground.
-  </Step>
-</Steps>
+
+2. Open your browser to [http://localhost:42069](http://localhost:42069) to access the GraphQL playground.
 
 ### Query your indexed data
 
-<Steps>
-  <Step>
-    In the GraphQL playground, try these example queries:
+1. In the GraphQL playground, try these example queries:
 
    **Get recent transfers across all chains:**
-   <CodeGroup>
-     ```graphql GraphQL
-     {
-       transfers(
-         limit: 10
-         orderBy: "timestamp"
-         orderDirection: "desc"
-       ) {
-         items {
-           id
-           from
-           to
-           amount
-           contract
-           chain
-           timestamp
-         }
+   
+   ```graphql
+   {
+     transfers(
+       limit: 10
+       orderBy: "timestamp"
+       orderDirection: "desc"
+     ) {
+       items {
+         id
+         from
+         to
+         amount
+         contract
+         chain
+         timestamp
        }
      }
-     ```
-   </CodeGroup>
+   }
+   ```
 
    **Get top holders for a specific token:**
-   <CodeGroup>
-     ```graphql GraphQL
-     {
-       balances(
-         where: { chain: "ethereum" }
-         limit: 10
-         orderBy: "balance"
-         orderDirection: "desc"
-       ) {
-         items {
-           account
-           balance
-           contract
-           chain
-           lastUpdated
-         }
+   
+   ```graphql
+   {
+     balances(
+       where: { chain: "ethereum" }
+       limit: 10
+       orderBy: "balance"
+       orderDirection: "desc"
+     ) {
+       items {
+         account
+         balance
+         contract
+         chain
+         lastUpdated
        }
      }
-     ```
-   </CodeGroup>
-  </Step>
-</Steps>
+   }
+   ```
 
 ### Deploy to production
 
-<Steps>
-  <Step>
-    For production deployment, you'll need a PostgreSQL database. Update your `.env.local`:
+1. For production deployment, you'll need a PostgreSQL database. Update your `.env.local`:
 
-   <CodeGroup>
-     ```sh .env.local
-     # Add your production database URL
-     DATABASE_URL="postgresql://user:password@localhost:5432/ponder"
-     
-     # Keep your Chainstack endpoints
-     PONDER_RPC_URL_1="YOUR_ETHEREUM_CHAINSTACK_ENDPOINT"
-     PONDER_RPC_URL_137="YOUR_POLYGON_CHAINSTACK_ENDPOINT" 
-     PONDER_RPC_URL_8453="YOUR_BASE_CHAINSTACK_ENDPOINT"
-     ```
-   </CodeGroup>
-  </Step>
-  <Step>
-    Build your Ponder application:
+   ```sh
+   # Add your production database URL
+   DATABASE_URL="postgresql://user:password@localhost:5432/ponder"
+   
+   # Keep your Chainstack endpoints
+   PONDER_RPC_URL_1="YOUR_ETHEREUM_CHAINSTACK_ENDPOINT"
+   PONDER_RPC_URL_137="YOUR_POLYGON_CHAINSTACK_ENDPOINT" 
+   PONDER_RPC_URL_8453="YOUR_BASE_CHAINSTACK_ENDPOINT"
+   ```
 
-   <CodeGroup>
-     ```shell Shell
-     pnpm build
-     ```
-   </CodeGroup>
-  </Step>
-  <Step>
-    Start the production server:
+2. Build your Ponder application:
 
-   <CodeGroup>
-     ```shell Shell
-     pnpm start
-     ```
-   </CodeGroup>
+   ```bash
+   pnpm build
+   ```
+
+3. Start the production server:
+
+   ```bash
+   pnpm start
+   ```
 
    Your Ponder application will be available at the configured port with a production-ready GraphQL API.
-  </Step>
-</Steps>
 
 ## Conclusion
 
