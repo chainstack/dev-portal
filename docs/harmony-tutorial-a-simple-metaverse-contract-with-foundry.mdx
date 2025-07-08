@@ -31,29 +31,13 @@ In this tutorial, you will:
 ## Overview
 
 To get from zero to a deployed metaverse contract and patches of land distributed on the Harmony devnet, do the following:
-<Steps>
-  <Step>
-  With Chainstack, create a <Tooltip tip="A public chain project- a project to join public networks">public chain project</Tooltip>.
-  </Step>
-  <Step>
-  With Chainstack, join the Harmony devnet.
-  </Step>
-  <Step>
-  With Chainstack, access your Harmony node credentials.
-  </Step>
-  <Step>
-  With OpenZeppelin, create an HRC-721 contract.
-  </Step>
-  <Step>
-  With Foundry, flatten, compile, and deploy the contract through your Harmony node.
-  </Step>
-  <Step>
-  Verify the contract on the Harmony explorer.
-  </Step>
-  <Step>
-  Using the Harmony explorer as a web app, distribute the patches of land to accounts.
-  </Step>
-</Steps>
+1. With Chainstack, create a <Tooltip tip="A public chain project- a project to join public networks">public chain project</Tooltip>.
+2. With Chainstack, join the Harmony devnet.
+3. With Chainstack, access your Harmony node credentials.
+4. With OpenZeppelin, create an HRC-721 contract.
+5. With Foundry, flatten, compile, and deploy the contract through your Harmony node.
+6. Verify the contract on the Harmony explorer.
+7. Using the Harmony explorer as a web app, distribute the patches of land to accounts.
 ## Step-by-step
 
 ### Create a public chain project
@@ -73,83 +57,76 @@ See [View node access and credentials](/docs/manage-your-node#view-node-access-a
 See [Foundry](https://getfoundry.sh/).
 
 ### Create the contract
-<Steps>
-  <Step>
-  Initialize your project with Foundry:
+1. Initialize your project with Foundry:
 
-   <CodeGroup>
-     ```bash Shell
-     forge init polyland
-     ```
-   </CodeGroup>
+   ```bash
+   forge init polyland
+   ```
 
-   This will create the project directory `polyland` an initialize it.
-  </Step>
-  <Step>
-  Go to the `polyland/src/` directory. In the directory, create your metaverse contract: `polyland.sol`.
+   This will create the project directory `polyland` and initialize it.
 
-   <CodeGroup>
-     ```solidity solidity
-     // SPDX-License-Identifier: MIT
-     pragma solidity ^0.8;
+2. Go to the `polyland/src/` directory. In the directory, create your metaverse contract: `polyland.sol`.
 
-     import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-     import "@openzeppelin/contracts/utils/Counters.sol";
-     import "@openzeppelin/contracts/access/Ownable.sol";
+   ```solidity
+   // SPDX-License-Identifier: MIT
+   pragma solidity ^0.8;
 
-     contract Polyland is ERC721, Ownable {
-         using Counters for Counters.Counter;
+   import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+   import "@openzeppelin/contracts/utils/Counters.sol";
+   import "@openzeppelin/contracts/access/Ownable.sol";
 
-         Counters.Counter private supply;
+   contract Polyland is ERC721, Ownable {
+       using Counters for Counters.Counter;
 
-         uint256 public maxSupply = 4;
+       Counters.Counter private supply;
 
-         struct Triangle {
-             string name;
-             int8 edge1;
-             int8 edge2;
-             int8 edge3;
-         }
+       uint256 public maxSupply = 4;
 
-         Triangle[] public triangles;
+       struct Triangle {
+           string name;
+           int8 edge1;
+           int8 edge2;
+           int8 edge3;
+       }
 
-         constructor() ERC721("Polyland", "PLLND") {
-         triangles.push(Triangle("Triangle0", 0,0,0));
-         triangles.push(Triangle("Triangle1", 1,1,1));
-         triangles.push(Triangle("Triangle2", 2,2,2));
-         triangles.push(Triangle("Triangle3", 3,3,3));
-         triangles.push(Triangle("Triangle4", 4,4,4));
-         }
+       Triangle[] public triangles;
 
-         modifier supplyCap {
-           require(supply.current() <= maxSupply, "All patches minted.");
+       constructor() ERC721("Polyland", "PLLND") {
+           triangles.push(Triangle("Triangle0", 0,0,0));
+           triangles.push(Triangle("Triangle1", 1,1,1));
+           triangles.push(Triangle("Triangle2", 2,2,2));
+           triangles.push(Triangle("Triangle3", 3,3,3));
+           triangles.push(Triangle("Triangle4", 4,4,4));
+       }
+
+       modifier supplyCap {
+           require(supply.current() < maxSupply, "All patches minted.");
            _;
-         }
+       }
 
-         function totalSupply() public view returns (uint256) {
+       function totalSupply() public view returns (uint256) {
            return supply.current();
-         }
+       }
 
-         function getTriangles() public view returns (Triangle[] memory) {
+       function getTriangles() public view returns (Triangle[] memory) {
            return triangles;
-         }
+       }
 
-         function mintTriangle(address account)
-             public
-             onlyOwner
-             supplyCap
-             returns (uint256)
-         {
-             supply.increment();
+       function mintTriangle(address account)
+           public
+           onlyOwner
+           supplyCap
+           returns (uint256)
+       {
+           supply.increment();
 
-             uint256 newPatchId = supply.current();
-             _mint(account, newPatchId);
+           uint256 newPatchId = supply.current();
+           _mint(account, newPatchId);
 
-             return newPatchId;
-         }
-     }
-     ```
-   </CodeGroup>
+           return newPatchId;
+       }
+   }
+   ```
 
    The contract implementation is the following:
 
@@ -160,48 +137,36 @@ See [Foundry](https://getfoundry.sh/).
    * Only the address that deploys the contract can mint the patches of land.
 
    Thus, the contract represents a plot of land called Polyland that consists of four triangular patches of land.
-  </Step>
-  <Step>
-  Set up OpenZeppelin with Foundry
+
+3. Set up OpenZeppelin with Foundry
 
    Install OpenZeppelin with Foundry:
 
-   <CodeGroup>
-     ```bash Shell
-     forge install openzeppelin/openzeppelin-contracts
-     ```
-   </CodeGroup>
+   ```bash
+   forge install openzeppelin/openzeppelin-contracts
+   ```
 
    In the project directory, create a `remappings.txt` file with the following contents:
 
-   <CodeGroup>
-     ```js JavaScript
-     @openzeppelin/=lib/openzeppelin-contracts/
-     ```
-   </CodeGroup>
-  </Step>
-  <Step>
-  Flatten the contract.
+   ```
+   @openzeppelin/=lib/openzeppelin-contracts/
+   ```
+
+4. Flatten the contract.
 
    Flatten the contract to make it easier to verify on the [Harmony Testnet explorer](https://explorer.testnet.harmony.one).
 
    Run:
 
-   <CodeGroup>
-     ```bash Shell
-     forge flatten polyland.sol > polylandFlat.sol
-     ```
-   </CodeGroup>
-  </Step>
-  <Step>
-  Deploy the contract:
+   ```bash
+   forge flatten polyland.sol > polylandFlat.sol
+   ```
 
-   <CodeGroup>
-     ```bash Shell
-     forge create Polyland --contracts /root/polyland/src/polylandFlat.sol --private-key YOUR_PRIVATE_KEY --rpc-url YOUR_CHAINSTACK_ENDPOINT --
-     legacy
-     ```
-   </CodeGroup>
+5. Deploy the contract:
+
+   ```bash
+   forge create Polyland --contracts /root/polyland/src/polylandFlat.sol --private-key YOUR_PRIVATE_KEY --rpc-url YOUR_CHAINSTACK_ENDPOINT --legacy
+   ```
 
    where
 
@@ -212,35 +177,16 @@ See [Foundry](https://getfoundry.sh/).
    * `--legacy` — the Foundry flag to work with the EVM-based networks that are not [EIP-1559](https://github.com/ethereum/EIPs/blob/master/EIPS/eip-1559.md) activated.
 
    Once the contract deploys, note the `solc` and the `Deployed` to values in the output.
-  </Step>
-</Steps>
 ### Verify the contract
-<Steps>
-  <Step>
-  Open the [Harmony Testnet explorer](https://explorer.testnet.harmony.one).
-  </Step>
-  <Step>
-  Put in the contract address. Click the **Contract** tab.
-  </Step>
-  <Step>
-  Click **Verify and Publish**.
-  </Step>
-  <Step>
-  In the `Contract Name` field, put `Polyland`.
-  </Step>
-  <Step>
-  Set `Chain Type` to `devnet`.
-  </Step>
-  <Step>
-  In `Compiler`, provide the `solc` version that the contract compiled with.
-  </Step>
-  <Step>
-  In `Optimizer`, set `Yes`, `200`. Contract bytecode optimization with 200 runs is the default Foundry setting.
-  </Step>
-  <Step>
-  Paste the entirety of the flattened contract in the contract field and hit **Submit**.
-  </Step>
-</Steps>
+
+1. Open the [Harmony Testnet explorer](https://explorer.testnet.harmony.one).
+2. Put in the contract address. Click the **Contract** tab.
+3. Click **Verify and Publish**.
+4. In the `Contract Name` field, put `Polyland`.
+5. Set `Chain Type` to `devnet`.
+6. In `Compiler`, provide the `solc` version that the contract compiled with.
+7. In `Optimizer`, set `Yes`, `200`. Contract bytecode optimization with 200 runs is the default Foundry setting.
+8. Paste the entirety of the flattened contract in the contract field and hit **Submit**.
 
 This will verify the contract. You can now use the explorer as a web app to interact with the contract.
 

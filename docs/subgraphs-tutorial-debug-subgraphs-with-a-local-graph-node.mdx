@@ -46,233 +46,216 @@ In this tutorial, we will:
 
 This tutorial won’t dive deep into the details of this subgraph. I recommend you check out the beginner’s guide for that, linked above. I will, however, try to incorporate brief explanations.
 
-<Steps>
-  <Step>
-    Install [graph-cli](https://www.npmjs.com/package/@graphprotocol/graph-cli) on your machine.
-  </Step>
-  <Step>
-    Create a new directory and initialize a project in it by running:
-   <CodeGroup>
-     ```bash Shell
-     graph init
-     ```
-   </CodeGroup>
-  </Step>
-  <Step>
-    Set up a subgraph with the following parameters:
+1. Install [graph-cli](https://www.npmjs.com/package/@graphprotocol/graph-cli) on your machine.
 
-   <CodeGroup>
-     ```yaml yaml
-     Protocol: Ethereum
-     Product for which to initialize: subgraph-studio
-     Subgraph Slug: BAYC
-     Directory to create the subgraph in: ChainstackSubgraph
-     Ethereum network: mainnet
-     Contract address: 0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D
-     Contract Name: BAYC
-     Index contract events as entities: true
-     ```
-   </CodeGroup>
-  </Step>
-  <Step>
-    Paste the following code in `schema.graphql`:
+2. Create a new directory and initialize a project in it by running:
 
-   <CodeGroup>
-     ```graphql schema.graphql
-     type Transfer @entity(immutable: true) {
-       id: Bytes!
-       from: Bytes!
-       to: Bytes!
-       tokenId: BigInt!
-       blockNumber: BigInt!
-       transactionHash: Bytes!
-     }
+   ```bash
+   graph init
+   ```
 
-     type BoredApe @entity {
-       id: ID!
-       creator: Bytes!
-       newOwner: Bytes!
-       tokenURI: String!
-       blockNumber: BigInt!
-     }
+3. Set up a subgraph with the following parameters:
 
-     type Property @entity {
-       id: ID!
-       image: String!
-       background: String!
-       clothes: String!
-       earring: String!
-       eyes: String!
-       fur: String!
-       hat: String!
-       mouth: String!
-     }
-     ```
-   </CodeGroup>
+   ```yaml
+   Protocol: Ethereum
+   Product for which to initialize: subgraph-studio
+   Subgraph Slug: BAYC
+   Directory to create the subgraph in: ChainstackSubgraph
+   Ethereum network: mainnet
+   Contract address: 0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D
+   Contract Name: BAYC
+   Index contract events as entities: true
+   ```
+
+4. Paste the following code in `schema.graphql`:
+
+   ```graphql
+   type Transfer @entity(immutable: true) {
+     id: Bytes!
+     from: Bytes!
+     to: Bytes!
+     tokenId: BigInt!
+     blockNumber: BigInt!
+     transactionHash: Bytes!
+   }
+
+   type BoredApe @entity {
+     id: ID!
+     creator: Bytes!
+     newOwner: Bytes!
+     tokenURI: String!
+     blockNumber: BigInt!
+   }
+
+   type Property @entity {
+     id: ID!
+     image: String!
+     background: String!
+     clothes: String!
+     earring: String!
+     eyes: String!
+     fur: String!
+     hat: String!
+     mouth: String!
+   }
+   ```
+
    Explaining `schema.graphql`:
 
    * The `Transfer` entity will index data every time a Bored Ape NFT is transferred. It will log the transaction data, as well as the recipient and receiver addresses.
    * The `BoredApe` entity will index all the major information about an ape, including the original creator and the current owner.
    * The `Property` entity will index the IPFS metadata for all the apes. Each instance of this entity can be identified using the `id` field, which is nothing but the `tokenID` of the ape.
-  </Step>
-  <Step>
-    Delete everything inside `subgraph.yaml`, and paste the following code:
 
-   <CodeGroup>
-     ```yaml subgraph.yaml
-     specVersion: 0.0.5
-     description: A subgraph to index data on the Bored Apes contract
-     features:
-       - ipfsOnEthereumContracts
-     schema:
-       file: ./schema.graphql
-     dataSources:
-       - kind: ethereum
-         name: BAYC
-         network: mainnet
-         source:
-           address: "0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D"
-           abi: BAYC
-           startBlock: 12287507
-         mapping:
-           kind: ethereum/events
-           apiVersion: 0.0.7
-           language: wasm/assemblyscript
-           entities:
-             - Transfer
-             - BoredApe
-             - Property
-           abis:
-             - name: BAYC
-               file: ./abis/BAYC.json
-           eventHandlers:
-             - event: Transfer(indexed address,indexed address,indexed uint256)
-               handler: handleTransfer
-           file: ./src/bayc.ts
-     ```
-   </CodeGroup>
+5. Delete everything inside `subgraph.yaml`, and paste the following code:
+
+   ```yaml
+   specVersion: 0.0.5
+   description: A subgraph to index data on the Bored Apes contract
+   features:
+     - ipfsOnEthereumContracts
+   schema:
+     file: ./schema.graphql
+   dataSources:
+     - kind: ethereum
+       name: BAYC
+       network: mainnet
+       source:
+         address: "0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D"
+         abi: BAYC
+         startBlock: 12287507
+       mapping:
+         kind: ethereum/events
+         apiVersion: 0.0.7
+         language: wasm/assemblyscript
+         entities:
+           - Transfer
+           - BoredApe
+           - Property
+         abis:
+           - name: BAYC
+             file: ./abis/BAYC.json
+         eventHandlers:
+           - event: Transfer(indexed address,indexed address,indexed uint256)
+             handler: handleTransfer
+         file: ./src/bayc.ts
+   ```
 
    Explaining `subgraph.yaml`:
 
    * In here, we declared the data source (address of the BAYC smart contract), the entities we want to index, and the events we want to look out for. For our use case, tracking the `Transfer` event from the smart contract will suffice.
    * For subgraphs that want to index IPFS data, `ipfsOnEthereumContracts` must be declared under features.
-  </Step>
-  <Step>
-    Run `graph codegen` in your terminal. You must run this command every time you edit the schema or YAML file.
-  </Step>
-  <Step>
-    Go to `src/bayc.ts` and delete everything inside it. Paste the following code:
 
-   <CodeGroup>
-     ```js src/bayc.ts
-     import {
-       Transfer as TransferEvent,
-       BAYC,
-     } from "../generated/BAYC/BAYC"
-     import {
-       BoredApe,
-       Transfer,
-       Property
-     } from "../generated/schema"
+6. Run `graph codegen` in your terminal. You must run this command every time you edit the schema or YAML file.
 
-     import { ipfs, json, JSONValue, log } from '@graphprotocol/graph-ts'
+7. Go to `src/bayc.ts` and delete everything inside it. Paste the following code:
 
-     export function handleTransfer(event: TransferEvent): void {
+   ```javascript
+   import {
+     Transfer as TransferEvent,
+     BAYC,
+   } from "../generated/BAYC/BAYC"
+   import {
+     BoredApe,
+     Transfer,
+     Property
+   } from "../generated/schema"
 
-       let transfer = new Transfer(event.transaction.hash.concatI32(event.logIndex.toI32()))
-       transfer.from = event.params.from
-       transfer.to = event.params.to
-       transfer.tokenId = event.params.tokenId
-       transfer.blockNumber = event.block.number
-       transfer.transactionHash = event.transaction.hash
-       transfer.save()
+   import { ipfs, json, JSONValue, log } from '@graphprotocol/graph-ts'
 
-       let contractAddress = BAYC.bind(event.address);
+   export function handleTransfer(event: TransferEvent): void {
+
+     let transfer = new Transfer(event.transaction.hash.concatI32(event.logIndex.toI32()))
+     transfer.from = event.params.from
+     transfer.to = event.params.to
+     transfer.tokenId = event.params.tokenId
+     transfer.blockNumber = event.block.number
+     transfer.transactionHash = event.transaction.hash
+     transfer.save()
+
+     let contractAddress = BAYC.bind(event.address);
      let boredApe = BoredApe.load(event.params.tokenId.toString());
 
-       if(boredApe==null){
-       boredApe = new BoredApe(event.params.tokenId.toString());
-       boredApe.creator=event.params.to;
-       boredApe.tokenURI=contractAddress.tokenURI(event.params.tokenId);
-       }
+     if(boredApe==null){
+     boredApe = new BoredApe(event.params.tokenId.toString());
+     boredApe.creator=event.params.to;
+     boredApe.tokenURI=contractAddress.tokenURI(event.params.tokenId);
+     }
 
-       boredApe.newOwner=event.params.to;
-       boredApe.blockNumber=event.block.number;
-       boredApe.save();
+     boredApe.newOwner=event.params.to;
+     boredApe.blockNumber=event.block.number;
+     boredApe.save();
 
-       const ipfshash = "QmeSjSinHpPnmXmspMjwiXyN6zS4E9zccariGR3jxcaWtq"
-       let tokenURI = "/" + event.params.tokenId.toString();
+     const ipfshash = "QmeSjSinHpPnmXmspMjwiXyN6zS4E9zccariGR3jxcaWtq"
+     let tokenURI = "/" + event.params.tokenId.toString();
 
-       let property = Property.load(event.params.tokenId.toString());
+     let property = Property.load(event.params.tokenId.toString());
 
-       if (property == null) {
-         property = new Property(event.params.tokenId.toString());
+     if (property == null) {
+       property = new Property(event.params.tokenId.toString());
 
-         let fullURI = ipfshash + tokenURI;
+       let fullURI = ipfshash + tokenURI;
 
-         let ipfsData = ipfs.cat(fullURI);
+       let ipfsData = ipfs.cat(fullURI);
 
-         if (ipfsData) {
-           let ipfsValues = json.fromBytes(ipfsData);
-           let ipfsValuesObject = ipfsValues.toObject();
+       if (ipfsData) {
+         let ipfsValues = json.fromBytes(ipfsData);
+         let ipfsValuesObject = ipfsValues.toObject();
 
-           if (ipfsValuesObject) {
-             let image = ipfsValuesObject.get('image');
-             let attributes = ipfsValuesObject.get('attributes');
+         if (ipfsValuesObject) {
+           let image = ipfsValuesObject.get('image');
+           let attributes = ipfsValuesObject.get('attributes');
 
-             let attributeArray: JSONValue[];
-             if (image) {
-               property.image = image.toString();
-             }
-             if (attributes) {
+           let attributeArray: JSONValue[];
+           if (image) {
+             property.image = image.toString();
+           }
+           if (attributes) {
 
-               attributeArray = attributes.toArray();
+             attributeArray = attributes.toArray();
 
-               for (let i = 0; i < attributeArray.length; i++) {
+             for (let i = 0; i < attributeArray.length; i++) {
 
-                 let attributeObject = attributeArray[i].toObject();
+               let attributeObject = attributeArray[i].toObject();
 
-                 let trait_type = attributeObject.get('trait_type');
-                 let value_type = attributeObject.get('value');
+               let trait_type = attributeObject.get('trait_type');
+               let value_type = attributeObject.get('value');
 
-                 let trait: string;
-                 let value: string;
+               let trait: string;
+               let value: string;
 
-                 if (trait_type && value_type) {
+               if (trait_type && value_type) {
 
-                   trait = trait_type.toString();
-                   value = value_type.toString();
+                 trait = trait_type.toString();
+                 value = value_type.toString();
 
-                   if (trait && value) {
+                 if (trait && value) {
 
-                     if (trait == "Background") {
-                       property.background = value;
-                     }
+                   if (trait == "Background") {
+                     property.background = value;
+                   }
 
-                     if (trait == "Clothes") {
-                       property.clothes = value;
-                     }
+                   if (trait == "Clothes") {
+                     property.clothes = value;
+                   }
 
-                     if (trait == "Earring") {
-                       property.earring = value;
-                     }
+                   if (trait == "Earring") {
+                     property.earring = value;
+                   }
 
-                     if (trait == "Eyes") {
-                       property.eyes = value;
-                     }
+                   if (trait == "Eyes") {
+                     property.eyes = value;
+                   }
 
-                     if (trait == "Fur") {
-                       property.fur = value;
-                     }
+                   if (trait == "Fur") {
+                     property.fur = value;
+                   }
 
-                     if (trait == "Hat") {
-                       property.hat = value;
-                     }
+                   if (trait == "Hat") {
+                     property.hat = value;
+                   }
 
-                     if (trait == "Mouth") {
-                       property.mouth = value;
-                     }
-
+                   if (trait == "Mouth") {
+                     property.mouth = value;
                    }
 
                  }
@@ -282,13 +265,14 @@ This tutorial won’t dive deep into the details of this subgraph. I recommend y
              }
 
            }
-         }
 
+         }
        }
 
      }
-     ```
-   </CodeGroup>
+
+   }
+   ```
 
    Explaining `src/bayc.ts`:
 
@@ -296,9 +280,6 @@ This tutorial won’t dive deep into the details of this subgraph. I recommend y
    * We get the data points we need for the `Transfer` and `BoredApe` entities straight from the logs emitted by the smart contract.
    * To index IPFS metadata, however, we use the `[ipfs.cat](http://ipfs.cat)` method from the [graph-ts library](https://github.com/graphprotocol/graph-ts) by passing it the IPFS hash and the token URI for a specific ape.
    * We need to include a null check at every step while parsing the IPFS metadata, since an IPFS node may be unavailable at a given time, or the data we are querying may not exist at all.
-
-</Step>
-</Steps>
 
 And that’s it. Run `graph build` to compile your subgraph. Technically, you can even deploy this code to Chainstack, and it will index data without failing explicitly.
 
@@ -312,47 +293,37 @@ Let us recreate this entire scenario on our machine.
 
 1. If you have Docker and Docker Compose installed on your machine, the easiest way to set up a Graph Node locally:
 
-   <CodeGroup>
-     ```bash Shell
-     git clone https://github.com/pranavdaa/Graph-Node-Local.git
-     ```
-   </CodeGroup>
+   ```bash
+   git clone https://github.com/pranavdaa/Graph-Node-Local.git
+   ```
 
    This will clone a repo onto your machine that just contains the YAML configuration file we need. Make sure that Docker Desktop is running on your machine.
 
 2. Open the cloned directory, and then the `docker-compose.yaml` file in a code editor. Even the old and rusty Notepad++ will do. Docker will download the required dependencies using official images uploaded to it. Go to the image under IPFS, and change the line to the following:
 
-   <CodeGroup>
-     ```yaml docker-compose.yaml
-     image: ipfs/go-ipfs:v0.17.0
-     ```
-   </CodeGroup>
+   ```yaml
+   image: ipfs/go-ipfs:v0.17.0
+   ```
 
    This will result in Docker fetching a relatively recent version of IPFS. You can always check [Docker hub](https://hub.docker.com/) for the latest available versions of an image. You can also skip specifying a particular version if you wish to work with the latest available versions.
 
 3. To index subgraphs that index IPFS data using the `.cat` method, we need to configure an extra environment variable. Inside the `environment` object, add an environment variable like this:
 
-   <CodeGroup>
-     ```yaml docker-compose.yaml
-     GRAPH_ALLOW_NON_DETERMINISTIC_IPFS: 1
-     ```
-   </CodeGroup>
+   ```yaml
+   GRAPH_ALLOW_NON_DETERMINISTIC_IPFS: 1
+   ```
 
 4. Lastly, we need to pass an RPC URL for an Ethereum archive mainnet node to the YAML file. You can set up an archive node using [Chainstack](https://chainstack.com/). If you don’t know how to set up a node with Chainstack, refer to our [blog](https://chainstack.com/creating-a-public-chain-node-with-chainstack/). Edit the `ethereum` environment variable like this:
 
-   <CodeGroup>
-     ```yaml docker-compose.yaml
-     ethereum: 'mainnet:YOUR_CHAINSTACK_ENDPOINT'
-     ```
-   </CodeGroup>
+   ```yaml
+   ethereum: 'mainnet:YOUR_CHAINSTACK_ENDPOINT'
+   ```
 
 5. Save the YAML file. Open a new terminal inside the cloned repo, and run:
 
-   <CodeGroup>
-     ```bash Shell
-     docker-compose up
-     ```
-   </CodeGroup>
+   ```bash
+   docker-compose up
+   ```
 
 This command is all you need. Open Docker Desktop and you should see a container named `graph-node-local` running. This step might take a while to execute the first time.
 
@@ -366,19 +337,15 @@ If you set up a subgraph project using `graph init`, the graph-cli creates a few
 
 1. Open a new terminal at the root of the subgraph project. To compile your subgraph, run:
 
-   <CodeGroup>
-     ```bash Shell
-     graph codegen && graph build
-     ```
-   </CodeGroup>
+   ```bash
+   graph codegen && graph build
+   ```
 
 2. To deploy your subgraph to the local Graph Node, run the following command by passing any random version number to the terminal:
 
-   <CodeGroup>
-     ```bash Shell
-     npm run create-local && npm run deploy-local
-     ```
-   </CodeGroup>
+   ```bash
+   npm run create-local && npm run deploy-local
+   ```
 
 Your subgraph is now deployed on a Graph Node running locally on your machine. Open the previous terminal where you ran the `docker-compose up` command. It should now be indexing data by requesting data from the Ethereum archive node we passed to it.
 
@@ -392,37 +359,35 @@ In the next section, we will start debugging our subgraph.
 
 2. Run the following query in the interface:
 
-   <CodeGroup>
-     ```graphql GraphQL
-     {
-       transfers(first:3) {
-         id
-         tokenId
-         from
-         to
-         blockNumber
-       }
-       boredApes(first:3) {
-         id
-         creator
-         newOwner
-         tokenURI
-         blockNumber
-       }
-       properties(first:3) {
-         id
-         image
-         background
-         clothes
-         eyes
-         fur
-         mouth
-         earring
-         hat
-       }
+   ```graphql
+   {
+     transfers(first:3) {
+       id
+       tokenId
+       from
+       to
+       blockNumber
      }
-     ```
-   </CodeGroup>
+     boredApes(first:3) {
+       id
+       creator
+       newOwner
+       tokenURI
+       blockNumber
+     }
+     properties(first:3) {
+       id
+       image
+       background
+       clothes
+       eyes
+       fur
+       mouth
+       earring
+       hat
+     }
+   }
+   ```
 
 This query will return the first three instances of each entity from our subgraph’s data store. This is what I get back:
 
@@ -434,37 +399,26 @@ Clearly, there’s something wrong. When I saw that the `Property` entity had in
 
 This is where the fun starts. Let us do this!
 
-<Steps>
-  <Step>
-    Go to the terminal in your subgraph’s directory, and run:
+1. Go to the terminal in your subgraph’s directory, and run:
 
-   <CodeGroup>
-     ```graphql GraphQL
-     npm run remove-local
-     ```
-   </CodeGroup>
+   ```bash
+   npm run remove-local
+   ```
 
    This command will remove the buggy subgraph from your node’s data store.
-  </Step>
-  <Step>
-    Go to the terminal running the local node, and stop the terminal (ctrl+c on my system, may be different on yours).
-  </Step>
-  <Step>
-  Go to `src/bayc.ts` in your subgraph code, and add this line to the file right before we invoke the `ipfs.cat()` method:
 
-   <CodeGroup>
-     ```graphql src/bayc.ts
-     log.info('The fullURI is: {} ', [fullURI]);
-     ```
-   </CodeGroup>
-  </Step>
-  <Step>
-   Save the file.
-  </Step>
-  <Step>
-  Restart the Docker container using `docker-compose up` and re-deploy to the local node from the subgraph’s directory.
-  </Step>
-</Steps>
+2. Go to the terminal running the local node, and stop the terminal (ctrl+c on my system, may be different on yours).
+
+3. Go to `src/bayc.ts` in your subgraph code, and add this line to the file right before we invoke the `ipfs.cat()` method:
+
+   ```typescript
+   log.info('The fullURI is: {} ', [fullURI]);
+   ```
+
+4. Save the file.
+
+5. Restart the Docker container using `docker-compose up` and re-deploy to the local node from the subgraph’s directory.
+
 With this change, you will notice that the Graph Node logs out the `fullURI` every time the handler function runs. When I go to `ipfs://<FULL_URI>`, I can see all the metadata for the specific NFT. So this is not it. We’re missing something else.
 
 Back to square 1.
