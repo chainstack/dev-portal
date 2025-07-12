@@ -1,5 +1,5 @@
 ---
-title: "Solana Archive nodes: The backbone of Solana’s data availability and developer tooling"
+title: "Solana Archive nodes: The backbone of Solana's data availability and developer tooling"
 description: "For methods available specifically available for Solana archive nodes, see [Solana archive methods availability](/docs/limits#solana-archive-methods-availability) ."
 ---
 
@@ -15,9 +15,9 @@ The Solana ecosystem is pretty rich & diverse in the projects, dapps, developer 
 
 ## The importance of Solana archive nodes
 
-Solana historical nodes are critical for the overall Web3 ecosystem. From an end-user perspective, these nodes serve as an immutable record of the Solana blockchain's history, allowing users to access and verify past transaction data, providing transparency and accountability. The Solana explorer, a web-based tool that allows users to browse the Solana blockchain, is powered by these historical nodes.
+Solana archive nodes are critical for the overall Web3 ecosystem. From an end-user perspective, these nodes serve as an immutable record of the Solana blockchain's history, allowing users to access and verify past transaction data, providing transparency and accountability. The Solana explorer, a web-based tool that allows users to browse the Solana blockchain, is powered by these archive nodes.
 
-From a developer's standpoint, Solana historical nodes are crucial for building robust and reliable applications on top of the Solana blockchain. Developers can leverage the historical data stored in these nodes to implement advanced analytics and reporting features, facilitate data-driven decision making, ensure data integrity and auditability, and enable cross-chain interoperability.
+From a developer's standpoint, Solana archive nodes are crucial for building robust and reliable applications on top of the Solana blockchain. Developers can leverage the historical data stored in these nodes to implement advanced analytics and reporting features, facilitate data-driven decision making, ensure data integrity and auditability, and enable cross-chain interoperability.
 
 This comprehensive data storage serves several critical functions:
 
@@ -36,13 +36,13 @@ This comprehensive data storage serves several critical functions:
 
 ## Key architectural components
 
-The foundation of a Solana archive node is its custom-built ledger database designed for append-only writes of massive data volumes. Rather than using a traditional database like PostgreSQL, Solana leverages a highly optimized fork of Facebook's RocksDB to achieve the throughput and scalability needed.
+The foundation of a Solana archive node is its custom-built ledger database designed for append-only writes of massive data volumes. Solana uses RocksDB, a high-performance key-value store based on LevelDB, to achieve the throughput and scalability needed for blockchain data storage.
 
-Archive nodes store the full ledger history, which spans multiple petabytes and is constantly growing. To keep storage costs down, older data is progressively moved to cheaper "cold storage" tiers like Amazon S3 Glacier. Operators use sophisticated data tiering and recovery mechanisms to strike the right balance between cost and access latency.
+Archive nodes store the full ledger history, which can span hundreds of terabytes and is constantly growing. To keep storage costs manageable, older data is progressively moved to cheaper "cold storage" tiers like Amazon S3 Glacier. Operators use sophisticated data tiering and recovery mechanisms to strike the right balance between cost and access latency.
 
 On top of the ledger storage, archive nodes maintain several index structures mapping block heights and signatures to the physical storage location. This allows quickly looking up and retrieving any historical transaction or block by its signature or height.
 
-With petabytes of data to store, archive nodes need robust redundancy and replication to protect against data loss. Ledger data is typically stored with 3x replication, spread across multiple disks, machines, and even geographic regions. Solana's [Turbine block propagation protocol](https://docs.solanalabs.com/consensus/turbine-block-propagation) allows streaming large amounts of data to replicas with minimal redundancy.
+With large amounts of data to store, archive nodes need robust redundancy and replication to protect against data loss. Ledger data is typically stored with 3x replication, spread across multiple disks, machines, and even geographic regions. Solana's [Turbine block propagation protocol](https://docs.solanalabs.com/consensus/turbine-block-propagation) allows streaming large amounts of data to replicas with minimal redundancy.
 
 To allow scaling storage beyond a single machine, the archive is horizontally sharded across multiple nodes. Solana's architecture provides a framework for seamlessly sharding the state. New nodes joining the cluster can quickly sync by downloading a snapshot of the full state at a given point.
 
@@ -56,27 +56,18 @@ Developers can access historical data through Solana's JSON RPC APIs exposed by 
   const connection = new solanaWeb3.Connection('CHAINSTACK_ARCHIVE_NODE');
 
   (async () => {
-    const oldTx = await connection.getConfirmedTransaction('txSignature');
+    const oldTx = await connection.getTransaction('txSignature', {
+      commitment: 'confirmed',
+      maxSupportedTransactionVersion: 0
+    });
     console.log(oldTx);
   })();
   ```
 </CodeGroup>
 
-The `getConfirmedTransaction` method allows specifying a transaction signature to look up. Archive nodes use their indexes to quickly locate and return the requested transaction, even if it occurred years ago.
+The `getTransaction` method allows specifying a transaction signature to look up. Archive nodes use their indexes to quickly locate and return the requested transaction, even if it occurred months ago.
 
-You can also query the historical state of an account at a particular block height or timestamp:
-
-<CodeGroup>
-  ```javascript Javascript
-  const accountInfo = await connection.getAccountInfoAndContext(
-    'accountPubkey',
-    'slotNumber',
-  );
-  console.log(accountInfo);
-  ```
-</CodeGroup>
-
-This will return the state and context of the account as it existed at the specified slot height. Under the hood, the archive node finds the nearest ledger checkpoint preceding the requested slot and replays transactions to derive the account state.
+This will return the current state of the account. For historical account states at specific slots, you would need to use specialized RPC methods or query the data through other means, as standard RPC methods typically return the current state.
 
 ## Conclusion
 
