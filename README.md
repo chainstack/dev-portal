@@ -24,7 +24,30 @@ Built-in MCP server — just run `npx @mintlify/mcp@latest add chainstack` to ad
 
 Just contribute as you normally would—PRs, Issues, Discussions, whatever works best for you. We welcome every and all builders.
 
-### Adding release notes
+#### Cursor, Windsurf, Claude Code rules & memory
+
+To make your contribution consistent & effortless, the Chainstack Developer Portal has project rules for IDEs:
+
+* Cursor:
+   * `.cursor/rules/project-context-structure-and-formatting.mdc`
+   * `.cursor/rules/project-writing-style-guide.mdc`
+
+The rules are set to `alwaysApply: true`.
+
+Each of the rules files is under 500 lines as per Cursor recommendations.
+
+* Windsurf:
+   * `.windsurf/rules/project-context-structure-and-formatting.md`
+   * `.windsurf/rules/project-writing-style-guide.md`
+
+The rules are set to `trigger: always_on`.
+
+Each of the rules files is under 12000 characters as per Windsurf recommendations.
+
+* Claude Code:
+   * CLAUDE.md
+
+#### Adding release notes
 
 The release notes structure might be a bit convoluted to figure out at first glance, so here's a step-by-step walkthrough:
 
