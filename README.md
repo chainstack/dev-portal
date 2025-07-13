@@ -45,7 +45,7 @@ The rules are set to `trigger: always_on`.
 Each of the rules files is under 12000 characters as per Windsurf recommendations.
 
 * Claude Code:
-   * CLAUDE.md
+   * `CLAUDE.md`
 
 #### Adding release notes
 
