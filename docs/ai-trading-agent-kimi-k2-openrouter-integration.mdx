@@ -1,0 +1,357 @@
+---
+title: "AI trading agent: Kimi K2 integration with OpenRouter"
+description: "Run the stateful trading agent with Kimi K2's advanced agentic intelligence capabilities using OpenRouter API and Foundry Anvil fork for safe paper trading before moving to live markets."
+---
+
+**TLDR:**
+* You'll integrate OpenRouter's Kimi K2 model with your trading agent for enhanced agentic intelligence in market analysis and decision-making.
+* You'll run safe paper trading using Foundry Anvil fork to test strategies before deploying to live markets.
+* You'll configure environment variables and API keys for OpenRouter access while maintaining all existing agent features.
+* By the end, you'll have a trading agent powered by Kimi K2's state-of-the-art mixture-of-experts capabilities.
+
+<Info>
+  Previous section: [AI trading agent: Stateful agent](/docs/ai-trading-agent-stateful-agent)
+</Info>
+
+<Note>
+  Project repository: [Web3 AI trading agent](https://github.com/chainstacklabs/web3-ai-trading-agent)
+</Note>
+
+<Info>
+  Remember that this a NOT FOR PRODUCTION tutorial. In a production deployment, don't store your private key in a config.py file.
+</Info>
+
+This section demonstrates how to integrate OpenRouter's Kimi K2 model with your trading agent. Kimi K2 is a state-of-the-art mixture-of-experts (MoE) language model with 32 billion activated parameters and 1 trillion total parameters, specifically designed for agentic intelligence and tool use scenarios like autonomous trading.
+
+And the best thing is we are going to use the [free version of Kimi K2 from OpenRouter](https://openrouter.ai/moonshotai/kimi-k2:free/), so it will cost us zero to try out the Kimi K2 autonomous trading in our setup.
+
+## About Kimi K2
+
+With the company name **Moonshot AI**—the [company behind Kimi-K2](https://www.moonshot.cn/)—you know you just have to try their flagship model as the trading agent LLM.
+
+Kimi K2 at 1T parameters and an MoE architecture is theoretically decent fit for the trading agent, and of course is very fun to experiment with.
+
+Check out [Kimi K2 at Hugging Face](https://huggingface.co/moonshotai/Kimi-K2-Instruct).
+
+### Quick highlights
+
+- 1 trillion total parameters with 32 billion activated parameters
+- Mixture-of-experts (MoE) design with 384 experts, selecting 8 per token
+- 128K context length for comprehensive market analysis (although note that our OpenRouter implementation has 65k context size)
+- Trained with the innovative Muon optimizer for exceptional stability
+
+**Trading-relevant strengths:**
+- Superior performance in mathematical reasoning
+- Natural language understanding for market sentiment analysis
+
+## Prerequisites
+
+Before starting, ensure you have:
+
+- Python 3.8+ installed
+- All dependencies from `requirements.txt` installed
+- Foundry installed (`curl -L https://foundry.paradigm.xyz | bash && foundryup`)
+- OpenRouter account with API key
+- Chainstack BASE RPC endpoint
+
+## OpenRouter setup
+
+### Create OpenRouter account
+
+1. Visit [https://openrouter.ai/](https://openrouter.ai/).
+2. Sign up for an account.
+3. Add credits to your account. Each trading decision will cost approximately $0.02-0.05 per decision.
+4. Navigate to [https://openrouter.ai/keys](https://openrouter.ai/keys).
+5. Create a new API key and copy it.
+
+### Configure model and API key
+
+Edit `config.py` and make these changes:
+
+<CodeGroup>
+```python config.py
+# Set the model key:
+MODEL_KEY = "kimi-k2"
+
+# Set your OpenRouter API key:
+OPENROUTER_API_KEY = "YOUR_OPENROUTER_API_KEY"  # Replace with your real API key
+
+# Set trading environment
+USE_FORK = True   # True = Foundry fork (safe paper trading)
+                  # False = Real BASE mainnet (uses real money!)
+```
+</CodeGroup>
+
+<Info>
+  The Kimi K2 model is already pre-configured in your `config.py` file with the correct OpenRouter endpoint and context capacity settings.
+</Info>
+
+### Understanding trading environments
+
+The agent can run in two environments:
+
+**Foundry fork mode (`USE_FORK = True`)**
+- Safe for testing and experimentation
+- Uses paper money (no real funds at risk)
+- Real market data from BASE mainnet
+- Real smart contract interactions
+- Connects to: `http://localhost:8545` (Anvil fork)
+
+**BASE mainnet mode (`USE_FORK = False`)**
+- Uses real money and real transactions
+- All trades are permanent and irreversible
+- Gas fees apply to every transaction
+- Connects to: Your Chainstack BASE RPC endpoint
+
+<Info>
+  Always start with fork mode to test your strategies before using real funds.
+</Info>
+
+### Set up RPC endpoints for mainnet mode
+
+If you plan to use mainnet mode (`USE_FORK = False`), configure your BASE RPC endpoints in `config.py`:
+
+<CodeGroup>
+```python config.py
+BASE_RPC_URLS = [
+    "YOUR_CHAINSTACK_BASE_RPC_ENDPOINT",  # Replace with your Chainstack endpoint. For example, a Global Node
+    "YOUR_CHAINSTACK_BASE_RPC_ENDPOINT",  # Fallback Chainstack endpoint. For example, a Trader Node
+]
+```
+</CodeGroup>
+
+<Info>
+  For fork mode (`USE_FORK = True`), the agent automatically uses `http://localhost:8545` and these endpoints are not needed.
+</Info>
+
+## Licensing considerations
+
+<Warning>
+  **Important Licensing Information**: Kimi K2 is released under a Modified MIT License with specific commercial usage requirements.
+</Warning>
+
+### Modified MIT License Terms
+
+The Kimi K2 model uses a Modified MIT License with the following key requirement:
+
+**Commercial usage clause**: If your trading application (or any derivative works) is used for commercial products or services that have:
+- More than 100 million monthly active users, OR
+- More than 20 million US dollars (or equivalent) in monthly revenue
+
+You must prominently display "Kimi K2" on the user interface of such product or service. See the [license in the Kimi K2 repository](https://github.com/MoonshotAI/Kimi-K2/blob/main/LICENSE).
+
+## Configure trading parameters
+
+Set your trading wallet private key in `config.py`:
+
+<CodeGroup>
+```python config.py
+PRIVATE_KEY = "YOUR_PRIVATE_KEY"  # Use test key only, never production funds. You can use the Anvil fork console print.
+```
+</CodeGroup>
+
+<Info>
+  Use a test wallet with minimal funds. This is for educational purposes only.
+</Info>
+
+## Start Foundry Anvil fork
+
+### Launch Anvil fork
+
+Open a new terminal and start the Anvil fork of BASE mainnet:
+
+<CodeGroup>
+```bash Terminal
+anvil --fork-url YOUR_CHAINSTACK_BASE_RPC_ENDPOINT --chain-id 8453
+```
+</CodeGroup>
+
+You should see output like:
+
+<CodeGroup>
+```bash Output
+Available Accounts
+==================
+(0) 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (10000.000000000000000000 ETH)
+(1) 0x70997970C51812dc3A010C7d01b50e0d17dc79C8 (10000.000000000000000000 ETH)
+...
+
+Private Keys
+==================
+(0) 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+(1) 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+...
+
+Listening on 0.0.0.0:8545
+```
+</CodeGroup>
+
+### Fund your trading account
+
+If your trading account needs more ETH, use Anvil's built-in accounts:
+
+<CodeGroup>
+```bash Terminal
+# Send ETH from Anvil account to your trading account
+cast send --from 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 \
+  --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+  --rpc-url http://localhost:8545 \
+  YOUR_TRADING_ADDRESS \
+  --value 5ether
+```
+</CodeGroup>
+
+## Verify configuration
+
+### Test OpenRouter connection
+
+Create a test script to verify your OpenRouter setup:
+
+<CodeGroup>
+```python test_openrouter.py
+from openai import OpenAI
+from config import OPENROUTER_API_KEY
+
+client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENROUTER_API_KEY
+)
+
+try:
+    response = client.chat.completions.create(
+        model="moonshotai/kimi-k2:free",
+        messages=[{"role": "user", "content": "Hello, can you help with trading analysis?"}],
+        max_tokens=50
+    )
+    print("✅ OpenRouter connection successful!")
+    print(f"Response: {response.choices[0].message.content}")
+except Exception as e:
+    print(f"❌ OpenRouter connection failed: {e}")
+```
+</CodeGroup>
+
+### Test Anvil connection
+
+Verify the local fork is working:
+
+<CodeGroup>
+```bash Terminal
+cast block-number --rpc-url http://localhost:8545
+```
+</CodeGroup>
+
+This should return the latest BASE block number.
+
+### Check trading account balance
+
+Verify your trading account has sufficient funds:
+
+<CodeGroup>
+```bash Terminal
+cast balance YOUR_TRADING_ADDRESS --rpc-url http://localhost:8545
+```
+</CodeGroup>
+
+## Run the trading agent
+
+### Basic trading mode
+
+Start the agent in normal trading mode:
+
+<CodeGroup>
+```bash Terminal
+cd /path/to/web3-ai-trading-agent
+python on-chain/uniswap_v4_stateful_trading_agent.py
+```
+</CodeGroup>
+
+### Observation mode
+
+Start with observation mode to see how Kimi K2 analyzes the market without executing trades:
+
+<CodeGroup>
+```bash Terminal
+python on-chain/uniswap_v4_stateful_trading_agent.py --observe-cycles 10
+```
+</CodeGroup>
+
+This will:
+- Collect market data for 10 cycles
+- Have Kimi K2 analyze each market state
+- Generate an initial trading strategy
+- Switch to active trading
+
+### Test mode with reduced context
+
+Test the context management system:
+
+<CodeGroup>
+```bash Terminal
+python on-chain/uniswap_v4_stateful_trading_agent.py --test-mode --observe-cycles 5
+```
+</CodeGroup>
+
+### Custom trading parameters
+
+Modify trading behavior with command-line arguments:
+
+<CodeGroup>
+```bash Terminal
+# Set custom ETH allocation target (60% ETH, 40% USDC)
+python on-chain/uniswap_v4_stateful_trading_agent.py --target-allocation 0.6
+
+# Run for specific number of iterations
+python on-chain/uniswap_v4_stateful_trading_agent.py --iterations 100
+
+# Extended observation period for better market analysis
+python on-chain/uniswap_v4_stateful_trading_agent.py --observe-time 45  # 45 minutes
+```
+</CodeGroup>
+
+### Configuration optimization
+
+In `config.py`, you can adjust Kimi K2-specific settings:
+
+<CodeGroup>
+```python config.py
+# Trading frequency (Kimi K2 can handle higher frequencies due to efficiency)
+TRADE_INTERVAL = 8  # seconds between decisions
+
+# Rebalancing sensitivity
+REBALANCE_THRESHOLD = 0.4  # 40% deviation triggers rebalance
+
+# Context management (Kimi K2 has 65,536 token context)
+CONTEXT_WARNING_THRESHOLD = 0.9  # 90% context usage warning
+```
+</CodeGroup>
+
+<Info>
+  Kimi K2's agentic intelligence makes it particularly well-suited for autonomous trading scenarios, but always start with careful testing and small amounts.
+</Info>
+
+<Info>
+  This is for educational and testing purposes only. Use test wallets with minimal funds. Never use production private keys. Monitor OpenRouter costs regularly. Be aware of licensing requirements for commercial usage. The fork environment uses test funds, but configuration errors could affect real accounts.
+</Info>
+
+<Info>
+  Next section: [AI trading agent: Fine-tuning overview](/docs/ai-trading-agent-fine-tuning-overview)
+</Info>
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Director of Developer Experience @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup> 
