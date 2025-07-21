@@ -5,6 +5,7 @@
 - This is a documentation project on the Mintlify platform
 - We use MDX files with YAML frontmatter  
 - Navigation is configured in `docs.json`
+- When creating a new article as an *.mdx file, always remember to add the file name to the appropriate section in the navigation file `docs.json`
 
 ## Required page structure
 
@@ -386,6 +387,19 @@ Use periods when:
 
 Do not use periods when:
 - List items are single words, phrases, or sentence fragments
+
+Bold text must never be the first element of a list item.
+
+A list item may contain bold text later in the sentence (for example, to highlight a UI element), but the bullet or dash itself must start with plain text.
+
+Exception: If the list item is a UI element name (per the UI‑elements rule), that name is allowed to appear in bold at the start of the line.
+
+Correct:
+- Listed item — listed item explanation
+- Click **Members** — opens the project members page
+
+Incorrect:
+- **Listed item** — listed item explanation
 
 #### Examples
 
