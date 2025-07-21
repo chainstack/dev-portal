@@ -1,0 +1,342 @@
+---
+title: "AI trading agent: ERNIE 4.5 local integration with MLX-LM"
+description: "Run the stateful trading agent with ERNIE 4.5's advanced language capabilities using MLX-LM for local, private, and fast inference on Apple Silicon before moving to live markets."
+---
+
+**TLDR:**
+* You'll integrate MLX-LM's ERNIE 4.5 model with your trading agent for local AI inference with enhanced privacy and speed.
+* You'll run safe paper trading using Foundry Anvil fork to test strategies before deploying to live markets.
+* You'll configure local model execution without external API dependencies while maintaining all existing agent features.
+* By the end, you'll have a trading agent powered by ERNIE 4.5's language capabilities running entirely on your Apple Silicon Mac.
+
+<Info>
+  Previous section: [AI trading agent: Kimi K2 integration with OpenRouter](/docs/ai-trading-agent-kimi-k2-openrouter-integration)
+</Info>
+
+<Note>
+  Project repository: [Web3 AI trading agent](https://github.com/chainstacklabs/web3-ai-trading-agent)
+</Note>
+
+<Info>
+  Remember that this a NOT FOR PRODUCTION tutorial. In a production deployment, don't store your private key in a config.py file.
+</Info>
+
+This section demonstrates how to integrate MLX-LM's ERNIE 4.5 model with your trading agent for local inference. ERNIE (Enhanced Representation through kNowledge IntEgration) 4.5 is Baidu's advanced language model optimized for understanding and reasoning, making it suitable for market analysis and trading decisions.
+
+The key advantage of this setup is **complete local execution**—no API calls, no external dependencies, no data leaving your machine, and significantly faster inference on Apple Silicon.
+
+## About ERNIE 4.5 and MLX-LM
+
+### ERNIE 4.5 Overview
+
+ERNIE 4.5 is Baidu's flagship language model that excels in:
+- Knowledge integration — Combines pre-training with knowledge graphs
+- Mathematical reasoning — Strong performance in quantitative analysis
+- Chinese and English — Bilingual capabilities for global market analysis
+- Efficiency — Optimized for inference speed and memory usage
+
+### MLX-LM Framework
+
+[MLX-LM](https://github.com/ml-explore/mlx-examples/tree/main/llms) is Apple's machine learning framework optimized for Apple Silicon:
+- Native Apple Silicon support — Leverages M1/M2/M3 Neural Engine
+- Memory efficient — Unified memory architecture optimization
+- Fast inference — Hardware-accelerated operations
+- Local execution — Complete privacy and no network dependencies
+
+**Trading-relevant strengths:**
+- Superior performance in mathematical reasoning
+- Fast local inference
+- No API costs or rate limits
+- Complete data privacy
+
+## Prerequisites
+
+Before starting, ensure you have:
+
+- Apple Silicon Mac (M1, M2, M3, or M4)
+- All dependencies from `requirements.txt` installed
+- Foundry installed (`curl -L https://foundry.paradigm.xyz | bash && foundryup`)
+- Chainstack BASE RPC endpoint
+
+## MLX-LM setup
+
+### Install MLX-LM
+
+Install MLX-LM and dependencies:
+
+<CodeGroup>
+```bash Terminal
+# Install MLX-LM
+pip install mlx-lm
+
+# Verify installation
+mlx_lm.generate --help
+```
+</CodeGroup>
+
+### Download ERNIE 4.5 model
+
+Download the ERNIE model (first run will cache the model locally):
+
+<CodeGroup>
+```bash Terminal
+# Download and test ERNIE 4.5 model
+mlx_lm.generate --model mlx-community/ERNIE-4.5-0.3B-PT-bf16-ft \
+  --prompt "Hello, can you help with trading analysis?" \
+```
+</CodeGroup>
+
+You should see the ERNIE LLM output in the terminal.
+
+### Configure MLX-LM integration
+
+Edit `config.py` and add the complete MLX-LM configuration:
+
+<CodeGroup>
+```python config.py
+# Set the model key for local MLX-LM execution:
+MODEL_KEY = "ernie-mlx"
+
+# Set trading environment
+USE_FORK = True   # True = Foundry fork (safe paper trading)
+                  # False = Real BASE mainnet (uses real money!)
+
+# MLX-LM Integration Configuration
+MLX_LM_CONFIG = {
+    "model": "mlx-community/ERNIE-4.5-0.3B-PT-bf16-ft",
+    "max_tokens": 131072,
+    "temperature": 0.3,
+    "repetition_penalty": 1.1,
+    "repetition_context_size": 20,
+}
+```
+</CodeGroup>
+
+<Info>
+  The ERNIE model will be automatically downloaded and cached locally on first use. The model is approximately 600MB and will be stored in your MLX cache directory.
+</Info>
+
+### Understanding trading environments
+
+The agent can run in two environments:
+
+**Foundry fork mode (`USE_FORK = True`)**
+- Safe for testing and experimentation
+- Uses paper money (no real funds at risk)
+- Real market data from BASE mainnet
+- Real smart contract interactions
+- Connects to: `http://localhost:8545` (Anvil fork)
+
+**BASE mainnet mode (`USE_FORK = False`)**
+- Uses real money and real transactions
+- All trades are permanent and irreversible
+- Gas fees apply to every transaction
+- Connects to: Your Chainstack BASE RPC endpoint
+
+<Info>
+  Always start with fork mode to test your strategies before using real funds.
+</Info>
+
+### Set up RPC endpoints for mainnet mode
+
+If you plan to use mainnet mode (`USE_FORK = False`), configure your BASE RPC endpoints in `config.py`:
+
+<CodeGroup>
+```python config.py
+BASE_RPC_URLS = [
+    "YOUR_CHAINSTACK_BASE_RPC_ENDPOINT",  # Replace with your Chainstack endpoint. For example, a Global Node
+    "YOUR_CHAINSTACK_BASE_RPC_ENDPOINT",  # Fallback Chainstack endpoint. For example, a Trader Node
+]
+```
+</CodeGroup>
+
+<Info>
+  For fork mode (`USE_FORK = True`), the agent automatically uses `http://localhost:8545` and these endpoints are not needed.
+</Info>
+
+## Configure trading parameters
+
+Set your trading wallet private key in `config.py`:
+
+<CodeGroup>
+```python config.py
+PRIVATE_KEY = "YOUR_PRIVATE_KEY"  # Use test key only, never production funds
+```
+</CodeGroup>
+
+<Info>
+  Use a test wallet with minimal funds. This is for educational purposes only.
+</Info>
+
+## Start Foundry Anvil fork
+
+### Launch Anvil fork
+
+Open a new terminal and start the Anvil fork of BASE mainnet:
+
+<CodeGroup>
+```bash Terminal
+anvil --fork-url YOUR_CHAINSTACK_BASE_RPC_ENDPOINT --chain-id 8453
+```
+</CodeGroup>
+
+You should see output like:
+
+<CodeGroup>
+```bash Output
+Available Accounts
+==================
+(0) 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (10000.000000000000000000 ETH)
+(1) 0x70997970C51812dc3A010C7d01b50e0d17dc79C8 (10000.000000000000000000 ETH)
+...
+
+Private Keys
+==================
+(0) 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+(1) 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+...
+
+Listening on 0.0.0.0:8545
+```
+</CodeGroup>
+
+### Fund your trading account
+
+If your trading account needs more ETH, use Anvil's built-in accounts:
+
+<CodeGroup>
+```bash Terminal
+# Send ETH from Anvil account to your trading account
+cast send --from 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 \
+  --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+  --rpc-url http://localhost:8545 \
+  YOUR_TRADING_ADDRESS \
+  --value 5ether
+```
+</CodeGroup>
+
+## Run the trading agent
+
+### Basic trading mode
+
+Start the agent in normal trading mode:
+
+<CodeGroup>
+```bash Terminal
+cd /path/to/web3-ai-trading-agent
+python on-chain/uniswap_v4_stateful_trading_agent.py
+```
+</CodeGroup>
+
+### Observation mode
+
+Start with observation mode to see how ERNIE analyzes the market without executing trades:
+
+<CodeGroup>
+```bash Terminal
+python on-chain/uniswap_v4_stateful_trading_agent.py --observe-cycles 10
+```
+</CodeGroup>
+
+This will:
+- Collect market data for 10 cycles
+- Have ERNIE analyze each market state
+- Generate an initial trading strategy
+- Switch to active trading
+
+### Test mode with performance monitoring
+
+Test the system with detailed performance logging:
+
+<CodeGroup>
+```bash Terminal
+python on-chain/uniswap_v4_stateful_trading_agent.py --test-mode --observe-cycles 5 --verbose
+```
+</CodeGroup>
+
+### Custom trading parameters
+
+Modify trading behavior with command-line arguments:
+
+<CodeGroup>
+```bash Terminal
+# Set custom ETH allocation target (60% ETH, 40% USDC)
+python on-chain/uniswap_v4_stateful_trading_agent.py --target-allocation 0.6
+
+# Run for specific number of iterations with faster inference
+python on-chain/uniswap_v4_stateful_trading_agent.py --iterations 100 --trade-interval 5
+
+# Extended observation period for better market analysis
+python on-chain/uniswap_v4_stateful_trading_agent.py --observe-time 30  # 30 minutes
+```
+</CodeGroup>
+
+### Configuration optimization
+
+In `config.py`, you can adjust ERNIE-specific settings:
+
+<CodeGroup>
+```python config.py
+# Trading frequency (local inference allows higher frequencies)
+TRADE_INTERVAL = 5  # seconds between decisions (faster than API-based)
+
+# Rebalancing sensitivity
+REBALANCE_THRESHOLD = 0.3  # 30% deviation triggers rebalance
+
+# Model-specific parameters
+MLX_INFERENCE_CONFIG = {
+    "max_tokens": 512,  # Shorter responses for faster trading decisions
+    "temperature": 0.6,  # Slightly lower for more consistent decisions
+    "top_p": 0.9,  # Nucleus sampling for better quality
+}
+```
+</CodeGroup>
+
+## Advantages of local execution
+
+### Privacy benefits
+- No data transmission — All market data and trading decisions stay on your device
+- No API logging — External services don't log your trading strategies
+- Offline capability — Works without internet (except for blockchain RPC calls)
+
+### Performance benefits
+- Low latency — No network round-trip time
+- High throughput — 1000+ tokens/sec on Apple Silicon
+- No rate limits — Process as many decisions as needed
+- Consistent performance — No external API dependencies
+
+### Cost benefits
+- Zero inference costs — No per-token or per-request charges
+- One-time setup — Model download is cached permanently
+- Predictable expenses — Only blockchain gas fees apply
+
+<Info>
+  Local MLX-LM execution provides superior privacy and performance for trading agents, making it ideal for high-frequency trading strategies where latency and privacy are critical.
+</Info>
+
+<Warning>
+  **Important**: This is for educational and testing purposes only. Use test wallets with minimal funds. Never use production private keys. Monitor system resources during trading. The fork environment uses test funds, but configuration errors could affect real accounts.
+</Warning>
+
+<Info>
+  Next section: [AI trading agent: Fine-tuning overview](/docs/ai-trading-agent-fine-tuning-overview)
+</Info>
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Director of Developer Experience @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup> 
