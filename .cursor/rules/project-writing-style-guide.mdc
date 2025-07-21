@@ -307,7 +307,7 @@ To downgrade your account, you need to:
 
 Chainstack supports the following protocols:
 
-- Ethereum, Solana, BNB Smart Chain, Polygon, Arbitrum, Base, Optimism, Avalanche, TON, Ronin, Blast, ZKsync Era, Starknet, Scroll, Aptos, Fantom, Cronos, Gnosis Chain, Kaia, Moonbeam, Celo, Aurora, Oasis Sapphire, Polygon zkEVM, Bitcoin, Harmony
+- Ethereum, Solana, BNB Smart Chain, Polygon, Arbitrum, Base, Optimism, Avalanche, TON, Ronin, Blast, ZKsync Era, Starknet, Scroll, Aptos, Fantom, Cronos, Gnosis Chain, Kaia, Moonbeam, Celo, Oasis Sapphire, Polygon zkEVM, Bitcoin, Harmony
 
 #### Technical documentation lists with em dashes
 
