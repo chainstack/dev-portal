@@ -282,6 +282,8 @@ Use periods when:
 Do not use periods when:
 - List items are single words, phrases, or sentence fragments
 
+For lists formatting, never use **bold** for listed items.
+
 #### Examples
 
 **Complete sentences (use periods):**

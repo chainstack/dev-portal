@@ -5,6 +5,7 @@
 - This is a documentation project on the Mintlify platform
 - We use MDX files with YAML frontmatter  
 - Navigation is configured in `docs.json`
+- When creating a new article as an *.mdx file, always remember to add the file name to the appropriate section in the navigation file `docs.json`
 
 ## Required page structure
 
@@ -386,6 +387,8 @@ Use periods when:
 
 Do not use periods when:
 - List items are single words, phrases, or sentence fragments
+
+For lists formatting, never use **bold** for listed items.
 
 #### Examples
 
