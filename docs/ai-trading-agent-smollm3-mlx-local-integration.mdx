@@ -1,0 +1,326 @@
+---
+title: "AI trading agent: SmolLM3 local integration with MLX-LM"
+description: "Run the stateful trading agent with SmolLM3's efficient 3B parameter model using MLX-LM for ultra-fast local inference on Apple Silicon with zero-day support and blazing performance."
+---
+
+**TLDR:**
+* You'll integrate MLX-LM's SmolLM3 model with your trading agent for lightning-fast local AI inference with superior efficiency.
+* You'll leverage SmolLM3's 3B parameter architecture optimized for speed and accuracy in trading decisions.
+* You'll run safe paper trading using Foundry Anvil fork to test strategies before deploying to live markets.
+* You'll experience blazing-fast inference on Apple Silicon with MLX-LM's zero-day SmolLM3 support.
+* By the end, you'll have a trading agent powered by one of the most efficient language models running entirely on your Mac.
+
+<Info>
+  Previous section: [AI trading agent: ERNIE 4.5 local integration with MLX-LM](/docs/ai-trading-agent-ernie-mlx-local-integration)
+</Info>
+
+<Note>
+  Project repository: [Web3 AI trading agent](https://github.com/chainstacklabs/web3-ai-trading-agent)
+</Note>
+
+<Info>
+  Remember that this is a NOT FOR PRODUCTION tutorial. In a production deployment, don't store your private key in a config.py file.
+</Info>
+
+This section demonstrates how to integrate MLX-LM's SmolLM3 model with your trading agent for ultra-fast local inference. SmolLM3 represents the cutting edge of efficient language models, delivering remarkable performance from just 3 billion parameters while maintaining quality reasoning capabilities essential for trading decisions.
+
+The key advantage of this setup is **blazing-fast local execution** with zero-day MLX-LM support—no API calls, no external dependencies, no data leaving your machine, and fast inference speeds on Apple Silicon.
+
+## About SmolLM3 and MLX-LM
+
+### SmolLM3 overview
+
+SmolLM3 is Hugging Face's latest small language model that excels in:
+- Efficiency — 3B parameters delivering performance comparable to much larger models
+- Speed — Optimized architecture for rapid inference
+- Reasoning — Strong analytical capabilities despite compact size
+- Versatility — Excellent balance between size and capability for real-time applications
+- **Resource efficiency** — Low memory footprint perfect for local deployment
+
+### MLX-LM Framework with Zero-Day SmolLM3 Support
+
+[MLX-LM](https://github.com/ml-explore/mlx-examples/tree/main/llms) provides zero-day support for SmolLM3 with Apple's machine learning framework:
+- Native Apple Silicon optimization — Leverages M1/M2/M3/M4 Neural Engine
+- Blazing fast inference — Thanks to Apple's unified memory architecture
+- Zero-day support — SmolLM3 compatibility available immediately
+- 4-bit quantization — Further optimized for speed and memory efficiency
+- Local execution — Complete privacy and no network dependencies
+
+**Trading-relevant strengths:**
+- Ultra-fast decision making
+- Excellent reasoning-to-size ratio
+- No API costs or rate limits
+- Real-time market analysis capabilities
+- Complete data privacy
+
+## Prerequisites
+
+Before starting, ensure you have:
+
+- Apple Silicon Mac (M1, M2, M3, or M4)
+- All dependencies from `requirements.txt` installed
+- Foundry installed (`curl -L https://foundry.paradigm.xyz | bash && foundryup`)
+- Chainstack BASE RPC endpoint
+
+## MLX-LM setup
+
+### Install MLX-LM
+
+Install MLX-LM and dependencies:
+
+<CodeGroup>
+```bash Terminal
+# Install MLX-LM
+pip install mlx-lm
+
+# Verify installation
+mlx_lm.generate --help
+```
+</CodeGroup>
+
+### Download SmolLM3 model
+
+Download the SmolLM3 4-bit quantized model (first run will cache the model locally):
+
+<CodeGroup>
+```bash Terminal
+# Download and test SmolLM3 model
+mlx_lm.generate --model mlx-community/SmolLM3-3B-4bit \
+  --prompt "Given ETH price is $2506.92 with volume of 999.43 and volatility of 0.045, recent price change of 35.7765 ticks, and I currently hold 3.746 ETH and 9507.14 USDC, what trading action should I take on Uniswap?"
+```
+</CodeGroup>
+
+You should see SmolLM3 analyzing the trading scenario and providing strategic recommendations in the terminal, demonstrating its reasoning capabilities for market analysis.
+
+### Configure MLX-LM integration
+
+Edit `config.py` and add the complete MLX-LM configuration:
+
+<CodeGroup>
+```python config.py
+# Set the model key for local MLX-LM execution:
+MODEL_KEY = "smollm3-mlx"
+
+# Set trading environment
+USE_FORK = True   # True = Foundry fork (safe paper trading)
+                  # False = Real BASE mainnet (uses real money!)
+
+# MLX-LM Integration Configuration for SmolLM3
+MLX_LM_CONFIG = {
+    "model": "mlx-community/SmolLM3-3B-4bit",
+    "max_tokens": 64000,
+    "temperature": 0.3,
+    "repetition_penalty": 1.1,
+}
+```
+</CodeGroup>
+
+<Info>
+  The SmolLM3 model is approximately 1.7GB and will be automatically downloaded and cached locally on first use. The 4-bit quantization significantly reduces memory usage while maintaining performance.
+</Info>
+
+### Understanding trading environments
+
+The agent can run in two environments:
+
+**Foundry fork mode (`USE_FORK = True`)**
+- Safe for testing and experimentation
+- Uses paper money (no real funds at risk)
+- Real market data from BASE mainnet
+- Real smart contract interactions
+- Connects to: `http://localhost:8545` (Anvil fork)
+
+**BASE mainnet mode (`USE_FORK = False`)**
+- Uses real money and real transactions
+- All trades are permanent and irreversible
+- Gas fees apply to every transaction
+- Connects to: Your Chainstack BASE RPC endpoint
+
+<Info>
+  Always start with fork mode to test your strategies before using real funds.
+</Info>
+
+### Set up RPC endpoints for mainnet mode
+
+If you plan to use mainnet mode (`USE_FORK = False`), configure your BASE RPC endpoints in `config.py`:
+
+<CodeGroup>
+```python config.py
+BASE_RPC_URLS = [
+    "YOUR_CHAINSTACK_BASE_RPC_ENDPOINT",  # Replace with your Chainstack endpoint. For example, a Global Node
+    "YOUR_CHAINSTACK_BASE_RPC_ENDPOINT",  # Fallback Chainstack endpoint. For example, a Trader Node
+]
+```
+</CodeGroup>
+
+<Info>
+  For fork mode (`USE_FORK = True`), the agent automatically uses `http://localhost:8545` and these endpoints are not needed.
+</Info>
+
+## Configure trading parameters
+
+Set your trading wallet private key in `config.py`:
+
+<CodeGroup>
+```python config.py
+PRIVATE_KEY = "YOUR_PRIVATE_KEY"  # Use test key only, never production funds
+```
+</CodeGroup>
+
+<Info>
+  Use a test wallet with minimal funds. This is for educational purposes only.
+</Info>
+
+## Start Foundry Anvil fork
+
+### Launch Anvil fork
+
+Open a new terminal and start the Anvil fork of BASE mainnet:
+
+<CodeGroup>
+```bash Terminal
+anvil --fork-url YOUR_CHAINSTACK_BASE_RPC_ENDPOINT --chain-id 8453
+```
+</CodeGroup>
+
+You should see output like:
+
+<CodeGroup>
+```bash Output
+Available Accounts
+==================
+(0) 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (10000.000000000000000000 ETH)
+(1) 0x70997970C51812dc3A010C7d01b50e0d17dc79C8 (10000.000000000000000000 ETH)
+...
+
+Private Keys
+==================
+(0) 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+(1) 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+...
+
+Listening on 0.0.0.0:8545
+```
+</CodeGroup>
+
+### Fund your trading account
+
+If your trading account needs more ETH, use Anvil's built-in accounts:
+
+<CodeGroup>
+```bash Terminal
+# Send ETH from Anvil account to your trading account
+cast send --from 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 \
+  --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+  --rpc-url http://localhost:8545 \
+  YOUR_TRADING_ADDRESS \
+  --value 5ether
+```
+</CodeGroup>
+
+## Run the trading agent
+
+### Basic trading mode
+
+Start the agent in normal trading mode:
+
+<CodeGroup>
+```bash Terminal
+cd /path/to/web3-ai-trading-agent
+python on-chain/uniswap_v4_stateful_trading_agent.py
+```
+</CodeGroup>
+
+### Observation mode
+
+Start with observation mode to see how SmolLM3 analyzes the market without executing trades:
+
+<CodeGroup>
+```bash Terminal
+python on-chain/uniswap_v4_stateful_trading_agent.py --observe-cycles 10
+```
+</CodeGroup>
+
+This will:
+- Collect market data for 10 cycles
+- Have SmolLM3 analyze each market state
+- Generate an initial trading strategy
+- Switch to active trading
+
+### Custom trading parameters optimized for SmolLM3
+
+Modify trading behavior to leverage SmolLM3's speed:
+
+<CodeGroup>
+```bash Terminal
+# Fast-paced trading with 60% ETH allocation
+python on-chain/uniswap_v4_stateful_trading_agent.py --target-allocation 0.6 --trade-interval 2
+
+# High-frequency mode for 200 iterations
+python on-chain/uniswap_v4_stateful_trading_agent.py --iterations 200 --trade-interval 1
+
+# Extended observation with rapid analysis cycles
+python on-chain/uniswap_v4_stateful_trading_agent.py --observe-time 15 --trade-interval 3
+```
+</CodeGroup>
+
+### Configuration optimization for SmolLM3
+
+In `config.py`, you can adjust SmolLM3-specific settings to maximize performance:
+
+<CodeGroup>
+```python config.py
+# High-frequency trading (SmolLM3's speed enables faster decisions)
+TRADE_INTERVAL = 2  # seconds between decisions (ultra-fast inference)
+
+# Rebalancing sensitivity optimized for rapid decisions
+REBALANCE_THRESHOLD = 0.25  # 25% deviation triggers rebalance
+
+# SmolLM3-specific parameters for optimal performance
+MLX_INFERENCE_CONFIG = {
+    "max_tokens": 512,  # Shorter responses for lightning-fast decisions
+    "temperature": 0.5,  # Balanced for consistent yet dynamic trading
+    "top_p": 0.85,  # Focused sampling for better trading decisions
+    "repetition_penalty": 1.05,  # Slight penalty to avoid repetitive strategies
+}
+
+# Performance monitoring
+ENABLE_PERFORMANCE_LOGGING = True
+LOG_INFERENCE_TIMES = True
+```
+</CodeGroup>
+
+<Info>
+  SmolLM3's combination of compact size and powerful capabilities makes it ideal for real-time trading applications where speed and efficiency are paramount.
+</Info>
+
+<Info>
+  SmolLM3's efficient architecture combined with MLX-LM's Apple Silicon optimization creates the perfect environment for high-frequency, low-latency trading applications.
+</Info>
+
+<Warning>
+  **Important**: This is for educational and testing purposes only. Use test wallets with minimal funds. Never use production private keys. Monitor system resources during trading. The fork environment uses test funds, but configuration errors could affect real accounts.
+</Warning>
+
+<Info>
+  Next section: [AI trading agent: Fine-tuning overview](/docs/ai-trading-agent-fine-tuning-overview)
+</Info>
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Director of Developer Experience @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup> 
