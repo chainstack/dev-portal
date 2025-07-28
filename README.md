@@ -118,6 +118,10 @@ Run the following command at the root of your documentation (where docs.json is)
 mintlify dev
 ```
 
+### Available node options master list
+
+`node-options-master-list.json` is the main file for this Developer Portal where the all the available node options are kept up to date. If you need a custom table with whatever options you want, you feed the master list to an LLM and generate your own table.
+
 ### Dead links check
 
 A CI job will check each PR and warn on the dead links.
