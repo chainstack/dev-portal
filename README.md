@@ -120,7 +120,7 @@ mintlify dev
 
 ### Available node options master list
 
-`node-options-master-list.json` is the main file for this Developer Portal where the all the available node options are kept up to date. If you need a custom table with whatever options you want, you feed the master list to an LLM and generate your own table.
+`node-options-master-list.json` is the main file for this Developer Portal where the all the available node options are kept up to date. If you need a custom table with whatever options you want, you feed the master list to an LLM and generate your own table. The context length of `node-options-master-list.json` is about 17387 tokens.
 
 ### Dead links check
 
