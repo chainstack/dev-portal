@@ -1,0 +1,196 @@
+---
+title: eth_getCode | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_get_code.json post /evm
+---
+
+The `eth_getCode` JSON-RPC method returns the bytecode of a smart contract at a given address and block. This method is essential for contract verification, analysis, and determining whether an address contains a smart contract or is an externally owned account (EOA).
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+The method takes two parameters:
+
+1. **Address** - The contract address to retrieve bytecode from
+2. **Block parameter** - The block at which to retrieve the code
+
+### Parameter details
+
+* `address` (string, required) — The 20-byte address to retrieve code from
+* `block` (string, required) — Block identifier: `"latest"` (only the latest block is supported on Hyperliquid)
+
+## Response
+
+The method returns the contract bytecode as a hexadecimal string, or `"0x"` if no code exists at the address.
+
+### Response structure
+
+**Contract bytecode:**
+- `result` — The contract bytecode as a hexadecimal string with `0x` prefix
+
+### Data interpretation
+
+**Bytecode format:**
+- Returned as hexadecimal string with `0x` prefix
+- Contains the deployed contract's runtime bytecode
+- `"0x"` indicates no code (externally owned account)
+- Non-empty string indicates a smart contract
+
+**Contract identification:**
+```javascript
+// Check if address is a contract
+const isContract = (code) => code !== "0x" && code.length > 2;
+
+// Check if address is an EOA
+const isEOA = (code) => code === "0x";
+```
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get contract bytecode on Hyperliquid
+const getContractCode = async (address) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getCode',
+      params: [address, 'latest'], // Only 'latest' is supported
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Check if address is a contract or EOA
+const analyzeAddress = async (address) => {
+  const code = await getContractCode(address);
+  
+  const isContract = code !== "0x" && code.length > 2;
+  const isEOA = code === "0x";
+  
+  return {
+    address,
+    code,
+    isContract,
+    isEOA,
+    codeSize: isContract ? (code.length - 2) / 2 : 0, // Convert hex to bytes
+    hasCode: isContract
+  };
+};
+
+// Analyze multiple addresses
+const analyzeMultipleAddresses = async (addresses) => {
+  const results = [];
+  
+  for (const address of addresses) {
+    try {
+      const analysis = await analyzeAddress(address);
+      results.push(analysis);
+    } catch (error) {
+      console.error(`Error analyzing address ${address}:`, error);
+      results.push({
+        address,
+        error: error.message,
+        isContract: null,
+        isEOA: null
+      });
+    }
+  }
+  
+  return results;
+};
+
+// Check for common proxy patterns
+const checkProxyPattern = (bytecode) => {
+  if (bytecode === "0x") return { isProxy: false, type: null };
+  
+  // EIP-1167 minimal proxy pattern
+  if (bytecode.includes("363d3d373d3d3d363d73")) {
+    return { isProxy: true, type: "EIP-1167 Minimal Proxy" };
+  }
+  
+  // Other common proxy patterns
+  if (bytecode.includes("3660008037600080366000845af43d6000803e")) {
+    return { isProxy: true, type: "Delegatecall Proxy" };
+  }
+  
+  return { isProxy: false, type: null };
+};
+
+// Usage examples
+const contractAddress = "0x5555555555555555555555555555555555555555";
+const eoaAddress = "0xFC1286EeddF81d6955eDAd5C8D99B8Aa32F3D2AA";
+
+analyzeAddress(contractAddress)
+  .then(analysis => {
+    console.log('Contract Analysis:', analysis);
+    if (analysis.isContract) {
+      const proxyInfo = checkProxyPattern(analysis.code);
+      console.log('Proxy Analysis:', proxyInfo);
+    }
+  })
+  .catch(error => console.error('Error:', error));
+
+// Analyze multiple addresses
+analyzeMultipleAddresses([contractAddress, eoaAddress])
+  .then(results => console.log('Multiple Address Analysis:', results))
+  .catch(error => console.error('Error:', error));
+```
+
+## Hyperliquid-specific considerations
+
+### Block limitations
+
+**Latest block only:**
+- Only the `"latest"` block parameter is supported
+- Historical contract code queries are not available in the default implementation
+- All code retrieval is performed against the current state
+- For historical analysis, consider using archive node implementations
+
+### Contract analysis
+
+**Address classification:**
+- Distinguish between contracts and EOAs efficiently
+- `"0x"` indicates an externally owned account (EOA)
+- Non-empty bytecode indicates a smart contract
+- Use for implementing different handling logic for different address types
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_getCode","params":["0x5555555555555555555555555555555555555555","latest"],"id":1}' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_getCode` method is essential for applications that need to:
+
+* **Address classification**: Distinguish between smart contracts and EOAs
+* **Contract verification**: Verify deployed contracts against expected bytecode
+* **Security analysis**: Analyze contract bytecode for security patterns
+* **Block explorers**: Display contract information and verification status
+* **Development tools**: Build contract analysis and debugging tools
+* **Wallet applications**: Verify contract authenticity before interactions
+* **DeFi protocols**: Analyze and verify protocol contract implementations
+* **Integration services**: Provide contract information to external systems
+
+<Note>
+On Hyperliquid, `eth_getCode` only supports the latest block. The returned bytecode is the runtime code deployed on the blockchain, not the constructor code. For EOAs (externally owned accounts), this method returns `"0x"`.
+</Note>

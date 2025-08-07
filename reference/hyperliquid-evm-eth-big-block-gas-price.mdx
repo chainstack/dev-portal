@@ -1,0 +1,137 @@
+---
+title: eth_bigBlockGasPrice | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_big_block_gas_price.json post /evm
+---
+
+The `eth_bigBlockGasPrice` JSON-RPC method returns the base fee for the next big block on Hyperliquid EVM. This is a Hyperliquid-specific method that provides gas pricing for addresses using big blocks.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+This method takes no parameters.
+
+## Response
+
+The method returns the big block gas price as a hexadecimal string representing wei.
+
+### Response structure
+
+**Big block gas price:**
+- `result` — The base fee for the next big block in wei as a hexadecimal string
+
+### Data interpretation
+
+**Gas price format:**
+- Returned as hexadecimal string with `0x` prefix
+- Value represents wei (smallest unit of ether)
+- Convert to gwei by dividing by 10^9
+- Convert to ether by dividing by 10^18
+
+**Price calculation:**
+```javascript
+// Convert big block gas price to different units
+const bigBlockGasPriceWei = parseInt("0x3b9aca00", 16); // 1000000000 wei
+const bigBlockGasPriceGwei = bigBlockGasPriceWei / 1e9; // 1 gwei
+const bigBlockGasPriceEther = bigBlockGasPriceWei / 1e18; // 0.000000001 ether
+```
+
+## Big blocks on Hyperliquid
+
+### Overview
+
+Big blocks are a Hyperliquid-specific feature that allows certain addresses to use larger block space. The `eth_bigBlockGasPrice` method returns the base fee specifically for these big blocks.
+
+**Key differences:**
+- Big block gas price may differ from standard gas price (`eth_gasPrice`)
+- Only addresses using big blocks need this pricing information
+- Use `eth_usingBigBlocks` to check if an address is using big blocks
+
+### Related methods
+
+**Check big block usage:**
+- `eth_usingBigBlocks` — returns whether an address is using big blocks
+- `eth_gasPrice` — returns the base fee for standard (small) blocks
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get big block gas price
+const getBigBlockGasPrice = async () => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_bigBlockGasPrice',
+      params: [],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Compare with standard gas price
+const compareGasPrices = async () => {
+  const [standardPrice, bigBlockPrice] = await Promise.all([
+    // Standard gas price call
+    fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_gasPrice',
+        params: [],
+        id: 1
+      })
+    }).then(r => r.json()),
+    
+    // Big block gas price call
+    getBigBlockGasPrice()
+  ]);
+  
+  return {
+    standard: standardPrice.result,
+    bigBlock: bigBlockPrice,
+    standardGwei: parseInt(standardPrice.result, 16) / 1e9,
+    bigBlockGwei: parseInt(bigBlockPrice, 16) / 1e9
+  };
+};
+```
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_bigBlockGasPrice","params":[],"id":1}' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_bigBlockGasPrice` method is useful for:
+
+* **Big block users**: Get appropriate gas pricing when your address is using big blocks
+* **Gas price comparison**: Compare big block pricing with standard block pricing
+* **Transaction cost optimization**: Choose the most cost-effective gas price option
+* **Wallet applications**: Display accurate gas pricing for addresses using big blocks
+* **DeFi applications**: Optimize transaction costs based on block type usage
+* **Analytics tools**: Monitor and compare different gas pricing options on Hyperliquid
+* **Development tools**: Test applications with different gas pricing scenarios
+
+<Note>
+This is a Hyperliquid-specific method that returns the base fee for the next big block. Use `eth_usingBigBlocks` to check if an address is using big blocks, and compare with `eth_gasPrice` for standard block pricing.
+</Note>

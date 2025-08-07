@@ -1,0 +1,185 @@
+---
+title: userFees | Hyperliquid info
+openapi: /openapi/hyperliquid_node_api/info_userfees.json post /4f8d8f4040bdacd1577bff8058438274/info
+---
+
+The `info` endpoint with `type: "userFees"` retrieves detailed information about a user's fee structure and trading costs on the Hyperliquid exchange. This endpoint provides comprehensive fee information including base rates, VIP tiers, discounts, and effective rates after all reductions are applied.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Request body
+
+* `type` (string, required) — The request type. Must be `"userFees"` to retrieve user's fee structure.
+* `user` (string, required) — Address in 42-character hexadecimal format (e.g., `0x31ca8395cf837de08b24da3f660e77761dfb974b`).
+
+## Response
+
+The response is a comprehensive object containing detailed fee information, schedules, and user-specific rates:
+
+### Daily volume data
+
+* `dailyUserVlm` (array) — Array of daily volume data objects:
+  * `date` (string) — Date in YYYY-MM-DD format
+  * `userCross` (string) — User's cross-margin trading volume for the day
+  * `userAdd` (string) — User's isolated/add margin trading volume for the day
+  * `exchange` (string) — Total exchange volume for the day
+
+### Fee schedule structure
+
+* `feeSchedule` (object) — Complete fee schedule information:
+  * `cross` (string) — Base cross-margin taker fee rate
+  * `add` (string) — Base isolated/add margin maker fee rate
+  * `spotCross` (string) — Base spot cross-margin taker fee rate
+  * `spotAdd` (string) — Base spot isolated/add margin maker fee rate
+  * `tiers` (object) — Tiered fee structures:
+    * `vip` (array) — VIP tier configurations with volume cutoffs and reduced rates
+    * `mm` (array) — Market maker tier configurations
+  * `referralDiscount` (string) — Base referral discount percentage
+  * `stakingDiscountTiers` (array) — Staking-based discount tiers
+
+### User-specific rates
+
+* `userCrossRate` (string) — User's effective cross-margin trading rate (after discounts)
+* `userAddRate` (string) — User's effective isolated/add margin trading rate (after discounts)
+* `userSpotCrossRate` (string) — User's effective spot cross-margin trading rate
+* `userSpotAddRate` (string) — User's effective spot isolated/add margin trading rate
+
+### Applied discounts and benefits
+
+* `activeReferralDiscount` (string) — Currently active referral discount percentage
+* `activeStakingDiscount` (object) — Currently active staking discount:
+  * `bpsOfMaxSupply` (string) — Basis points of max supply being staked
+  * `discount` (string) — Discount percentage applied
+
+### Trial and rewards
+
+* `trial` (object/null) — Trial program information (if applicable)
+* `feeTrialReward` (string) — Rewards from fee trial programs
+* `nextTrialAvailableTimestamp` (integer/null) — When next trial becomes available
+
+### Staking information
+
+* `stakingLink` (object) — Staking relationship information:
+  * `type` (string) — Type of staking link (e.g., "tradingUser")
+  * `stakingUser` (string) — Address of the linked staking user
+
+### Understanding fee structure
+
+**Cross vs Add (Isolated) margin:**
+- **Cross margin**: Uses entire account balance as collateral for positions
+- **Add/Isolated margin**: Each position has dedicated collateral
+- **Cross rates**: Generally higher due to increased risk sharing
+- **Add rates**: Lower rates to encourage isolated position management
+
+**Fee types:**
+- **Perpetuals fees**: `userCrossRate` and `userAddRate` for perpetual futures
+- **Spot fees**: `userSpotCrossRate` and `userSpotAddRate` for spot trading
+- **Market maker rebates**: Negative fees for qualifying market makers
+
+**Discount mechanisms:**
+- **Referral discounts**: Reductions based on referral program participation
+- **Staking discounts**: Fee reductions based on token staking amounts
+- **VIP tiers**: Volume-based fee reductions with specific cutoffs
+- **Trial programs**: Temporary fee benefits and rewards
+
+**Rate calculation:**
+- Base rates are modified by applicable discounts
+- User-specific rates show final effective rates after all benefits
+- Staking discounts based on percentage of maximum token supply held
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"type": "userFees", "user": "0x31ca8395cf837de08b24da3f660e77761dfb974b"}' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/info
+```
+
+## Example response
+
+```json
+{
+  "dailyUserVlm": [
+    {
+      "date": "2025-05-23",
+      "userCross": "0.0",
+      "userAdd": "0.0", 
+      "exchange": "2852367.0770729999"
+    }
+  ],
+  "feeSchedule": {
+    "cross": "0.00045",
+    "add": "0.00015",
+    "spotCross": "0.0007",
+    "spotAdd": "0.0004",
+    "tiers": {
+      "vip": [
+        {
+          "ntlCutoff": "5000000.0",
+          "cross": "0.0004",
+          "add": "0.00012",
+          "spotCross": "0.0006",
+          "spotAdd": "0.0003"
+        }
+      ],
+      "mm": [
+        {
+          "makerFractionCutoff": "0.005",
+          "add": "-0.00001"
+        }
+      ]
+    },
+    "referralDiscount": "0.04",
+    "stakingDiscountTiers": [
+      {
+        "bpsOfMaxSupply": "0.0001",
+        "discount": "0.05"
+      }
+    ]
+  },
+  "userCrossRate": "0.000315",
+  "userAddRate": "0.000105",
+  "userSpotCrossRate": "0.00049",
+  "userSpotAddRate": "0.00028",
+  "activeReferralDiscount": "0.0",
+  "trial": null,
+  "feeTrialReward": "0.0",
+  "nextTrialAvailableTimestamp": null,
+  "stakingLink": {
+    "type": "tradingUser",
+    "stakingUser": "0x54c049d9c7d3c92c2462bf3d28e083f3d6805061"
+  },
+  "activeStakingDiscount": {
+    "bpsOfMaxSupply": "4.7577998927",
+    "discount": "0.3"
+  }
+}
+```
+
+## Use cases
+
+The `info` endpoint with `type: "userFees"` is essential for applications that need to:
+
+* **Trading cost calculation**: Accurately estimate trading costs using user-specific rates
+* **Fee optimization**: Help users understand how to reduce fees through staking or referrals
+* **Profitability analysis**: Calculate net profits after accounting for actual trading fees
+* **Volume analysis**: Track daily trading volumes and exchange activity patterns
+* **Discount tracking**: Monitor active staking and referral discounts
+* **Trading strategy optimization**: Factor accurate fees into algorithmic trading decisions
+* **Fee dashboards**: Display current fee structure, discounts, and potential savings
+* **Cross vs isolated margin decisions**: Compare fee structures for different margin types
+* **Performance reporting**: Include accurate fee costs in trading performance analysis
+* **Institutional reporting**: Provide comprehensive fee transparency for clients
+* **Strategy backtesting**: Include realistic fee models in historical analysis
+* **Staking optimization**: Understand staking requirements for maximum fee discounts
+
+This endpoint provides comprehensive fee information including base rates, user-specific discounts, volume data, and staking benefits, enabling accurate cost calculations and optimization strategies on the Hyperliquid platform.

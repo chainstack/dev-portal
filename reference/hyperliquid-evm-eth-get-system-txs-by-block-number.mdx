@@ -1,0 +1,227 @@
+---
+title: eth_getSystemTxsByBlockNumber | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_get_system_txs_by_block_number.json post /evm
+---
+
+The `eth_getSystemTxsByBlockNumber` JSON-RPC method returns system transactions for a given block number on Hyperliquid EVM. This Hyperliquid-specific method provides access to internal system transactions that handle protocol operations, network maintenance, and other system-level activities.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+The method takes one parameter:
+
+1. **Block number** - The block number to retrieve system transactions from
+
+### Parameter details
+
+* `blockNumber` (string, required) — Block identifier: `"latest"`, `"earliest"`, `"pending"`, or a specific block number in hexadecimal
+
+## Response
+
+The method returns an array of system transaction objects for the specified block.
+
+### Response structure
+
+**System transactions array:**
+- Array of system transaction objects
+- Empty array if no system transactions exist in the block
+- Each transaction contains system-specific information
+
+**System transaction object:**
+- `hash` — System transaction hash
+- `type` — System transaction type identifier
+- `blockNumber` — Block number containing the system transaction
+- `blockHash` — Hash of the block containing the system transaction
+- `transactionIndex` — Index of the system transaction in the block
+- `from` — System address that initiated the transaction
+- `to` — Target address of the system transaction
+- `value` — Value transferred in the system transaction
+- `gasUsed` — Gas used by the system transaction
+- `gasPrice` — Gas price for the system transaction (often 0 for system txs)
+- `input` — Input data for the system transaction
+- `status` — System transaction status (0x0 for failure, 0x1 for success)
+
+### Data interpretation
+
+**System transaction types:**
+- System transactions have special type identifiers
+- Different types handle various protocol operations
+- Types may include validator operations, protocol updates, or network maintenance
+- System transactions often have zero gas price
+
+**Transaction characteristics:**
+```javascript
+// Identify and process system transactions
+const processSystemTransactions = (systemTxs) => {
+  return systemTxs.map(tx => ({
+    hash: tx.hash,
+    type: parseInt(tx.type, 16),
+    isSystemTx: true,
+    gasUsed: parseInt(tx.gasUsed, 16),
+    gasPrice: parseInt(tx.gasPrice, 16),
+    status: tx.status === "0x1" ? "success" : "failed",
+    purpose: determineSystemTxPurpose(tx.type)
+  }));
+};
+```
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get system transactions by block number on Hyperliquid
+const getSystemTxsByBlockNumber = async (blockNumber) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getSystemTxsByBlockNumber',
+      params: [blockNumber],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Analyze system transactions from a specific block
+const analyzeSystemTransactions = async (blockNumber) => {
+  const systemTxs = await getSystemTxsByBlockNumber(blockNumber);
+  
+  if (systemTxs.length === 0) {
+    return {
+      blockNumber: parseInt(blockNumber, 16),
+      message: 'No system transactions in this block'
+    };
+  }
+  
+  const analysis = {
+    blockNumber: parseInt(blockNumber, 16),
+    totalSystemTxs: systemTxs.length,
+    transactions: systemTxs.map(tx => ({
+      hash: tx.hash,
+      type: parseInt(tx.type, 16),
+      from: tx.from,
+      to: tx.to,
+      value: parseInt(tx.value, 16),
+      gasUsed: parseInt(tx.gasUsed, 16),
+      gasPrice: parseInt(tx.gasPrice, 16),
+      status: tx.status === "0x1" ? "Success" : "Failed",
+      index: parseInt(tx.transactionIndex, 16)
+    })),
+    summary: {
+      successfulTxs: systemTxs.filter(tx => tx.status === "0x1").length,
+      failedTxs: systemTxs.filter(tx => tx.status === "0x0").length,
+      totalGasUsed: systemTxs.reduce((sum, tx) => sum + parseInt(tx.gasUsed, 16), 0),
+      uniqueTypes: [...new Set(systemTxs.map(tx => parseInt(tx.type, 16)))]
+    }
+  };
+  
+  return analysis;
+};
+
+// Monitor system transactions across a range of blocks
+const monitorSystemTxsRange = async (startBlock, endBlock) => {
+  const results = [];
+  
+  for (let i = startBlock; i <= endBlock; i++) {
+    const hexBlock = "0x" + i.toString(16);
+    try {
+      const systemTxs = await getSystemTxsByBlockNumber(hexBlock);
+      results.push({
+        blockNumber: i,
+        systemTxCount: systemTxs.length,
+        hasSystemTxs: systemTxs.length > 0,
+        types: [...new Set(systemTxs.map(tx => parseInt(tx.type, 16)))]
+      });
+    } catch (error) {
+      console.error(`Error processing block ${i}:`, error);
+      results.push({
+        blockNumber: i,
+        error: error.message
+      });
+    }
+  }
+  
+  return {
+    range: { start: startBlock, end: endBlock },
+    results,
+    summary: {
+      totalBlocks: results.length,
+      blocksWithSystemTxs: results.filter(r => r.hasSystemTxs).length,
+      totalSystemTxs: results.reduce((sum, r) => sum + (r.systemTxCount || 0), 0)
+    }
+  };
+};
+
+// Get latest system transactions
+const getLatestSystemTransactions = async () => {
+  return await getSystemTxsByBlockNumber('latest');
+};
+
+// Usage examples
+analyzeSystemTransactions('0x9d16cf')
+  .then(analysis => console.log('System Transaction Analysis:', analysis))
+  .catch(error => console.error('Error:', error));
+
+// Monitor recent blocks for system activity
+monitorSystemTxsRange(10291248, 10291258)
+  .then(monitoring => console.log('System Transaction Monitoring:', monitoring))
+  .catch(error => console.error('Error:', error));
+```
+
+## HyperCore system transactions
+
+### System transaction characteristics
+
+**Origin and purpose:**
+- System transactions originate from HyperCore
+- Handle protocol operations and network maintenance
+- Often have zero gas price (system-funded)
+- Different transaction types for different operations
+
+### Sequential block analysis
+
+**Block-by-block monitoring:**
+- Use block numbers for sequential analysis
+- Track system transaction patterns over time
+- Monitor protocol operations and network health
+- Analyze system transaction frequency and types
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_getSystemTxsByBlockNumber","params":["0x9d16cf"],"id":1}' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_getSystemTxsByBlockNumber` method is essential for applications that need to:
+
+* **Protocol monitoring**: Monitor HyperCore system operations and protocol activities
+* **Network analysis**: Analyze network health and system transaction patterns
+* **Block explorers**: Display comprehensive block information including system transactions
+* **Analytics platforms**: Study protocol behavior and system operation trends
+* **Development tools**: Debug and understand system-level blockchain operations
+* **Sequential analysis**: Track system transactions across block ranges
+* **Audit systems**: Verify system operations and protocol compliance
+* **Integration services**: Provide system transaction data to external applications
+
+<Note>
+System transactions are internal protocol operations that may not appear in regular transaction lists. They provide insight into network maintenance, protocol operations, and system-level activities on Hyperliquid EVM.
+</Note>

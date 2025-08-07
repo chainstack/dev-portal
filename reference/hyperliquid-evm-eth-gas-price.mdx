@@ -1,0 +1,169 @@
+---
+title: eth_gasPrice | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_gas_price.json post /evm
+---
+
+The `eth_gasPrice` JSON-RPC method returns the base fee for the next small block on Hyperliquid EVM. This method provides the gas price for standard (small) block transactions.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+This method takes no parameters.
+
+## Response
+
+The method returns the current gas price as a hexadecimal string representing wei.
+
+### Response structure
+
+**Gas price:**
+- `result` — The base fee for the next small block in wei as a hexadecimal string
+
+### Data interpretation
+
+**Gas price format:**
+- Returned as hexadecimal string with `0x` prefix
+- Value represents wei (smallest unit of ether)
+- Convert to gwei by dividing by 10^9
+- Convert to ether by dividing by 10^18
+
+**Price calculation:**
+- 1 gwei = 10^9 wei
+- 1 ether = 10^18 wei
+- Example: `0x3b9aca00` = 1,000,000,000 wei = 1 gwei
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get gas price for small blocks on Hyperliquid
+const getGasPrice = async () => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_gasPrice',
+      params: [],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  const gasPriceWei = parseInt(data.result, 16);
+  
+  return {
+    hex: data.result,
+    wei: gasPriceWei,
+    gwei: gasPriceWei / 1e9,
+    ether: gasPriceWei / 1e18
+  };
+};
+
+// Compare small block vs big block gas prices
+const compareGasPrices = async () => {
+  const [smallBlockPrice, bigBlockPrice] = await Promise.all([
+    // Small block gas price
+    fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_gasPrice',
+        params: [],
+        id: 1
+      })
+    }).then(r => r.json()),
+    
+    // Big block gas price
+    fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_bigBlockGasPrice',
+        params: [],
+        id: 2
+      })
+    }).then(r => r.json())
+  ]);
+  
+  return {
+    smallBlock: {
+      hex: smallBlockPrice.result,
+      gwei: parseInt(smallBlockPrice.result, 16) / 1e9
+    },
+    bigBlock: {
+      hex: bigBlockPrice.result,
+      gwei: parseInt(bigBlockPrice.result, 16) / 1e9
+    }
+  };
+};
+
+// Usage
+getGasPrice()
+  .then(price => console.log(`Small block gas price: ${price.gwei} gwei`))
+  .catch(error => console.error('Error:', error));
+```
+
+## Hyperliquid gas pricing
+
+### Small vs big blocks
+
+**Small block pricing:**
+- `eth_gasPrice` returns the base fee for the next small block
+- Used for standard transactions
+- Default pricing for most operations
+
+**Big block pricing:**
+- `eth_bigBlockGasPrice` returns the base fee for the next big block
+- Used for addresses that are using big blocks
+- Check with `eth_usingBigBlocks` to determine if an address uses big blocks
+
+### Transaction fee calculation
+
+**Basic calculation:**
+- Transaction cost = gas price × gas limit
+- Use `eth_gasPrice` for standard transactions
+- Use `eth_bigBlockGasPrice` if the address uses big blocks
+
+**Unit conversions:**
+- 1 gwei = 10^9 wei
+- 1 ether = 10^18 wei
+- Example: `0x3b9aca00` = 1,000,000,000 wei = 1 gwei
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_gasPrice","params":[],"id":1}' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_gasPrice` method is essential for applications that need to:
+
+* **Standard transaction pricing**: Get gas price for small block transactions
+* **Fee estimation**: Calculate transaction costs for standard operations
+* **Wallet applications**: Display gas prices for regular transactions
+* **Cost comparison**: Compare small block vs big block pricing
+* **Transaction planning**: Determine appropriate gas pricing strategy
+* **Development tools**: Test applications with current small block pricing
+* **Analytics platforms**: Monitor small block gas price trends
+* **Automated systems**: Set gas prices for standard automated transactions
+
+<Note>
+On Hyperliquid, `eth_gasPrice` returns the base fee for the next small block. For addresses using big blocks, use `eth_bigBlockGasPrice` instead. Check if an address uses big blocks with `eth_usingBigBlocks`.
+</Note>

@@ -1,0 +1,194 @@
+---
+title: userTwapSliceFills | Hyperliquid info
+openapi: /openapi/hyperliquid_node_api/info_user_twap_slice_fills.json post /info
+---
+
+<Info>
+You can only use this endpoint on the official Hyperliquid public API. It is not available through Chainstack, as the open-source node implementation does not support it yet.
+</Info>
+
+The `info` endpoint with `type: "userTwapSliceFills"` retrieves a user's TWAP (Time-Weighted Average Price) slice fills on the Hyperliquid exchange. This endpoint provides detailed information about individual fill executions that result from TWAP order slicing, enabling analysis of TWAP execution quality and performance.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Request body
+
+* `type` (string, required) — The request type. Must be `"userTwapSliceFills"` to retrieve TWAP slice fills.
+* `user` (string, required) — Address in 42-character hexadecimal format; e.g. 0x0000000000000000000000000000000000000000.
+
+## Response
+
+The response is an array of TWAP slice fill objects, each containing detailed fill information and the associated TWAP order ID:
+
+### Response structure
+
+Each TWAP slice fill object contains:
+- `fill` — Detailed fill information object (similar to regular fills)
+- `twapId` — Unique identifier for the TWAP order that generated this slice fill
+
+### Fill data structure
+
+The `fill` object contains comprehensive execution information:
+
+**Core trade data:**
+- `coin` — Asset identifier (simple names like "BTC", "ETH" for perpetuals; spot format like "@107" for spot trades)
+- `px` — Fill price as a string for precision
+- `sz` — Fill size (quantity traded)
+- `side` — Trade side: "A" for Ask/Sell, "B" for Bid/Buy
+- `time` — Fill timestamp in milliseconds
+- `oid` — Order ID that generated this fill
+- `tid` — Unique trade ID
+
+**Position and P&L data:**
+- `startPosition` — Position size before this fill
+- `dir` — Trade direction (e.g., "Open Long", "Close Short", "Buy", "Sell")
+- `closedPnl` — Realized profit/loss from this fill
+- `crossed` — Boolean indicating if this was a crossing order
+
+**Fee and transaction data:**
+- `fee` — Trading fee paid for this fill
+- `feeToken` — Token used to pay the fee (typically "USDC")
+- `hash` — Transaction hash (TWAP fills have a hash of all zeros)
+
+**TWAP-specific characteristics:**
+- `twapId` — Links this fill to the parent TWAP order
+- `hash` — Always "0x0000000000000000000000000000000000000000000000000000000000000000" for TWAP fills
+
+### Data limits and ordering
+
+**Response limits:**
+- Maximum 2000 most recent TWAP slice fills
+- Results are ordered by time (most recent first)
+- Older fills beyond the 2000 limit are not accessible
+
+**TWAP execution context:**
+- Each fill represents one slice execution from a larger TWAP order
+- Multiple fills can share the same `twapId` if they're from the same TWAP order
+- Fills show the actual execution details of TWAP slicing strategy
+
+## TWAP order execution
+
+### Understanding TWAP fills
+
+**TWAP strategy:**
+- Large orders are broken into smaller slices executed over time
+- Each slice execution generates a separate fill record
+- Goal is to achieve time-weighted average pricing and reduce market impact
+
+**Slice execution:**
+- Individual slices are executed as market conditions allow
+- Each slice fill shows actual execution price and quantity
+- Timing and sizing depend on TWAP algorithm parameters
+
+**Execution tracking:**
+- `twapId` groups all fills from the same TWAP order
+- Sequential fills show the progression of TWAP execution
+- Total execution = sum of all fills with the same `twapId`
+
+### TWAP vs regular fills
+
+**Key differences:**
+- TWAP fills have zero hash (`0x000...000`)
+- TWAP fills are linked by `twapId`
+- TWAP fills represent algorithmic execution slices
+- Regular fills represent direct order executions
+
+### Asset identification
+
+**Perpetual contracts:**
+- Use simple asset names: "BTC", "ETH", "AVAX", "SOL"
+- Represent standard perpetual futures contracts
+
+**Spot markets:**
+- Use indexed format: "@107", "@1", etc.
+- Index corresponds to the spot pair position in the universe
+- Some assets may have remapped names in user interfaces
+
+## Performance analysis
+
+### TWAP execution metrics
+
+**Price performance:**
+- Compare individual slice prices to market benchmarks
+- Analyze price improvement or slippage across slices
+- Calculate volume-weighted average price (VWAP) achieved
+
+**Timing analysis:**
+- Review execution timing across the TWAP duration
+- Analyze market impact of individual slices
+- Assess execution completion rate and timing
+
+**Cost analysis:**
+- Sum fees across all slices for total execution cost
+- Compare TWAP execution costs to alternative strategies
+- Analyze fee efficiency of slice sizing
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"type": "userTwapSliceFills", "user": "0x31ca8395cf837de08b24da3f660e77761dfb974b"}' \
+  https://api.hyperliquid.xyz/info
+```
+
+## Example response
+
+```json
+[
+  {
+    "fill": {
+      "closedPnl": "0.0",
+      "coin": "AVAX",
+      "crossed": true,
+      "dir": "Open Long",
+      "hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "oid": 90542681,
+      "px": "18.435",
+      "side": "B",
+      "startPosition": "26.86",
+      "sz": "93.53",
+      "time": 1681222254710,
+      "fee": "0.01",
+      "feeToken": "USDC",
+      "tid": 118906512037719
+    },
+    "twapId": 3156
+  }
+]
+```
+
+## Use cases
+
+The `info` endpoint with `type: "userTwapSliceFills"` is essential for applications that need to:
+
+* **TWAP execution analysis**: Analyze the performance and efficiency of TWAP order executions
+* **Algorithmic trading evaluation**: Assess the effectiveness of TWAP strategies and parameters
+* **Market impact studies**: Study how TWAP slicing affects market impact and execution quality
+* **Performance attribution**: Attribute trading performance to specific TWAP execution strategies
+* **Cost analysis**: Calculate total execution costs and analyze fee efficiency across TWAP slices
+* **Execution quality monitoring**: Monitor TWAP execution quality and identify optimization opportunities
+* **Risk management**: Assess execution risk and market impact of large order strategies
+* **Strategy optimization**: Optimize TWAP parameters based on historical execution data
+* **Compliance reporting**: Generate detailed reports on algorithmic execution for regulatory requirements
+* **Client reporting**: Provide institutional clients with detailed TWAP execution reports
+* **Academic research**: Study algorithmic execution strategies and market microstructure
+* **Quantitative analysis**: Perform statistical analysis on TWAP execution patterns and outcomes
+* **Benchmark comparison**: Compare TWAP execution against other execution strategies
+* **Market timing analysis**: Analyze optimal timing for TWAP execution initiation
+* **Liquidity analysis**: Study market liquidity patterns through TWAP execution data
+* **Trading system development**: Build and optimize TWAP execution algorithms
+* **Portfolio management**: Track large order executions as part of portfolio management
+* **Execution consulting**: Provide execution analysis and optimization services
+* **Regulatory compliance**: Maintain detailed records of algorithmic execution for audit purposes
+* **Performance reporting**: Generate comprehensive execution performance reports for stakeholders
+
+This endpoint provides specialized data for analyzing TWAP execution performance, enabling sophisticated analysis of algorithmic trading strategies and execution quality on the Hyperliquid platform.

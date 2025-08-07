@@ -1,0 +1,189 @@
+---
+title: historicalOrders | Hyperliquid info
+openapi: /openapi/hyperliquid_node_api/info_historical_orders.json post /info
+---
+
+<Info>
+You can only use this endpoint on the official Hyperliquid public API. It is not available through Chainstack, as the open-source node implementation does not support it yet.
+</Info>
+
+The `info` endpoint with `type: "historicalOrders"` retrieves a user's historical orders on the Hyperliquid exchange. This endpoint provides comprehensive order history including detailed order information and final status for each order, making it essential for trade analysis, reporting, and order management.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Request body
+
+* `type` (string, required) — The request type. Must be `"historicalOrders"` to retrieve historical orders.
+* `user` (string, required) — Address in 42-character hexadecimal format; e.g. 0x0000000000000000000000000000000000000000.
+
+## Response
+
+The response is an array of historical order objects, each containing detailed order information and status:
+
+### Response structure
+
+Each historical order object contains:
+- `order` — Detailed order information object
+- `status` — Final order status
+- `statusTimestamp` — Timestamp when the status was last updated
+
+### Order details structure
+
+The `order` object contains comprehensive order information:
+
+**Basic order data:**
+- `coin` — Asset identifier (simple names like "BTC", "ETH" for perpetuals; spot format like "@107" for spot trades)
+- `side` — Order side: "A" for Ask/Sell, "B" for Bid/Buy
+- `limitPx` — Limit price as a string for precision
+- `sz` — Current order size (remaining quantity)
+- `origSz` — Original order size when placed
+- `oid` — Order ID (unique identifier)
+- `timestamp` — Order creation timestamp in milliseconds
+
+**Order type and execution:**
+- `orderType` — Order type (e.g., "Market", "Limit", "Stop", "StopLimit")
+- `tif` — Time in force (e.g., "FrontendMarket", "Gtc", "Ioc", "Fok")
+- `reduceOnly` — Boolean indicating if this is a reduce-only order
+- `cloid` — Client order ID if provided (null if not set)
+
+**Conditional order data:**
+- `isTrigger` — Boolean indicating if this is a trigger order
+- `triggerCondition` — Trigger condition for conditional orders
+- `triggerPx` — Trigger price for conditional orders
+- `isPositionTpsl` — Boolean indicating if this is a position-level TP/SL order
+- `children` — Array of child orders (for TP/SL orders)
+
+### Data limits and ordering
+
+**Response limits:**
+- Maximum 2000 most recent historical orders
+- Orders are returned in reverse chronological order (most recent first)
+- Older orders beyond the 2000 limit are not accessible
+
+**Historical coverage:**
+- Includes orders from all states: filled, canceled, rejected, etc.
+- Provides complete order lifecycle information
+- Covers both active and completed orders
+
+### Order status values
+
+The `status` field indicates the final state of each order:
+
+**Completed states:**
+- `filled` — Order completely executed
+- `triggered` — Trigger order activated and converted
+
+**Canceled states:**
+- `canceled` — Order canceled by user
+- `marginCanceled` — Canceled due to insufficient margin
+- `vaultWithdrawalCanceled` — Canceled due to vault withdrawal
+- `openInterestCapCanceled` — Canceled due to open interest cap
+- `selfTradeCanceled` — Canceled due to self-trade prevention
+- `reduceOnlyCanceled` — Canceled reduce-only order that wouldn't reduce position
+- `siblingFilledCanceled` — TP/SL canceled due to sibling order execution
+- `delistedCanceled` — Canceled due to asset delisting
+- `liquidatedCanceled` — Canceled due to liquidation
+- `scheduledCancel` — Canceled due to scheduled cancel (dead man's switch)
+
+**Rejected states:**
+- `rejected` — Order rejected at placement
+- `tickRejected` — Rejected due to invalid tick price
+- `minTradeNtlRejected` — Rejected due to minimum notional requirement
+- `perpMarginRejected` — Rejected due to insufficient margin
+- `reduceOnlyRejected` — Rejected due to reduce-only constraints
+- `badAloPxRejected` — Rejected due to post-only immediate match
+- `iocCancelRejected` — IOC order rejected due to no immediate match
+- `badTriggerPxRejected` — Rejected due to invalid trigger price
+- `marketOrderNoLiquidityRejected` — Market order rejected due to insufficient liquidity
+- `positionIncreaseAtOpenInterestCapRejected` — Rejected due to open interest cap
+- `positionFlipAtOpenInterestCapRejected` — Rejected due to position flip at OI cap
+- `tooAggressiveAtOpenInterestCapRejected` — Rejected due to aggressive pricing at OI cap
+- `openInterestIncreaseRejected` — Rejected due to open interest increase limits
+- `insufficientSpotBalanceRejected` — Rejected due to insufficient spot balance
+- `oracleRejected` — Rejected due to price deviation from oracle
+- `perpMaxPositionRejected` — Rejected due to position size limits
+
+**Active states:**
+- `open` — Order still active (rare in historical data)
+
+### Asset identification
+
+**Perpetual contracts:**
+- Use simple asset names: "BTC", "ETH", "AVAX", "SOL"
+- Represent standard perpetual futures contracts
+
+**Spot markets:**
+- Use indexed format: "@107", "@1", etc.
+- Index corresponds to the spot pair position in the universe
+- Some assets may have remapped names in user interfaces
+
+## Time in force (TIF) values
+
+**Common TIF values:**
+- `Gtc` — Good Till Canceled (remains active until filled or canceled)
+- `Ioc` — Immediate Or Cancel (execute immediately or cancel)
+- `Fok` — Fill Or Kill (execute completely or cancel)
+- `FrontendMarket` — Market order placed through frontend interface
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"type": "historicalOrders", "user": "0x31ca8395cf837de08b24da3f660e77761dfb974b"}' \
+  https://api.hyperliquid.xyz/info
+```
+
+## Example response
+
+```json
+[
+  {
+    "order": {
+      "coin": "ETH",
+      "side": "A",
+      "limitPx": "2412.7",
+      "sz": "0.0",
+      "oid": 1,
+      "timestamp": 1724361546645,
+      "triggerCondition": "N/A",
+      "isTrigger": false,
+      "triggerPx": "0.0",
+      "children": [],
+      "isPositionTpsl": false,
+      "reduceOnly": true,
+      "orderType": "Market",
+      "origSz": "0.0076",
+      "tif": "FrontendMarket",
+      "cloid": null
+    },
+    "status": "filled",
+    "statusTimestamp": 1724361546645
+  }
+]
+```
+
+## Use cases
+
+The `info` endpoint with `type: "historicalOrders"` is essential for applications that need to:
+
+* **Order history tracking**: Display comprehensive order history in trading applications
+* **Trade analysis**: Analyze historical trading patterns, order placement strategies, and execution quality
+* **Performance reporting**: Generate trading reports and performance analytics
+* **Order debugging**: Investigate rejected, canceled, or failed orders to improve strategies
+* **Compliance reporting**: Maintain detailed audit trails of all trading activity
+* **Strategy backtesting**: Use historical order data to validate and improve trading strategies
+* **Risk management**: Review order behavior patterns and identify risk issues
+* **Fee analysis**: Calculate historical trading costs and analyze execution patterns
+* **Portfolio reconciliation**: Match orders against expected executions and identify discrepancies
+* **Automated trading systems**: Review algorithmic trading performance and optimize strategies
+
+This endpoint provides comprehensive historical order data with detailed status information, enabling thorough analysis and reporting capabilities for trading activities on the Hyperliquid platform.

@@ -1,0 +1,148 @@
+---
+title: userFills | Hyperliquid info
+openapi: /openapi/hyperliquid_node_api/info_user_fills.json post /info
+---
+
+<Info>
+You can only use this endpoint on the official Hyperliquid public API. It is not available through Chainstack, as the open-source node implementation does not support it yet.
+</Info>
+
+The `info` endpoint with `type: "userFills"` retrieves a user's trading fills (executed orders) on the Hyperliquid exchange. This endpoint returns detailed information about completed trades, including prices, sizes, fees, and profit/loss data for both perpetual and spot markets.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Request body
+
+* `type` (string, required) — The request type. Must be `"userFills"` to retrieve user fills.
+* `user` (string, required) — Address in 42-character hexadecimal format; e.g. 0x0000000000000000000000000000000000000000.
+* `aggregateByTime` (boolean, optional) — When true, partial fills are combined when a crossing order gets filled by multiple different resting orders. Resting orders filled by multiple crossing orders will not be aggregated.
+
+## Response
+
+The response is an array of fill objects, with each fill containing detailed trade information:
+
+### Fill data structure
+
+Each fill object contains the following fields:
+
+**Core trade data:**
+- `coin` — Asset identifier (simple names like "BTC", "ETH" for perpetuals; spot format like "@107" for spot trades)
+- `px` — Fill price as a string for precision
+- `sz` — Fill size (quantity traded)
+- `side` — Trade side: "A" for Ask/Sell, "B" for Bid/Buy
+- `time` — Fill timestamp in milliseconds
+- `oid` — Order ID that generated this fill
+- `tid` — Unique trade ID
+
+**Position and P&L data:**
+- `startPosition` — Position size before this fill
+- `dir` — Trade direction (e.g., "Open Long", "Close Short", "Buy", "Sell")
+- `closedPnl` — Realized profit/loss from this fill
+- `crossed` — Boolean indicating if this was a crossing order
+
+**Fee and transaction data:**
+- `fee` — Trading fee paid for this fill
+- `feeToken` — Token used to pay the fee (typically "USDC")
+- `builderFee` — Builder fee (optional, only present if non-zero)
+- `hash` — Transaction hash for blockchain verification
+
+### Asset identification
+
+**Perpetual contracts:**
+- Use simple asset names: "BTC", "ETH", "AVAX", "SOL"
+- Represent standard perpetual futures contracts
+
+**Spot markets:**
+- Use indexed format: "@107", "@1", etc.
+- Index corresponds to the spot pair position in the universe
+- Some assets may have remapped names in user interfaces
+
+### Data limitations
+
+**Response limits:**
+- Maximum 2000 fills per response
+- Returns most recent fills first
+- For larger datasets, use pagination with `userFillsByTime`
+
+**Historical availability:**
+- Only the 10,000 most recent fills are available
+- Older fills are not accessible through this endpoint
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"type": "userFills", "user": "0x31ca8395cf837de08b24da3f660e77761dfb974b"}' \
+  https://api.hyperliquid.xyz/info
+```
+
+## Example response
+
+```json
+[
+  {
+    "closedPnl": "0.0",
+    "coin": "AVAX",
+    "crossed": false,
+    "dir": "Open Long",
+    "hash": "0xa166e3fa63c25663024b03f2e0da011a00307e4017465df020210d3d432e7cb8",
+    "oid": 90542681,
+    "px": "18.435",
+    "side": "B",
+    "startPosition": "26.86",
+    "sz": "93.53",
+    "time": 1681222254710,
+    "fee": "0.01",
+    "feeToken": "USDC",
+    "builderFee": "0.01",
+    "tid": 118906512037719
+  },
+  {
+    "coin": "@107",
+    "px": "18.62041381",
+    "sz": "43.84",
+    "side": "A",
+    "time": 1735969713869,
+    "startPosition": "10659.65434798",
+    "dir": "Sell",
+    "closedPnl": "8722.988077",
+    "hash": "0x2222138cc516e3fe746c0411dd733f02e60086f43205af2ae37c93f6a792430b",
+    "oid": 59071663721,
+    "crossed": true,
+    "fee": "0.304521",
+    "tid": 907359904431134,
+    "feeToken": "USDC"
+  }
+]
+```
+
+## Use cases
+
+The `info` endpoint with `type: "userFills"` is essential for applications that need to:
+
+* **Trade history tracking**: Display complete trading history with detailed fill information
+* **Portfolio analysis**: Calculate realized profits/losses and trading performance metrics
+* **Fee analysis**: Track trading costs and fee optimization strategies
+* **Position reconciliation**: Verify position changes against executed fills
+* **Tax reporting**: Generate detailed trade records for tax compliance
+* **Risk management**: Monitor trading patterns and position sizing
+* **Performance attribution**: Analyze trading performance by asset, time period, or strategy
+* **Audit trails**: Maintain comprehensive records of all trading activity
+* **Trading analytics**: Build dashboards showing fill patterns and execution quality
+* **Compliance reporting**: Generate reports for regulatory requirements
+* **Account reconciliation**: Match fills against expected order executions
+* **Strategy backtesting**: Use historical fill data to validate trading strategies
+* **Fee optimization**: Analyze fee structures and optimize trading costs
+* **Position tracking**: Monitor how positions change over time through fills
+* **Market impact analysis**: Study the effect of order execution on prices
+
+This endpoint provides comprehensive trade execution data that forms the foundation for most trading-related analytics, reporting, and portfolio management functions in trading applications built on the Hyperliquid platform.

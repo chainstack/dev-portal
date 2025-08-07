@@ -1,0 +1,258 @@
+---
+title: eth_getStorageAt | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_get_storage_at.json post /evm
+---
+
+The `eth_getStorageAt` JSON-RPC method returns the value stored at a specific storage position in a smart contract. This method provides direct access to contract storage, enabling contract state inspection, debugging, and advanced contract analysis.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+The method takes three parameters:
+
+1. **Address** - The contract address to read storage from
+2. **Storage position** - The storage slot position to read
+3. **Block parameter** - The block at which to read the storage
+
+### Parameter details
+
+* `address` (string, required) — The 20-byte contract address
+* `position` (string, required) — The storage position as a hexadecimal string
+* `block` (string, required) — Block identifier: `"latest"` (only the latest block is supported on Hyperliquid)
+
+## Response
+
+The method returns the 32-byte value stored at the specified position as a hexadecimal string.
+
+### Response structure
+
+**Storage value:**
+- `result` — The 32-byte storage value as a hexadecimal string with `0x` prefix
+
+### Data interpretation
+
+**Storage format:**
+- Always returns 32 bytes (64 hex characters + `0x` prefix)
+- Values are zero-padded to 32 bytes
+- `0x0000000000000000000000000000000000000000000000000000000000000000` indicates empty/zero storage
+- Actual data may be packed or encoded depending on variable type
+
+**Value decoding:**
+```javascript
+// Decode different data types
+const decodeUint256 = (hex) => parseInt(hex, 16);
+const decodeAddress = (hex) => "0x" + hex.slice(-40); // Last 20 bytes
+const decodeBool = (hex) => parseInt(hex, 16) !== 0;
+const decodeBytes32 = (hex) => hex; // Already in correct format
+```
+
+## Storage layout
+
+### Solidity storage rules
+
+**Basic types:**
+- `uint256`, `int256`, `bytes32` — Occupy full 32-byte slot
+- `uint128`, `uint64`, etc. — Packed into slots when possible
+- `address` — 20 bytes, often packed with other data
+- `bool` — 1 byte, packed with other data
+
+**Complex types:**
+- Arrays — Length at base slot, elements at calculated positions
+- Mappings — Values at `keccak256(key, slot)` positions
+- Structs — Members packed sequentially starting from base slot
+
+### Storage slot calculation
+
+**Simple variables:**
+```solidity
+contract Example {
+    uint256 public value1;     // Slot 0
+    address public owner;      // Slot 1 (packed with next if possible)
+    bool public active;        // Slot 1 (packed with owner)
+    uint256 public value2;     // Slot 2
+}
+```
+
+**Arrays:**
+```solidity
+uint256[] public items;        // Length at slot 0
+// items[i] at keccak256(0) + i
+```
+
+**Mappings:**
+```solidity
+mapping(address => uint256) public balances;  // Slot 0
+// balances[addr] at keccak256(addr, 0)
+```
+
+## Contract state inspection
+
+### Variable reading
+
+**Direct variable access:**
+- Read public variables directly from their storage slots
+- Decode packed variables using appropriate offsets
+- Handle different data types and encodings
+- Verify variable values against expected ranges
+
+**State verification:**
+- Compare storage values with expected contract state
+- Verify contract initialization and configuration
+- Check for state corruption or unexpected changes
+- Validate contract upgrade states
+
+### Current state analysis
+
+**State inspection:**
+- Read current contract storage values
+- Analyze current contract state and configuration
+- Verify current variable values and settings
+- Inspect current contract initialization state
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get storage value from a contract on Hyperliquid
+const getStorageAt = async (contractAddress, position) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getStorageAt',
+      params: [contractAddress, position, 'latest'], // Only 'latest' is supported
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Read different data types from storage
+const analyzeContractStorage = async (contractAddress) => {
+  // Read first few storage slots
+  const slot0 = await getStorageAt(contractAddress, '0x0');
+  const slot1 = await getStorageAt(contractAddress, '0x1');
+  const slot2 = await getStorageAt(contractAddress, '0x2');
+  
+  return {
+    slot0: {
+      raw: slot0,
+      asUint256: parseInt(slot0, 16),
+      asAddress: "0x" + slot0.slice(-40), // Last 20 bytes
+      asBool: parseInt(slot0, 16) !== 0
+    },
+    slot1: {
+      raw: slot1,
+      asUint256: parseInt(slot1, 16),
+      asAddress: "0x" + slot1.slice(-40),
+      asBool: parseInt(slot1, 16) !== 0
+    },
+    slot2: {
+      raw: slot2,
+      asUint256: parseInt(slot2, 16),
+      asAddress: "0x" + slot2.slice(-40),
+      asBool: parseInt(slot2, 16) !== 0
+    }
+  };
+};
+
+// Calculate mapping storage position
+const getMappingValueSlot = (key, baseSlot) => {
+  // This requires a library like ethers.js or web3.js for keccak256
+  // Example: mapping(address => uint256) at slot 0
+  const encodedKey = ethers.utils.defaultAbiCoder.encode(['address', 'uint256'], [key, baseSlot]);
+  return ethers.utils.keccak256(encodedKey);
+};
+
+// Read mapping value
+const readMappingValue = async (contractAddress, key, baseSlot) => {
+  const slot = getMappingValueSlot(key, baseSlot);
+  const value = await getStorageAt(contractAddress, slot);
+  return parseInt(value, 16);
+};
+
+// Calculate array element position
+const getArrayElementSlot = (baseSlot, index) => {
+  // Array length is at baseSlot, elements start at keccak256(baseSlot)
+  const arrayStartSlot = ethers.utils.keccak256(
+    ethers.utils.defaultAbiCoder.encode(['uint256'], [baseSlot])
+  );
+  return (BigInt(arrayStartSlot) + BigInt(index)).toString(16);
+};
+
+// Usage examples
+const contractAddress = "0x5555555555555555555555555555555555555555";
+
+analyzeContractStorage(contractAddress)
+  .then(analysis => console.log('Storage Analysis:', analysis))
+  .catch(error => console.error('Error:', error));
+
+// Read a specific storage slot
+getStorageAt(contractAddress, '0x0')
+  .then(value => console.log('Slot 0 value:', value))
+  .catch(error => console.error('Error:', error));
+```
+
+## Hyperliquid-specific considerations
+
+### Block limitations
+
+**Latest block only:**
+- Only the `"latest"` block parameter is supported
+- Historical storage queries are not available in the default implementation
+- All storage reads are performed against the current state
+- For historical analysis, consider using archive node implementations
+
+### Storage analysis
+
+**Current state inspection:**
+- Read contract storage values at current block
+- Analyze current contract configuration and state
+- Verify current variable values and settings
+- Debug current contract behavior and issues
+
+**Data interpretation:**
+- Storage values are always 32 bytes (64 hex characters + "0x")
+- Values are zero-padded to 32 bytes
+- Different data types require different decoding approaches
+- Packed variables share storage slots for gas efficiency
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_getStorageAt","params":["0x5555555555555555555555555555555555555555","0x0","latest"],"id":1}' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_getStorageAt` method is essential for applications that need to:
+
+* **Contract debugging**: Inspect current contract state during development and testing
+* **State verification**: Verify current contract variables and configuration
+* **Security analysis**: Analyze current contract storage for security vulnerabilities
+* **Contract auditing**: Examine current contract state for audit and compliance
+* **Development tools**: Build contract inspection and debugging tools
+* **Reverse engineering**: Analyze unknown contracts by examining current storage
+* **Testing frameworks**: Verify current contract state in automated tests
+* **Block explorers**: Display current contract storage information
+* **Integration services**: Provide current contract state data to external systems
+
+<Note>
+On Hyperliquid, `eth_getStorageAt` only supports the latest block. Storage positions are calculated based on Solidity's storage layout rules. Complex types like arrays and mappings require specific calculations to determine the correct storage positions.
+</Note>

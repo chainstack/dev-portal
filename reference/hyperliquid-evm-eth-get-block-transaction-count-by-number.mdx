@@ -1,0 +1,186 @@
+---
+title: eth_getBlockTransactionCountByNumber | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_get_block_transaction_count_by_number.json post /evm
+---
+
+The `eth_getBlockTransactionCountByNumber` JSON-RPC method returns the number of transactions in a block by its number. This method provides a lightweight way to get transaction count information for sequential block analysis, making it efficient for building statistics and monitoring network activity over time.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+The method takes one parameter:
+
+1. **Block number** - The number of the block to get the transaction count for
+
+### Parameter details
+
+* `blockNumber` (string, required) — Block identifier: `"latest"`, `"earliest"`, `"pending"`, or a specific block number in hexadecimal
+
+## Response
+
+The method returns the number of transactions in the specified block as a hexadecimal string, or `null` if the block is not found.
+
+### Response structure
+
+**Transaction count:**
+- `result` — The number of transactions in the block as a hexadecimal string
+
+### Data interpretation
+
+**Count format:**
+- Returned as hexadecimal string with `0x` prefix
+- Convert to decimal for numerical operations
+- `0x0` indicates an empty block (no transactions)
+- `null` indicates the block number doesn't exist
+
+**Block number formats:**
+- `"latest"` — Most recent block transaction count
+- `"earliest"` — Genesis block transaction count (usually 0)
+- `"pending"` — Pending block transaction count
+- `"0x9d0c37"` — Specific block number (10,291,255 in decimal)
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get transaction count for a block by number on Hyperliquid
+const getBlockTransactionCountByNumber = async (blockNumber) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getBlockTransactionCountByNumber',
+      params: [blockNumber],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  
+  if (data.result === null) {
+    throw new Error('Block not found');
+  }
+  
+  return {
+    hex: data.result,
+    decimal: parseInt(data.result, 16)
+  };
+};
+
+// Analyze a range of blocks for activity patterns
+const analyzeBlockRange = async (startBlock, endBlock) => {
+  const results = [];
+  
+  for (let i = startBlock; i <= endBlock; i++) {
+    const hexBlock = "0x" + i.toString(16);
+    try {
+      const count = await getBlockTransactionCountByNumber(hexBlock);
+      results.push({
+        blockNumber: i,
+        hexBlockNumber: hexBlock,
+        transactionCount: count.decimal
+      });
+    } catch (error) {
+      console.error(`Error processing block ${i}:`, error);
+      results.push({
+        blockNumber: i,
+        hexBlockNumber: hexBlock,
+        transactionCount: null,
+        error: error.message
+      });
+    }
+  }
+  
+  // Calculate statistics
+  const validCounts = results
+    .filter(r => r.transactionCount !== null)
+    .map(r => r.transactionCount);
+  
+  if (validCounts.length === 0) {
+    return { results, statistics: null };
+  }
+  
+  const statistics = {
+    totalBlocks: validCounts.length,
+    totalTransactions: validCounts.reduce((sum, count) => sum + count, 0),
+    averageTransactions: validCounts.reduce((sum, count) => sum + count, 0) / validCounts.length,
+    maxTransactions: Math.max(...validCounts),
+    minTransactions: Math.min(...validCounts),
+    emptyBlocks: validCounts.filter(count => count === 0).length
+  };
+  
+  return { results, statistics };
+};
+
+// Get latest block transaction count
+const getLatestBlockTransactionCount = async () => {
+  return await getBlockTransactionCountByNumber('latest');
+};
+
+// Usage examples
+getLatestBlockTransactionCount()
+  .then(count => console.log(`Latest block has ${count.decimal} transactions`))
+  .catch(error => console.error('Error:', error));
+
+// Analyze blocks 100-110
+analyzeBlockRange(100, 110)
+  .then(analysis => {
+    console.log('Block Range Analysis:', analysis.statistics);
+    console.log('Detailed Results:', analysis.results);
+  })
+  .catch(error => console.error('Error:', error));
+```
+
+## Sequential analysis benefits
+
+### Range processing
+
+**Efficient bulk analysis:**
+- Query transaction counts across block ranges efficiently
+- Build activity timelines and trend analysis
+- Generate network utilization statistics
+- Identify periods of high and low activity
+
+### Block number formats
+
+**Special identifiers:**
+- `"latest"` — Most recent block transaction count
+- `"earliest"` — Genesis block transaction count (usually 0)
+- `"0x9d0c37"` — Specific block number (10,291,255 in decimal)
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_getBlockTransactionCountByNumber","params":["0x9d0c37"],"id":1}' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_getBlockTransactionCountByNumber` method is essential for applications that need to:
+
+* **Sequential analysis**: Analyze transaction counts across block ranges efficiently
+* **Network monitoring**: Track blockchain activity and usage patterns over time
+* **Statistics generation**: Build comprehensive network activity statistics
+* **Block explorers**: Display transaction counts in sequential block listings
+* **Analytics platforms**: Collect activity data for network analysis and trends
+* **Real-time monitoring**: Track current network activity using "latest" block
+* **Development tools**: Optimize applications based on network activity levels
+* **Data visualization**: Create time-series charts of block activity patterns
+
+<Note>
+This method supports special block identifiers like `"latest"` and `"earliest"`, making it suitable for both historical analysis and real-time monitoring. The count includes both regular transactions and system transactions from HyperCore.
+</Note>

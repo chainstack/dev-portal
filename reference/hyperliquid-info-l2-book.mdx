@@ -1,0 +1,174 @@
+---
+title: l2Book | Hyperliquid info
+openapi: /openapi/hyperliquid_node_api/info_l2_book.json post /info
+---
+
+<Info>
+You can only use this endpoint on the official Hyperliquid public API. It is not available through Chainstack, as the open-source node implementation does not support it yet.
+</Info>
+
+The `info` endpoint with `type: "l2Book"` retrieves a Level 2 order book snapshot for a specific asset on the Hyperliquid exchange. This endpoint provides real-time market depth information showing the best bid and ask prices with their corresponding quantities and order counts.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Request body
+
+* `type` (string, required) — The request type. Must be `"l2Book"` to retrieve order book snapshot.
+* `coin` (string, required) — Asset identifier (simple names like "BTC", "ETH" for perpetuals; spot format like "@107" for spot trades).
+* `nSigFigs` (integer, optional) — Optional field to aggregate levels to `nSigFigs` significant figures. Valid values are 2, 3, 4, 5, and `null` (full precision).
+* `mantissa` (integer, optional) — Optional field to aggregate levels. This field is only allowed if nSigFigs is 5. Accepts values of 1, 2 or 5.
+
+## Response
+
+The response is an array containing exactly two arrays representing the order book sides:
+
+### Response structure
+
+**Array format:** `[bids, asks]`
+- **First array (index 0):** Bid levels (buy orders) sorted by price descending
+- **Second array (index 1):** Ask levels (sell orders) sorted by price ascending
+
+### Level data structure
+
+Each price level contains the following fields:
+
+**Core level data:**
+- `px` — Price level as a string for precision
+- `sz` — Total size (quantity) at this price level as a string
+- `n` — The number of different orders that comprise this level
+
+### Data limits and ordering
+
+**Response limits:**
+- Maximum 20 levels per side (bids and asks)
+- Bids are sorted by price in descending order (highest to lowest)
+- Asks are sorted by price in ascending order (lowest to highest)
+
+**Price precision:**
+- All prices and sizes are returned as strings to maintain precision
+- Actual precision depends on the asset's tick size
+
+### Price aggregation options
+
+**Significant figures (`nSigFigs`):**
+- `2` — Aggregate to 2 significant figures (e.g., 12000, 1200)
+- `3` — Aggregate to 3 significant figures (e.g., 12300, 1230)
+- `4` — Aggregate to 4 significant figures (e.g., 12340, 1234)
+- `5` — Aggregate to 5 significant figures (e.g., 12345, 1234.5)
+- `null` — Full precision (no aggregation)
+
+**Mantissa (only when `nSigFigs` is 5):**
+- `1` — Round to nearest 1 (e.g., 12345)
+- `2` — Round to nearest 2 (e.g., 12344, 12346)
+- `5` — Round to nearest 5 (e.g., 12345, 12350)
+
+### Asset identification
+
+**Perpetual contracts:**
+- Use simple asset names: "BTC", "ETH", "AVAX", "SOL"
+- Represent standard perpetual futures contracts
+
+**Spot markets:**
+- Use indexed format: "@107", "@1", etc.
+- Index corresponds to the spot pair position in the universe
+- Some assets may have remapped names in user interfaces
+
+## Order book interpretation
+
+### Understanding the data
+
+**Bid side (buyers):**
+- Shows prices where buyers are willing to purchase
+- Higher prices indicate stronger buying interest
+- Sorted from highest price to lowest price
+
+**Ask side (sellers):**
+- Shows prices where sellers are willing to sell
+- Lower prices indicate more competitive selling
+- Sorted from lowest price to highest price
+
+**Spread calculation:**
+- Spread = Lowest ask price - Highest bid price
+- Tighter spreads indicate more liquid markets
+
+### Order count significance
+
+**Order count (`n` field):**
+- Indicates market depth and liquidity at each level
+- Higher counts suggest more distributed interest
+- Single large orders vs. many small orders provide different market signals
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"type": "l2Book", "coin": "ETH"}' \
+  https://api.hyperliquid.xyz/info
+```
+
+## Example response
+
+```json
+[
+  [
+    {
+      "px": "19900",
+      "sz": "1",
+      "n": 1
+    },
+    {
+      "px": "19800",
+      "sz": "2",
+      "n": 2
+    },
+    {
+      "px": "19700",
+      "sz": "3",
+      "n": 3
+    }
+  ],
+  [
+    {
+      "px": "20100",
+      "sz": "1",
+      "n": 1
+    },
+    {
+      "px": "20200",
+      "sz": "2",
+      "n": 2
+    },
+    {
+      "px": "20300",
+      "sz": "3",
+      "n": 3
+    }
+  ]
+]
+```
+
+## Use cases
+
+The `info` endpoint with `type: "l2Book"` is essential for applications that need to:
+
+* **Market making**: Analyze current market depth to place competitive bid and ask orders
+* **Trading algorithms**: Make informed decisions based on order book liquidity and price levels
+* **Price discovery**: Understand current market sentiment and bid-ask spread
+* **Liquidity analysis**: Assess market depth and potential price impact of large orders
+* **Trading interfaces**: Display real-time order book data in trading applications
+* **Execution optimization**: Choose optimal order placement strategies based on current book state
+* **Risk management**: Evaluate market conditions before executing large trades
+* **Arbitrage detection**: Identify price discrepancies and trading opportunities
+* **Market surveillance**: Monitor for unusual order book patterns or liquidity changes
+* **Quantitative analysis**: Study market microstructure and order flow patterns
+
+This endpoint provides essential Level 2 market data, enabling sophisticated trading strategies and real-time market analysis on the Hyperliquid platform.

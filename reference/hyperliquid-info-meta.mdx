@@ -1,0 +1,129 @@
+---
+title: meta | Hyperliquid info
+openapi: /openapi/hyperliquid_node_api/info_meta.json post /4f8d8f4040bdacd1577bff8058438274/info
+---
+
+The `info` endpoint with `type: "meta"` retrieves perpetuals metadata including universe and margin tables for the Hyperliquid exchange. This endpoint provides essential information about available trading pairs, their decimal precision, maximum leverage, and margin tier configurations.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Request body
+
+* `type` (string, required) — The request type. Must be `"meta"` to retrieve perpetuals metadata.
+* `dex` (string, optional) — Perp dex name. Defaults to the empty string which represents the first perp dex.
+
+## Response
+
+The response contains two main sections:
+
+### Universe
+
+An array of perpetual assets with their trading parameters:
+
+* `name` (string) — The asset name (e.g., "BTC", "ETH").
+* `szDecimals` (integer) — Number of decimal places for size precision.
+* `maxLeverage` (integer) — Maximum leverage allowed for this asset.
+* `onlyIsolated` (boolean, optional) — Whether the asset can only be traded in isolated margin mode.
+* `isDelisted` (boolean, optional) — Whether the asset is delisted and no longer available for trading.
+
+### Margin tables
+
+An array of margin tier configurations, where each entry is a tuple containing:
+
+1. **Margin table ID** (integer) — Unique identifier for the margin table.
+2. **Margin table object** containing:
+   * `description` (string) — Description of the margin table.
+   * `marginTiers` (array) — Array of margin tiers with:
+     * `lowerBound` (string) — Lower bound of the tier in USD.
+     * `maxLeverage` (integer) — Maximum leverage allowed for this tier.
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"type": "meta"}' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/info
+```
+
+## Example response
+
+```json
+{
+  "universe": [
+    {
+      "name": "BTC",
+      "szDecimals": 5,
+      "maxLeverage": 50
+    },
+    {
+      "name": "ETH",
+      "szDecimals": 4,
+      "maxLeverage": 50
+    },
+    {
+      "name": "HPOS",
+      "szDecimals": 0,
+      "maxLeverage": 3,
+      "onlyIsolated": true
+    },
+    {
+      "name": "LOOM",
+      "szDecimals": 1,
+      "maxLeverage": 3,
+      "onlyIsolated": true,
+      "isDelisted": true
+    }
+  ],
+  "marginTables": [
+    [
+      50,
+      {
+        "description": "",
+        "marginTiers": [
+          {
+            "lowerBound": "0.0",
+            "maxLeverage": 50
+          }
+        ]
+      }
+    ],
+    [
+      51,
+      {
+        "description": "tiered 10x",
+        "marginTiers": [
+          {
+            "lowerBound": "0.0",
+            "maxLeverage": 10
+          },
+          {
+            "lowerBound": "3000000.0",
+            "maxLeverage": 5
+          }
+        ]
+      }
+    ]
+  ]
+}
+```
+
+## Use case
+
+The `info` endpoint with `type: "meta"` is essential for trading applications that need to:
+
+* Display available trading pairs and their specifications
+* Validate trade sizes according to decimal precision requirements
+* Implement dynamic leverage limits based on position size
+* Determine which assets require isolated margin mode
+* Filter out delisted assets from trading interfaces
+
+This metadata is typically cached and refreshed periodically to ensure trading applications have up-to-date information about exchange parameters.

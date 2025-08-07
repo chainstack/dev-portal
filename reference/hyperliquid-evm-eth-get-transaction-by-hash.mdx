@@ -1,0 +1,120 @@
+---
+title: eth_getTransactionByHash | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_get_transaction_by_hash.json post /evm
+---
+
+Returns transaction information by its hash. Use this method to retrieve specific transaction details when you have the transaction hash.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+* `transactionHash` (string, required) — The 32-byte hash of the transaction
+
+## Returns
+
+Returns a transaction object, or `null` if the transaction is not found.
+
+**Transaction object:**
+- `hash` — Transaction hash
+- `nonce` — Transaction nonce (hex string)
+- `blockHash` — Hash of containing block (null if pending)
+- `blockNumber` — Number of containing block (null if pending)
+- `transactionIndex` — Index in block (null if pending)
+- `from` — Sender address
+- `to` — Receiver address (null for contract creation)
+- `value` — Value transferred in wei (hex string)
+- `gas` — Gas limit (hex string)
+- `gasPrice` — Gas price in wei (hex string)
+- `input` — Transaction data
+- `v`, `r`, `s` — ECDSA signature components
+- `type` — Transaction type (0x0 for legacy, 0x2 for EIP-1559)
+
+<Note>
+On Hyperliquid, priority fees are always zero. EIP-1559 transactions use only the base fee.
+</Note>
+
+## JavaScript example
+
+```javascript
+const getTransaction = async (txHash) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_API_KEY/evm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getTransactionByHash',
+      params: [txHash],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Usage
+const transaction = await getTransaction('0x33c3321b162edac1fdbb53af2962b2940c07e334a4f5ff758f1d5ef1235e55d0');
+
+if (transaction) {
+  console.log('Transaction found:');
+  console.log('From:', transaction.from);
+  console.log('To:', transaction.to);
+  console.log('Value:', parseInt(transaction.value, 16) / 1e18, 'ETH');
+  console.log('Gas Price:', parseInt(transaction.gasPrice, 16) / 1e9, 'Gwei');
+  console.log('Status:', transaction.blockHash ? 'Confirmed' : 'Pending');
+} else {
+  console.log('Transaction not found');
+}
+```
+
+## Transaction status checking
+
+```javascript
+const checkTransactionStatus = async (txHash) => {
+  const tx = await getTransaction(txHash);
+  
+  if (!tx) {
+    return 'not_found';
+  }
+  
+  if (tx.blockHash) {
+    return 'confirmed';
+  } else {
+    return 'pending';
+  }
+};
+
+// Wait for confirmation
+const waitForConfirmation = async (txHash, maxAttempts = 60) => {
+  for (let i = 0; i < maxAttempts; i++) {
+    const status = await checkTransactionStatus(txHash);
+    
+    if (status === 'confirmed') {
+      return true;
+    } else if (status === 'not_found') {
+      return false;
+    }
+    
+    // Wait 1 second before next check
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  
+  return false; // Timeout
+};
+```
+
+## Use cases
+
+* **Transaction verification** — Confirm transaction details and status
+* **Wallet applications** — Display transaction history to users
+* **Payment confirmation** — Verify payment transactions
+* **Block explorers** — Show detailed transaction information
+* **DeFi protocols** — Track protocol interactions
+* **Analytics** — Analyze transaction patterns and data
