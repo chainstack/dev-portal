@@ -1,0 +1,202 @@
+---
+title: orderStatus | Hyperliquid info
+openapi: /openapi/hyperliquid_node_api/info_order_status.json post /info
+---
+
+<Info>
+You can only use this endpoint on the official Hyperliquid public API. It is not available through Chainstack, as the open-source node implementation does not support it yet.
+</Info>
+
+The `info` endpoint with `type: "orderStatus"` retrieves the current status and details of a specific order on the Hyperliquid exchange. This endpoint accepts either an order ID (oid) or client order ID (cloid) to query order information, making it essential for order tracking and management.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Request body
+
+* `type` (string, required) — The request type. Must be `"orderStatus"` to query order status.
+* `user` (string, required) — Address in 42-character hexadecimal format; e.g. 0x0000000000000000000000000000000000000000.
+* `oid` (integer or string, required) — Either u64 representing the order id or 16-byte hex string representing the client order id.
+
+## Response
+
+The response varies depending on whether the order is found or not:
+
+### Successful order lookup
+
+When an order is found, the response contains detailed order information:
+
+**Response structure:**
+- `status` — Always "order" when order information is available
+- `order` — Object containing the order wrapper with order details and status
+
+**Order wrapper structure:**
+- `order` — Object containing the actual order details
+- `status` — Current order status (see status values below)
+- `statusTimestamp` — Timestamp when the status was last updated
+
+**Order details (within the nested `order` object):**
+- `coin` — Asset identifier (simple names like "BTC", "ETH" for perpetuals; spot format like "@107" for spot trades)
+- `side` — Order side: "A" for Ask/Sell, "B" for Bid/Buy
+- `limitPx` — Limit price as a string for precision
+- `sz` — Current order size (remaining quantity)
+- `oid` — Order ID
+- `timestamp` — Order creation timestamp in milliseconds
+- `triggerCondition` — Trigger condition for conditional orders
+- `isTrigger` — Boolean indicating if this is a trigger order
+- `triggerPx` — Trigger price for conditional orders
+- `children` — Array of child orders (for TP/SL orders)
+- `isPositionTpsl` — Boolean indicating if this is a position-level TP/SL order
+- `reduceOnly` — Boolean indicating if this is a reduce-only order
+- `orderType` — Order type (e.g., "Market", "Limit")
+- `origSz` — Original order size
+- `tif` — Time in force (e.g., "FrontendMarket", "Gtc", "Ioc")
+- `cloid` — Client order ID if provided (null if not set)
+
+### Order not found
+
+When an order ID is not found:
+- `status` — "unknownOid" indicating the order was not found
+
+## Order status values
+
+The `status` field in the order response can have the following values:
+
+### Active states
+- `open` — Order placed successfully and waiting for execution
+- `triggered` — Trigger order has been triggered and converted to a regular order
+
+### Completed states
+- `filled` — Order has been completely executed
+
+### Canceled states
+- `canceled` — Order canceled by user
+- `marginCanceled` — Canceled due to insufficient margin to fill
+- `vaultWithdrawalCanceled` — Vaults only. Canceled due to user withdrawal from vault
+- `openInterestCapCanceled` — Canceled due to order being too aggressive when open interest was at cap
+- `selfTradeCanceled` — Canceled due to self-trade prevention
+- `reduceOnlyCanceled` — Canceled reduce-only order that does not reduce position
+- `siblingFilledCanceled` — TP/SL only. Canceled due to sibling order being filled
+- `delistedCanceled` — Canceled due to asset delisting
+- `liquidatedCanceled` — Canceled due to liquidation
+- `scheduledCancel` — API only. Canceled due to exceeding scheduled cancel deadline (dead man's switch)
+
+### Rejected states
+- `rejected` — Order rejected at time of placement
+- `tickRejected` — Rejected due to invalid tick price
+- `minTradeNtlRejected` — Rejected due to order notional below minimum
+- `perpMarginRejected` — Rejected due to insufficient margin
+- `reduceOnlyRejected` — Rejected due to reduce only constraints
+- `badAloPxRejected` — Rejected due to post-only immediate match
+- `iocCancelRejected` — Rejected due to IOC not able to match
+- `badTriggerPxRejected` — Rejected due to invalid TP/SL price
+- `marketOrderNoLiquidityRejected` — Rejected due to lack of liquidity for market order
+- `positionIncreaseAtOpenInterestCapRejected` — Rejected due to open interest cap
+- `positionFlipAtOpenInterestCapRejected` — Rejected due to open interest cap
+- `tooAggressiveAtOpenInterestCapRejected` — Rejected due to price too aggressive at open interest cap
+- `openInterestIncreaseRejected` — Rejected due to open interest cap
+- `insufficientSpotBalanceRejected` — Rejected due to insufficient spot balance
+- `oracleRejected` — Rejected due to price too far from oracle
+- `perpMaxPositionRejected` — Rejected due to exceeding margin tier limit at current leverage
+
+## Order identification
+
+### Order ID (oid)
+- Numeric identifier assigned by the exchange
+- Used as a 64-bit unsigned integer
+- Automatically generated when orders are placed
+
+### Client Order ID (cloid)
+- Optional custom identifier provided by the client
+- 16-byte hexadecimal string format
+- Allows clients to track orders using their own identifiers
+- Must be unique per user
+
+## Asset identification
+
+**Perpetual contracts:**
+- Use simple asset names: "BTC", "ETH", "AVAX", "SOL"
+- Represent standard perpetual futures contracts
+
+**Spot markets:**
+- Use indexed format: "@107", "@1", etc.
+- Index corresponds to the spot pair position in the universe
+- Some assets may have remapped names in user interfaces
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"type": "orderStatus", "user": "0x31ca8395cf837de08b24da3f660e77761dfb974b", "oid": 127244980388}' \
+  https://api.hyperliquid.xyz/info
+```
+
+## Example response
+
+### Order found
+
+```json
+{
+  "status": "order",
+  "order": {
+    "order": {
+      "coin": "ETH",
+      "side": "A",
+      "limitPx": "2412.7",
+      "sz": "0.0",
+      "oid": 1,
+      "timestamp": 1724361546645,
+      "triggerCondition": "N/A",
+      "isTrigger": false,
+      "triggerPx": "0.0",
+      "children": [],
+      "isPositionTpsl": false,
+      "reduceOnly": true,
+      "orderType": "Market",
+      "origSz": "0.0076",
+      "tif": "FrontendMarket",
+      "cloid": null
+    },
+    "status": "filled",
+    "statusTimestamp": 1724361546645
+  }
+}
+```
+
+### Order not found
+
+```json
+{
+  "status": "unknownOid"
+}
+```
+
+## Use cases
+
+The `info` endpoint with `type: "orderStatus"` is essential for applications that need to:
+
+* **Order tracking**: Monitor the current status and execution progress of placed orders
+* **Order management**: Verify order placement and track order lifecycle from creation to completion
+* **Risk management**: Check order status before making position adjustments or placing additional orders
+* **Reconciliation**: Match internal order records with exchange order status for accounting purposes
+* **Error handling**: Identify rejected orders and understand rejection reasons for debugging
+* **Automated trading**: Programmatically verify order execution in algorithmic trading systems
+* **Portfolio management**: Track order status as part of broader portfolio monitoring
+* **Compliance reporting**: Maintain audit trails of order status changes for regulatory requirements
+* **User interfaces**: Display real-time order status in trading applications and dashboards
+* **Notification systems**: Trigger alerts based on order status changes (fills, cancellations, rejections)
+* **Strategy validation**: Confirm order execution as part of trading strategy implementation
+* **Performance analysis**: Analyze order execution patterns and identify optimization opportunities
+* **Client order tracking**: Use client order IDs to track orders placed through custom systems
+* **Order debugging**: Investigate order issues by examining detailed order information and status history
+* **Integration testing**: Verify order placement and status updates during system integration
+
+This endpoint provides comprehensive order status information, enabling robust order management and tracking capabilities for trading applications on the Hyperliquid platform.

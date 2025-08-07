@@ -1,0 +1,131 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Hyperliquid Node API - L2 Book",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://api.hyperliquid.xyz"
+    }
+  ],
+  "paths": {
+    "/info": {
+      "post": {
+        "summary": "L2 book snapshot",
+        "description": "Retrieve the Level 2 order book snapshot for a specific asset. Returns at most 20 levels per side (bids and asks) with price, size, and order count information.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["type", "coin"],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["l2Book"],
+                    "default": "l2Book",
+                    "description": "The request type. Must be 'l2Book' to retrieve order book snapshot."
+                  },
+                  "coin": {
+                    "type": "string",
+                    "default": "ETH",
+                    "description": "Asset identifier (simple names like 'BTC', 'ETH' for perpetuals; spot format like '@107' for spot trades)"
+                  },
+                  "nSigFigs": {
+                    "type": "integer",
+                    "enum": [2, 3, 4, 5, null],
+                    "nullable": true,
+                    "description": "Optional field to aggregate levels to nSigFigs significant figures. Valid values are 2, 3, 4, 5, and null (full precision)"
+                  },
+                  "mantissa": {
+                    "type": "integer",
+                    "enum": [1, 2, 5],
+                    "description": "Optional field to aggregate levels. This field is only allowed if nSigFigs is 5. Accepts values of 1, 2 or 5"
+                  }
+                }
+              },
+              "example": {
+                "type": "l2Book",
+                "coin": "ETH"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response with L2 order book data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "px": {
+                          "type": "string",
+                          "description": "Price level as a string for precision"
+                        },
+                        "sz": {
+                          "type": "string",
+                          "description": "Total size (quantity) at this price level"
+                        },
+                        "n": {
+                          "type": "integer",
+                          "description": "The number of different orders that comprise this level"
+                        }
+                      },
+                      "required": ["px", "sz", "n"]
+                    }
+                  },
+                  "description": "Array containing two arrays: [bids, asks]. Each side contains up to 20 price levels."
+                },
+                "example": [
+                  [
+                    {
+                      "px": "19900",
+                      "sz": "1",
+                      "n": 1
+                    },
+                    {
+                      "px": "19800",
+                      "sz": "2",
+                      "n": 2
+                    },
+                    {
+                      "px": "19700",
+                      "sz": "3",
+                      "n": 3
+                    }
+                  ],
+                  [
+                    {
+                      "px": "20100",
+                      "sz": "1",
+                      "n": 1
+                    },
+                    {
+                      "px": "20200",
+                      "sz": "2",
+                      "n": 2
+                    },
+                    {
+                      "px": "20300",
+                      "sz": "3",
+                      "n": 3
+                    }
+                  ]
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

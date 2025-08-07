@@ -1,0 +1,216 @@
+---
+title: userNonFundingLedgerUpdates | Hyperliquid info
+openapi: /openapi/hyperliquid_node_api/info_user_non_funding_ledger_updates.json post /info
+---
+
+<Info>
+You can only use this endpoint on the official Hyperliquid public API. It is not available through Chainstack, as the open-source node implementation does not support it yet.
+</Info>
+
+The `info` endpoint with `type: "userNonFundingLedgerUpdates"` retrieves comprehensive ledger updates for a specific user account on the Hyperliquid exchange, excluding funding payments. This endpoint provides detailed information about all account activities including deposits, withdrawals, transfers, liquidations, spot trading, and other balance-affecting operations.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Request body
+
+* `type` (string, required) — The request type. Must be `"userNonFundingLedgerUpdates"` to retrieve user ledger updates.
+* `user` (string, required) — Address in 42-character hexadecimal format; e.g. 0x0000000000000000000000000000000000000000.
+* `startTime` (integer, required) — Start time in milliseconds, inclusive.
+* `endTime` (integer, optional) — End time in milliseconds, inclusive. Defaults to current time.
+
+## Response
+
+The response is an array of ledger update events, chronologically ordered from oldest to newest. Each event represents a balance-affecting operation on the user's account, excluding funding payments and receipts.
+
+### Response structure
+
+Each ledger update event contains:
+
+**Event metadata:**
+- `time` — Unix timestamp in milliseconds when the event occurred
+- `hash` — Transaction hash for blockchain transactions
+
+**Update details (`delta` object):**
+- `type` — Type of ledger update (see transaction types below)
+- Additional fields specific to each transaction type
+
+### Transaction types
+
+**Deposit operations:**
+- `deposit` — USDC deposits into the account
+  - `usdc` — Amount deposited in USDC
+
+**Withdrawal operations:**
+- `withdraw` — USDC withdrawals from the account
+  - `usdc` — Amount withdrawn in USDC
+  - `nonce` — Unique nonce for the withdrawal
+  - `fee` — Withdrawal fee in USDC
+
+**Account transfers:**
+- `accountClassTransfer` — Transfers between spot and perpetual accounts
+  - `usdc` — Amount transferred in USDC
+  - `toPerp` — Boolean indicating transfer direction (true = to perp, false = to spot)
+
+**Spot trading operations:**
+- `spotTransfer` — Spot token transfers between accounts
+  - `token` — Token symbol being transferred
+  - `amount` — Token amount transferred
+  - `usdcValue` — USD value of the transfer
+  - `user` — Source user address
+  - `destination` — Destination address
+  - `fee` — Transfer fee
+  - `nativeTokenFee` — Native token fee
+  - `nonce` — Transfer nonce (if applicable)
+
+- `spotGenesis` — Initial token allocations or airdrops
+  - `token` — Token symbol
+  - `amount` — Token amount received
+
+**Sub-account operations:**
+- `subAccountTransfer` — Transfers between main account and sub-accounts
+  - `usdc` — Amount transferred
+  - `user` — Source account address
+  - `destination` — Destination account address
+
+**Internal transfers:**
+- `internalTransfer` — Internal transfers within the exchange
+  - `usdc` — Amount transferred
+  - `user` — Source user
+  - `destination` — Destination user
+  - `fee` — Transfer fee
+
+**Liquidation events:**
+- `liquidation` — Forced position closures due to insufficient margin
+  - `liquidatedNtlPos` — Total notional value liquidated
+  - `accountValue` — Account value at liquidation
+  - `leverageType` — Leverage type (Cross/Isolated)
+  - `liquidatedPositions` — Array of liquidated positions with coin and size
+
+**Staking operations:**
+- `cStakingTransfer` — Consensus staking deposits and withdrawals
+  - `token` — Staked token symbol
+  - `amount` — Amount staked/unstaked
+  - `isDeposit` — Boolean indicating if it's a deposit or withdrawal
+
+### Data interpretation
+
+**Balance tracking:**
+- Each event shows the exact change to account balances
+- USDC amounts can be positive (credits) or negative (debits)
+- Events are sequential and can be used to reconstruct account history
+
+**Transfer analysis:**
+- `accountClassTransfer` events move funds between spot and perpetual trading
+- `spotTransfer` events involve token movements between different addresses
+- `subAccountTransfer` events manage funds across account hierarchies
+
+**Risk events:**
+- `liquidation` events indicate margin calls and forced position closures
+- Track liquidation frequency and sizes for risk assessment
+- Account value at liquidation shows remaining equity
+
+## Account management insights
+
+### Fund flow analysis
+
+**Deposit and withdrawal patterns:**
+- Track net fund flows to understand capital deployment
+- Monitor withdrawal patterns for liquidity planning
+- Analyze deposit timing relative to market movements
+
+**Cross-margin management:**
+- Monitor transfers between spot and perpetual accounts
+- Optimize capital allocation across trading strategies
+- Track margin efficiency and utilization
+
+### Trading activity reconstruction
+
+**Complete transaction history:**
+- Combine with funding data for comprehensive P&L analysis
+- Track all balance-affecting operations in chronological order
+- Identify trading patterns and account usage
+
+**Portfolio management:**
+- Monitor spot token accumulation and distribution
+- Track staking activities and rewards
+- Analyze sub-account fund management
+
+### Risk monitoring
+
+**Liquidation analysis:**
+- Identify liquidation triggers and patterns
+- Monitor account health leading to liquidations
+- Analyze liquidation impact on overall portfolio
+
+**Operational risk:**
+- Track withdrawal frequencies and amounts
+- Monitor account class transfers for strategy changes
+- Identify unusual transfer patterns or activities
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "userNonFundingLedgerUpdates",
+    "user": "0x2ba553d9f990a3b66b03b2dc0d030dfc1c061036",
+    "startTime": 1681923833000,
+    "endTime": 1681924833000
+  }' \
+  https://api.hyperliquid.xyz/info
+```
+
+## Example response
+
+```json
+[
+  {
+    "delta": {
+      "type": "deposit",
+      "usdc": "1000.0"
+    },
+    "hash": "0x1234567890abcdef1234567890abcdef12345678",
+    "time": 1681923833000
+  },
+  {
+    "delta": {
+      "type": "withdraw",
+      "usdc": "-500.0",
+      "nonce": 12345,
+      "fee": "1.0"
+    },
+    "hash": "0xabcdef1234567890abcdef1234567890abcdef12",
+    "time": 1681924000000
+  }
+]
+```
+
+## Use cases
+
+The `info` endpoint with `type: "userNonFundingLedgerUpdates"` is essential for applications that need to:
+
+* **Account reconciliation**: Track all balance changes and verify account states
+* **Portfolio analytics**: Analyze complete fund flows and asset movements
+* **Trading analysis**: Reconstruct trading activity and performance metrics
+* **Risk management**: Monitor liquidations and account health indicators
+* **Compliance reporting**: Generate comprehensive transaction reports for regulatory requirements
+* **Tax calculation**: Track all taxable events including transfers and liquidations
+* **Audit trails**: Maintain complete records of all account activities
+* **Liquidity analysis**: Monitor deposit and withdrawal patterns
+* **Capital allocation**: Analyze fund movements between different trading strategies
+* **Performance attribution**: Separate trading gains from deposits and withdrawals
+* **Sub-account management**: Track fund flows across account hierarchies
+* **Financial reporting**: Generate detailed financial statements and reports
+* **Automated reconciliation**: Build systems to automatically verify account balances
+* **Anomaly detection**: Identify unusual transaction patterns or activities
+
+This endpoint provides comprehensive account activity data with time-based filtering, enabling detailed analysis of all non-funding balance changes and portfolio tracking in the Hyperliquid ecosystem.

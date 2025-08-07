@@ -1,0 +1,205 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Hyperliquid Node API - Historical Orders",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://api.hyperliquid.xyz"
+    }
+  ],
+  "paths": {
+    "/info": {
+      "post": {
+        "summary": "Retrieve a user's historical orders",
+        "description": "Retrieve the most recent historical orders for a specific user. Returns at most 2000 most recent historical orders with their current status and detailed order information.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["type", "user"],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["historicalOrders"],
+                    "default": "historicalOrders",
+                    "description": "The request type. Must be 'historicalOrders' to retrieve historical orders."
+                  },
+                  "user": {
+                    "type": "string",
+                    "pattern": "^0x[a-fA-F0-9]{40}$",
+                    "default": "0x31ca8395cf837de08b24da3f660e77761dfb974b",
+                    "description": "Address in 42-character hexadecimal format; e.g. 0x0000000000000000000000000000000000000000."
+                  }
+                }
+              },
+              "example": {
+                "type": "historicalOrders",
+                "user": "0x31ca8395cf837de08b24da3f660e77761dfb974b"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response with historical orders data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "order": {
+                        "type": "object",
+                        "properties": {
+                          "coin": {
+                            "type": "string",
+                            "description": "Asset identifier (simple names like 'BTC', 'ETH' for perpetuals; spot format like '@107' for spot trades)"
+                          },
+                          "side": {
+                            "type": "string",
+                            "enum": ["A", "B"],
+                            "description": "Order side: 'A' for Ask/Sell, 'B' for Bid/Buy"
+                          },
+                          "limitPx": {
+                            "type": "string",
+                            "description": "Limit price as a string for precision"
+                          },
+                          "sz": {
+                            "type": "string",
+                            "description": "Current order size (remaining quantity)"
+                          },
+                          "oid": {
+                            "type": "integer",
+                            "format": "int64",
+                            "description": "Order ID"
+                          },
+                          "timestamp": {
+                            "type": "integer",
+                            "format": "int64",
+                            "description": "Order creation timestamp in milliseconds"
+                          },
+                          "triggerCondition": {
+                            "type": "string",
+                            "description": "Trigger condition for conditional orders"
+                          },
+                          "isTrigger": {
+                            "type": "boolean",
+                            "description": "Whether this is a trigger order"
+                          },
+                          "triggerPx": {
+                            "type": "string",
+                            "description": "Trigger price for conditional orders"
+                          },
+                          "children": {
+                            "type": "array",
+                            "items": {},
+                            "description": "Child orders (for TP/SL orders)"
+                          },
+                          "isPositionTpsl": {
+                            "type": "boolean",
+                            "description": "Whether this is a position-level TP/SL order"
+                          },
+                          "reduceOnly": {
+                            "type": "boolean",
+                            "description": "Whether this is a reduce-only order"
+                          },
+                          "orderType": {
+                            "type": "string",
+                            "description": "Order type (e.g., 'Market', 'Limit')"
+                          },
+                          "origSz": {
+                            "type": "string",
+                            "description": "Original order size"
+                          },
+                          "tif": {
+                            "type": "string",
+                            "description": "Time in force (e.g., 'FrontendMarket', 'Gtc', 'Ioc')"
+                          },
+                          "cloid": {
+                            "type": "string",
+                            "nullable": true,
+                            "description": "Client order ID if provided"
+                          }
+                        }
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "filled",
+                          "open",
+                          "canceled",
+                          "triggered",
+                          "rejected",
+                          "marginCanceled",
+                          "vaultWithdrawalCanceled",
+                          "openInterestCapCanceled",
+                          "selfTradeCanceled",
+                          "reduceOnlyCanceled",
+                          "siblingFilledCanceled",
+                          "delistedCanceled",
+                          "liquidatedCanceled",
+                          "scheduledCancel",
+                          "tickRejected",
+                          "minTradeNtlRejected",
+                          "perpMarginRejected",
+                          "reduceOnlyRejected",
+                          "badAloPxRejected",
+                          "iocCancelRejected",
+                          "badTriggerPxRejected",
+                          "marketOrderNoLiquidityRejected",
+                          "positionIncreaseAtOpenInterestCapRejected",
+                          "positionFlipAtOpenInterestCapRejected",
+                          "tooAggressiveAtOpenInterestCapRejected",
+                          "openInterestIncreaseRejected",
+                          "insufficientSpotBalanceRejected",
+                          "oracleRejected",
+                          "perpMaxPositionRejected"
+                        ],
+                        "description": "Current order status"
+                      },
+                      "statusTimestamp": {
+                        "type": "integer",
+                        "format": "int64",
+                        "description": "Timestamp when the status was last updated"
+                      }
+                    },
+                    "required": ["order", "status", "statusTimestamp"]
+                  }
+                },
+                "example": [
+                  {
+                    "order": {
+                      "coin": "ETH",
+                      "side": "A",
+                      "limitPx": "2412.7",
+                      "sz": "0.0",
+                      "oid": 1,
+                      "timestamp": 1724361546645,
+                      "triggerCondition": "N/A",
+                      "isTrigger": false,
+                      "triggerPx": "0.0",
+                      "children": [],
+                      "isPositionTpsl": false,
+                      "reduceOnly": true,
+                      "orderType": "Market",
+                      "origSz": "0.0076",
+                      "tif": "FrontendMarket",
+                      "cloid": null
+                    },
+                    "status": "filled",
+                    "statusTimestamp": 1724361546645
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

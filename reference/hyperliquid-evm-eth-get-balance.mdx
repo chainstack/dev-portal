@@ -1,0 +1,175 @@
+---
+title: eth_getBalance | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_get_balance.json post /evm
+---
+
+The `eth_getBalance` JSON-RPC method returns the balance of an account at a given block number. This method is fundamental for checking account balances and is essential for wallet applications, portfolio tracking, and balance verification.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+The method takes two parameters:
+
+1. **Address** - The account address to check the balance for
+2. **Block parameter** - The block at which to check the balance
+
+### Parameter details
+
+* `address` (string, required) — The 20-byte account address to check the balance for
+* `block` (string, required) — Block identifier: `"latest"` (only the latest block is supported on Hyperliquid)
+
+## Response
+
+The method returns the account balance in wei as a hexadecimal string.
+
+### Response structure
+
+**Account balance:**
+- `result` — The account balance in wei as a hexadecimal string
+
+### Data interpretation
+
+**Balance format:**
+- Returned as hexadecimal string with `0x` prefix
+- Value represents wei (smallest unit of ether)
+- Convert to ether by dividing by 10^18
+- Convert to gwei by dividing by 10^9
+
+**Unit conversions:**
+- 1 ether = 10^18 wei
+- 1 gwei = 10^9 wei
+- Example: `0xde0b6b3a7640000` = 1,000,000,000,000,000,000 wei = 1 ether
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get account balance on Hyperliquid
+const getBalance = async (address) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getBalance',
+      params: [address, 'latest'], // Only 'latest' is supported
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  const balanceWei = parseInt(data.result, 16);
+  
+  return {
+    hex: data.result,
+    wei: balanceWei,
+    gwei: balanceWei / 1e9,
+    ether: balanceWei / 1e18
+  };
+};
+
+// Check multiple account balances
+const getMultipleBalances = async (addresses) => {
+  const balancePromises = addresses.map(address => getBalance(address));
+  const balances = await Promise.all(balancePromises);
+  
+  return addresses.map((address, index) => ({
+    address,
+    balance: balances[index]
+  }));
+};
+
+// Check if account has sufficient balance for transaction
+const checkSufficientBalance = async (address, requiredAmount, gasPrice, gasLimit) => {
+  const balance = await getBalance(address);
+  const transactionCost = (gasPrice * gasLimit) / 1e18; // Convert to ether
+  const totalRequired = requiredAmount + transactionCost;
+  
+  return {
+    balance: balance.ether,
+    required: totalRequired,
+    sufficient: balance.ether >= totalRequired,
+    shortfall: Math.max(0, totalRequired - balance.ether)
+  };
+};
+
+// Usage examples
+const address = "0xFC1286EeddF81d6955eDAd5C8D99B8Aa32F3D2AA";
+
+getBalance(address)
+  .then(balance => console.log(`Balance: ${balance.ether} ETH`))
+  .catch(error => console.error('Error:', error));
+```
+
+## Hyperliquid-specific considerations
+
+### Block limitations
+
+**Latest block only:**
+- Only the `"latest"` block parameter is supported
+- Historical balance queries are not available in the default implementation
+- All balance checks return the current state
+- For historical data, consider using archive node implementations
+
+### Balance monitoring
+
+**Real-time tracking:**
+- Check balances at regular intervals for portfolio tracking
+- Monitor balance changes for transaction confirmation
+- Set up alerts for significant balance changes
+- Use current balance for all transaction validations
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_getBalance","params":["0xFC1286EeddF81d6955eDAd5C8D99B8Aa32F3D2AA","latest"],"id":1}' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_getBalance` method is essential for applications that need to:
+
+* **Wallet applications**: Display current account balances to users
+* **Portfolio tracking**: Monitor balances across multiple accounts
+* **Transaction validation**: Verify sufficient balance before transactions
+* **DeFi protocols**: Check user balances for protocol interactions
+* **Analytics platforms**: Track account balance changes over time
+* **Audit systems**: Generate balance reports for compliance
+* **Trading platforms**: Verify account balances for trading operations
+* **Payment systems**: Check sender balances before processing payments
+* **Gaming applications**: Monitor in-game currency balances
+* **Staking platforms**: Verify balances for staking operations
+* **Lending protocols**: Check collateral balances and ratios
+* **Insurance platforms**: Monitor account balances for coverage
+* **Cross-chain bridges**: Verify balances before bridge operations
+* **Governance systems**: Check voting power based on token balances
+* **NFT marketplaces**: Verify buyer balances for purchases
+* **Subscription services**: Monitor account balances for recurring payments
+* **Risk management**: Track account balances for liquidation monitoring
+* **Compliance tools**: Generate balance reports for regulatory requirements
+* **Educational platforms**: Demonstrate balance concepts and calculations
+* **Research tools**: Analyze account balance distributions and patterns
+* **Monitoring systems**: Alert on significant balance changes
+* **Integration services**: Provide balance data to external systems
+* **Development tools**: Test applications with various balance scenarios
+* **User experience**: Provide real-time balance feedback
+* **Security systems**: Monitor for unusual balance changes or activities
+
+This method provides fundamental account balance information, enabling comprehensive account management and financial tracking on the Hyperliquid EVM platform.
+
+<Note>
+On Hyperliquid, `eth_getBalance` only supports the latest block. Historical balance queries are not supported in the default RPC implementation. All balance queries return the current account state.
+</Note>

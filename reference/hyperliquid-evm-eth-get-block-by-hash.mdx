@@ -1,0 +1,184 @@
+---
+title: eth_getBlockByHash | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_get_block_by_hash.json post /evm
+---
+
+The `eth_getBlockByHash` JSON-RPC method returns information about a block by its hash. This method is essential for retrieving detailed block information when you have the block hash, commonly used for block exploration, transaction verification, and blockchain analysis.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+The method takes two parameters:
+
+1. **Block hash** - The hash of the block to retrieve
+2. **Full transaction objects** - Whether to return full transaction objects or just hashes
+
+### Parameter details
+
+* `blockHash` (string, required) — The 32-byte hash of the block to retrieve
+* `fullTransactionObjects` (boolean, required) — If `true`, returns full transaction objects; if `false`, returns only transaction hashes
+
+## Response
+
+The method returns detailed information about the specified block, or `null` if the block is not found.
+
+### Response structure
+
+**Block object:**
+- `number` — Block number as a hexadecimal string
+- `hash` — The 32-byte hash of the block
+- `parentHash` — Hash of the parent block
+- `timestamp` — Block timestamp as a Unix timestamp in hexadecimal
+- `gasLimit` — Maximum gas allowed in this block
+- `gasUsed` — Total gas used by all transactions in the block
+- `transactions` — Array of transaction hashes or full transaction objects
+- `miner` — Address of the block miner/validator
+- `difficulty` — Block difficulty (may be 0 for some consensus mechanisms)
+- `totalDifficulty` — Total difficulty of the chain until this block
+- `size` — Block size in bytes as a hexadecimal string
+- `extraData` — Extra data field of the block
+- `nonce` — Block nonce (if applicable)
+- `receiptsRoot` — Root hash of the receipts trie
+- `stateRoot` — Root hash of the state trie
+- `transactionsRoot` — Root hash of the transactions trie
+
+### Transaction data format
+
+**With fullTransactionObjects = false:**
+- Returns array of transaction hashes as strings
+- Minimal data transfer for basic block information
+- Suitable for block overview and transaction counting
+
+**With fullTransactionObjects = true:**
+- Returns array of complete transaction objects
+- Includes all transaction details (from, to, value, gas, etc.)
+- Larger response but comprehensive transaction data
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get block information by hash on Hyperliquid
+const getBlockByHash = async (blockHash, fullTransactionObjects = false) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getBlockByHash',
+      params: [blockHash, fullTransactionObjects],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Get block with transaction hashes only
+const getBlockSummary = async (blockHash) => {
+  const block = await getBlockByHash(blockHash, false);
+  
+  if (!block) {
+    throw new Error('Block not found');
+  }
+  
+  return {
+    number: parseInt(block.number, 16),
+    hash: block.hash,
+    timestamp: new Date(parseInt(block.timestamp, 16) * 1000),
+    gasUsed: parseInt(block.gasUsed, 16),
+    gasLimit: parseInt(block.gasLimit, 16),
+    transactionCount: block.transactions.length,
+    utilization: (parseInt(block.gasUsed, 16) / parseInt(block.gasLimit, 16)) * 100
+  };
+};
+
+// Get block with full transaction details
+const getBlockWithTransactions = async (blockHash) => {
+  const block = await getBlockByHash(blockHash, true);
+  
+  if (!block) {
+    throw new Error('Block not found');
+  }
+  
+  return {
+    ...block,
+    transactions: block.transactions.map(tx => ({
+      hash: tx.hash,
+      from: tx.from,
+      to: tx.to,
+      value: parseInt(tx.value, 16) / 1e18, // Convert to ether
+      gasPrice: parseInt(tx.gasPrice, 16) / 1e9, // Convert to gwei
+      gas: parseInt(tx.gas, 16)
+    }))
+  };
+};
+
+// Usage
+const blockHash = "0x53e84f299e6893680383c6a53329574122a7292e5bb9397bb6a0b51b4db5957a";
+
+getBlockSummary(blockHash)
+  .then(summary => console.log('Block Summary:', summary))
+  .catch(error => console.error('Error:', error));
+```
+
+## Hyperliquid-specific considerations
+
+### System transactions
+
+**HyperCore transactions:**
+- Blocks may contain system transactions that originate from HyperCore
+- Use `eth_getSystemTxsByBlockHash` to retrieve system transactions specifically
+- System transactions are separate from regular user transactions
+- Important for complete block analysis and understanding network activity
+
+### Block data interpretation
+
+**Transaction types:**
+- Regular transactions: Standard user-initiated transactions
+- System transactions: Transactions originating from HyperCore
+- Both types contribute to block gas usage and transaction count
+
+**Data analysis:**
+- Consider both regular and system transactions for complete analysis
+- System transactions may have different patterns and characteristics
+- Use appropriate methods to retrieve the specific transaction type needed
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_getBlockByHash","params":["0x53e84f299e6893680383c6a53329574122a7292e5bb9397bb6a0b51b4db5957a",false],"id":1}' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_getBlockByHash` method is essential for applications that need to:
+
+* **Block explorers**: Display detailed block information and navigation
+* **Transaction verification**: Confirm transaction inclusion in specific blocks
+* **Blockchain analytics**: Analyze block data for network insights
+* **Audit systems**: Verify block integrity and transaction history
+* **Development tools**: Debug and test blockchain applications
+* **Monitoring systems**: Track block production and network health
+* **DeFi protocols**: Verify block-based events and state changes
+* **System transaction analysis**: Analyze both regular and HyperCore system transactions
+* **Network diagnostics**: Troubleshoot blockchain synchronization issues
+* **Integration services**: Provide block data to external systems
+
+<Note>
+Block hashes are unique identifiers. If a block hash doesn't exist or is invalid, the method returns `null`. On Hyperliquid, blocks may contain system transactions from HyperCore - use `eth_getSystemTxsByBlockHash` to retrieve these separately.
+</Note>

@@ -1,0 +1,154 @@
+---
+title: userFunding | Hyperliquid info
+openapi: /openapi/hyperliquid_node_api/info_user_funding.json post /info
+---
+
+<Info>
+You can only use this endpoint on the official Hyperliquid public API. It is not available through Chainstack, as the open-source node implementation does not support it yet.
+</Info>
+
+The `info` endpoint with `type: "userFunding"` retrieves the funding history for a specific user account on the Hyperliquid exchange. This endpoint provides detailed information about funding payments and receipts across all perpetual positions over time, allowing users to track their funding costs and analyze trading performance.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Request body
+
+* `type` (string, required) — The request type. Must be `"userFunding"` to retrieve user funding history.
+* `user` (string, required) — Address in 42-character hexadecimal format; e.g. 0x0000000000000000000000000000000000000000.
+* `startTime` (integer, required) — Start time in milliseconds, inclusive.
+* `endTime` (integer, optional) — End time in milliseconds, inclusive. Defaults to current time.
+
+## Response
+
+The response is an array of funding events, chronologically ordered from oldest to newest. Each event represents a funding payment or receipt for a specific perpetual position.
+
+### Response structure
+
+Each funding event contains:
+
+**Event metadata:**
+- `time` — Unix timestamp in milliseconds when the funding occurred
+- `hash` — Transaction hash (typically zero hash for funding events)
+
+**Funding details:**
+- `delta.type` — Always "funding" for funding events
+- `delta.coin` — Asset symbol (e.g., "BTC", "ETH", "SOL")
+- `delta.usdc` — Funding amount in USDC (negative = paid, positive = received)
+- `delta.szi` — Position size at the time of funding
+- `delta.fundingRate` — Funding rate applied for this period
+
+### Data interpretation
+
+**Funding payments vs receipts:**
+- Negative `usdc` values indicate funding paid (user is long in a positive funding environment or short in negative funding)
+- Positive `usdc` values indicate funding received (user is short in positive funding environment or long in negative funding)
+
+**Position correlation:**
+- `szi` shows the position size when funding was applied
+- Positive `szi` indicates long positions, negative indicates short positions
+- Larger absolute position sizes result in proportionally larger funding payments/receipts
+
+**Funding rate analysis:**
+- `fundingRate` represents the rate charged per unit of time
+- Positive rates favor shorts (longs pay shorts)
+- Negative rates favor longs (shorts pay longs)
+- Rates are typically charged every 8 hours (3 times daily)
+
+## Trading insights
+
+### Funding cost analysis
+
+**Position cost calculation:**
+- Total funding cost = sum of all `usdc` values for a specific asset
+- Daily funding impact = funding payments/receipts over 24-hour periods
+- Funding rate trends indicate market sentiment and position bias
+
+**Strategy optimization:**
+- High funding costs may indicate overleverage or poor market timing
+- Consistent funding receipts suggest alignment with market structure
+- Funding patterns help optimize position entry and exit timing
+
+### Market sentiment indicators
+
+**Funding rate patterns:**
+- Consistently positive funding rates indicate bullish bias (demand for long positions)
+- Negative funding rates suggest bearish sentiment (demand for short positions)
+- Extreme funding rates often coincide with market turning points
+
+**Position management:**
+- Monitor funding costs relative to trading profits
+- Consider position size adjustments during high funding periods
+- Use funding rate changes as market sentiment indicators
+
+## Historical analysis
+
+### Performance tracking
+
+**Funding efficiency:**
+- Track funding costs as percentage of trading profits
+- Compare funding expenses across different assets
+- Identify optimal position sizing for funding cost management
+
+**Market timing:**
+- Analyze funding rate cycles for entry/exit optimization
+- Monitor funding rate extremes for reversal signals
+- Use historical funding patterns for strategy backtesting
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "userFunding",
+    "user": "0x2ba553d9f990a3b66b03b2dc0d030dfc1c061036",
+    "startTime": 1681923833000,
+    "endTime": 1681924833000
+  }' \
+  https://api.hyperliquid.xyz/info
+```
+
+## Example response
+
+```json
+[
+  {
+    "delta": {
+      "coin": "ETH",
+      "fundingRate": "0.0000417",
+      "szi": "49.1477",
+      "type": "funding",
+      "usdc": "-3.625312"
+    },
+    "hash": "0xa166e3fa63c25663024b03f2e0da011a00307e4017465df020210d3d432e7cb8",
+    "time": 1681222254710
+  }
+]
+```
+
+## Use cases
+
+The `info` endpoint with `type: "userFunding"` is essential for applications that need to:
+
+* **Trading analytics**: Analyze funding costs and their impact on trading performance
+* **Portfolio management**: Track funding expenses across multiple positions and assets
+* **Strategy optimization**: Optimize position sizing and timing based on funding patterns
+* **Performance attribution**: Separate trading gains from funding costs for accurate measurement
+* **Tax reporting**: Calculate funding payments and receipts for tax documentation
+* **Risk management**: Monitor funding costs as part of overall trading risk assessment
+* **Market analysis**: Study funding rate patterns to understand market sentiment
+* **Algorithm development**: Incorporate funding costs into automated trading strategies
+* **Position management**: Make informed decisions about position holds based on funding trends
+* **Cost analysis**: Compare funding efficiency across different trading strategies
+* **Backtesting**: Include historical funding costs in strategy backtesting and simulation
+* **Reporting tools**: Generate comprehensive trading reports including funding breakdowns
+
+This endpoint provides comprehensive funding history with time-based filtering, enabling detailed analysis of funding costs and their impact on trading performance in perpetual futures markets.

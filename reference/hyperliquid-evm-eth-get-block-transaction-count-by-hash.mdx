@@ -1,0 +1,183 @@
+---
+title: eth_getBlockTransactionCountByHash | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_get_block_transaction_count_by_hash.json post /evm
+---
+
+The `eth_getBlockTransactionCountByHash` JSON-RPC method returns the number of transactions in a block by its hash. This method provides a lightweight way to get transaction count information without retrieving the full block data, making it efficient for block analysis and statistics.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+The method takes one parameter:
+
+1. **Block hash** - The hash of the block to get the transaction count for
+
+### Parameter details
+
+* `blockHash` (string, required) — The 32-byte hash of the block
+
+## Response
+
+The method returns the number of transactions in the specified block as a hexadecimal string, or `null` if the block is not found.
+
+### Response structure
+
+**Transaction count:**
+- `result` — The number of transactions in the block as a hexadecimal string
+
+### Data interpretation
+
+**Count format:**
+- Returned as hexadecimal string with `0x` prefix
+- Convert to decimal for numerical operations
+- `0x0` indicates an empty block (no transactions)
+- `null` indicates the block hash doesn't exist
+
+**Conversion example:**
+```javascript
+// Convert hex count to decimal
+const txCount = parseInt("0x5", 16); // 5 transactions
+```
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get transaction count for a block by hash on Hyperliquid
+const getBlockTransactionCountByHash = async (blockHash) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getBlockTransactionCountByHash',
+      params: [blockHash],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  
+  if (data.result === null) {
+    throw new Error('Block not found');
+  }
+  
+  return {
+    hex: data.result,
+    decimal: parseInt(data.result, 16)
+  };
+};
+
+// Analyze multiple blocks for activity patterns
+const analyzeBlockActivity = async (blockHashes) => {
+  const results = [];
+  
+  for (const hash of blockHashes) {
+    try {
+      const count = await getBlockTransactionCountByHash(hash);
+      results.push({
+        blockHash: hash,
+        transactionCount: count.decimal
+      });
+    } catch (error) {
+      console.error(`Error processing block ${hash}:`, error);
+      results.push({
+        blockHash: hash,
+        transactionCount: null,
+        error: error.message
+      });
+    }
+  }
+  
+  // Calculate statistics
+  const validCounts = results
+    .filter(r => r.transactionCount !== null)
+    .map(r => r.transactionCount);
+  
+  if (validCounts.length === 0) {
+    return { results, statistics: null };
+  }
+  
+  const statistics = {
+    totalBlocks: validCounts.length,
+    totalTransactions: validCounts.reduce((sum, count) => sum + count, 0),
+    averageTransactions: validCounts.reduce((sum, count) => sum + count, 0) / validCounts.length,
+    maxTransactions: Math.max(...validCounts),
+    minTransactions: Math.min(...validCounts),
+    emptyBlocks: validCounts.filter(count => count === 0).length
+  };
+  
+  return { results, statistics };
+};
+
+// Usage examples
+const blockHash = "0x53e84f299e6893680383c6a53329574122a7292e5bb9397bb6a0b51b4db5957a";
+
+getBlockTransactionCountByHash(blockHash)
+  .then(count => console.log(`Block has ${count.decimal} transactions`))
+  .catch(error => console.error('Error:', error));
+
+// Analyze multiple blocks
+const blockHashes = [
+  "0x53e84f299e6893680383c6a53329574122a7292e5bb9397bb6a0b51b4db5957a",
+  "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+];
+
+analyzeBlockActivity(blockHashes)
+  .then(analysis => console.log('Block Activity Analysis:', analysis))
+  .catch(error => console.error('Error:', error));
+```
+
+## Efficiency benefits
+
+### Lightweight queries
+
+**Minimal data transfer:**
+- Returns only the transaction count, not full block data
+- Significantly smaller response than `eth_getBlockByHash`
+- Faster response times for count-only queries
+- Ideal for preliminary block analysis and statistics
+
+### Performance optimization
+
+**Conditional processing:**
+- Check transaction count before deciding to process full block
+- Skip empty blocks in analysis workflows
+- Optimize processing based on block activity levels
+- Implement efficient batch processing strategies
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_getBlockTransactionCountByHash","params":["0x53e84f299e6893680383c6a53329574122a7292e5bb9397bb6a0b51b4db5957a"],"id":1}' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_getBlockTransactionCountByHash` method is essential for applications that need to:
+
+* **Block statistics**: Generate transaction count statistics and metrics
+* **Network analysis**: Analyze blockchain activity patterns and trends
+* **Performance optimization**: Optimize block processing based on transaction counts
+* **Block explorers**: Display transaction counts in block listings efficiently
+* **Analytics platforms**: Collect block activity data for analysis
+* **Monitoring systems**: Track network activity and usage patterns
+* **Development tools**: Optimize applications based on block activity levels
+* **Data visualization**: Create charts and graphs of block activity over time
+
+<Note>
+This method returns only the transaction count, including both regular transactions and system transactions from HyperCore. The count represents the total number of all transactions in the block. Use `eth_getBlockByHash` if you need the full block data including transaction details.
+</Note>

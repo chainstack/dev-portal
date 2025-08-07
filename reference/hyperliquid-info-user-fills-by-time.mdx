@@ -1,0 +1,163 @@
+---
+title: userFillsByTime | Hyperliquid info
+openapi: /openapi/hyperliquid_node_api/info_user_fills_by_time.json post /info
+---
+
+<Info>
+You can only use this endpoint on the official Hyperliquid public API. It is not available through Chainstack, as the open-source node implementation does not support it yet.
+</Info>
+
+The `info` endpoint with `type: "userFillsByTime"` retrieves a user's trading fills (executed orders) within a specific time range on the Hyperliquid exchange. This endpoint provides time-filtered access to detailed trade execution data, making it ideal for historical analysis and reporting.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Request body
+
+* `type` (string, required) — The request type. Must be `"userFillsByTime"` to retrieve user fills by time range.
+* `user` (string, required) — Address in 42-character hexadecimal format; e.g. 0x0000000000000000000000000000000000000000.
+* `startTime` (integer, required) — Start time in milliseconds, inclusive.
+* `endTime` (integer, optional) — End time in milliseconds, inclusive. Defaults to current time.
+* `aggregateByTime` (boolean, optional) — When true, partial fills are combined when a crossing order gets filled by multiple different resting orders. Resting orders filled by multiple crossing orders will not be aggregated.
+
+## Response
+
+The response is an array of fill objects within the specified time range, with each fill containing detailed trade information:
+
+### Fill data structure
+
+Each fill object contains the following fields:
+
+**Core trade data:**
+- `coin` — Asset identifier (simple names like "BTC", "ETH" for perpetuals; spot format like "@107" for spot trades)
+- `px` — Fill price as a string for precision
+- `sz` — Fill size (quantity traded)
+- `side` — Trade side: "A" for Ask/Sell, "B" for Bid/Buy
+- `time` — Fill timestamp in milliseconds
+- `oid` — Order ID that generated this fill
+- `tid` — Unique trade ID
+
+**Position and P&L data:**
+- `startPosition` — Position size before this fill
+- `dir` — Trade direction (e.g., "Open Long", "Close Short", "Buy", "Sell")
+- `closedPnl` — Realized profit/loss from this fill
+- `crossed` — Boolean indicating if this was a crossing order
+
+**Fee and transaction data:**
+- `fee` — Trading fee paid for this fill
+- `feeToken` — Token used to pay the fee (typically "USDC")
+- `builderFee` — Builder fee (optional, only present if non-zero)
+- `hash` — Transaction hash for blockchain verification
+
+### Time range filtering
+
+**Time parameters:**
+- `startTime` — Inclusive start timestamp in milliseconds
+- `endTime` — Inclusive end timestamp (optional, defaults to current time)
+- Time range can span any period within the available data window
+
+**Data availability:**
+- Only the 10,000 most recent fills are available
+- Older fills beyond this limit are not accessible
+- Maximum 2000 fills returned per response
+
+### Pagination and limits
+
+**Response limits:**
+- Maximum 2000 fills per response
+- Results are ordered by time (most recent first)
+- For larger time ranges, multiple requests may be needed
+
+**Pagination strategy:**
+- Use the `time` field of the last returned fill as the new `endTime`
+- Subtract 1 millisecond to avoid duplicate results
+- Continue until no more fills are returned
+
+### Asset identification
+
+**Perpetual contracts:**
+- Use simple asset names: "BTC", "ETH", "AVAX", "SOL"
+- Represent standard perpetual futures contracts
+
+**Spot markets:**
+- Use indexed format: "@107", "@1", etc.
+- Index corresponds to the spot pair position in the universe
+- Some assets may have remapped names in user interfaces
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"type": "userFillsByTime", "user": "0x31ca8395cf837de08b24da3f660e77761dfb974b", "startTime": 1754380000000, "endTime": 1754380200000}' \
+  https://api.hyperliquid.xyz/info
+```
+
+## Example response
+
+```json
+[
+  {
+    "closedPnl": "0.0",
+    "coin": "AVAX",
+    "crossed": false,
+    "dir": "Open Long",
+    "hash": "0xa166e3fa63c25663024b03f2e0da011a00307e4017465df020210d3d432e7cb8",
+    "oid": 90542681,
+    "px": "18.435",
+    "side": "B",
+    "startPosition": "26.86",
+    "sz": "93.53",
+    "time": 1681222254710,
+    "fee": "0.01",
+    "feeToken": "USDC",
+    "builderFee": "0.01",
+    "tid": 118906512037719
+  },
+  {
+    "coin": "@107",
+    "px": "18.62041381",
+    "sz": "43.84",
+    "side": "A",
+    "time": 1735969713869,
+    "startPosition": "10659.65434798",
+    "dir": "Sell",
+    "closedPnl": "8722.988077",
+    "hash": "0x2222138cc516e3fe746c0411dd733f02e60086f43205af2ae37c93f6a792430b",
+    "oid": 59071663721,
+    "crossed": true,
+    "fee": "0.304521",
+    "tid": 907359904431134,
+    "feeToken": "USDC"
+  }
+]
+```
+
+## Use cases
+
+The `info` endpoint with `type: "userFillsByTime"` is essential for applications that need to:
+
+* **Historical analysis**: Analyze trading patterns and performance over specific time periods
+* **Reporting and analytics**: Generate time-based trading reports and performance metrics
+* **Tax compliance**: Extract trading data for specific tax periods and jurisdictions
+* **Audit trails**: Maintain detailed records of trading activity within defined timeframes
+* **Performance attribution**: Analyze trading performance by specific time periods or market conditions
+* **Risk analysis**: Study trading behavior during specific market events or volatility periods
+* **Strategy backtesting**: Use historical fill data to validate trading strategies over time
+* **Compliance reporting**: Generate regulatory reports for specific reporting periods
+* **Portfolio reconciliation**: Match fills against expected executions within time windows
+* **Fee analysis**: Calculate trading costs and analyze fee patterns over time
+* **Market impact studies**: Analyze execution quality during specific market conditions
+* **Trading pattern analysis**: Identify trends and patterns in trading behavior over time
+* **Data synchronization**: Keep external systems synchronized with trading activity
+* **Custom dashboards**: Build time-filtered views of trading activity and performance
+* **Automated reporting**: Generate scheduled reports for specific time periods
+
+This endpoint is particularly valuable for applications requiring precise time-based filtering of trading data, enabling detailed historical analysis and comprehensive reporting capabilities for trading activities on the Hyperliquid platform.

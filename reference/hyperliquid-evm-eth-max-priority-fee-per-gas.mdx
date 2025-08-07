@@ -1,0 +1,114 @@
+---
+title: eth_maxPriorityFeePerGas | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_max_priority_fee_per_gas.json post /evm
+---
+
+Returns the current maximum priority fee per gas for EIP-1559 transactions. On Hyperliquid, this method always returns zero as priority fees are not used.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+This method takes no parameters.
+
+## Returns
+
+Returns the maximum priority fee per gas as a hexadecimal string. On Hyperliquid, this is always `"0x0"`.
+
+<Warning>
+On Hyperliquid, priority fees are always zero. The network uses only base fees for transaction pricing, so setting a priority fee will not affect transaction inclusion speed or priority.
+</Warning>
+
+## JavaScript example
+
+```javascript
+const getMaxPriorityFeePerGas = async () => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_API_KEY/evm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_maxPriorityFeePerGas',
+      params: [],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result; // Always "0x0" on Hyperliquid
+};
+
+// Usage
+const priorityFee = await getMaxPriorityFeePerGas();
+console.log('Priority fee:', priorityFee); // "0x0"
+console.log('Priority fee in wei:', parseInt(priorityFee, 16)); // 0
+```
+
+## EIP-1559 transactions on Hyperliquid
+
+```javascript
+// Create EIP-1559 transaction on Hyperliquid
+const createEIP1559Transaction = async (to, value, gasLimit) => {
+  // Get base fee from latest block
+  const latestBlock = await eth_getBlockByNumber('latest', false);
+  const baseFee = parseInt(latestBlock.baseFeePerGas, 16);
+  
+  // Priority fee is always 0 on Hyperliquid
+  const priorityFee = 0;
+  
+  return {
+    to: to,
+    value: `0x${value.toString(16)}`,
+    gas: `0x${gasLimit.toString(16)}`,
+    maxFeePerGas: `0x${baseFee.toString(16)}`, // Only base fee
+    maxPriorityFeePerGas: '0x0', // Always zero
+    type: '0x2' // EIP-1559 transaction type
+  };
+};
+
+// Usage
+const transaction = await createEIP1559Transaction(
+  '0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6',
+  1000000000000000000, // 1 ETH in wei
+  21000 // Gas limit
+);
+```
+
+## Fee calculation on Hyperliquid
+
+```javascript
+// Calculate transaction cost (no priority fee)
+const calculateTransactionCost = async (gasLimit) => {
+  const latestBlock = await eth_getBlockByNumber('latest', false);
+  const baseFee = parseInt(latestBlock.baseFeePerGas, 16);
+  
+  // Total cost = base fee × gas limit (no priority fee)
+  const totalCost = baseFee * gasLimit;
+  
+  return {
+    baseFee: baseFee,
+    priorityFee: 0, // Always zero on Hyperliquid
+    totalFeePerGas: baseFee,
+    totalCost: totalCost,
+    totalCostGwei: totalCost / 1e9,
+    totalCostEth: totalCost / 1e18
+  };
+};
+
+// Usage
+const cost = await calculateTransactionCost(21000);
+console.log('Transaction cost:', cost);
+```
+
+## Use cases
+
+* **EIP-1559 compatibility** — Maintain compatibility with EIP-1559 transaction format
+* **Wallet applications** — Handle priority fee queries for cross-chain compatibility
+* **Fee estimation** — Calculate transaction costs knowing priority fees are zero
+* **Protocol integration** — Integrate with protocols that query priority fees

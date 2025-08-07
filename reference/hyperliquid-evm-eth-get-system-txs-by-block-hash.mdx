@@ -1,0 +1,232 @@
+---
+title: eth_getSystemTxsByBlockHash | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_get_system_txs_by_block_hash.json post /evm
+---
+
+The `eth_getSystemTxsByBlockHash` JSON-RPC method returns system transactions for a given block hash on Hyperliquid EVM. This Hyperliquid-specific method provides access to internal system transactions using the block's unique hash identifier, ensuring precise block identification even during chain reorganizations.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+The method takes one parameter:
+
+1. **Block hash** - The hash of the block to retrieve system transactions from
+
+### Parameter details
+
+* `blockHash` (string, required) — The 32-byte hash of the block
+
+## Response
+
+The method returns an array of system transaction objects for the specified block, or `null` if the block is not found.
+
+### Response structure
+
+**System transactions array:**
+- Array of system transaction objects
+- Empty array if no system transactions exist in the block
+- `null` if the block hash doesn't exist
+
+**System transaction object:**
+- `hash` — System transaction hash
+- `type` — System transaction type identifier
+- `blockNumber` — Block number containing the system transaction
+- `blockHash` — Hash of the block containing the system transaction
+- `transactionIndex` — Index of the system transaction in the block
+- `from` — System address that initiated the transaction
+- `to` — Target address of the system transaction
+- `value` — Value transferred in the system transaction
+- `gasUsed` — Gas used by the system transaction
+- `gasPrice` — Gas price for the system transaction (often 0 for system txs)
+- `input` — Input data for the system transaction
+- `status` — System transaction status (0x0 for failure, 0x1 for success)
+
+### Data interpretation
+
+**Hash-based identification:**
+- Block hashes provide unique, immutable block identification
+- Useful during chain reorganizations when block numbers may change
+- Ensures retrieval from specific block versions
+- Maintains data consistency across different chain states
+
+**System transaction analysis:**
+```javascript
+// Process system transactions from specific block hash
+const processSystemTxsByHash = async (blockHash) => {
+  const systemTxs = await eth_getSystemTxsByBlockHash(blockHash);
+  
+  if (!systemTxs) {
+    throw new Error(`Block not found: ${blockHash}`);
+  }
+  
+  return systemTxs.map(tx => ({
+    hash: tx.hash,
+    type: parseInt(tx.type, 16),
+    blockHash: tx.blockHash,
+    blockNumber: parseInt(tx.blockNumber, 16),
+    gasUsed: parseInt(tx.gasUsed, 16),
+    status: tx.status === "0x1" ? "success" : "failed",
+    purpose: determineSystemTxPurpose(tx.type)
+  }));
+};
+```
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get system transactions by block hash on Hyperliquid
+const getSystemTxsByBlockHash = async (blockHash) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getSystemTxsByBlockHash',
+      params: [blockHash],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  
+  if (data.result === null) {
+    throw new Error(`Block not found: ${blockHash}`);
+  }
+  
+  return data.result;
+};
+
+// Analyze system transactions from a specific block
+const analyzeSystemTransactions = async (blockHash) => {
+  try {
+    const systemTxs = await getSystemTxsByBlockHash(blockHash);
+    
+    if (systemTxs.length === 0) {
+      return {
+        blockHash,
+        message: 'No system transactions in this block'
+      };
+    }
+    
+    const analysis = {
+      blockHash,
+      blockNumber: parseInt(systemTxs[0].blockNumber, 16),
+      totalSystemTxs: systemTxs.length,
+      transactions: systemTxs.map(tx => ({
+        hash: tx.hash,
+        type: parseInt(tx.type, 16),
+        from: tx.from,
+        to: tx.to,
+        value: parseInt(tx.value, 16),
+        gasUsed: parseInt(tx.gasUsed, 16),
+        gasPrice: parseInt(tx.gasPrice, 16),
+        status: tx.status === "0x1" ? "Success" : "Failed",
+        index: parseInt(tx.transactionIndex, 16)
+      })),
+      summary: {
+        successfulTxs: systemTxs.filter(tx => tx.status === "0x1").length,
+        failedTxs: systemTxs.filter(tx => tx.status === "0x0").length,
+        totalGasUsed: systemTxs.reduce((sum, tx) => sum + parseInt(tx.gasUsed, 16), 0),
+        uniqueTypes: [...new Set(systemTxs.map(tx => parseInt(tx.type, 16)))]
+      }
+    };
+    
+    return analysis;
+  } catch (error) {
+    return {
+      blockHash,
+      error: error.message,
+      suggestion: 'Block may not exist or may have been reorganized'
+    };
+  }
+};
+
+// Compare system transactions between two blocks
+const compareSystemTxsBetweenBlocks = async (blockHash1, blockHash2) => {
+  const [block1Txs, block2Txs] = await Promise.all([
+    getSystemTxsByBlockHash(blockHash1).catch(() => null),
+    getSystemTxsByBlockHash(blockHash2).catch(() => null)
+  ]);
+  
+  return {
+    block1: {
+      hash: blockHash1,
+      exists: block1Txs !== null,
+      systemTxCount: block1Txs ? block1Txs.length : 0,
+      types: block1Txs ? [...new Set(block1Txs.map(tx => parseInt(tx.type, 16)))] : []
+    },
+    block2: {
+      hash: blockHash2,
+      exists: block2Txs !== null,
+      systemTxCount: block2Txs ? block2Txs.length : 0,
+      types: block2Txs ? [...new Set(block2Txs.map(tx => parseInt(tx.type, 16)))] : []
+    },
+    comparison: {
+      bothExist: block1Txs !== null && block2Txs !== null,
+      countDifference: block1Txs && block2Txs ? block1Txs.length - block2Txs.length : null
+    }
+  };
+};
+
+// Usage examples
+const blockHash = "0x1970d9c7ce6f00a982b421610ad400a79522c102a26db24ef3ec1f2bd621c399";
+
+analyzeSystemTransactions(blockHash)
+  .then(analysis => console.log('System Transaction Analysis:', analysis))
+  .catch(error => console.error('Error:', error));
+```
+
+## Hash-based identification benefits
+
+### Immutable block references
+
+**Precise identification:**
+- Block hashes provide cryptographically unique identifiers
+- Remain constant even during chain reorganizations
+- Enable precise block version identification
+- Useful for audit trails and data consistency
+
+### Chain reorganization handling
+
+**Robust data retrieval:**
+- Hash-based queries work even during chain reorganizations
+- Provides access to specific block versions
+- Maintains data integrity across different chain states
+- Essential for forensic analysis and debugging
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_getSystemTxsByBlockHash","params":["0x1970d9c7ce6f00a982b421610ad400a79522c102a26db24ef3ec1f2bd621c399"],"id":1}' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_getSystemTxsByBlockHash` method is essential for applications that need to:
+
+* **Precise block identification**: Access system transactions from specific block versions using immutable hashes
+* **Chain reorganization handling**: Maintain data consistency during blockchain reorganizations
+* **Audit systems**: Create immutable audit trails using cryptographic block identifiers
+* **Block explorers**: Provide precise block navigation and system transaction display
+* **Analytics platforms**: Analyze system transactions with consistent block references
+* **Development tools**: Debug system operations using specific block versions
+* **Protocol monitoring**: Monitor HyperCore system operations with precise identification
+* **Integration services**: Provide system transaction data with immutable identifiers
+
+<Note>
+Block hashes provide immutable identification and are essential for maintaining data consistency during chain reorganizations. If a block hash is not found, it may indicate the block was reorganized out of the canonical chain.
+</Note>

@@ -1,0 +1,220 @@
+---
+title: eth_getTransactionByBlockHashAndIndex | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_get_transaction_by_block_hash_and_index.json post /evm
+---
+
+The `eth_getTransactionByBlockHashAndIndex` JSON-RPC method returns transaction information by block hash and transaction index. This method is useful for retrieving specific transactions when you know the block hash and the transaction's position within that block.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+The method takes two parameters:
+
+1. **Block hash** - The hash of the block containing the transaction
+2. **Transaction index** - The index position of the transaction within the block
+
+### Parameter details
+
+* `blockHash` (string, required) — The 32-byte hash of the block containing the transaction
+* `transactionIndex` (string, required) — The index position of the transaction in the block as a hexadecimal string (0-based)
+
+## Response
+
+The method returns detailed transaction information, or `null` if the transaction is not found.
+
+### Response structure
+
+**Transaction object:**
+- `hash` — The 32-byte transaction hash
+- `nonce` — Transaction nonce (number of transactions sent by sender)
+- `blockHash` — Hash of the block containing the transaction
+- `blockNumber` — Number of the block containing the transaction
+- `transactionIndex` — Index of the transaction in the block
+- `from` — Address of the transaction sender
+- `to` — Address of the transaction receiver (null for contract creation)
+- `value` — Value transferred in wei as a hexadecimal string
+- `gas` — Gas limit provided by the sender
+- `gasPrice` — Gas price provided by the sender in wei
+- `input` — Data sent along with the transaction
+- `v`, `r`, `s` — ECDSA signature components
+- `type` — Transaction type (0x0 for legacy, 0x1 for EIP-2930, 0x2 for EIP-1559)
+
+### Transaction types
+
+**Legacy transactions (type 0x0):**
+- Traditional Ethereum transactions
+- Use `gasPrice` for fee calculation
+- Simple fee structure
+
+**EIP-2930 transactions (type 0x1):**
+- Include access lists for gas optimization
+- Still use `gasPrice` for fees
+- Reduce gas costs for certain operations
+
+**EIP-1559 transactions (type 0x2):**
+- Use `maxFeePerGas` and `maxPriorityFeePerGas`
+- Dynamic fee structure with base fee
+- More predictable fee estimation
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get transaction by block hash and index on Hyperliquid
+const getTransactionByBlockHashAndIndex = async (blockHash, transactionIndex) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getTransactionByBlockHashAndIndex',
+      params: [blockHash, transactionIndex],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  
+  if (data.result === null) {
+    throw new Error(`Transaction not found at index ${transactionIndex} in block ${blockHash}`);
+  }
+  
+  return data.result;
+};
+
+// Analyze transaction details
+const analyzeTransaction = (transaction) => {
+  return {
+    hash: transaction.hash,
+    from: transaction.from,
+    to: transaction.to,
+    value: {
+      wei: parseInt(transaction.value, 16),
+      ether: parseInt(transaction.value, 16) / 1e18
+    },
+    gas: {
+      limit: parseInt(transaction.gas, 16),
+      price: parseInt(transaction.gasPrice, 16),
+      priceGwei: parseInt(transaction.gasPrice, 16) / 1e9
+    },
+    nonce: parseInt(transaction.nonce, 16),
+    blockNumber: parseInt(transaction.blockNumber, 16),
+    transactionIndex: parseInt(transaction.transactionIndex, 16),
+    type: parseInt(transaction.type, 16),
+    isContractCall: transaction.input !== "0x",
+    inputDataSize: transaction.input.length > 2 ? (transaction.input.length - 2) / 2 : 0
+  };
+};
+
+// Get all transactions from a block using hash
+const getAllTransactionsFromBlock = async (blockHash) => {
+  // First get the block to know how many transactions it has
+  const blockResponse = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getBlockByHash',
+      params: [blockHash, false],
+      id: 1
+    })
+  });
+  
+  const blockData = await blockResponse.json();
+  
+  if (!blockData.result) {
+    throw new Error(`Block not found: ${blockHash}`);
+  }
+  
+  const transactionCount = blockData.result.transactions.length;
+  const transactions = [];
+  
+  // Get each transaction by index
+  for (let i = 0; i < transactionCount; i++) {
+    const hexIndex = "0x" + i.toString(16);
+    try {
+      const transaction = await getTransactionByBlockHashAndIndex(blockHash, hexIndex);
+      transactions.push(analyzeTransaction(transaction));
+    } catch (error) {
+      console.error(`Error getting transaction at index ${i}:`, error);
+    }
+  }
+  
+  return {
+    blockHash,
+    blockNumber: parseInt(blockData.result.number, 16),
+    transactionCount,
+    transactions
+  };
+};
+
+// Usage examples
+const blockHash = "0x53e84f299e6893680383c6a53329574122a7292e5bb9397bb6a0b51b4db5957a";
+const transactionIndex = "0x0";
+
+getTransactionByBlockHashAndIndex(blockHash, transactionIndex)
+  .then(transaction => {
+    const analysis = analyzeTransaction(transaction);
+    console.log('Transaction Analysis:', analysis);
+  })
+  .catch(error => console.error('Error:', error));
+
+// Get all transactions from a specific block
+getAllTransactionsFromBlock(blockHash)
+  .then(blockData => console.log('Block Transactions:', blockData))
+  .catch(error => console.error('Error:', error));
+```
+
+## Hash-based transaction retrieval
+
+### Precise block identification
+
+**Immutable block references:**
+- Block hashes provide unique, immutable block identification
+- Useful during chain reorganizations when block numbers may change
+- Ensures retrieval from specific block versions
+- Maintains data consistency across different chain states
+
+### Index-based access
+
+**Sequential processing:**
+- Process transactions in block order using indices (0-based)
+- Iterate through all transactions in a block systematically
+- Maintain transaction execution order for analysis
+- Access specific transactions when index is known
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0","method": "eth_getTransactionByBlockHashAndIndex","params": ["0x53e84f299e6893680383c6a53329574122a7292e5bb9397bb6a0b51b4db5957a","0x0"],"id": 1}' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_getTransactionByBlockHashAndIndex` method is essential for applications that need to:
+
+* **Block transaction processing**: Process all transactions in a specific block sequentially
+* **Transaction ordering analysis**: Analyze transaction execution order within blocks
+* **Block explorers**: Display transactions in block context with proper indexing
+* **Analytics platforms**: Collect transaction data for comprehensive analysis
+* **Audit systems**: Verify transaction ordering and block composition
+* **Development tools**: Debug and analyze transaction execution within blocks
+* **Historical analysis**: Study transaction patterns in historical blocks using immutable block hashes
+* **Integration services**: Provide transaction data to external systems with precise block identification
+
+<Note>
+Transaction indices are 0-based and sequential within each block. If the specified index exceeds the number of transactions in the block, the method returns `null`. Block hashes provide immutable identification, useful during chain reorganizations.
+</Note>
