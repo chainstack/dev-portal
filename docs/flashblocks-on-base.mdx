@@ -1,0 +1,104 @@
+---
+title: "Flashblocks on Base: 200ms preconfirmations for lightning-fast UX"
+description: "Learn how Base's Flashblocks deliver 200ms transaction preconfirmations, making Base 10x faster. Available on Chainstack."
+---
+
+Flashblocks is a block builder sidecar for Optimism Stack chains. This sidecar is called Rollup-Boost. It's designed and built by [Flashbots](https://www.flashbots.net/)—the same team that originally productized MEV on Ethereum. Co-designed with Uniswap Labs and OP Labs.
+
+As Base is an L2 running on the OP stack, the Base team has implemented Flashblocks on the Base chain. Flashblocks went live on the Base Mainnet in July 2025.
+
+The Flashblocks implementation on the Base chain is two-part:
+* Sequencer side — The Rollup-Boost sidecar is installed next to the OP Stack sequencer by the Base team.
+* Node side — The Flashblocks module is implemented on the [Base fork of the Reth node](https://github.com/base/node-reth).
+
+This two-side architecture implements the following Flashblocks flow:
+* Base sequencer creates regular 2-second blocks and additionally creates sub-blocks called Flashblocks every 200ms.
+* Base sequencer streams these Flashblocks every 200ms over WebSocket to the Base Reth nodes that have the Flashblocks module enabled.
+* The sequencer-streamed Flashblocks & Flashblock states can then be retrieved by apps over the standard Base RPC endpoints & methods:
+  * `eth_getBlockByNumber` with `pending` tag
+  * `eth_getTransactionReceipt`
+  * `eth_getBalance` with `pending` tag
+  * `eth_getTransactionCount` with `pending` tag
+  * `eth_getTransactionByHash` with `pending` tag
+  * `eth_sendRawTransactionSync`
+* The transaction ordering is done at the Flashblocks level instead of the block level.
+
+Each 2-second block on the Base chain is formed after 10 different Flashblocks have been processed—each Flashblock with its own transaction ordering.
+
+## Quick Flashblock vs. full block data comparison
+
+Let's call an [eth_getBlockByNumber](/reference/base-getblockbynumber) with the `pending` tag to get the latest block data on a Flashblocks-enabled and non-Flashblocks-enabled node at the same time as [block 33228756](https://basescan.org/block/33228756) was being formed on the Base mainnet.
+
+See the results in the Chainstack Labs [base-flashblocks-transaction-latency-test](https://github.com/chainstacklabs/base-flashblocks-transaction-latency-test) repository:
+
+* `eth-get-block-by-number-pending-examples/preconfirmed-flashblock.log` — the result of running `"method":"eth_getBlockByNumber","params":["pending",true]` on a Flashblocks-enabled node as [block 33228756](https://basescan.org/block/33228756) was forming.
+* `eth-get-block-by-number-pending-examples/confirmed-block.log` — the result of running `"method":"eth_getBlockByNumber","params":["pending",true]` on a non-Flashblocks-enabled node as [block 33228756](https://basescan.org/block/33228756) was formed.
+
+You will see the key differences in the results:
+* Transaction count — 52 in the Flashblock vs. 167 in the fully formed block.
+* `stateRoot` — empty in the Flashblock vs. computed in the fully formed block. An empty `stateRoot` at this point means there's no final chain state for the block, hence "preconfirmation" in the name.
+* `blockHash` — different in the Flashblock and the fully formed block. The finalized transactions will have the hash of the fully formed block attributed to them.
+* `receiptsRoot` — different in the Flashblock and the fully formed block.
+
+A quick view:
+
+<Tabs>
+  <Tab title="Preconfirmed 200ms Flashblock">
+    ```json
+    "stateRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "receiptsRoot": "0x5f2dd9fbe32e2c22e47d84edbe6a300e75a004495191ff9f6228ce5de8f7c6f8",
+    "blockHash": "0x61792b40d824cb6e99ad07de112c823e0f86995063c00486e8dd3ef9667b40fc",
+    ```
+  </Tab>
+  <Tab title="Confirmed regular 2s block">
+    ```json
+    "stateRoot": "0x16a1375def73d111a7dcfcd39acbcdbe935acf011e645c8f37af2a05af72af71",
+    "receiptsRoot": "0x26dc0c64a01f87aecf3e112fa92c06845757dbc72b708bf783c97b425828cdb5",
+    "blockHash": "0xb09354e0fd87cd9c379c456ab41ea9b4ff1c684bea7705e19bb237f621b588f0",
+    ```
+  </Tab>
+</Tabs>
+
+## Transaction latency test tool
+
+See the Chainstack Labs [base-flashblocks-transaction-latency-test](https://github.com/chainstacklabs/base-flashblocks-transaction-latency-test) repository for the latency test tool and the comprehensive README file.
+
+## Performance expectations
+
+Flashblocks are produced at 200ms intervals, but actual confirmation times will be higher due to network latency:
+
+- Standard Base endpoint — ~2000ms (2-second block time)
+- Flashblocks-enabled endpoint — ~300-500ms (200ms Flashblock interval + network travel time)
+
+The actual confirmation time depends on:
+- Network latency to/from the Base node
+- Transaction processing time
+- Time until next Flashblock (up to 200ms)
+- Network travel time for confirmation response
+
+## Additional resources
+
+* Base documentation: [Flashblocks](https://docs.base.org/base-chain/flashblocks/apps)
+* Base blog: [We're making Base 10x faster with Flashblocks](https://blog.base.dev/accelerating-base-with-flashblocks)
+* Flashbots blog: [Introducing Rollup-Boost](https://writings.flashbots.net/introducing-rollup-boost)
+* Original spec for Rollup-Boost idea: [External Block Production](https://github.com/ethereum-optimism/design-docs/blob/main/protocol/external-block-production.md)
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Director of Developer Experience @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>
+
