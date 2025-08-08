@@ -16,97 +16,15 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 ## Parameters
 
 * `address` (string, required) — The 20-byte account address
-* `block` (string, required) — Block identifier: `"latest"`, `"earliest"`, `"pending"`, or block number in hex
+* `block` (string, required) — Block identifier: `"latest"` (only the latest block is supported on Hyperliquid)
 
 ## Returns
 
 Returns the transaction count (nonce) as a hexadecimal string.
 
 <Note>
-Use `"pending"` to include pending transactions for accurate nonce management when creating new transactions.
+On Hyperliquid, only the `"latest"` block parameter is supported for this method. The `"pending"` state is not supported on the default RPC.
 </Note>
-
-## JavaScript example
-
-```javascript
-const getTransactionCount = async (address, block = 'latest') => {
-  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_API_KEY/evm', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'eth_getTransactionCount',
-      params: [address, block],
-      id: 1
-    })
-  });
-  
-  const data = await response.json();
-  return data.result;
-};
-
-// Get current nonce for new transaction
-const getCurrentNonce = async (address) => {
-  const nonce = await getTransactionCount(address, 'pending');
-  return parseInt(nonce, 16);
-};
-
-// Usage
-const address = '0xFC1286EeddF81d6955eDAd5C8D99B8Aa32F3D2AA';
-const nonce = await getCurrentNonce(address);
-console.log('Next transaction nonce:', nonce);
-```
-
-## Transaction creation with nonce
-
-```javascript
-const createTransaction = async (from, to, value) => {
-  const nonce = await getCurrentNonce(from);
-  
-  return {
-    from: from,
-    to: to,
-    value: `0x${value.toString(16)}`,
-    nonce: `0x${nonce.toString(16)}`,
-    gas: '0x5208',
-    gasPrice: '0x3b9aca00'
-  };
-};
-
-// Create multiple transactions with sequential nonces
-const createBatchTransactions = async (from, transactions) => {
-  let nonce = await getCurrentNonce(from);
-  
-  return transactions.map(tx => ({
-    ...tx,
-    from: from,
-    nonce: `0x${(nonce++).toString(16)}`
-  }));
-};
-```
-
-## Account activity tracking
-
-```javascript
-const getAccountActivity = async (address) => {
-  const confirmedNonce = await getTransactionCount(address, 'latest');
-  const pendingNonce = await getTransactionCount(address, 'pending');
-  
-  const confirmed = parseInt(confirmedNonce, 16);
-  const pending = parseInt(pendingNonce, 16);
-  
-  return {
-    confirmedTransactions: confirmed,
-    pendingTransactions: pending - confirmed,
-    nextNonce: pending,
-    totalActivity: pending
-  };
-};
-
-// Usage
-const activity = await getAccountActivity('0xFC1286EeddF81d6955eDAd5C8D99B8Aa32F3D2AA');
-console.log('Account activity:', activity);
-```
 
 ## Use cases
 
