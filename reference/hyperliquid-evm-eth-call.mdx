@@ -1,0 +1,161 @@
+---
+title: eth_call | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_call.json post /evm
+---
+
+The `eth_call` JSON-RPC method executes a new message call immediately without creating a transaction on the blockchain. This method is essential for reading data from smart contracts, calling view functions, and retrieving blockchain state without modifying it or paying gas fees.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+The method takes two parameters:
+
+1. **Transaction call object** - Contains the call details
+2. **Block parameter** - Specifies which block state to use
+
+### Transaction call object
+
+* `to` (string, required) — The contract address to call
+* `data` (string, optional) — The hash of the method signature and encoded parameters
+* `from` (string, optional) — The address the call is made from
+* `gas` (string, optional) — Gas limit for the call execution
+* `gasPrice` (string, optional) — Gas price for the call
+* `value` (string, optional) — Value sent with the call
+
+### Block parameter
+
+* Block identifier: `"latest"` (only the latest block is supported on Hyperliquid)
+
+## Response
+
+The method returns the result of the contract call as a hexadecimal string.
+
+### Response structure
+
+**Call result:**
+- `result` — The return value of the executed contract method as a hexadecimal string
+
+### Data interpretation
+
+**Return value format:**
+- Results are returned as hexadecimal strings
+- Decode according to the contract function's return type
+- Use ABI decoding libraries for complex return types
+- Simple values like uint256 can be converted directly from hex
+
+**Common patterns:**
+- `0x` prefix indicates hexadecimal format
+- Leading zeros are included in the response
+- Empty results return `0x`
+- Failed calls may return error data
+
+## Smart contract interaction
+
+### Function calls
+
+**Method signature encoding:**
+- Function selector: First 4 bytes of keccak256 hash of function signature
+- Parameters: ABI-encoded according to Ethereum standards
+- Example: `totalSupply()` → `0x18160ddd`
+
+**Parameter encoding:**
+- Use ABI encoding for function parameters
+- Combine function selector with encoded parameters
+- Tools like web3.js, ethers.js handle encoding automatically
+
+### Common use cases
+
+**ERC-20 token calls:**
+- `totalSupply()` → `0x18160ddd`
+- `balanceOf(address)` → `0x70a08231` + encoded address
+- `allowance(address,address)` → `0xdd62ed3e` + encoded addresses
+
+**Contract state queries:**
+- Read public variables and mappings
+- Call view and pure functions
+- Check contract configuration and parameters
+- Validate contract state before transactions
+
+## Development patterns
+
+### Error handling
+
+**Call failures:**
+- Calls can fail due to reverts, out-of-gas, or invalid data
+- Check for error responses and handle appropriately
+- Use try-catch patterns for robust error handling
+- Validate contract addresses and function signatures
+
+**Gas considerations:**
+- Specify gas limit to prevent out-of-gas errors
+- Use reasonable gas limits for complex calls
+- Monitor gas usage for optimization opportunities
+- Consider gas costs for view function complexity
+
+### Optimization strategies
+
+**Batch calls:**
+- Group multiple calls to reduce network overhead
+- Use multicall contracts for efficient batch operations
+- Cache results when appropriate to reduce API calls
+- Implement intelligent caching based on latest state
+
+**State consistency:**
+- Only the latest block is supported on Hyperliquid
+- All calls are made against the current blockchain state
+- Handle potential state changes between calls
+- Implement retry logic for temporary failures
+
+## Example request
+
+This an example call with wrapped HYPE (wHYPE) on the Hyperliquid mainnet deployed at [0x5555555555555555555555555555555555555555](https://hyperevmscan.io/token/0x5555555555555555555555555555555555555555).
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_call","params":[{"to":"0x5555555555555555555555555555555555555555","data":"0x18160ddd"},"latest"],"id":1}' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_call` method is essential for applications that need to:
+
+* **Smart contract interaction**: Read data from smart contracts without modifying state
+* **Token information**: Query ERC-20/ERC-721 token balances, supplies, and metadata
+* **DeFi protocols**: Interact with DeFi contracts to read prices, liquidity, and positions
+* **Contract validation**: Validate contract state and parameters before transactions
+* **Data aggregation**: Aggregate data from multiple contracts efficiently
+* **Portfolio tracking**: Track user balances and positions across multiple contracts
+* **Price oracles**: Read price data from oracle contracts and price feeds
+* **Governance systems**: Query governance proposals, voting power, and delegation status
+* **NFT platforms**: Read NFT metadata, ownership, and marketplace information
+* **Gaming applications**: Query game state, player stats, and in-game assets
+* **Analytics platforms**: Build analytics tools that read blockchain state data
+* **Wallet applications**: Display user balances, allowances, and contract interactions
+* **Trading interfaces**: Read market data, order books, and trading parameters
+* **Lending protocols**: Query lending rates, collateral ratios, and liquidation data
+* **Staking platforms**: Read staking rewards, validator information, and delegation data
+* **Cross-chain bridges**: Verify bridge state and cross-chain transaction status
+* **Audit tools**: Analyze contract state for security audits and compliance
+* **Development tools**: Build debugging and testing tools for smart contract development
+* **Monitoring systems**: Monitor contract state changes and trigger alerts
+* **Integration services**: Integrate blockchain data with external systems and databases
+* **Educational platforms**: Create educational tools that demonstrate blockchain concepts
+* **Research tools**: Conduct blockchain research and analysis using contract data
+* **Compliance tools**: Ensure regulatory compliance by monitoring contract interactions
+* **Risk management**: Assess risks by analyzing contract state and parameters
+* **Arbitrage bots**: Identify arbitrage opportunities by reading market data from contracts
+
+This method provides fundamental smart contract interaction capabilities, enabling robust and efficient blockchain applications on the Hyperliquid EVM platform.
+
+<Note>
+On Hyperliquid, `eth_call` only supports the latest block. Historical state queries are not supported in the default RPC implementation.
+</Note>

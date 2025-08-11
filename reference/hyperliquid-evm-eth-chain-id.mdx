@@ -1,0 +1,123 @@
+---
+title: eth_chainId | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_chain_id.json post /evm
+---
+
+The `eth_chainId` JSON-RPC method returns the chain ID of the currently connected blockchain network. This method is fundamental for identifying the specific blockchain network, ensuring transaction compatibility, and implementing network-specific logic in applications.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+This method takes no parameters. The `params` field should be an empty array.
+
+## Response
+
+The method returns the chain ID as a hexadecimal string.
+
+### Response structure
+
+**Chain identification:**
+- `result` — The chain ID as a hexadecimal string (e.g., "0x3e7" which equals 999 in decimal for Hyperliquid mainnet)
+
+### Chain ID interpretation
+
+**Hexadecimal format:**
+- Chain IDs are returned in hexadecimal format with "0x" prefix
+- Convert to decimal for human-readable chain identification
+- Examples: "0x3e7" = 999 in decimal (Hyperliquid mainnet); "0x3e6" = 998 (Hyperliquid testnet)
+
+**Network identification:**
+- Each blockchain network has a unique chain ID
+- Essential for preventing replay attacks across different networks
+- Used by wallets and applications for network validation
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get Hyperliquid chain ID
+const getChainId = async () => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_chainId',
+      params: [],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  const chainId = parseInt(data.result, 16);
+  
+  return {
+    hex: data.result,
+    decimal: chainId,
+    network: chainId === 999 ? 'Hyperliquid Mainnet' : chainId === 998 ? 'Hyperliquid Testnet' : 'Unknown'
+  };
+};
+
+// Verify network connection
+const verifyNetwork = async () => {
+  const { decimal: chainId, network } = await getChainId();
+  
+  if (chainId !== 999) {
+    throw new Error(`Expected Hyperliquid Mainnet (999), got ${network} (${chainId})`);
+  }
+  
+  console.log(`Connected to ${network}`);
+  return true;
+};
+
+// Usage
+verifyNetwork()
+  .then(() => console.log('Network verified'))
+  .catch(error => console.error('Network verification failed:', error));
+```
+
+## Network identification
+
+### Hyperliquid chain IDs
+
+**Chain details:**
+- Mainnet: 999 (0x3e7 in hexadecimal)
+- Testnet: 998 (0x3e6 in hexadecimal)
+- Used for transaction signing and replay protection
+
+**Security considerations:**
+- Always verify chain ID matches expected network (998)
+- Chain ID prevents transaction replay across different networks
+- Essential for secure transaction processing on Hyperliquid
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_chainId` method is essential for applications that need to:
+
+* **Network verification**: Verify connection to Hyperliquid Mainnet (chain ID 998)
+* **Transaction security**: Ensure transactions are signed with correct chain ID for replay protection
+* **Wallet configuration**: Configure wallets to recognize and connect to Hyperliquid
+* **Application initialization**: Verify network connection during application startup
+* **Error handling**: Provide meaningful error messages for network mismatches
+* **Development tools**: Build tools that automatically detect the Hyperliquid network
+* **Multi-network applications**: Support Hyperliquid alongside other EVM networks
+* **Security validation**: Validate network before executing sensitive operations

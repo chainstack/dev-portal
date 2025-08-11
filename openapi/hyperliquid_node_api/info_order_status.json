@@ -1,0 +1,218 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Hyperliquid Node API - Order Status",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://api.hyperliquid.xyz"
+    }
+  ],
+  "paths": {
+    "/info": {
+      "post": {
+        "summary": "Query order status by oid or cloid",
+        "description": "Retrieve the current status of an order using either the order ID (oid) or client order ID (cloid). This endpoint provides detailed information about order state, execution status, and timestamps.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["type", "user", "oid"],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": ["orderStatus"],
+                    "default": "orderStatus",
+                    "description": "The request type. Must be 'orderStatus' to query order status."
+                  },
+                  "user": {
+                    "type": "string",
+                    "pattern": "^0x[a-fA-F0-9]{40}$",
+                    "default": "0x31ca8395cf837de08b24da3f660e77761dfb974b",
+                    "description": "Address in 42-character hexadecimal format; e.g. 0x0000000000000000000000000000000000000000."
+                  },
+                  "oid": {
+                    "oneOf": [
+                      {
+                        "type": "integer",
+                        "format": "int64",
+                        "description": "Order ID as a 64-bit unsigned integer"
+                      },
+                      {
+                        "type": "string",
+                        "pattern": "^[a-fA-F0-9]{32}$",
+                        "description": "Client order ID as a 16-byte hex string"
+                      }
+                    ],
+                    "default": 127244980388,
+                    "description": "Either u64 representing the order id or 16-byte hex string representing the client order id"
+                  }
+                }
+              },
+              "example": {
+                "type": "orderStatus",
+                "user": "0x31ca8395cf837de08b24da3f660e77761dfb974b",
+                "oid": 127244980388
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": ["order"],
+                          "description": "Indicates that order information is available"
+                        },
+                        "order": {
+                          "type": "object",
+                          "properties": {
+                            "order": {
+                              "type": "object",
+                              "properties": {
+                                "coin": {
+                                  "type": "string",
+                                  "description": "Asset identifier (simple names like 'BTC', 'ETH' for perpetuals; spot format like '@107' for spot trades)"
+                                },
+                                "side": {
+                                  "type": "string",
+                                  "enum": ["A", "B"],
+                                  "description": "Order side: 'A' for Ask/Sell, 'B' for Bid/Buy"
+                                },
+                                "limitPx": {
+                                  "type": "string",
+                                  "description": "Limit price as a string for precision"
+                                },
+                                "sz": {
+                                  "type": "string",
+                                  "description": "Current order size (remaining quantity)"
+                                },
+                                "oid": {
+                                  "type": "integer",
+                                  "format": "int64",
+                                  "description": "Order ID"
+                                },
+                                "timestamp": {
+                                  "type": "integer",
+                                  "format": "int64",
+                                  "description": "Order creation timestamp in milliseconds"
+                                },
+                                "triggerCondition": {
+                                  "type": "string",
+                                  "description": "Trigger condition for conditional orders"
+                                },
+                                "isTrigger": {
+                                  "type": "boolean",
+                                  "description": "Whether this is a trigger order"
+                                },
+                                "triggerPx": {
+                                  "type": "string",
+                                  "description": "Trigger price for conditional orders"
+                                },
+                                "children": {
+                                  "type": "array",
+                                  "items": {},
+                                  "description": "Child orders (for TP/SL orders)"
+                                },
+                                "isPositionTpsl": {
+                                  "type": "boolean",
+                                  "description": "Whether this is a position-level TP/SL order"
+                                },
+                                "reduceOnly": {
+                                  "type": "boolean",
+                                  "description": "Whether this is a reduce-only order"
+                                },
+                                "orderType": {
+                                  "type": "string",
+                                  "description": "Order type (e.g., 'Market', 'Limit')"
+                                },
+                                "origSz": {
+                                  "type": "string",
+                                  "description": "Original order size"
+                                },
+                                "tif": {
+                                  "type": "string",
+                                  "description": "Time in force (e.g., 'FrontendMarket', 'Gtc', 'Ioc')"
+                                },
+                                "cloid": {
+                                  "type": "string",
+                                  "nullable": true,
+                                  "description": "Client order ID if provided"
+                                }
+                              }
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "open",
+                                "filled",
+                                "canceled",
+                                "triggered",
+                                "rejected",
+                                "marginCanceled",
+                                "vaultWithdrawalCanceled",
+                                "openInterestCapCanceled",
+                                "selfTradeCanceled",
+                                "reduceOnlyCanceled",
+                                "siblingFilledCanceled",
+                                "delistedCanceled",
+                                "liquidatedCanceled",
+                                "scheduledCancel",
+                                "tickRejected",
+                                "minTradeNtlRejected",
+                                "perpMarginRejected",
+                                "reduceOnlyRejected",
+                                "badAloPxRejected",
+                                "iocCancelRejected",
+                                "badTriggerPxRejected",
+                                "marketOrderNoLiquidityRejected",
+                                "positionIncreaseAtOpenInterestCapRejected",
+                                "positionFlipAtOpenInterestCapRejected",
+                                "tooAggressiveAtOpenInterestCapRejected",
+                                "openInterestIncreaseRejected",
+                                "insufficientSpotBalanceRejected",
+                                "oracleRejected",
+                                "perpMaxPositionRejected"
+                              ],
+                              "description": "Current order status"
+                            },
+                            "statusTimestamp": {
+                              "type": "integer",
+                              "format": "int64",
+                              "description": "Timestamp when the status was last updated"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": ["unknownOid"],
+                          "description": "Indicates that the order ID was not found"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
