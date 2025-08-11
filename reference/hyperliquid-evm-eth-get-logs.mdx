@@ -128,112 +128,6 @@ The method returns an array of log objects matching the filter criteria.
 }
 ```
 
-## Usage example
-
-### Basic implementation
-
-```javascript
-// Get logs from Hyperliquid with proper constraints
-const getLogs = async (filterObject) => {
-  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'eth_getLogs',
-      params: [filterObject],
-      id: 1
-    })
-  });
-  
-  const data = await response.json();
-  return data.result;
-};
-
-// Get Transfer events from a specific contract
-const getTransferEvents = async (contractAddress, fromBlock, toBlock) => {
-  // Ensure block range doesn't exceed 50 blocks (Hyperliquid limit)
-  const startBlock = parseInt(fromBlock, 16);
-  const endBlock = parseInt(toBlock, 16);
-  
-  if (endBlock - startBlock > 50) {
-    throw new Error('Block range cannot exceed 50 blocks on Hyperliquid');
-  }
-  
-  const filter = {
-    address: contractAddress,
-    topics: [
-      "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef" // Transfer event signature
-    ],
-    fromBlock: fromBlock,
-    toBlock: toBlock
-  };
-  
-  const logs = await getLogs(filter);
-  
-  // Decode Transfer events
-  return logs.map(log => ({
-    from: "0x" + log.topics[1].slice(26), // Remove padding
-    to: "0x" + log.topics[2].slice(26),
-    value: parseInt(log.data, 16),
-    blockNumber: parseInt(log.blockNumber, 16),
-    transactionHash: log.transactionHash
-  }));
-};
-
-// Get logs with multiple topic filters (up to 4 topics on Hyperliquid)
-const getFilteredLogs = async (contractAddress, fromBlock, toBlock) => {
-  const filter = {
-    address: contractAddress,
-    topics: [
-      ["0xevent1hash", "0xevent2hash"], // Multiple event types
-      null, // Any value for second topic
-      "0xspecificvalue", // Specific value for third topic
-      null  // Any value for fourth topic (max 4 topics on Hyperliquid)
-    ],
-    fromBlock: fromBlock,
-    toBlock: toBlock
-  };
-  
-  return await getLogs(filter);
-};
-
-// Process logs in chunks to respect 50-block limit
-const processLogsInChunks = async (contractAddress, startBlock, endBlock) => {
-  const allLogs = [];
-  const chunkSize = 50; // Hyperliquid limit
-  
-  for (let i = startBlock; i <= endBlock; i += chunkSize) {
-    const chunkEnd = Math.min(i + chunkSize - 1, endBlock);
-    const fromBlockHex = "0x" + i.toString(16);
-    const toBlockHex = "0x" + chunkEnd.toString(16);
-    
-    try {
-      const logs = await getTransferEvents(contractAddress, fromBlockHex, toBlockHex);
-      allLogs.push(...logs);
-    } catch (error) {
-      console.error(`Error processing blocks ${i}-${chunkEnd}:`, error);
-    }
-  }
-  
-  return allLogs;
-};
-
-// Usage examples
-const contractAddress = "0x5555555555555555555555555555555555555555";
-
-getTransferEvents(contractAddress, "0x9d0c37", "0x9d0c42")
-  .then(transfers => console.log('Transfer Events:', transfers))
-  .catch(error => console.error('Error:', error));
-
-// Process larger range in chunks
-processLogsInChunks(contractAddress, 10291248, 10291348)
-  .then(allLogs => console.log(`Processed ${allLogs.length} events`))
-  .catch(error => console.error('Error:', error));
-```
-
 ## Hyperliquid-specific limitations
 
 ### Block range constraint
@@ -291,6 +185,8 @@ processLogsInChunks(contractAddress, 10291248, 10291348)
 ```
 
 ## Example request
+
+This an example call with wrapped HYPE (wHYPE) on the Hyperliquid mainnet deployed at [0x5555555555555555555555555555555555555555](https://hyperevmscan.io/token/0x5555555555555555555555555555555555555555).
 
 ```shell Shell
 curl -X POST \
