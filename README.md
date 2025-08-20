@@ -12,13 +12,32 @@ Since we are in the age of AI and LLMs, here are three additional ways to use th
 
 * This repository is public, so your agents can just ingest it.
 * [llms-full.txt](https://docs.chainstack.com/llms-full.txt) is automatically generated and published on every change.
-* Built-in MCP server — just run `npx @mintlify/mcp@latest add chainstack` to add the Developer Portal as a local MCP server.
+* Hosted MCP server — available at `https://docs.chainstack.com/mcp` (streamable HTTP, not SSE).
 
 Note that the Developer Portal MCP server is a docs project and is different from an [RPC node MCP server](https://ideas.chainstack.com/p/mcp-server) that we are also building.
 
 ### MCP server
 
-Built-in MCP server — just run `npx @mintlify/mcp@latest add chainstack` to add the Developer Portal as a local MCP server.
+The Chainstack Developer Portal provides a hosted MCP (Model Context Protocol) server at `https://docs.chainstack.com/mcp`.
+
+This is a **streamable HTTP** MCP server (not SSE). It provides AI models with access to search and navigate through all Chainstack documentation.
+
+#### Supported AI tools
+
+* **Claude Code**: `claude mcp add --transport http Chainstack-Developer-Portal https://docs.chainstack.com/mcp`
+* **Cursor**: Click the "Connect to Cursor" button on any docs page
+* **VS Code**: Click the "Connect to VS Code" button on any docs page  
+* **Windsurf**: Add to `~/.codeium/windsurf/mcp_config.json`:
+  ```json
+  {
+    "mcpServers": {
+      "chainstack-developer-portal": {
+        "serverUrl": "https://docs.chainstack.com/mcp"
+      }
+    }
+  }
+  ```
+* **Kiro**: Not yet supported (tracking: [kirodotdev/Kiro#23](https://github.com/kirodotdev/Kiro/issues/23))
 
 ### Contributing to the Developer Portal
 
