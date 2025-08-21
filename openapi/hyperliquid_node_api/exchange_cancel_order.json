@@ -1,0 +1,183 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Hyperliquid Exchange API",
+    "version": "1.0.0",
+    "description": "API for trading operations on Hyperliquid exchange requiring authentication. ⚠️ WARNING: These endpoints require EIP-712 signatures for authentication. The example values provided will NOT work without proper cryptographic signing. You must implement EIP-712 signing to use these endpoints successfully."
+  },
+  "servers": [
+    {
+      "url": "https://api.hyperliquid.xyz"
+    }
+  ],
+  "paths": {
+    "/exchange": {
+      "post": {
+        "tags": [
+          "hyperliquid exchange"
+        ],
+        "summary": "Cancel order",
+        "operationId": "cancelOrder",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "default": "cancel",
+                        "enum": ["cancel"],
+                        "description": "Action type for canceling orders"
+                      },
+                      "cancels": {
+                        "type": "array",
+                        "description": "Array of cancel objects",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "a": {
+                              "type": "integer",
+                              "description": "Asset index"
+                            },
+                            "o": {
+                              "type": "integer",
+                              "description": "Order ID to cancel"
+                            }
+                          },
+                          "required": ["a", "o"]
+                        }
+                      }
+                    },
+                    "required": ["type", "cancels"]
+                  },
+                  "nonce": {
+                    "type": "integer",
+                    "description": "Current timestamp in milliseconds"
+                  },
+                  "signature": {
+                    "type": "object",
+                    "description": "EIP-712 signature of the action with r, s, v components",
+                    "properties": {
+                      "r": {
+                        "type": "string",
+                        "description": "ECDSA signature r component (hex string)",
+                        "example": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+                      },
+                      "s": {
+                        "type": "string",
+                        "description": "ECDSA signature s component (hex string)",
+                        "example": "0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321"
+                      },
+                      "v": {
+                        "type": "integer",
+                        "description": "ECDSA recovery id (27 or 28)",
+                        "example": 27
+                      }
+                    },
+                    "required": ["r", "s", "v"]
+                  },
+                  "vaultAddress": {
+                    "type": "string",
+                    "description": "Address when trading on behalf of a vault or subaccount (optional)"
+                  },
+                  "expiresAfter": {
+                    "type": "integer",
+                    "description": "Timestamp in milliseconds after which the request is rejected (optional)"
+                  }
+                },
+                "required": ["action", "nonce", "signature"]
+              },
+              "example": {
+                "action": {
+                  "type": "cancel",
+                  "cancels": [
+                    {
+                      "a": 0,
+                      "o": 123456789
+                    }
+                  ]
+                },
+                "nonce": 1705234567890,
+                "signature": {
+                  "r": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+                  "s": "0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321",
+                  "v": 27
+                },
+                "vaultAddress": null
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cancellation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "description": "Request status"
+                    },
+                    "response": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string"
+                        },
+                        "data": {
+                          "type": "object",
+                          "properties": {
+                            "statuses": {
+                              "type": "array",
+                              "items": {
+                                "oneOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": ["success"]
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "error": {
+                                        "type": "string",
+                                        "description": "Error message"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "example": {
+                    "status": "ok",
+                    "response": {
+                      "type": "cancel",
+                      "data": {
+                        "statuses": ["success"]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-readme": {
+    "explorer-enabled": true,
+    "proxy-enabled": true
+  }
+}

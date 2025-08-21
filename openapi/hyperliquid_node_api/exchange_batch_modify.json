@@ -1,0 +1,326 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Hyperliquid Exchange API",
+    "version": "1.0.0",
+    "description": "API for trading operations on Hyperliquid exchange requiring authentication. ⚠️ WARNING: These endpoints require EIP-712 signatures for authentication. The example values provided will NOT work without proper cryptographic signing. You must implement EIP-712 signing to use these endpoints successfully."
+  },
+  "servers": [
+    {
+      "url": "https://api.hyperliquid.xyz"
+    }
+  ],
+  "paths": {
+    "/exchange": {
+      "post": {
+        "tags": [
+          "hyperliquid exchange"
+        ],
+        "summary": "Batch modify orders",
+        "operationId": "batchModifyOrders",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "default": "batchModify",
+                        "enum": ["batchModify"],
+                        "description": "Action type for batch modifying orders"
+                      },
+                      "modifies": {
+                        "type": "array",
+                        "description": "Array of modify objects",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "oid": {
+                              "type": "integer",
+                              "description": "Order ID to modify"
+                            },
+                            "order": {
+                              "type": "object",
+                              "description": "New order parameters",
+                              "properties": {
+                                "a": {
+                                  "type": "integer",
+                                  "description": "Asset index (use universe index for perps, 10000 + index for spot)"
+                                },
+                                "b": {
+                                  "type": "boolean",
+                                  "description": "Is buy order (true for buy/long, false for sell/short)"
+                                },
+                                "p": {
+                                  "type": "string",
+                                  "description": "Limit price (use '0' for market orders)"
+                                },
+                                "s": {
+                                  "type": "string",
+                                  "description": "Size in units of the base asset"
+                                },
+                                "r": {
+                                  "type": "boolean",
+                                  "description": "Reduce only order"
+                                },
+                                "t": {
+                                  "type": "object",
+                                  "description": "Order type specification",
+                                  "oneOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "limit": {
+                                          "type": "object",
+                                          "properties": {
+                                            "tif": {
+                                              "type": "string",
+                                              "enum": ["Alo", "Ioc", "Gtc"],
+                                              "description": "Time in force: Alo (add liquidity only), Ioc (immediate or cancel), Gtc (good til canceled)"
+                                            }
+                                          },
+                                          "required": ["tif"]
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "trigger": {
+                                          "type": "object",
+                                          "properties": {
+                                            "isMarket": {
+                                              "type": "boolean",
+                                              "description": "Whether to place market order when triggered"
+                                            },
+                                            "triggerPx": {
+                                              "type": "string",
+                                              "description": "Price at which to trigger the order"
+                                            },
+                                            "tpsl": {
+                                              "type": "string",
+                                              "enum": ["tp", "sl"],
+                                              "description": "Take profit (tp) or stop loss (sl)"
+                                            }
+                                          },
+                                          "required": ["isMarket", "triggerPx", "tpsl"]
+                                        }
+                                      }
+                                    }
+                                  ]
+                                },
+                                "c": {
+                                  "type": "string",
+                                  "description": "Client order ID (128-bit hex string, optional)"
+                                }
+                              },
+                              "required": ["a", "b", "p", "s", "r", "t"]
+                            }
+                          },
+                          "required": ["oid", "order"]
+                        }
+                      }
+                    },
+                    "required": ["type", "modifies"]
+                  },
+                  "nonce": {
+                    "type": "integer",
+                    "description": "Current timestamp in milliseconds"
+                  },
+                  "signature": {
+                    "type": "object",
+                    "description": "EIP-712 signature of the action with r, s, v components",
+                    "properties": {
+                      "r": {
+                        "type": "string",
+                        "description": "ECDSA signature r component (hex string)",
+                        "example": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+                      },
+                      "s": {
+                        "type": "string",
+                        "description": "ECDSA signature s component (hex string)",
+                        "example": "0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321"
+                      },
+                      "v": {
+                        "type": "integer",
+                        "description": "ECDSA recovery id (27 or 28)",
+                        "example": 27
+                      }
+                    },
+                    "required": ["r", "s", "v"]
+                  },
+                  "vaultAddress": {
+                    "type": "string",
+                    "description": "Address when trading on behalf of a vault or subaccount (optional)"
+                  },
+                  "expiresAfter": {
+                    "type": "integer",
+                    "description": "Timestamp in milliseconds after which the request is rejected (optional)"
+                  }
+                },
+                "required": ["action", "nonce", "signature"]
+              },
+              "example": {
+                "action": {
+                  "type": "batchModify",
+                  "modifies": [
+                    {
+                      "oid": 123456789,
+                      "order": {
+                        "a": 0,
+                        "b": true,
+                        "p": "27.5",
+                        "s": "1.0",
+                        "r": false,
+                        "t": {
+                          "limit": {
+                            "tif": "Gtc"
+                          }
+                        },
+                        "c": "0x1234567890abcdef1234567890abcdef"
+                      }
+                    },
+                    {
+                      "oid": 123456790,
+                      "order": {
+                        "a": 0,
+                        "b": false,
+                        "p": "28.0",
+                        "s": "0.5",
+                        "r": false,
+                        "t": {
+                          "limit": {
+                            "tif": "Gtc"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                "nonce": 1705234567890,
+                "signature": {
+                  "r": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+                  "s": "0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321",
+                  "v": 27
+                },
+                "vaultAddress": null
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Batch modification result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "description": "Request status"
+                    },
+                    "response": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string"
+                        },
+                        "data": {
+                          "type": "object",
+                          "properties": {
+                            "statuses": {
+                              "type": "array",
+                              "items": {
+                                "oneOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "resting": {
+                                        "type": "object",
+                                        "properties": {
+                                          "oid": {
+                                            "type": "integer",
+                                            "description": "Order ID"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "filled": {
+                                        "type": "object",
+                                        "properties": {
+                                          "totalSz": {
+                                            "type": "string",
+                                            "description": "Total size filled"
+                                          },
+                                          "avgPx": {
+                                            "type": "string",
+                                            "description": "Average fill price"
+                                          },
+                                          "oid": {
+                                            "type": "integer",
+                                            "description": "Order ID"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "error": {
+                                        "type": "string",
+                                        "description": "Error message"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "example": {
+                    "status": "ok",
+                    "response": {
+                      "type": "batchModify",
+                      "data": {
+                        "statuses": [
+                          {
+                            "resting": {
+                              "oid": 77738310
+                            }
+                          },
+                          {
+                            "resting": {
+                              "oid": 77738311
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-readme": {
+    "explorer-enabled": true,
+    "proxy-enabled": true
+  }
+}

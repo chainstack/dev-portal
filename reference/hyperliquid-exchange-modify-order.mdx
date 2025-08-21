@@ -1,0 +1,125 @@
+---
+title: Modify order | Hyperliquid exchange
+openapi: /openapi/hyperliquid_node_api/exchange_modify_order.json post /exchange
+---
+
+<Note>
+This endpoint requires signature authentication. See our comprehensive [Authentication via Signatures guide](/docs/hyperliquid-authentication-guide) for implementation details.
+</Note>
+
+Modifies an existing order on the Hyperliquid exchange. You can change the price, size, and other parameters without canceling and replacing the order.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Required parameters
+
+* `action` (object, required) — The modify action object containing:
+  * `type` (string) — Must be `"modify"`
+  * `oid` (number or string) — Order ID to modify, or cloid if using client order ID
+  * `order` (object) — New order parameters:
+    * `a` (number) — Asset index
+    * `b` (boolean) — Is buy order (true for buy/long, false for sell/short)
+    * `p` (string) — New limit price
+    * `s` (string) — New size in units of the base asset
+    * `r` (boolean) — Reduce only order
+    * `t` (object) — Order type specification:
+      * For limit orders: `{"limit": {"tif": "Alo" | "Ioc" | "Gtc"}}`
+      * For trigger orders: `{"trigger": {"isMarket": boolean, "triggerPx": string, "tpsl": "tp" | "sl"}}`
+    * `c` (string, optional) — New client order ID (128-bit hex string)
+
+* `nonce` (number, required) — Current timestamp in milliseconds (must be recent)
+* `signature` (object, required) — EIP-712 signature of the action
+
+### Optional parameters
+
+* `vaultAddress` (string, optional) — Address when trading on behalf of a vault or subaccount
+* `expiresAfter` (number, optional) — Timestamp in milliseconds after which the request is rejected
+
+## Returns
+
+Returns an object with modification status:
+
+* `status` — `"ok"` if request processed
+* `response` — Contains modification details:
+  * `type` — `"modify"`
+  * `data` — Modification result information
+
+## Example request
+
+<CodeGroup>
+
+```shell cURL
+curl -X POST https://api.hyperliquid.xyz/exchange \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {
+      "type": "modify",
+      "oid": 77738308,
+      "order": {
+        "a": 0,
+        "b": true,
+        "p": "51000",
+        "s": "0.02",
+        "r": false,
+        "t": {"limit": {"tif": "Gtc"}}
+      }
+    },
+    "nonce": 1234567890123,
+    "signature": {...}
+  }'
+```
+
+```python Python
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+import eth_account
+
+# Initialize with your private key
+account = eth_account.Account.from_key("0x...")
+exchange = Exchange(account, constants.MAINNET_API_URL)
+
+# Modify an existing order
+modify_result = exchange.modify_order(
+    oid=77738308,
+    coin="BTC",
+    is_buy=True,
+    sz=0.02,
+    limit_px=51000,
+    order_type={"limit": {"tif": "Gtc"}},
+    reduce_only=False
+)
+
+print(modify_result)
+```
+
+</CodeGroup>
+
+## Modification behavior
+
+* **Priority preservation** — Modifying only the size preserves queue priority
+* **Price changes** — Changing the price moves the order to the back of the queue
+* **Partial fills** — Can modify partially filled orders (remaining size only)
+* **Order types** — Can change between different order types
+
+## Use cases
+
+* **Price adjustment** — Update limit price based on market movements
+* **Size scaling** — Increase or decrease order size
+* **Strategy updates** — Adjust orders without losing position in queue
+* **Risk management** — Convert orders to reduce-only
+
+<Note>
+Modifying an order is more efficient than cancel-and-replace, especially when only changing the size, as it can preserve your position in the order queue.
+</Note>
+
+<Warning>
+Some modifications may cause loss of queue priority. Price changes always move the order to the back of the queue at the new price level.
+</Warning>

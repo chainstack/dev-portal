@@ -1,0 +1,151 @@
+---
+title: Spot ↔ Perp transfer | Hyperliquid exchange
+openapi: /openapi/hyperliquid_node_api/exchange_spot_perp_transfer.json post /exchange
+---
+
+<Note>
+This endpoint requires signature authentication. See our comprehensive [Authentication via Signatures guide](/docs/hyperliquid-authentication-guide) for implementation details.
+</Note>
+
+Transfers USDC between your spot wallet and perpetual wallet on Hyperliquid. This allows you to move collateral between different trading modes without withdrawing from the platform.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Required parameters
+
+* `action` (object, required) — The transfer action object containing:
+  * `type` (string) — Must be `"spotUser"`
+  * `classTransfer` (object) — Transfer details:
+    * `usdc` (number) — Amount to transfer in USDC with 6 decimals (e.g., 100000000 = 100 USDC)
+    * `toPerp` (boolean) — Direction of transfer:
+      * `true` — Transfer from spot to perp
+      * `false` — Transfer from perp to spot
+
+* `nonce` (number, required) — Current timestamp in milliseconds (must be recent)
+* `signature` (object, required) — EIP-712 signature of the action
+
+### Optional parameters
+
+* `vaultAddress` (string, optional) — Address when trading on behalf of a vault or subaccount
+* `expiresAfter` (number, optional) — Timestamp in milliseconds after which the request is rejected
+
+## Transfer direction
+
+* **Spot → Perp** (`toPerp: true`)
+  * Moves USDC from spot wallet to perpetual trading account
+  * Required for perpetual trading and margin
+
+* **Perp → Spot** (`toPerp: false`)
+  * Moves USDC from perpetual account to spot wallet
+  * Required for spot trading or token purchases
+
+## Returns
+
+Returns an object with transfer status:
+
+* `status` — `"ok"` if successful
+* `response` — Contains transfer details:
+  * `type` — `"default"`
+
+## Example request
+
+<CodeGroup>
+
+```shell cURL
+# Transfer 100 USDC from spot to perp
+curl -X POST https://api.hyperliquid.xyz/exchange \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {
+      "type": "spotUser",
+      "classTransfer": {
+        "usdc": 100000000,
+        "toPerp": true
+      }
+    },
+    "nonce": 1234567890123,
+    "signature": {...}
+  }'
+
+# Transfer 50 USDC from perp to spot
+curl -X POST https://api.hyperliquid.xyz/exchange \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {
+      "type": "spotUser",
+      "classTransfer": {
+        "usdc": 50000000,
+        "toPerp": false
+      }
+    },
+    "nonce": 1234567890123,
+    "signature": {...}
+  }'
+```
+
+```python Python
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+import eth_account
+
+# Initialize with your private key
+account = eth_account.Account.from_key("0x...")
+exchange = Exchange(account, constants.MAINNET_API_URL)
+
+# Transfer 100 USDC from spot to perp
+to_perp = exchange.spot_perp_transfer(
+    amount=100.0,
+    to_perp=True
+)
+
+# Transfer 50 USDC from perp to spot
+to_spot = exchange.spot_perp_transfer(
+    amount=50.0,
+    to_perp=False
+)
+
+print(to_perp)
+```
+
+</CodeGroup>
+
+## Response example
+
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "default"
+  }
+}
+```
+
+## Important considerations
+
+* **Balance requirements** — Must have sufficient balance in the source wallet
+* **Instant transfer** — Transfers are immediate within Hyperliquid
+* **No fees** — Internal transfers between spot and perp are free
+* **Position checks** — Cannot transfer from perp if it would cause liquidation
+
+## Use cases
+
+* **Trading mode switch** — Move funds between spot and perpetual trading
+* **Capital allocation** — Optimize fund distribution across trading strategies
+* **Risk management** — Move profits from perp to spot for safer storage
+* **Liquidity management** — Quickly reallocate capital based on opportunities
+
+<Note>
+USDC in the spot wallet can be used for spot trading and token purchases. USDC in the perp wallet is used as collateral for perpetual positions.
+</Note>
+
+<Warning>
+When transferring from perp to spot, ensure you maintain sufficient margin for any open perpetual positions to avoid liquidation.
+</Warning>

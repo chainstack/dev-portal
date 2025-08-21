@@ -1,0 +1,157 @@
+---
+title: Spot token transfer | Hyperliquid exchange
+openapi: /openapi/hyperliquid_node_api/exchange_spot_send.json post /exchange
+---
+
+<Note>
+This endpoint requires signature authentication. See our comprehensive [Authentication via Signatures guide](/docs/hyperliquid-authentication-guide) for implementation details.
+</Note>
+
+Transfers spot tokens directly to another address on the Hyperliquid chain. This is an internal transfer that doesn't interact with the EVM bridge and uses a human-readable signature format for wallet interfaces.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Required parameters
+
+* `action` (object, required) — The spot send action object containing:
+  * `type` (string) — Must be `"spotSend"`
+  * `hyperliquidChain` (string) — `"Mainnet"` for mainnet, `"Testnet"` for testnet
+  * `signatureChainId` (string) — Chain ID used for signing in hex format (e.g., `"0xa4b1"` for Arbitrum)
+  * `destination` (string) — Recipient address in 42-character hexadecimal format
+  * `token` (string) — Token identifier in format `"TOKEN_NAME:TOKEN_ID"` (e.g., `"PURR:0xc1fb593aeffbeb02f85e0308e9956a90"`)
+  * `amount` (string) — Amount of tokens to send (e.g., `"100.5"`)
+  * `time` (number) — Current timestamp in milliseconds (must match nonce)
+
+* `nonce` (number, required) — Current timestamp in milliseconds (must match action.time)
+* `signature` (object, required) — EIP-712 signature of the action
+
+## Token format
+
+The token parameter must include both the token name and its ID:
+* Format: `"TOKEN_NAME:TOKEN_ID"`
+* Example: `"PURR:0xc1fb593aeffbeb02f85e0308e9956a90"`
+* The token ID can be found in the spot metadata response
+
+## Signature format
+
+This endpoint uses EIP-712 typed data signing with a human-readable format:
+
+```json
+{
+  "types": {
+    "HyperliquidTransaction:SpotSend": [
+      {"name": "hyperliquidChain", "type": "string"},
+      {"name": "destination", "type": "string"},
+      {"name": "token", "type": "string"},
+      {"name": "amount", "type": "string"},
+      {"name": "time", "type": "uint64"}
+    ]
+  },
+  "primaryType": "HyperliquidTransaction:SpotSend",
+  "domain": {
+    "name": "HyperliquidSignTransaction",
+    "version": "1",
+    "chainId": 42161,
+    "verifyingContract": "0x0000000000000000000000000000000000000000"
+  },
+  "message": {
+    "hyperliquidChain": "Mainnet",
+    "destination": "0x...",
+    "token": "PURR:0xc1fb593aeffbeb02f85e0308e9956a90",
+    "amount": "100.0",
+    "time": 1234567890123
+  }
+}
+```
+
+## Returns
+
+Returns an object with transfer status:
+
+* `status` — `"ok"` if successful
+* `response` — Contains transfer details:
+  * `type` — `"default"`
+
+## Example request
+
+<CodeGroup>
+
+```shell cURL
+curl -X POST https://api.hyperliquid.xyz/exchange \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {
+      "type": "spotSend",
+      "hyperliquidChain": "Mainnet",
+      "signatureChainId": "0xa4b1",
+      "destination": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0",
+      "token": "PURR:0xc1fb593aeffbeb02f85e0308e9956a90",
+      "amount": "100.0",
+      "time": 1234567890123
+    },
+    "nonce": 1234567890123,
+    "signature": {...}
+  }'
+```
+
+```python Python
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+import eth_account
+
+# Initialize with your private key
+account = eth_account.Account.from_key("0x...")
+exchange = Exchange(account, constants.MAINNET_API_URL)
+
+# Send 100 PURR tokens to another address
+transfer_result = exchange.spot_transfer(
+    destination="0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0",
+    token="PURR",
+    amount=100.0
+)
+
+print(transfer_result)
+```
+
+</CodeGroup>
+
+## Response example
+
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "default"
+  }
+}
+```
+
+## Important notes
+
+* **Spot tokens only** — This endpoint is for spot tokens, not perpetual positions
+* **Token balance required** — Must have sufficient token balance
+* **Internal transfers only** — Doesn't interact with external bridges
+* **Instant settlement** — Transfers are immediate within Hyperliquid
+
+## Use cases
+
+* **Token distribution** — Send tokens to multiple recipients
+* **P2P transfers** — Direct token transfers between users
+* **Vault operations** — Move tokens to/from vault addresses
+* **Airdrops** — Programmatic token distribution
+
+<Note>
+You need to know the token ID for the transfer. This can be obtained from the spot metadata endpoint or by checking existing token balances.
+</Note>
+
+<Warning>
+Always verify both the destination address and token ID. Transfers are irreversible once confirmed on the Hyperliquid chain.
+</Warning>

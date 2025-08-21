@@ -1,0 +1,145 @@
+---
+title: USDC transfer | Hyperliquid exchange
+openapi: /openapi/hyperliquid_node_api/exchange_usd_send.json post /exchange
+---
+
+<Note>
+This endpoint requires signature authentication. See our comprehensive [Authentication via Signatures guide](/docs/hyperliquid-authentication-guide) for implementation details.
+</Note>
+
+Transfers USDC directly to another address on the Hyperliquid chain. This is an internal transfer that doesn't interact with the EVM bridge and uses a human-readable signature format for wallet interfaces.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Required parameters
+
+* `action` (object, required) — The USD send action object containing:
+  * `type` (string) — Must be `"usdSend"`
+  * `hyperliquidChain` (string) — `"Mainnet"` for mainnet, `"Testnet"` for testnet
+  * `signatureChainId` (string) — Chain ID used for signing in hex format (e.g., `"0xa4b1"` for Arbitrum)
+  * `destination` (string) — Recipient address in 42-character hexadecimal format
+  * `amount` (string) — Amount of USDC to send (e.g., `"100.5"` for 100.5 USDC)
+  * `time` (number) — Current timestamp in milliseconds (must match nonce)
+
+* `nonce` (number, required) — Current timestamp in milliseconds (must match action.time)
+* `signature` (object, required) — EIP-712 signature of the action
+
+## Signature format
+
+This endpoint uses EIP-712 typed data signing with a human-readable format:
+
+```json
+{
+  "types": {
+    "HyperliquidTransaction:UsdSend": [
+      {"name": "hyperliquidChain", "type": "string"},
+      {"name": "destination", "type": "string"},
+      {"name": "amount", "type": "string"},
+      {"name": "time", "type": "uint64"}
+    ]
+  },
+  "primaryType": "HyperliquidTransaction:UsdSend",
+  "domain": {
+    "name": "HyperliquidSignTransaction",
+    "version": "1",
+    "chainId": 42161,
+    "verifyingContract": "0x0000000000000000000000000000000000000000"
+  },
+  "message": {
+    "hyperliquidChain": "Mainnet",
+    "destination": "0x...",
+    "amount": "100.5",
+    "time": 1234567890123
+  }
+}
+```
+
+## Returns
+
+Returns an object with transfer status:
+
+* `status` — `"ok"` if successful
+* `response` — Contains transfer details:
+  * `type` — `"default"`
+
+## Example request
+
+<CodeGroup>
+
+```shell cURL
+curl -X POST https://api.hyperliquid.xyz/exchange \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {
+      "type": "usdSend",
+      "hyperliquidChain": "Mainnet",
+      "signatureChainId": "0xa4b1",
+      "destination": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0",
+      "amount": "100.5",
+      "time": 1234567890123
+    },
+    "nonce": 1234567890123,
+    "signature": {...}
+  }'
+```
+
+```python Python
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+import eth_account
+
+# Initialize with your private key
+account = eth_account.Account.from_key("0x...")
+exchange = Exchange(account, constants.MAINNET_API_URL)
+
+# Send 100.5 USDC to another address
+transfer_result = exchange.usd_transfer(
+    destination="0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0",
+    amount=100.5
+)
+
+print(transfer_result)
+```
+
+</CodeGroup>
+
+## Response example
+
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "default"
+  }
+}
+```
+
+## Important notes
+
+* **Internal transfers only** — This doesn't interact with external bridges
+* **Instant settlement** — Transfers are immediate within Hyperliquid
+* **No gas fees** — Internal transfers don't require gas
+* **Decimal precision** — Amount is a string to preserve decimal precision
+
+## Use cases
+
+* **P2P transfers** — Send USDC directly to other users
+* **Account funding** — Transfer between your own accounts
+* **Payment processing** — Programmatic USDC payments
+* **Vault operations** — Transfer funds to/from vault addresses
+
+<Note>
+The `time` parameter in the action must exactly match the `nonce` parameter. This ensures signature uniqueness and prevents replay attacks.
+</Note>
+
+<Warning>
+Always verify the destination address. Transfers are irreversible once confirmed on the Hyperliquid chain.
+</Warning>

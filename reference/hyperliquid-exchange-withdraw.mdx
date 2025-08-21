@@ -1,0 +1,153 @@
+---
+title: Withdraw USDC | Hyperliquid exchange
+openapi: /openapi/hyperliquid_node_api/exchange_withdraw.json post /exchange
+---
+
+<Note>
+This endpoint requires signature authentication. See our comprehensive [Authentication via Signatures guide](/docs/hyperliquid-authentication-guide) for implementation details.
+</Note>
+
+Initiates a USDC withdrawal from Hyperliquid to Arbitrum. After making this request, L1 validators sign and send the withdrawal to the bridge contract. Withdrawals typically complete in approximately 5 minutes.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Required parameters
+
+* `action` (object, required) — The withdrawal action object containing:
+  * `type` (string) — Must be `"withdraw3"`
+  * `hyperliquidChain` (string) — `"Mainnet"` for mainnet, `"Testnet"` for testnet
+  * `signatureChainId` (string) — Chain ID used for signing in hex format (e.g., `"0xa4b1"` for Arbitrum)
+  * `destination` (string) — Arbitrum destination address in 42-character hexadecimal format
+  * `amount` (string) — Amount of USDC to withdraw (e.g., `"100.5"` for 100.5 USDC)
+  * `time` (number) — Current timestamp in milliseconds (must match nonce)
+
+* `nonce` (number, required) — Current timestamp in milliseconds (must match action.time)
+* `signature` (object, required) — EIP-712 signature of the action
+
+## Withdrawal details
+
+* **Fee** — $1 USDC withdrawal fee
+* **Processing time** — Approximately 5 minutes
+* **Destination** — Withdrawals go to Arbitrum network
+* **Minimum amount** — Must be greater than the withdrawal fee
+
+## Signature format
+
+This endpoint uses EIP-712 typed data signing:
+
+```json
+{
+  "types": {
+    "HyperliquidTransaction:Withdraw": [
+      {"name": "hyperliquidChain", "type": "string"},
+      {"name": "destination", "type": "string"},
+      {"name": "amount", "type": "string"},
+      {"name": "time", "type": "uint64"}
+    ]
+  },
+  "primaryType": "HyperliquidTransaction:Withdraw",
+  "domain": {
+    "name": "HyperliquidSignTransaction",
+    "version": "1",
+    "chainId": 42161,
+    "verifyingContract": "0x0000000000000000000000000000000000000000"
+  },
+  "message": {
+    "hyperliquidChain": "Mainnet",
+    "destination": "0x...",
+    "amount": "100.5",
+    "time": 1234567890123
+  }
+}
+```
+
+## Returns
+
+Returns an object with withdrawal initiation status:
+
+* `status` — `"ok"` if withdrawal initiated
+* `response` — Contains withdrawal details:
+  * `type` — `"default"`
+
+## Example request
+
+<CodeGroup>
+
+```shell cURL
+curl -X POST https://api.hyperliquid.xyz/exchange \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {
+      "type": "withdraw3",
+      "hyperliquidChain": "Mainnet",
+      "signatureChainId": "0xa4b1",
+      "destination": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0",
+      "amount": "100.5",
+      "time": 1234567890123
+    },
+    "nonce": 1234567890123,
+    "signature": {...}
+  }'
+```
+
+```python Python
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+import eth_account
+
+# Initialize with your private key
+account = eth_account.Account.from_key("0x...")
+exchange = Exchange(account, constants.MAINNET_API_URL)
+
+# Withdraw 100.5 USDC to Arbitrum
+withdrawal_result = exchange.withdraw_usdc(
+    destination="0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0",
+    amount=100.5
+)
+
+print(withdrawal_result)
+```
+
+</CodeGroup>
+
+## Response example
+
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "default"
+  }
+}
+```
+
+## Withdrawal process
+
+1. **Initiation** — Request sent to Hyperliquid
+2. **Validation** — System validates balance and parameters
+3. **Signing** — L1 validators sign the withdrawal
+4. **Bridge interaction** — Withdrawal sent to Arbitrum bridge contract
+5. **Completion** — USDC arrives in Arbitrum wallet (~5 minutes)
+
+## Use cases
+
+* **Profit taking** — Withdraw trading profits to Arbitrum
+* **Bridge to other chains** — Move funds to Arbitrum for further bridging
+* **Risk management** — Reduce exposure by moving funds off-platform
+* **Treasury management** — Regular withdrawal schedules
+
+<Note>
+Ensure you have enough USDC to cover both the withdrawal amount and the $1 fee. The fee is deducted from your Hyperliquid balance, not from the withdrawal amount.
+</Note>
+
+<Warning>
+Withdrawals are irreversible once initiated. Always verify the destination address on Arbitrum. The address must be a valid Arbitrum address that can receive USDC.
+</Warning>

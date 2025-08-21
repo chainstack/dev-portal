@@ -1,0 +1,268 @@
+---
+title: "Hyperliquid: Authentication via signatures overview"
+description: "Learn how to authenticate with Hyperliquid through two distinct signing mechanisms. This guide covers L1 actions with phantom agents and user-signed actions for administrative operations."
+---
+
+## Overview
+
+Hyperliquid uses two distinct signing mechanisms with different chain IDs and purposes:
+
+| Type | Chain ID | Domain | Purpose |
+|------|----------|--------|---------|  
+| **L1 Actions** | 1337 | "Exchange" | Trading operations: order, cancel, cancelByCloid, modify, batchModify, scheduleCancel, updateLeverage, updateIsolatedMargin, vaultTransfer, subAccountTransfer |
+| **User-Signed** | 0x66eee | "HyperliquidSignTransaction" | Administrative operations: approveAgent, usdSend, spotSend, usdClassTransfer, withdraw, approveBuilderFee, tokenDelegate |
+
+Unlike info endpoints that can be queried without authentication, exchange endpoints require cryptographic signatures to ensure security and prevent unauthorized access.
+
+<Note>
+See also the [Hyperliquid API reference](/reference/hyperliquid-getting-started).
+</Note>
+
+<Warning>
+Exchange endpoints will not work without proper signatures. The Hyperliquid Python SDK v0.18.0+ handles signing complexity internally.
+</Warning>
+
+## Types of signatures
+
+### 1. L1 Action signatures (Trading operations)
+
+L1 actions use a **phantom agent** construction - a temporary signing identity created from your action's hash:
+- **Chain ID**: 1337 (NOT Arbitrum's 42161)
+- **Domain**: "Exchange"
+- **Serialization**: Msgpack binary format
+- **Implementation guide**: [L1 Action signing guide](/docs/hyperliquid-l1-action-signing)
+
+### 2. User-Signed actions (Administrative operations)
+
+User-signed actions use direct EIP-712 signing without phantom agent abstraction:
+- **Chain ID**: 0x66eee (421614 in decimal)
+- **Domain**: "HyperliquidSignTransaction"
+- **Serialization**: Direct JSON structure
+- **Implementation guide**: [User-signed actions guide](/docs/hyperliquid-user-signed-actions)
+
+## Key concepts
+
+### Phantom Agent
+A cryptographic construct (not a real wallet) used for L1 actions:
+1. Action serialized with msgpack
+2. Nonce and vault address appended
+3. Data hashed with keccak256
+4. Temporary "agent" object created with hash as connectionId
+5. This phantom agent is signed via EIP-712
+
+### Agent Wallet
+A separate keypair authorized to sign L1 actions on behalf of your account:
+- **Stateless**: No funds or positions
+- **Nonce isolation**: Independent nonce tracking
+- **Limited scope**: Can only sign L1 actions, not transfers
+- **Approved via**: User-signed action (approveAgent)
+
+### Signature components
+
+Every signature consists of three components:
+
+```json
+{
+  "r": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+  "s": "0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321", 
+  "v": 27
+}
+```
+
+- **r** — First 32 bytes of the ECDSA signature
+- **s** — Second 32 bytes of the ECDSA signature
+- **v** — Recovery ID (27 or 28) used to recover the public key
+
+## Architecture
+
+```
+L1 Actions → Phantom Agent → ChainId 1337
+                ↑
+           Agent Wallet (approved via user-signed)
+                ↑
+User-Signed → Direct EIP-712 → ChainId 0x66eee
+```
+
+## Authentication flow
+
+<Steps>
+  <Step title="Choose signing mechanism">
+    Determine if you need L1 actions (trading) or user-signed actions (admin/transfers)
+  </Step>
+  <Step title="Prepare the action">
+    Create the action object with operation details
+  </Step>
+  <Step title="Add timestamp">
+    Use current timestamp in milliseconds as nonce
+  </Step>
+  <Step title="Sign appropriately">
+    L1 actions: Use phantom agent construction
+    User-signed: Use direct EIP-712 signing
+  </Step>
+  <Step title="Send the request">
+    Include signature, action, and nonce in request body
+  </Step>
+</Steps>
+
+## Complete list of supported actions
+
+### L1 Actions (Chain ID: 1337)
+These actions use phantom agent construction with msgpack serialization.
+
+| Action | Description | Category |
+|--------|-------------|----------|
+| `order` | Place new orders | Trading |
+| `cancel` | Cancel orders by order ID | Trading |
+| `cancelByCloid` | Cancel orders by client order ID | Trading |
+| `modify` | Modify existing orders | Trading |
+| `batchModify` | Modify multiple orders at once | Trading |
+| `scheduleCancel` | Schedule order cancellation | Trading |
+| `updateLeverage` | Adjust leverage for positions | Position Management |
+| `updateIsolatedMargin` | Manage isolated margin | Position Management |
+| `vaultTransfer` | Transfer between vault accounts | Internal Transfers |
+| `subAccountTransfer` | Transfer between sub-accounts | Internal Transfers |
+| `noop` | No operation (for testing signatures) | Utility |
+
+<Note>
+For implementation details and code examples, see the [L1 Action signing guide](/docs/hyperliquid-l1-action-signing).
+</Note>
+
+### User-Signed Actions (Chain ID: 0x66eee)
+These actions use direct EIP-712 signing with JSON structure.
+
+| Action | Description | Category |
+|--------|-------------|----------|
+| `approveAgent` | Authorize an agent wallet to trade on your behalf | Agent Management |
+| `usdSend` | Transfer USDC between accounts | Fund Transfers |
+| `spotSend` | Transfer spot tokens | Fund Transfers |
+| `usdClassTransfer` | Transfer between USD classes | Fund Transfers |
+| `withdraw` | Withdraw funds to Layer 1 | Withdrawals |
+| `approveBuilderFee` | Approve builder fee structures | Advanced |
+| `tokenDelegate` | Delegate token voting rights | Advanced |
+
+<Note>
+For implementation details and code examples, see the [User-signed actions guide](/docs/hyperliquid-user-signed-actions).
+</Note>
+
+## Common issues and solutions
+
+### Wrong chain ID
+
+**Error**: Signature verification failed  
+**Cause**: Using incorrect chain ID (especially using Arbitrum's 42161)  
+**Solution**: 
+- L1 actions: Use Chain ID **1337** (NOT 42161)
+- User-signed: Use Chain ID **0x66eee** (421614 in decimal)
+
+### Invalid nonce
+
+**Error**: Invalid or expired nonce  
+**Cause**: Nonce is too old, in the future, or not in milliseconds  
+**Solution**: Use current timestamp in milliseconds: `get_timestamp_ms()` or `Date.now()`
+
+### Signature type mismatch
+
+**Error**: Unauthorized or invalid signature  
+**Cause**: Mixing up signing mechanisms or serialization  
+**Solution**: 
+- L1 actions: Use phantom agent with msgpack serialization
+- User-signed: Use direct EIP-712 with JSON structure
+
+### Agent issues
+
+**Error**: Agent not approved / Agent already exists  
+**Cause**: Using unapproved agent or duplicate agent name  
+**Solution**: 
+- Approve agent first with `exchange.approve_agent()` 
+- Use unique agent names for each bot/integration
+
+### Invalid action format
+
+**Error**: Failed to deserialize / Invalid action  
+**Cause**: Missing required fields or wrong structure  
+**Solution**: Ensure action payloads include all required fields (e.g., `grouping` for orders)
+
+## Best practices
+
+<Check>
+**DO**
+- Use the official SDK when possible for automatic signature handling
+- Keep your private keys secure and never expose them in code
+- Use environment variables or secure key management systems
+- Implement proper error handling for signature failures
+- Test with small amounts on mainnet or use testnet first
+</Check>
+
+<Warning>
+**DON'T**
+- Share your private keys or commit them to version control
+- Reuse nonces across different requests
+- Use placeholder signatures in production
+- Skip signature validation in your implementation
+</Warning>
+
+## Official SDKs
+
+<Note>
+The official SDKs handle all signing complexity internally, including phantom agent construction and EIP-712 formatting.
+</Note>
+
+### Python SDK
+- **Repository**: [hyperliquid-python-sdk](https://github.com/hyperliquid-dex/hyperliquid-python-sdk)
+- **Version**: v0.18.0+ required
+- **Features**: 
+  - Automatic phantom agent construction for L1 actions
+  - Built-in wrapper functions for all user-signed actions
+  - Support for both mainnet and testnet
+
+### Rust SDK
+- **Repository**: [hyperliquid-rust-sdk](https://github.com/hyperliquid-dex/hyperliquid-rust-sdk)
+- **Features**:
+  - Full L1 action support
+  - User-signed action support
+  - High-performance implementation
+
+### Installation
+
+**Python:**
+```bash
+pip install hyperliquid-python-sdk
+```
+
+**Rust:**
+```toml
+[dependencies]
+hyperliquid-rust-sdk = "0.3"
+```
+
+## Testing your implementation
+
+1. **Start with testnet**: Use `https://api.hyperliquid-testnet.xyz` for testing
+2. **Verify signatures locally**: Ensure your signatures are properly formatted before sending
+3. **Use small amounts**: Test with minimal amounts when moving to mainnet
+4. **Monitor rate limits**: Respect API rate limits to avoid being blocked
+
+## Implementation guides
+
+<CardGroup cols={2}>
+  <Card title="Quick Reference" icon="book" href="/docs/hyperliquid-signing-overview">
+    Side-by-side comparison of both signing mechanisms
+  </Card>
+  <Card title="L1 Action Signing" icon="chart-line" href="/docs/hyperliquid-l1-action-signing">
+    Complete guide with code examples for trading operations
+  </Card>
+  <Card title="User-Signed Actions" icon="shield" href="/docs/hyperliquid-user-signed-actions">
+    Detailed guide for administrative operations and agent management
+  </Card>
+  <Card title="API Reference" icon="code" href="/reference/hyperliquid-exchange-place-order">
+    Full API documentation for all exchange endpoints
+  </Card>
+</CardGroup>
+
+## Key points to remember
+
+- **Info endpoints** don't require signatures and can be accessed directly
+- **Exchange endpoints** require appropriate signing based on the action type
+- **L1 actions** use phantom agent construction with Chain ID 1337
+- **User-signed actions** use direct EIP-712 signing with Chain ID 0x66eee
+- **Agent wallets** can only perform L1 actions, not transfers or withdrawals

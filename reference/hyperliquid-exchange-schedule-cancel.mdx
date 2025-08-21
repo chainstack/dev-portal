@@ -1,0 +1,133 @@
+---
+title: Schedule cancel | Hyperliquid exchange
+openapi: /openapi/hyperliquid_node_api/exchange_schedule_cancel.json post /exchange
+---
+
+<Note>
+This endpoint requires signature authentication. See our comprehensive [Authentication via Signatures guide](/docs/hyperliquid-authentication-guide) for implementation details.
+</Note>
+
+Schedules an automatic cancel-all operation at a future time, acting as a dead man's switch for risk management. This safety feature ensures all open orders are canceled if your trading system becomes unresponsive.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Required parameters
+
+* `action` (object, required) — The schedule cancel action object containing:
+  * `type` (string) — Must be `"scheduleCancel"`
+  * `time` (number, optional) — Unix timestamp in milliseconds when to cancel all orders. Omit to remove existing scheduled cancel
+
+* `nonce` (number, required) — Current timestamp in milliseconds (must be recent)
+* `signature` (object, required) — EIP-712 signature of the action
+
+### Optional parameters
+
+* `vaultAddress` (string, optional) — Address when trading on behalf of a vault or subaccount
+* `expiresAfter` (number, optional) — Timestamp in milliseconds after which the request is rejected
+
+## Returns
+
+Returns an object with scheduling status:
+
+* `status` — `"ok"` if request processed
+* `response` — Contains operation details:
+  * `type` — `"scheduleCancel"`
+
+## Scheduling rules
+
+* **Minimum delay** — Scheduled time must be at least 5 seconds in the future
+* **Daily limit** — Maximum 10 triggers per day (resets at 00:00 UTC)
+* **Cancel operation** — Omit the `time` parameter to remove an existing scheduled cancel
+* **Auto-execution** — When triggered, cancels all open orders for the user
+
+## Example request
+
+<CodeGroup>
+
+```shell cURL
+# Schedule cancel in 60 seconds
+curl -X POST https://api.hyperliquid.xyz/exchange \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {
+      "type": "scheduleCancel",
+      "time": 1234567950123
+    },
+    "nonce": 1234567890123,
+    "signature": {...}
+  }'
+
+# Remove scheduled cancel
+curl -X POST https://api.hyperliquid.xyz/exchange \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {
+      "type": "scheduleCancel"
+    },
+    "nonce": 1234567890123,
+    "signature": {...}
+  }'
+```
+
+```python Python
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+import eth_account
+import time
+
+# Initialize with your private key
+account = eth_account.Account.from_key("0x...")
+exchange = Exchange(account, constants.MAINNET_API_URL)
+
+# Schedule cancel in 60 seconds
+future_time = int((time.time() + 60) * 1000)
+schedule_result = exchange.schedule_cancel(time=future_time)
+
+# Remove scheduled cancel
+remove_result = exchange.schedule_cancel(time=None)
+
+print(schedule_result)
+```
+
+</CodeGroup>
+
+## Response example
+
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "scheduleCancel"
+  }
+}
+```
+
+## Use cases
+
+* **System failure protection** — Automatically cancel orders if your trading system crashes
+* **Connection loss safety** — Protect against network disconnections
+* **Daily trading limits** — Schedule end-of-day order cleanup
+* **Risk management** — Implement automatic position closure during maintenance
+
+## Best practices
+
+1. **Regular heartbeats** — Continuously push the scheduled cancel forward while your system is healthy
+2. **Buffer time** — Set cancellation time with enough buffer (e.g., 30-60 seconds)
+3. **Monitor triggers** — Track your daily trigger count to avoid hitting the limit
+4. **Graceful shutdown** — Remove scheduled cancels when intentionally stopping your system
+
+<Note>
+The dead man's switch is a critical safety feature. Always implement it in production trading systems to prevent orders from remaining open during system failures.
+</Note>
+
+<Warning>
+Remember the 10 triggers per day limit. If you hit this limit, you won't be able to use the scheduled cancel feature until 00:00 UTC. Plan your heartbeat intervals accordingly.
+</Warning>
