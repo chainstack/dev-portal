@@ -1,0 +1,110 @@
+---
+title: Cancel order by cloid | Hyperliquid exchange
+openapi: /openapi/hyperliquid_node_api/exchange_cancel_by_cloid.json post /exchange
+---
+
+<Note>
+This endpoint requires signature authentication. See our comprehensive [Authentication via Signatures guide](/docs/hyperliquid-authentication-guide) for implementation details.
+</Note>
+
+Cancels one or multiple open orders by client order ID (cloid) on the Hyperliquid exchange. This is useful when you want to cancel orders using your own tracking IDs rather than the exchange-generated order IDs.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Required parameters
+
+* `action` (object, required) — The cancel action object containing:
+  * `type` (string) — Must be `"cancelByCloid"`
+  * `cancels` (array) — Array of cancel objects with:
+    * `asset` (number) — Asset index
+    * `cloid` (string) — Client order ID (128-bit hex string, e.g., `0x1234567890abcdef1234567890abcdef`)
+
+* `nonce` (number, required) — Current timestamp in milliseconds (must be recent)
+* `signature` (object, required) — EIP-712 signature of the action
+
+### Optional parameters
+
+* `vaultAddress` (string, optional) — Address when trading on behalf of a vault or subaccount
+* `expiresAfter` (number, optional) — Timestamp in milliseconds after which the request is rejected
+
+## Returns
+
+Returns an object with cancellation status:
+
+* `status` — `"ok"` if request processed
+* `response` — Contains cancellation details:
+  * `type` — `"cancelByCloid"`
+  * `data.statuses` — Array of status results for each cancellation attempt
+
+## Example request
+
+<CodeGroup>
+
+```shell cURL
+curl -X POST https://api.hyperliquid.xyz/exchange \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {
+      "type": "cancelByCloid",
+      "cancels": [{
+        "asset": 0,
+        "cloid": "0x1234567890abcdef1234567890abcdef"
+      }]
+    },
+    "nonce": 1234567890123,
+    "signature": {...}
+  }'
+```
+
+```python Python
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+import eth_account
+
+# Initialize with your private key
+account = eth_account.Account.from_key("0x...")
+exchange = Exchange(account, constants.MAINNET_API_URL)
+
+# Cancel an order by client order ID
+cancel_result = exchange.cancel_by_cloid(
+    coin="BTC",
+    cloid="0x1234567890abcdef1234567890abcdef"
+)
+
+print(cancel_result)
+```
+
+</CodeGroup>
+
+## Client Order ID (cloid)
+
+The client order ID is a 128-bit hexadecimal string that you provide when placing an order. It allows you to:
+
+* Track orders using your own identification system
+* Cancel orders without needing to store exchange-generated order IDs
+* Implement idempotent order placement strategies
+
+Example cloid format: `0x1234567890abcdef1234567890abcdef`
+
+## Use cases
+
+* **Custom order tracking** — Cancel orders using your internal order management system IDs
+* **Failover systems** — Cancel orders without needing to query order IDs first
+* **Multi-system integration** — Use consistent order IDs across different systems
+* **Idempotent operations** — Safely retry cancellations using deterministic IDs
+
+<Note>
+Client order IDs must be unique per user. Attempting to place an order with a duplicate cloid will be rejected.
+</Note>
+
+<Warning>
+Make sure to store the cloid when placing orders if you plan to use this cancellation method. The cloid must match exactly what was provided during order placement.
+</Warning>

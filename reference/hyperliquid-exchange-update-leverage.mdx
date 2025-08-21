@@ -1,0 +1,132 @@
+---
+title: Update leverage | Hyperliquid exchange
+openapi: /openapi/hyperliquid_node_api/exchange_update_leverage.json post /exchange
+---
+
+<Note>
+This endpoint requires signature authentication. See our comprehensive [Authentication via Signatures guide](/docs/hyperliquid-authentication-guide) for implementation details.
+</Note>
+
+Updates the leverage setting for a specific coin on the Hyperliquid exchange. You can adjust leverage for both cross and isolated margin modes.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Required parameters
+
+* `action` (object, required) — The update leverage action object containing:
+  * `type` (string) — Must be `"updateLeverage"`
+  * `asset` (number) — Asset index of the coin
+  * `isCross` (boolean) — `true` for cross leverage, `false` for isolated leverage
+  * `leverage` (number) — New leverage value (must be within allowed range for the asset)
+
+* `nonce` (number, required) — Current timestamp in milliseconds (must be recent)
+* `signature` (object, required) — EIP-712 signature of the action
+
+### Optional parameters
+
+* `vaultAddress` (string, optional) — Address when trading on behalf of a vault or subaccount
+* `expiresAfter` (number, optional) — Timestamp in milliseconds after which the request is rejected
+
+## Leverage constraints
+
+Each asset has specific leverage constraints:
+* **Minimum leverage** — Usually 1x
+* **Maximum leverage** — Varies by asset (3x to 40x depending on liquidity and volatility)
+* **Cross margin** — Shares margin across all positions
+* **Isolated margin** — Margin isolated to specific position
+
+## Returns
+
+Returns an object with update status:
+
+* `status` — `"ok"` if successful
+* `response` — Contains update details:
+  * `type` — `"default"`
+
+## Example request
+
+<CodeGroup>
+
+```shell cURL
+curl -X POST https://api.hyperliquid.xyz/exchange \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {
+      "type": "updateLeverage",
+      "asset": 0,
+      "isCross": true,
+      "leverage": 10
+    },
+    "nonce": 1234567890123,
+    "signature": {...}
+  }'
+```
+
+```python Python
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+import eth_account
+
+# Initialize with your private key
+account = eth_account.Account.from_key("0x...")
+exchange = Exchange(account, constants.MAINNET_API_URL)
+
+# Update cross leverage for BTC to 10x
+update_result = exchange.update_leverage(
+    coin="BTC",
+    is_cross=True,
+    leverage=10
+)
+
+# Update isolated leverage for ETH to 5x
+update_isolated = exchange.update_leverage(
+    coin="ETH",
+    is_cross=False,
+    leverage=5
+)
+
+print(update_result)
+```
+
+</CodeGroup>
+
+## Response example
+
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "default"
+  }
+}
+```
+
+## Important considerations
+
+* **Existing positions** — Leverage changes affect margin requirements for existing positions
+* **Liquidation risk** — Increasing leverage increases liquidation risk
+* **Available margin** — Ensure sufficient margin before increasing leverage
+* **Asset limits** — Each asset has different maximum leverage limits
+
+## Use cases
+
+* **Risk adjustment** — Dynamically adjust risk based on market conditions
+* **Capital efficiency** — Optimize margin usage across positions
+* **Strategy implementation** — Set appropriate leverage for different trading strategies
+* **Position management** — Adjust leverage before opening new positions
+
+<Note>
+Leverage is only checked when opening a position. After opening, monitor your positions to avoid liquidation as leverage effectively changes with unrealized PnL.
+</Note>
+
+<Warning>
+Increasing leverage on existing positions increases liquidation risk. Always ensure you have sufficient margin to support the new leverage level.
+</Warning>

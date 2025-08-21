@@ -1,0 +1,399 @@
+---
+title: "Hyperliquid: L1 action signing on HyperCore with Python SDK"
+description: "Complete guide to L1 action signing with phantom agent construction for trading operations on Hyperliquid. Covers order placement, cancellation, modification, and leverage management."
+---
+
+## Technical overview
+
+L1 actions use a **phantom agent** construction - a temporary signing identity created from your action's hash. This provides privacy by hashing the actual data before signing.
+
+<Note>
+The Hyperliquid Python SDK v0.18.0+ handles phantom agent construction internally. You don't need to implement this complexity yourself.
+</Note>
+
+## Key characteristics
+
+| Property | Value |
+|----------|-------|
+| **Chain ID** | 1337 (NOT Arbitrum's 42161) |
+| **Domain name** | "Exchange" |
+| **Version** | "1" |
+| **Serialization** | Msgpack binary format |
+| **Agent type** | Phantom agent from action hash |
+| **Source** | "a" for mainnet, "b" for testnet |
+
+## What is a phantom agent?
+
+A phantom agent is a cryptographic construct that provides privacy for trading operations:
+
+<Steps>
+  <Step title="Serialize action">
+    Action is serialized using msgpack binary format
+  </Step>
+  <Step title="Append metadata">
+    Nonce and vault address (if applicable) are appended
+  </Step>
+  <Step title="Hash the data">
+    Complete data is hashed with keccak256
+  </Step>
+  <Step title="Create agent object">
+    Temporary "agent" object created with hash as connectionId
+  </Step>
+  <Step title="Sign via EIP-712">
+    This phantom agent is signed using EIP-712 typed data
+  </Step>
+</Steps>
+
+## Supported L1 actions
+
+All L1 actions use the **same signing method** `sign_l1_action()` - only the action payload changes:
+
+### Trading actions
+- `order` — Place new orders
+- `cancel` — Cancel orders by order ID
+- `cancelByCloid` — Cancel orders by client order ID
+- `modify` — Modify existing orders
+- `batchModify` — Modify multiple orders
+
+### Position management
+- `updateLeverage` — Adjust leverage for positions
+- `updateIsolatedMargin` — Manage isolated margin
+
+### Transfers
+- `vaultTransfer` — Transfer between vault accounts
+- `subAccountTransfer` — Transfer between sub-accounts
+
+### Utility
+- `scheduleCancel` — Schedule order cancellation
+- `noop` — No operation (for testing)
+
+## Complete implementation example
+
+```python
+#!/usr/bin/env python3
+"""
+L1 Action Signing Example - Demonstrates phantom agent construction
+SDK v0.18.0+
+"""
+
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+from hyperliquid.utils.signing import sign_l1_action, get_timestamp_ms
+from eth_account import Account
+import json
+
+def main():
+    # Load configuration
+    with open('config.json') as f:
+        config = json.load(f)
+    
+    wallet = Account.from_key(config['private_key'])
+    print(f"Account: {wallet.address}")
+    
+    # Initialize exchange for sending signed actions
+    exchange = Exchange(
+        wallet=wallet,
+        base_url=constants.MAINNET_API_URL
+    )
+    
+    # Example 1: Place an order (SDK handles signing internally)
+    order_result = exchange.order(
+        coin="BTC",
+        is_buy=True,
+        sz=0.01,
+        limit_px=50000,
+        order_type={"limit": {"tif": "Gtc"}},
+        reduce_only=False
+    )
+    print(f"Order result: {order_result}")
+    
+    # Example 2: Manual signing for understanding
+    timestamp = get_timestamp_ms()
+    
+    # Create a minimal L1 action
+    action = {"type": "noop"}
+    
+    # Sign with phantom agent construction
+    signature = sign_l1_action(
+        wallet,
+        action,
+        None,  # vault_address
+        timestamp,
+        None,  # expires_after
+        True   # is_mainnet
+    )
+    
+    print(f"\nPhantom agent signature generated:")
+    print(f"  r: {signature['r']}")
+    print(f"  s: {signature['s']}")
+    print(f"  v: {signature['v']}")
+    
+    # Send the signed action to Hyperliquid
+    result = exchange._post_action(action, signature, timestamp)
+    print(f"\nResult: {result}")
+
+if __name__ == "__main__":
+    main()
+```
+
+## Action payload examples
+
+### Place order
+
+```python
+action = {
+    "type": "order",
+    "orders": [{
+        "a": 0,  # Asset index (0 = BTC)
+        "b": True,  # Buy = True, Sell = False
+        "p": "50000",  # Price
+        "s": "0.01",  # Size
+        "r": False,  # Reduce-only
+        "t": {"limit": {"tif": "Gtc"}}  # Order type
+    }],
+    "grouping": "na"
+}
+```
+
+### Cancel order
+
+```python
+action = {
+    "type": "cancel",
+    "cancels": [{
+        "a": 0,  # Asset index
+        "o": 123456  # Order ID
+    }]
+}
+```
+
+### Modify order
+
+```python
+action = {
+    "type": "batchModify",
+    "modifies": [{
+        "oid": 123456,  # Order ID
+        "order": {
+            "a": 0,
+            "b": True,
+            "p": "51000",  # New price
+            "s": "0.01",
+            "r": False,
+            "t": {"limit": {"tif": "Gtc"}}
+        }
+    }]
+}
+```
+
+### Update leverage
+
+```python
+action = {
+    "type": "updateLeverage",
+    "asset": 0,
+    "isCross": True,
+    "leverage": 10
+}
+```
+
+## Technical implementation details
+
+### Phantom agent construction
+
+```python
+def construct_phantom_agent(hash, is_mainnet):
+    return {
+        "source": "a" if is_mainnet else "b",
+        "connectionId": hash
+    }
+```
+
+### EIP-712 domain
+
+```python
+domain = {
+    "name": "Exchange",
+    "version": "1",
+    "chainId": 1337,
+    "verifyingContract": "0x0000000000000000000000000000000000000000"
+}
+```
+
+### Type definition
+
+```python
+types = {
+    "Agent": [
+        {"name": "source", "type": "string"},
+        {"name": "connectionId", "type": "bytes32"}
+    ]
+}
+```
+
+## TypeScript implementation
+
+```typescript
+import { ethers } from 'ethers';
+import msgpack from 'msgpack-lite';
+import { keccak256 } from 'ethers/lib/utils';
+
+async function signL1Action(
+  privateKey: string,
+  action: any,
+  vaultAddress: string | null,
+  nonce: number,
+  isMainnet: boolean
+): Promise<{ r: string; s: string; v: number }> {
+  
+  // Serialize action with msgpack
+  const actionBytes = msgpack.encode(action);
+  
+  // Append vault address and nonce
+  const data = Buffer.concat([
+    actionBytes,
+    vaultAddress ? Buffer.from(vaultAddress.slice(2), 'hex') : Buffer.alloc(20),
+    Buffer.from(nonce.toString(16).padStart(16, '0'), 'hex')
+  ]);
+  
+  // Hash to create connectionId
+  const hash = keccak256(data);
+  
+  // EIP-712 domain
+  const domain = {
+    name: 'Exchange',
+    version: '1',
+    chainId: 1337,  // L1 actions always use 1337
+    verifyingContract: '0x0000000000000000000000000000000000000000'
+  };
+  
+  const types = {
+    Agent: [
+      { name: 'source', type: 'string' },
+      { name: 'connectionId', type: 'bytes32' }
+    ]
+  };
+  
+  const value = {
+    source: isMainnet ? 'a' : 'b',
+    connectionId: hash
+  };
+  
+  const wallet = new ethers.Wallet(privateKey);
+  const signature = await wallet._signTypedData(domain, types, value);
+  
+  return ethers.utils.splitSignature(signature);
+}
+```
+
+## Configuration file
+
+Create a `config.json` file:
+
+```json
+{
+    "private_key": "0x...",
+    "account_address": "0x..."
+}
+```
+
+## Common errors and solutions
+
+### Wrong chain ID
+
+<Warning>
+Never use Arbitrum's chain ID (42161) for L1 actions. Always use chain ID 1337.
+</Warning>
+
+```python
+# CORRECT
+domain = {"chainId": 1337, ...}
+
+# INCORRECT
+domain = {"chainId": 42161, ...}  # This will fail!
+```
+
+### Invalid action format
+
+Ensure action payloads match the expected structure:
+
+```python
+# CORRECT - proper structure
+action = {
+    "type": "order",
+    "orders": [...],
+    "grouping": "na"
+}
+
+# INCORRECT - missing required fields
+action = {
+    "type": "order",
+    "orders": [...]
+    # Missing "grouping" field
+}
+```
+
+### Nonce issues
+
+Always use current timestamp in milliseconds:
+
+```python
+from hyperliquid.utils.signing import get_timestamp_ms
+
+# CORRECT
+nonce = get_timestamp_ms()
+
+# Also correct
+import time
+nonce = int(time.time() * 1000)
+
+# INCORRECT
+nonce = int(time.time())  # Missing milliseconds
+```
+
+## Testing your implementation
+
+<Steps>
+  <Step title="Start with noop">
+    Test with a `noop` action first - it validates signing without any side effects
+  </Step>
+  <Step title="Use testnet">
+    Test on testnet before mainnet: `constants.TESTNET_API_URL`
+  </Step>
+  <Step title="Verify signatures">
+    Check that signatures have proper r, s, v components
+  </Step>
+  <Step title="Monitor responses">
+    Successful actions return `{"status": "ok"}` or order details
+  </Step>
+</Steps>
+
+## Best practices
+
+<Check>
+**DO**
+- Use the official SDK when possible
+- Keep private keys secure (use environment variables)
+- Test thoroughly on testnet first
+- Handle errors gracefully
+- Use proper nonce management
+</Check>
+
+<Warning>
+**DON'T**
+- Hardcode private keys in code
+- Mix up chain IDs (1337 vs 0x66eee)
+- Reuse nonces across requests
+- Skip error handling
+- Use outdated SDK versions
+</Warning>
+
+## Summary
+
+L1 actions use phantom agent construction for privacy - the actual data is hashed before signing. The SDK's `sign_l1_action` handles all complexity internally, making it easy to implement trading operations securely.
+
+## Related resources
+
+- [Hyperliquid signing overview](/docs/hyperliquid-signing-overview) — Quick reference for both signing types
+- [User-signed actions guide](/docs/hyperliquid-user-signed-actions) — For administrative operations
+- [Exchange API reference](/reference/hyperliquid-exchange-place-order) — Complete API documentation

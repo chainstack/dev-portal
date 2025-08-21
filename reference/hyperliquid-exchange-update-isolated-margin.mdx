@@ -1,0 +1,160 @@
+---
+title: Update isolated margin | Hyperliquid exchange
+openapi: /openapi/hyperliquid_node_api/exchange_update_isolated_margin.json post /exchange
+---
+
+<Note>
+This endpoint requires signature authentication. See our comprehensive [Authentication via Signatures guide](/docs/hyperliquid-authentication-guide) for implementation details.
+</Note>
+
+Adds or removes margin from an isolated perpetual position on the Hyperliquid exchange. This allows you to adjust the margin allocated to a specific position without closing it.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Required parameters
+
+* `action` (object, required) — The update isolated margin action object containing:
+  * `type` (string) — Must be `"updateIsolatedMargin"` or `"topUpIsolatedOnlyMargin"`
+  * For `"updateIsolatedMargin"`:
+    * `asset` (number) — Asset index of the coin
+    * `isBuy` (boolean) — `true` (reserved for future hedge mode support)
+    * `ntli` (number) — Amount to add (positive) or remove (negative) in USDC with 6 decimals (e.g., 1000000 = 1 USDC)
+  * For `"topUpIsolatedOnlyMargin"`:
+    * `asset` (number) — Asset index of the coin
+    * `leverage` (string) — Target leverage as a float string (e.g., "5.0")
+
+* `nonce` (number, required) — Current timestamp in milliseconds (must be recent)
+* `signature` (object, required) — EIP-712 signature of the action
+
+### Optional parameters
+
+* `vaultAddress` (string, optional) — Address when trading on behalf of a vault or subaccount
+* `expiresAfter` (number, optional) — Timestamp in milliseconds after which the request is rejected
+
+## Margin adjustment types
+
+### Direct USDC adjustment
+Use `"updateIsolatedMargin"` to add or remove a specific USDC amount:
+* Positive `ntli` — Adds margin to the position
+* Negative `ntli` — Removes margin from the position
+
+### Target leverage adjustment
+Use `"topUpIsolatedOnlyMargin"` to set a target leverage:
+* Calculates required margin to achieve the specified leverage
+* Only allows adding margin (top-up), not removal
+
+## Returns
+
+Returns an object with update status:
+
+* `status` — `"ok"` if successful
+* `response` — Contains update details:
+  * `type` — `"default"`
+
+## Example request
+
+<CodeGroup>
+
+```shell cURL
+# Add 100 USDC to isolated position
+curl -X POST https://api.hyperliquid.xyz/exchange \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {
+      "type": "updateIsolatedMargin",
+      "asset": 0,
+      "isBuy": true,
+      "ntli": 100000000
+    },
+    "nonce": 1234567890123,
+    "signature": {...}
+  }'
+
+# Set position to 5x leverage
+curl -X POST https://api.hyperliquid.xyz/exchange \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {
+      "type": "topUpIsolatedOnlyMargin",
+      "asset": 0,
+      "leverage": "5.0"
+    },
+    "nonce": 1234567890123,
+    "signature": {...}
+  }'
+```
+
+```python Python
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+import eth_account
+
+# Initialize with your private key
+account = eth_account.Account.from_key("0x...")
+exchange = Exchange(account, constants.MAINNET_API_URL)
+
+# Add 100 USDC to isolated BTC position
+add_result = exchange.update_isolated_margin(
+    coin="BTC",
+    is_buy=True,
+    amount=100.0  # In USDC
+)
+
+# Remove 50 USDC from isolated position
+remove_result = exchange.update_isolated_margin(
+    coin="BTC",
+    is_buy=True,
+    amount=-50.0  # Negative for removal
+)
+
+# Set position to specific leverage
+leverage_result = exchange.top_up_isolated_margin(
+    coin="BTC",
+    target_leverage=5.0
+)
+
+print(add_result)
+```
+
+</CodeGroup>
+
+## Response example
+
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "default"
+  }
+}
+```
+
+## Important considerations
+
+* **Isolated only** — This only works for isolated margin positions, not cross margin
+* **Position required** — Must have an existing isolated position
+* **Removal limits** — Cannot remove margin below minimum requirements
+* **Liquidation risk** — Removing margin increases liquidation risk
+
+## Use cases
+
+* **Risk management** — Add margin to reduce liquidation risk during volatility
+* **Capital optimization** — Remove excess margin for use elsewhere
+* **Dynamic adjustment** — Adjust position margin based on market conditions
+* **Leverage targeting** — Set specific leverage levels for risk management
+
+<Note>
+The `isBuy` parameter is currently always `true` but is included for future hedge mode support where long and short positions can be held simultaneously.
+</Note>
+
+<Warning>
+Removing margin from a position increases its effective leverage and liquidation risk. Always ensure remaining margin meets minimum requirements.
+</Warning>

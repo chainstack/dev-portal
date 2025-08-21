@@ -1,0 +1,151 @@
+---
+title: Batch modify orders | Hyperliquid exchange
+openapi: /openapi/hyperliquid_node_api/exchange_batch_modify.json post /exchange
+---
+
+<Note>
+This endpoint requires signature authentication. See our comprehensive [Authentication via Signatures guide](/docs/hyperliquid-authentication-guide) for implementation details.
+</Note>
+
+Modifies multiple existing orders in a single atomic request on the Hyperliquid exchange. This is more efficient than sending individual modify requests for each order.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Required parameters
+
+* `action` (object, required) — The batch modify action object containing:
+  * `type` (string) — Must be `"batchModify"`
+  * `modifies` (array) — Array of modification objects, each containing:
+    * `oid` (number or string) — Order ID to modify, or cloid if using client order ID
+    * `order` (object) — New order parameters:
+      * `a` (number) — Asset index
+      * `b` (boolean) — Is buy order (true for buy/long, false for sell/short)
+      * `p` (string) — New limit price
+      * `s` (string) — New size in units of the base asset
+      * `r` (boolean) — Reduce only order
+      * `t` (object) — Order type specification:
+        * For limit orders: `{"limit": {"tif": "Alo" | "Ioc" | "Gtc"}}`
+        * For trigger orders: `{"trigger": {"isMarket": boolean, "triggerPx": string, "tpsl": "tp" | "sl"}}`
+      * `c` (string, optional) — New client order ID (128-bit hex string)
+
+* `nonce` (number, required) — Current timestamp in milliseconds (must be recent)
+* `signature` (object, required) — EIP-712 signature of the action
+
+### Optional parameters
+
+* `vaultAddress` (string, optional) — Address when trading on behalf of a vault or subaccount
+* `expiresAfter` (number, optional) — Timestamp in milliseconds after which the request is rejected
+
+## Returns
+
+Returns an object with batch modification status:
+
+* `status` — `"ok"` if request processed
+* `response` — Contains modification details:
+  * `type` — `"batchModify"`
+  * `data.statuses` — Array of modification results for each order
+
+## Example request
+
+<CodeGroup>
+
+```shell cURL
+curl -X POST https://api.hyperliquid.xyz/exchange \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {
+      "type": "batchModify",
+      "modifies": [
+        {
+          "oid": 77738308,
+          "order": {
+            "a": 0,
+            "b": true,
+            "p": "51000",
+            "s": "0.02",
+            "r": false,
+            "t": {"limit": {"tif": "Gtc"}}
+          }
+        },
+        {
+          "oid": 77738309,
+          "order": {
+            "a": 1,
+            "b": false,
+            "p": "3200",
+            "s": "0.5",
+            "r": false,
+            "t": {"limit": {"tif": "Gtc"}}
+          }
+        }
+      ]
+    },
+    "nonce": 1234567890123,
+    "signature": {...}
+  }'
+```
+
+```python Python
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+import eth_account
+
+# Initialize with your private key
+account = eth_account.Account.from_key("0x...")
+exchange = Exchange(account, constants.MAINNET_API_URL)
+
+# Modify multiple orders at once
+modifications = [
+    {
+        "oid": 77738308,
+        "coin": "BTC",
+        "is_buy": True,
+        "sz": 0.02,
+        "limit_px": 51000,
+        "order_type": {"limit": {"tif": "Gtc"}}
+    },
+    {
+        "oid": 77738309,
+        "coin": "ETH",
+        "is_buy": False,
+        "sz": 0.5,
+        "limit_px": 3200,
+        "order_type": {"limit": {"tif": "Gtc"}}
+    }
+]
+
+batch_result = exchange.batch_modify_orders(modifications)
+print(batch_result)
+```
+
+</CodeGroup>
+
+## Batch processing
+
+* **Atomic execution** — All modifications are processed together
+* **Independent validation** — Each modification is validated independently
+* **Partial success** — Some orders may succeed while others fail
+* **Efficiency** — Single signature and request for multiple modifications
+
+## Use cases
+
+* **Market making** — Update multiple orders across different price levels
+* **Portfolio management** — Adjust multiple positions simultaneously
+* **Grid trading** — Modify entire grids of orders efficiently
+* **Strategy updates** — Bulk update orders when strategy parameters change
+
+<Note>
+Batch modifications are processed sequentially in the order provided. If one modification fails, it doesn't affect the others in the batch.
+</Note>
+
+<Warning>
+Each modification in the batch counts toward rate limits. Ensure you don't exceed rate limits when modifying many orders at once.
+</Warning>

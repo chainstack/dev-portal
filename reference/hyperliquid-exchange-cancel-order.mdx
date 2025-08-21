@@ -1,0 +1,161 @@
+---
+title: Cancel order | Hyperliquid exchange
+openapi: /openapi/hyperliquid_node_api/exchange_cancel_order.json post /exchange
+---
+
+<Note>
+This endpoint requires signature authentication. See our comprehensive [Authentication via Signatures guide](/docs/hyperliquid-authentication-guide) for implementation details.
+</Note>
+
+Cancels one or multiple open orders by order ID (oid) on the Hyperliquid exchange.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+### Required parameters
+
+* `action` (object, required) — The cancel action object containing:
+  * `type` (string) — Must be `"cancel"`
+  * `cancels` (array) — Array of cancel objects with:
+    * `a` (number) — Asset index
+    * `o` (number) — Order ID to cancel
+
+* `nonce` (number, required) — Current timestamp in milliseconds (must be recent)
+* `signature` (object, required) — EIP-712 signature of the action
+
+### Optional parameters
+
+* `vaultAddress` (string, optional) — Address when trading on behalf of a vault or subaccount
+* `expiresAfter` (number, optional) — Timestamp in milliseconds after which the request is rejected
+
+## Returns
+
+Returns an object with cancellation status:
+
+* `status` — `"ok"` if request processed
+* `response` — Contains cancellation details:
+  * `type` — `"cancel"`
+  * `data.statuses` — Array of status results:
+    * `"success"` — Order successfully canceled
+    * `error` — Object with error message if cancellation failed
+
+## Example request
+
+<CodeGroup>
+
+```shell cURL
+curl -X POST https://api.hyperliquid.xyz/exchange \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {
+      "type": "cancel",
+      "cancels": [{
+        "a": 0,
+        "o": 77738308
+      }]
+    },
+    "nonce": 1234567890123,
+    "signature": {...}
+  }'
+```
+
+```python Python
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+import eth_account
+
+# Initialize with your private key
+account = eth_account.Account.from_key("0x...")
+exchange = Exchange(account, constants.MAINNET_API_URL)
+
+# Cancel an order by ID
+cancel_result = exchange.cancel(
+    coin="BTC",
+    oid=77738308
+)
+
+# Cancel multiple orders
+cancel_results = exchange.cancel_multiple([
+    {"coin": "BTC", "oid": 77738308},
+    {"coin": "ETH", "oid": 77738309}
+])
+
+print(cancel_result)
+```
+
+</CodeGroup>
+
+## Response examples
+
+### Successful cancellation
+
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "cancel",
+    "data": {
+      "statuses": [
+        "success"
+      ]
+    }
+  }
+}
+```
+
+### Failed cancellation
+
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "cancel",
+    "data": {
+      "statuses": [{
+        "error": "Order was never placed, already canceled, or filled."
+      }]
+    }
+  }
+}
+```
+
+### Multiple orders mixed results
+
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "cancel",
+    "data": {
+      "statuses": [
+        "success",
+        {
+          "error": "Order was never placed, already canceled, or filled."
+        }
+      ]
+    }
+  }
+}
+```
+
+## Use cases
+
+* **Risk management** — Quickly cancel orders when market conditions change
+* **Order management** — Clean up open orders that are no longer needed
+* **Algorithmic trading** — Programmatically manage order lifecycle
+* **Portfolio rebalancing** — Cancel orders before placing new ones
+
+<Note>
+You can cancel multiple orders in a single request by including multiple objects in the `cancels` array. Each cancellation is processed independently.
+</Note>
+
+<Warning>
+Attempting to cancel an order that doesn't exist, was already canceled, or was filled will return an error but won't affect other cancellations in the same request.
+</Warning>
