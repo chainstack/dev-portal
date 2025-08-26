@@ -1,0 +1,163 @@
+---
+title: eth_getUncleByBlockNumberAndIndex | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_get_uncle_by_block_number_and_index.json post /evm
+---
+
+The `eth_getUncleByBlockNumberAndIndex` JSON-RPC method returns information about an uncle block by block number and uncle index position. Uncle blocks are valid blocks that were not included in the main chain but are referenced by the main chain blocks for network security.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **block_number** (string) — The block number as a hexadecimal string, or one of the string tags: "latest", "earliest", or "pending"
+2. **uncle_index** (string) — The uncle index position as a hexadecimal string (e.g., "0x0" for the first uncle)
+
+## Response
+
+The method returns uncle block information or `null` if no uncle exists at the specified index.
+
+### Response structure
+
+**Uncle block information:**
+- Returns uncle block object with header information if found
+- Returns `null` if no uncle exists at the specified index
+- Uncle blocks contain header information but no transaction data
+
+### Block number tags
+
+**Available tags:**
+- `"latest"` — The most recent block in the chain
+- `"earliest"` — The genesis block (block 0)
+- `"pending"` — The pending state/transactions
+
+**Hexadecimal format:**
+- Block numbers can be specified as hexadecimal strings with "0x" prefix
+- Example: "0x1b4" represents block 436 in decimal
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get uncle block by number and index
+const getUncleByBlockNumberAndIndex = async (blockNumber, uncleIndex) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getUncleByBlockNumberAndIndex',
+      params: [blockNumber, uncleIndex],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Monitor latest block for uncles
+const monitorLatestBlockUncles = async () => {
+  const uncles = [];
+  let index = 0;
+  
+  while (true) {
+    const uncle = await getUncleByBlockNumberAndIndex(
+      'latest',
+      `0x${index.toString(16)}`
+    );
+    
+    if (uncle === null) {
+      break;
+    }
+    
+    uncles.push(uncle);
+    index++;
+  }
+  
+  return uncles;
+};
+
+// Check uncles in a specific block
+const checkBlockUncles = async (blockNumber) => {
+  const result = {
+    blockNumber,
+    uncles: [],
+    uncleCount: 0
+  };
+  
+  let index = 0;
+  while (true) {
+    const uncle = await getUncleByBlockNumberAndIndex(
+      blockNumber,
+      `0x${index.toString(16)}`
+    );
+    
+    if (uncle === null) {
+      break;
+    }
+    
+    result.uncles.push(uncle);
+    index++;
+  }
+  
+  result.uncleCount = result.uncles.length;
+  return result;
+};
+
+// Usage
+monitorLatestBlockUncles().then(uncles => {
+  console.log(`Latest block has ${uncles.length} uncles`);
+});
+
+checkBlockUncles('0x100').then(result => {
+  console.log(`Block ${result.blockNumber} has ${result.uncleCount} uncles`);
+});
+```
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_getUncleByBlockNumberAndIndex",
+    "params": [
+      "latest",
+      "0x0"
+    ],
+    "id": 1
+  }' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_getUncleByBlockNumberAndIndex` method is useful for applications that need to:
+
+* **Real-time monitoring**: Monitor uncle blocks in the latest blocks
+* **Mining analytics**: Analyze mining performance and uncle rates
+* **Network health monitoring**: Track network consensus and chain quality
+* **Block explorer development**: Build block explorers with uncle block support
+* **Mining pool operations**: Monitor mining pool uncle block statistics
+* **Blockchain research**: Study consensus mechanisms and network behavior
+* **Network statistics**: Generate uncle block statistics and trends
+* **Performance analysis**: Analyze blockchain performance and efficiency
+* **Educational platforms**: Create educational content about blockchain consensus
+* **Mining reward calculation**: Calculate mining rewards including uncle rewards
+* **Chain analysis tools**: Build tools for detailed blockchain analysis
+* **Monitoring dashboards**: Create dashboards for blockchain metrics
+* **Academic research**: Support research on blockchain consensus algorithms
+* **Network optimization**: Optimize network parameters based on uncle patterns
+* **Historical data analysis**: Analyze uncle block trends over time
+
+This method provides efficient access to uncle block information using block numbers, enabling comprehensive blockchain monitoring and analysis on the Hyperliquid EVM platform.

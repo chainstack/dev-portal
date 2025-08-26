@@ -1,0 +1,134 @@
+---
+title: eth_getProof | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_get_proof.json post /evm
+---
+
+The `eth_getProof` JSON-RPC method returns the Merkle proof for an account and optionally some storage keys. This method is essential for verifying account states and storage values without trusting the node, enabling light clients and cross-chain verification systems.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+The method takes three parameters:
+
+1. **Address** — The account address to get the proof for
+2. **Storage keys** — Array of storage keys to get proofs for (optional)
+3. **Block parameter** — The block at which to get the proof
+
+### Parameter details
+
+* `address` (string, required) — The 20-byte account address to get the proof for
+* `storageKeys` (array, optional) — Array of 32-byte storage keys to include in the proof
+* `block` (string, required) — Block identifier: `"latest"` (only the latest block is supported on Hyperliquid)
+
+## Response
+
+The method returns the account proof and storage proofs if requested.
+
+### Response structure
+
+**Account proof object:**
+- `address` — The account address
+- `accountProof` — Array of RLP-encoded Merkle tree nodes for the account proof
+- `balance` — The account balance in wei as a hexadecimal string
+- `codeHash` — The hash of the account code
+- `nonce` — The account nonce as a hexadecimal string
+- `storageHash` — The hash of the storage trie root
+- `storageProof` — Array of storage proof objects for requested keys
+
+**Storage proof object:**
+- `key` — The storage key
+- `value` — The storage value at the key
+- `proof` — Array of RLP-encoded Merkle tree nodes for the storage proof
+
+### Proof verification
+
+**Merkle proof structure:**
+- Account proofs verify against the state root
+- Storage proofs verify against the storage hash
+- Each proof consists of RLP-encoded nodes
+- Verification requires reconstructing the Merkle path
+
+**Use in light clients:**
+- Enables stateless verification of account data
+- Reduces trust requirements for off-chain systems
+- Supports cross-chain state verification
+- Essential for fraud proofs and optimistic rollups
+
+## Hyperliquid-specific considerations
+
+### Proof limitations
+
+**Latest block only:**
+- Only the `"latest"` block parameter is supported
+- Historical proofs are not available
+- All proofs reflect the current state
+- For historical data, consider using archive node implementations
+
+### Storage key handling
+
+**Efficient proof requests:**
+- Request only necessary storage keys to minimize response size
+- Empty storage keys array returns only account proof
+- Large storage key arrays may impact performance
+- Consider batching proof requests for multiple accounts
+
+## Example request
+
+```shell Shell
+curl -X POST https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_getProof",
+    "params": [
+      "0x69835D480110e4919B7899f465aAB101e21c8A87",
+      [],
+      "latest"
+    ],
+    "id": 1
+  }'
+```
+
+## Use cases
+
+The `eth_getProof` method is essential for applications that need to:
+
+* **Light clients**: Verify account states without full node synchronization
+* **Cross-chain bridges**: Prove account states across different chains
+* **State verification**: Validate account balances and storage values
+* **Fraud proofs**: Generate proofs for optimistic rollup challenges
+* **Merkle proof systems**: Build trustless verification systems
+* **Audit tools**: Verify on-chain data independently
+* **Decentralized oracles**: Prove on-chain states to off-chain systems
+* **Layer 2 solutions**: Generate state proofs for settlement layers
+* **Snapshot verification**: Validate state snapshots cryptographically
+* **Smart contract verification**: Prove contract storage values
+* **Compliance systems**: Generate cryptographic proofs for regulatory requirements
+* **Security monitoring**: Verify account states for security analysis
+* **Wallet applications**: Verify balances without trusting nodes
+* **DeFi protocols**: Prove collateral positions and liquidation states
+* **State channels**: Generate proofs for channel dispute resolution
+* **Governance systems**: Prove voting power and delegation states
+* **Insurance protocols**: Verify claim conditions cryptographically
+* **Data availability**: Prove data existence on-chain
+* **Research tools**: Analyze state tree structures and proofs
+* **Testing frameworks**: Verify state transitions in test environments
+* **Backup systems**: Validate state backups cryptographically
+* **Migration tools**: Prove account states during chain migrations
+* **Analytics platforms**: Verify on-chain metrics independently
+* **Integration services**: Provide proof-based APIs for external systems
+* **Educational tools**: Demonstrate Merkle proof concepts
+* **Development tools**: Debug state verification issues
+
+This method provides cryptographic proof of account and storage states, enabling trustless verification and cross-chain interoperability on the Hyperliquid EVM platform.
+
+<Note>
+On Hyperliquid, `eth_getProof` only supports the latest block. The proof returned can be used to cryptographically verify the account state and any requested storage values against the current state root.
+</Note>

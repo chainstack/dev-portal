@@ -1,0 +1,282 @@
+---
+title: eth_getFilterChanges | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_get_filter_changes.json post /evm
+---
+
+The `eth_getFilterChanges` JSON-RPC method returns an array of logs or block hashes that have occurred since the last poll for the specified filter. This method is used to retrieve new results from filters created with `eth_newFilter` or `eth_newBlockFilter`, providing an efficient polling mechanism for monitoring blockchain events.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **filter_id** (string) — The filter ID returned by `eth_newFilter` or `eth_newBlockFilter`
+
+## Response
+
+The method returns an array of results based on the filter type:
+- **Log filters**: Array of log objects matching the filter criteria
+- **Block filters**: Array of block hashes for new blocks
+
+### Response structure
+
+**For log filters:**
+- Array of log objects with properties like `address`, `topics`, `data`, `blockNumber`, `transactionHash`, etc.
+- Empty array if no new matching logs since last poll
+
+**For block filters:**
+- Array of block hash strings
+- Empty array if no new blocks since last poll
+
+### Polling behavior
+
+**State tracking:**
+- Each call returns only new results since the last `eth_getFilterChanges` call
+- Filter maintains internal state of last polled position
+- Subsequent calls continue from where the previous call left off
+- Returns empty array if no new changes
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get filter changes
+const getFilterChanges = async (filterId) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getFilterChanges',
+      params: [filterId],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Poll for log changes
+const pollLogFilter = async (filterId, callback, intervalMs = 2000) => {
+  const poll = async () => {
+    try {
+      const changes = await getFilterChanges(filterId);
+      
+      if (changes && changes.length > 0) {
+        for (const log of changes) {
+          callback(log);
+        }
+      }
+    } catch (error) {
+      console.error('Error polling filter changes:', error);
+    }
+  };
+  
+  const intervalId = setInterval(poll, intervalMs);
+  
+  return {
+    stop: () => clearInterval(intervalId),
+    poll: poll // Manual poll function
+  };
+};
+
+// Poll for block changes
+const pollBlockFilter = async (filterId, callback, intervalMs = 2000) => {
+  const poll = async () => {
+    try {
+      const blockHashes = await getFilterChanges(filterId);
+      
+      if (blockHashes && blockHashes.length > 0) {
+        for (const blockHash of blockHashes) {
+          callback(blockHash);
+        }
+      }
+    } catch (error) {
+      console.error('Error polling block changes:', error);
+    }
+  };
+  
+  const intervalId = setInterval(poll, intervalMs);
+  
+  return {
+    stop: () => clearInterval(intervalId),
+    poll: poll
+  };
+};
+
+// Advanced event processor
+class EventProcessor {
+  constructor() {
+    this.filters = new Map();
+  }
+  
+  async addLogFilter(filterId, eventHandler) {
+    const poller = await pollLogFilter(filterId, (log) => {
+      eventHandler({
+        type: 'log',
+        filterId,
+        data: log,
+        timestamp: new Date()
+      });
+    });
+    
+    this.filters.set(filterId, {
+      type: 'log',
+      poller,
+      handler: eventHandler
+    });
+    
+    return filterId;
+  }
+  
+  async addBlockFilter(filterId, blockHandler) {
+    const poller = await pollBlockFilter(filterId, (blockHash) => {
+      blockHandler({
+        type: 'block',
+        filterId,
+        blockHash,
+        timestamp: new Date()
+      });
+    });
+    
+    this.filters.set(filterId, {
+      type: 'block',
+      poller,
+      handler: blockHandler
+    });
+    
+    return filterId;
+  }
+  
+  stopFilter(filterId) {
+    const filter = this.filters.get(filterId);
+    if (filter) {
+      filter.poller.stop();
+      this.filters.delete(filterId);
+      return true;
+    }
+    return false;
+  }
+  
+  stopAll() {
+    for (const [filterId, filter] of this.filters) {
+      filter.poller.stop();
+    }
+    this.filters.clear();
+  }
+  
+  async pollAllOnce() {
+    const promises = [];
+    for (const [filterId, filter] of this.filters) {
+      promises.push(filter.poller.poll());
+    }
+    await Promise.all(promises);
+  }
+}
+
+// Real-time event dashboard
+const createEventDashboard = async () => {
+  const processor = new EventProcessor();
+  const stats = {
+    totalLogs: 0,
+    totalBlocks: 0,
+    lastActivity: null
+  };
+  
+  // Generic event handler
+  const handleEvent = (event) => {
+    if (event.type === 'log') {
+      stats.totalLogs++;
+      console.log(`Log Event from filter ${event.filterId}:`, event.data);
+    } else if (event.type === 'block') {
+      stats.totalBlocks++;
+      console.log(`New Block from filter ${event.filterId}: ${event.blockHash}`);
+    }
+    
+    stats.lastActivity = event.timestamp;
+  };
+  
+  return {
+    processor,
+    stats,
+    addLogFilter: (filterId) => processor.addLogFilter(filterId, handleEvent),
+    addBlockFilter: (filterId) => processor.addBlockFilter(filterId, handleEvent),
+    stop: () => processor.stopAll()
+  };
+};
+
+// Usage examples
+const filterId = '0x1';
+
+// Simple polling
+pollLogFilter(filterId, (log) => {
+  console.log('New log:', log);
+}).then(poller => {
+  console.log('Started polling for logs');
+  
+  // Stop after 5 minutes
+  setTimeout(() => {
+    poller.stop();
+    console.log('Stopped polling');
+  }, 5 * 60 * 1000);
+});
+
+// Advanced event processing
+createEventDashboard().then(dashboard => {
+  // Add filters to dashboard
+  dashboard.addLogFilter('0x1');
+  dashboard.addBlockFilter('0x2');
+  
+  // Display stats every 30 seconds
+  setInterval(() => {
+    console.log('Dashboard Stats:', dashboard.stats);
+  }, 30000);
+});
+```
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_getFilterChanges",
+    "params": [
+      "0x1"
+    ],
+    "id": 1
+  }' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_getFilterChanges` method is essential for applications that need to:
+
+* **Real-time event monitoring**: Monitor smart contract events as they happen
+* **Block synchronization**: Stay synchronized with new blocks on the blockchain
+* **DeFi applications**: React to DeFi events like swaps, transfers, and liquidations
+* **Trading bots**: Execute trading strategies based on blockchain events
+* **Analytics platforms**: Collect real-time data for analysis and reporting
+* **Notification systems**: Send alerts based on specific blockchain events
+* **Audit tools**: Monitor contracts for compliance and security events
+* **DEX monitoring**: Track decentralized exchange activities in real-time
+* **NFT platforms**: Monitor NFT transfers, sales, and minting events
+* **Bridge monitoring**: Track cross-chain bridge events and transfers
+* **Governance tracking**: Monitor DAO governance events and proposals
+* **Oracle monitoring**: Track oracle price feeds and data updates
+* **Gaming applications**: Monitor in-game transactions and events
+* **Supply chain tracking**: Track product transfers and supply chain events
+* **Insurance monitoring**: Monitor insurance claims and policy events
+
+This method provides efficient polling capabilities for real-time blockchain monitoring, enabling responsive event-driven applications on the Hyperliquid EVM platform.

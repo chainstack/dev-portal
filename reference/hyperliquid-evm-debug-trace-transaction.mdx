@@ -1,0 +1,167 @@
+---
+title: debug_traceTransaction | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_debug_trace_transaction.json post /evm
+---
+
+The `debug_traceTransaction` JSON-RPC method returns detailed trace information for a specific transaction. This method provides comprehensive debugging information including call traces, gas usage, state changes, and execution details, making it essential for transaction analysis, debugging, and forensic investigations.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **Transaction hash** (string, required): The hash of the transaction to trace
+2. **Tracer configuration** (object, required): Configuration options for the tracer
+
+### Tracer configuration options
+
+- `tracer` (string): The type of tracer to use. Common options include:
+  - `"callTracer"`: Provides detailed call trace information
+  - `"prestateTracer"`: Shows state before transaction execution
+  - `"4byteTracer"`: Tracks function selector usage
+
+## Response
+
+The method returns detailed trace information for the specified transaction, including call hierarchy, gas usage, and state changes.
+
+### Response structure
+
+**Trace data:**
+- `type` — The type of call (CALL, DELEGATECALL, STATICCALL, CREATE, etc.)
+- `from` — The address that initiated the call
+- `to` — The address that received the call
+- `value` — The value transferred in the call
+- `gas` — The amount of gas allocated for the call
+- `gasUsed` — The amount of gas actually consumed
+- `input` — The input data for the call
+- `output` — The output data returned by the call
+- `calls` — Array of sub-calls made during execution
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Trace a specific transaction
+const traceTransaction = async (txHash) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'debug_traceTransaction',
+      params: [
+        txHash,
+        {
+          tracer: 'callTracer'
+        }
+      ],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Analyze transaction execution
+const analyzeTransaction = async (txHash) => {
+  try {
+    const trace = await traceTransaction(txHash);
+    
+    console.log('Transaction Trace Analysis:');
+    console.log(`Type: ${trace.type}`);
+    console.log(`From: ${trace.from}`);
+    console.log(`To: ${trace.to}`);
+    console.log(`Value: ${parseInt(trace.value, 16)} wei`);
+    console.log(`Gas Used: ${parseInt(trace.gasUsed, 16)}`);
+    
+    // Analyze sub-calls
+    if (trace.calls && trace.calls.length > 0) {
+      console.log(`\nSub-calls (${trace.calls.length}):`);
+      trace.calls.forEach((call, index) => {
+        console.log(`  ${index + 1}. ${call.type}: ${call.from} -> ${call.to}`);
+        console.log(`     Gas Used: ${parseInt(call.gasUsed, 16)}`);
+      });
+    }
+    
+    return trace;
+  } catch (error) {
+    console.error('Error tracing transaction:', error);
+    throw error;
+  }
+};
+
+// Gas usage analysis
+const analyzeGasUsage = (trace) => {
+  const totalGas = parseInt(trace.gas, 16);
+  const gasUsed = parseInt(trace.gasUsed, 16);
+  const efficiency = ((gasUsed / totalGas) * 100).toFixed(2);
+  
+  console.log('Gas Analysis:');
+  console.log(`Total Gas Limit: ${totalGas.toLocaleString()}`);
+  console.log(`Gas Used: ${gasUsed.toLocaleString()}`);
+  console.log(`Efficiency: ${efficiency}%`);
+  
+  return {
+    totalGas,
+    gasUsed,
+    efficiency: parseFloat(efficiency)
+  };
+};
+
+// Usage
+const txHash = '0x07712544ce8f50091c6c3b227921f763b342bf9465a22f0226d651a3246adb31';
+analyzeTransaction(txHash).then(trace => {
+  analyzeGasUsage(trace);
+});
+```
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "debug_traceTransaction",
+    "params": [
+      "0x07712544ce8f50091c6c3b227921f763b342bf9465a22f0226d651a3246adb31",
+      {
+        "tracer": "callTracer"
+      }
+    ],
+    "id": 1
+  }' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `debug_traceTransaction` method is essential for applications that need to:
+
+* **Transaction debugging**: Debug failed transactions and identify execution issues
+* **Gas optimization**: Analyze gas usage patterns and optimize contract efficiency
+* **Security analysis**: Perform security audits and vulnerability assessments
+* **Forensic investigation**: Investigate suspicious transactions and trace fund flows
+* **Smart contract testing**: Test contract behavior and verify execution paths
+* **Development tools**: Build debugging tools and transaction analyzers
+* **Performance monitoring**: Monitor transaction performance and execution metrics
+* **Error diagnosis**: Diagnose and resolve transaction execution errors
+* **Compliance tracking**: Track regulatory compliance and audit trails
+* **MEV analysis**: Analyze Maximum Extractable Value opportunities and patterns
+* **DeFi protocol analysis**: Understand complex DeFi transaction flows
+* **Arbitrage detection**: Identify and analyze arbitrage opportunities
+* **Front-running detection**: Detect and analyze front-running activities
+* **Sandwich attack analysis**: Identify and study sandwich attack patterns
+* **Educational tools**: Create educational content about blockchain execution
+* **Research platforms**: Support academic and commercial blockchain research
+
+This method provides comprehensive transaction execution details, enabling deep analysis and debugging capabilities on the Hyperliquid EVM platform.

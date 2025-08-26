@@ -1,0 +1,100 @@
+---
+title: ots_traceTransaction | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_ots_trace_transaction.json post /evm
+---
+
+The `ots_traceTransaction` JSON-RPC method returns the complete execution trace of a transaction on the Hyperliquid EVM blockchain. This Otterscan-specific method extracts all variations of calls, contract creations, and self-destructs, presenting them as a detailed call tree that reveals the full execution flow.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **transaction hash** (string, required): The hash of the transaction to trace
+
+## Response
+
+The method returns an array of trace entries representing the complete execution tree, or null if the transaction doesn't exist.
+
+### Response structure
+
+Each trace entry contains:
+- `type` — the type of operation (`CALL`, `CREATE`, `CREATE2`, `SELFDESTRUCT`)
+- `depth` — the depth in the call stack
+- `from` — the address initiating the operation
+- `to` — the target address (for calls) or created contract address
+- `value` — the amount of ETH transferred (in wei, hex)
+- `input` — the input data for the operation
+- `output` — the output data from the operation (optional)
+
+## Usage example
+
+```shell Shell
+curl -X POST https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "ots_traceTransaction",
+    "params": ["0xf94f3d2ed5b59aefb6a0e566af8e86552014d84f6ed2f38a1366dedffe723381"],
+    "id": 1
+  }'
+```
+
+### Example response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": [
+    {
+      "type": "CALL",
+      "depth": 0,
+      "from": "0x1234567890abcdef1234567890abcdef12345678",
+      "to": "0x5555555555555555555555555555555555555555",
+      "value": "0x0",
+      "input": "0xa9059cbb0000000000000000000000006666666666666666666666666666666666666666000000000000000000000000000000000000000000000000000000000000000a"
+    },
+    {
+      "type": "CALL",
+      "depth": 1,
+      "from": "0x5555555555555555555555555555555555555555",
+      "to": "0x7777777777777777777777777777777777777777",
+      "value": "0x0",
+      "input": "0x70a08231000000000000000000000000000000005555555555555555555555555555555555",
+      "output": "0x0000000000000000000000000000000000000000000000000000000000000064"
+    }
+  ]
+}
+```
+
+### Trace types
+
+- `CALL` — Regular function call to a contract
+- `DELEGATECALL` — Delegate call preserving msg.sender
+- `STATICCALL` — Read-only call that cannot modify state
+- `CREATE` — Contract deployment using CREATE opcode
+- `CREATE2` — Contract deployment using CREATE2 opcode
+- `SELFDESTRUCT` — Contract self-destruction
+
+## Use cases
+
+The `ots_traceTransaction` method is essential for:
+
+* **Transaction debugging**: Understand the complete execution flow of complex transactions
+* **DeFi analysis**: Trace token swaps through multiple DEX routers
+* **Security auditing**: Identify unexpected contract interactions
+* **Gas optimization**: Find expensive operations in the call tree
+* **MEV analysis**: Study arbitrage bot strategies and execution paths
+* **Contract testing**: Verify expected call patterns in integration tests
+* **Forensic investigation**: Analyze exploit transactions step by step
+* **Performance profiling**: Identify bottlenecks in contract interactions
+* **Educational tools**: Visualize how smart contracts interact
+* **Block explorers**: Display detailed transaction execution trees
+
+This method provides the most comprehensive view of transaction execution, making it invaluable for debugging complex smart contract interactions and understanding DeFi protocol operations.

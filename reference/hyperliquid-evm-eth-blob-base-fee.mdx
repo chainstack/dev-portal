@@ -1,0 +1,170 @@
+---
+title: eth_blobBaseFee | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_blob_base_fee.json post /evm
+---
+
+The `eth_blobBaseFee` JSON-RPC method returns the current base fee for blob transactions on the Hyperliquid EVM blockchain. This method is essential for applications working with EIP-4844 blob transactions, providing the current pricing information needed for blob data submission and cost estimation.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+This method takes no parameters. The `params` field should be an empty array.
+
+## Response
+
+The method returns the current blob base fee as a hexadecimal string.
+
+### Response structure
+
+**Blob fee information:**
+- `result` — The current blob base fee as a hexadecimal string (in wei units)
+
+### Blob base fee interpretation
+
+**Fee calculation:**
+- Blob base fees are returned in wei as hexadecimal strings
+- Convert to decimal for calculations and human-readable amounts
+- Multiply by the number of blobs to get total blob fee cost
+- Add to regular transaction fees for complete cost estimation
+
+**Usage patterns:**
+- Calculate blob transaction costs before submission
+- Monitor blob fee fluctuations for cost optimization
+- Implement dynamic blob pricing strategies
+- Optimize blob transaction timing based on fee levels
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get current blob base fee
+const getBlobBaseFee = async () => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_blobBaseFee',
+      params: [],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  const feeHex = data.result;
+  const feeWei = BigInt(feeHex);
+  const feeGwei = Number(feeWei) / 1e9;
+  
+  return {
+    hex: feeHex,
+    wei: feeWei.toString(),
+    gwei: feeGwei
+  };
+};
+
+// Calculate blob transaction cost
+const calculateBlobCost = async (blobCount) => {
+  try {
+    const { wei: baseFee } = await getBlobBaseFee();
+    const totalCost = BigInt(baseFee) * BigInt(blobCount);
+    
+    return {
+      baseFeeWei: baseFee,
+      blobCount: blobCount,
+      totalCostWei: totalCost.toString(),
+      totalCostGwei: Number(totalCost) / 1e9
+    };
+  } catch (error) {
+    console.error('Error calculating blob cost:', error);
+    return null;
+  }
+};
+
+// Monitor blob fee changes
+const monitorBlobFees = async (callback) => {
+  let lastFee = null;
+  
+  const checkFeeChange = async () => {
+    try {
+      const { gwei: currentFee } = await getBlobBaseFee();
+      
+      if (lastFee !== null && currentFee !== lastFee) {
+        const change = currentFee - lastFee;
+        const percentChange = ((change / lastFee) * 100).toFixed(2);
+        callback({
+          current: currentFee,
+          previous: lastFee,
+          change: change,
+          percentChange: percentChange
+        });
+      }
+      
+      lastFee = currentFee;
+    } catch (error) {
+      console.error('Error monitoring blob fees:', error);
+    }
+  };
+  
+  // Check every 12 seconds (approximate block time)
+  setInterval(checkFeeChange, 12000);
+};
+
+// Usage
+calculateBlobCost(4).then(cost => {
+  console.log(`Cost for 4 blobs: ${cost.totalCostGwei} Gwei`);
+});
+
+monitorBlobFees((feeData) => {
+  console.log(`Blob fee changed: ${feeData.current} Gwei (${feeData.percentChange}%)`);
+});
+```
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_blobBaseFee","params":[],"id":1}' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_blobBaseFee` method is essential for applications that need to:
+
+* **Blob transaction cost estimation**: Calculate the cost of blob transactions before submission
+* **Layer 2 scaling solutions**: Implement efficient data availability solutions using blobs
+* **Rollup optimizations**: Optimize rollup data submission costs and timing
+* **Fee market analysis**: Analyze blob fee market dynamics and pricing trends
+* **Cost optimization**: Implement strategies to minimize blob transaction costs
+* **DeFi protocols**: Build DeFi applications that utilize blob data for cost-effective operations
+* **Data availability services**: Provide data availability services with accurate pricing
+* **MEV strategies**: Implement MEV strategies that account for blob costs and timing
+* **Cross-chain bridges**: Optimize cross-chain data transfer costs using blob transactions
+* **Oracle services**: Provide cost-effective oracle data submission using blobs
+* **Batch processing**: Optimize batch transaction processing with blob cost considerations
+* **Gaming applications**: Implement blockchain gaming with cost-effective blob data storage
+* **NFT platforms**: Optimize NFT metadata and asset storage using blob transactions
+* **Social media platforms**: Build decentralized social platforms with efficient blob storage
+* **File storage systems**: Implement decentralized file storage with blob cost optimization
+* **Analytics platforms**: Track blob fee trends and provide market insights
+* **Automated trading**: Implement trading strategies that consider blob fee fluctuations
+* **Infrastructure monitoring**: Monitor blob fee changes for infrastructure cost planning
+* **Wallet applications**: Display accurate blob transaction costs to users
+* **Developer tools**: Build development tools that account for blob transaction costs
+* **Testing frameworks**: Create testing frameworks that simulate blob fee scenarios
+* **Arbitrage opportunities**: Identify arbitrage opportunities based on blob fee differentials
+* **Liquidity provision**: Optimize liquidity provision strategies considering blob costs
+* **Governance systems**: Implement governance systems with cost-effective blob data storage
+
+This method provides essential blob fee information, enabling cost-effective and efficient blob transaction management on the Hyperliquid EVM platform.

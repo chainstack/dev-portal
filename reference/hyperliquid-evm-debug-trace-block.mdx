@@ -1,0 +1,250 @@
+---
+title: debug_traceBlockByHash | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_debug_trace_block.json post /evm
+---
+
+The `debug_traceBlockByHash` JSON-RPC method returns detailed trace information for all transactions in a specific block. This method provides comprehensive debugging information for an entire block, including call traces, gas usage, and execution details for each transaction, making it essential for block-level analysis, forensic investigations, and bulk transaction debugging.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **Block hash** (string, required): The hash of the block to trace
+2. **Tracer configuration** (object, required): Configuration options for the tracer
+
+### Tracer configuration options
+
+- `tracer` (string): The type of tracer to use
+  - `"callTracer"`: Provides detailed call trace information for each transaction
+  - `"prestateTracer"`: Shows state before each transaction execution
+  - `"4byteTracer"`: Tracks function selector usage across all transactions
+
+## Response
+
+The method returns an array of detailed trace information for all transactions in the specified block.
+
+### Response structure
+
+**Block trace data:**
+- Array of transaction traces, each containing:
+  - `type` — The type of call (CALL, DELEGATECALL, STATICCALL, CREATE, etc.)
+  - `from` — The address that initiated the call
+  - `to` — The address that received the call
+  - `value` — The value transferred in the call
+  - `gas` — The amount of gas allocated for the call
+  - `gasUsed` — The amount of gas actually consumed
+  - `input` — The input data for the call
+  - `output` — The output data returned by the call
+  - `calls` — Array of sub-calls made during execution
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Trace all transactions in a block
+const traceBlock = async (blockHash) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'debug_traceBlockByHash',
+      params: [
+        blockHash,
+        {
+          tracer: 'callTracer'
+        }
+      ],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Analyze block execution patterns
+const analyzeBlockExecution = async (blockHash) => {
+  try {
+    const traces = await traceBlock(blockHash);
+    
+    let totalGasUsed = 0;
+    let successfulTxs = 0;
+    let failedTxs = 0;
+    let totalSubCalls = 0;
+    
+    console.log(`Block Analysis for ${blockHash}:`);
+    console.log(`Total Transactions: ${traces.length}`);
+    
+    traces.forEach((trace, index) => {
+      const gasUsed = parseInt(trace.gasUsed, 16);
+      totalGasUsed += gasUsed;
+      
+      if (trace.output && trace.output !== '0x') {
+        successfulTxs++;
+      } else {
+        failedTxs++;
+      }
+      
+      if (trace.calls) {
+        totalSubCalls += trace.calls.length;
+      }
+      
+      console.log(`  TX ${index + 1}: ${trace.from} -> ${trace.to}, Gas: ${gasUsed}`);
+    });
+    
+    console.log(`\\nSummary:`);
+    console.log(`  Successful: ${successfulTxs}`);
+    console.log(`  Failed: ${failedTxs}`);
+    console.log(`  Total Gas Used: ${totalGasUsed.toLocaleString()}`);
+    console.log(`  Average Gas per TX: ${Math.round(totalGasUsed / traces.length).toLocaleString()}`);
+    console.log(`  Total Sub-calls: ${totalSubCalls}`);
+    
+    return {
+      totalTransactions: traces.length,
+      successfulTxs,
+      failedTxs,
+      totalGasUsed,
+      averageGasPerTx: Math.round(totalGasUsed / traces.length),
+      totalSubCalls,
+      traces
+    };
+  } catch (error) {
+    console.error('Error tracing block:', error);
+    throw error;
+  }
+};
+
+// Find high gas usage transactions in a block
+const findHighGasTransactions = async (blockHash, gasThreshold = 100000) => {
+  const traces = await traceBlock(blockHash);
+  
+  const highGasTransactions = traces
+    .map((trace, index) => ({
+      index,
+      from: trace.from,
+      to: trace.to,
+      gasUsed: parseInt(trace.gasUsed, 16),
+      type: trace.type,
+      hasSubCalls: trace.calls && trace.calls.length > 0,
+      subCallCount: trace.calls ? trace.calls.length : 0
+    }))
+    .filter(tx => tx.gasUsed > gasThreshold)
+    .sort((a, b) => b.gasUsed - a.gasUsed);
+  
+  console.log(`High Gas Transactions (>${gasThreshold.toLocaleString()} gas):`);
+  highGasTransactions.forEach(tx => {
+    console.log(`  TX ${tx.index + 1}: ${tx.gasUsed.toLocaleString()} gas, ${tx.subCallCount} sub-calls`);
+    console.log(`    ${tx.from} -> ${tx.to}`);
+  });
+  
+  return highGasTransactions;
+};
+
+// Detect patterns in block transactions
+const detectBlockPatterns = async (blockHash) => {
+  const traces = await traceBlock(blockHash);
+  
+  const patterns = {
+    simpleTransfers: 0,
+    contractInteractions: 0,
+    contractDeployments: 0,
+    multiCallTransactions: 0,
+    uniqueFromAddresses: new Set(),
+    uniqueToAddresses: new Set(),
+    methodSignatures: new Map()
+  };
+  
+  traces.forEach(trace => {
+    patterns.uniqueFromAddresses.add(trace.from);
+    patterns.uniqueToAddresses.add(trace.to);
+    
+    if (trace.type === 'CREATE' || trace.type === 'CREATE2') {
+      patterns.contractDeployments++;
+    } else if (trace.input === '0x' || trace.input === '0x0') {
+      patterns.simpleTransfers++;
+    } else {
+      patterns.contractInteractions++;
+      
+      // Extract method signature (first 4 bytes of input)
+      if (trace.input && trace.input.length >= 10) {
+        const methodSig = trace.input.substring(0, 10);
+        patterns.methodSignatures.set(
+          methodSig, 
+          (patterns.methodSignatures.get(methodSig) || 0) + 1
+        );
+      }
+    }
+    
+    if (trace.calls && trace.calls.length > 0) {
+      patterns.multiCallTransactions++;
+    }
+  });
+  
+  console.log('Block Pattern Analysis:');
+  console.log(`  Simple Transfers: ${patterns.simpleTransfers}`);
+  console.log(`  Contract Interactions: ${patterns.contractInteractions}`);
+  console.log(`  Contract Deployments: ${patterns.contractDeployments}`);
+  console.log(`  Multi-call Transactions: ${patterns.multiCallTransactions}`);
+  console.log(`  Unique From Addresses: ${patterns.uniqueFromAddresses.size}`);
+  console.log(`  Unique To Addresses: ${patterns.uniqueToAddresses.size}`);
+  
+  return patterns;
+};
+
+// Usage
+const blockHash = '0x2ce91ae0ed242b4b78b432a45b982fb81a414d6b04167762ed3c7446710a4b8e';
+analyzeBlockExecution(blockHash).then(analysis => {
+  console.log('Block analysis completed');
+});
+```
+
+## Example request
+
+```shell Shell
+curl -X POST https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByHash",
+    "params": [
+      "0x2ce91ae0ed242b4b78b432a45b982fb81a414d6b04167762ed3c7446710a4b8e",
+      {
+        "tracer": "callTracer"
+      }
+    ],
+    "id": 1
+  }'
+```
+
+## Use cases
+
+The `debug_traceBlockByHash` method is essential for applications that need to:
+
+* **Block analysis**: Analyze entire blocks for patterns, gas usage, and execution details
+* **Forensic investigation**: Investigate suspicious blocks and transaction patterns
+* **Performance monitoring**: Monitor block execution performance and gas efficiency
+* **MEV analysis**: Analyze Maximum Extractable Value opportunities across entire blocks
+* **Security auditing**: Audit blocks for security issues and attack patterns
+* **Compliance monitoring**: Monitor blocks for regulatory compliance and reporting
+* **Analytics platforms**: Build comprehensive blockchain analytics and reporting tools
+* **Research tools**: Support academic and commercial blockchain research
+* **Debugging tools**: Debug complex multi-transaction scenarios and dependencies
+* **Gas optimization**: Analyze gas usage patterns across multiple transactions
+* **Network monitoring**: Monitor network health and transaction execution patterns
+* **Arbitrage detection**: Identify arbitrage opportunities across block transactions
+* **Front-running analysis**: Detect and analyze front-running patterns in blocks
+* **Protocol analysis**: Analyze protocol behavior across multiple transactions
+* **Risk assessment**: Assess risks and patterns in block execution
+* **Educational tools**: Create educational content about blockchain execution patterns
+
+This method provides comprehensive block-level transaction analysis capabilities, enabling detailed investigation and monitoring of blockchain execution patterns on the Hyperliquid EVM platform.

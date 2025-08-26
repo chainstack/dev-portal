@@ -1,0 +1,209 @@
+---
+title: eth_newFilter | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_new_filter.json post /evm
+---
+
+The `eth_newFilter` JSON-RPC method creates a filter object to notify when logs match the specified criteria. This method returns a filter ID that can be used with `eth_getFilterChanges` and `eth_getFilterLogs` to retrieve matching logs. Filters are essential for monitoring specific events on the blockchain.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **filter_object** (object) — The filter criteria object with the following properties:
+   - `fromBlock` (string, optional) — Block number (hexadecimal) or tag ("latest", "earliest", "pending")
+   - `toBlock` (string, optional) — Block number (hexadecimal) or tag ("latest", "earliest", "pending")
+   - `address` (string or array, optional) — Contract address or array of addresses to filter
+   - `topics` (array, optional) — Array of topic hashes to match (supports null wildcards)
+
+## Response
+
+The method returns a filter ID as a hexadecimal string that can be used to retrieve filter results.
+
+### Response structure
+
+**Filter ID:**
+- Returns a unique filter identifier as a hexadecimal string
+- Use this ID with `eth_getFilterChanges` to get new matching logs
+- Use this ID with `eth_getFilterLogs` to get all matching logs
+- Filters have a limited lifetime and may expire
+
+### Filter object options
+
+**Block range:**
+- `fromBlock` and `toBlock` define the block range to monitor
+- Use "latest" to monitor from the current block
+- Use specific block numbers in hexadecimal format
+
+**Address filtering:**
+- Single address: `"0xB7C609cFfa0e47DB2467ea03fF3e598bf59361A5"`
+- Multiple addresses: `["0xAddr1", "0xAddr2"]`
+- Omit to match logs from any address
+
+**Topic filtering:**
+- Topics are indexed event parameters
+- Array position corresponds to topic index (topic0, topic1, etc.)
+- Use `null` as wildcard for any value at that position
+- Empty array `[]` matches all topics
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Create a new filter
+const createFilter = async (filterOptions) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_newFilter',
+      params: [filterOptions],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Monitor specific contract events
+const monitorContractEvents = async (contractAddress, eventSignature) => {
+  const filter = await createFilter({
+    fromBlock: 'latest',
+    toBlock: 'latest',
+    address: contractAddress,
+    topics: [eventSignature] // topic0 is the event signature hash
+  });
+  
+  console.log(`Created filter ${filter} for contract ${contractAddress}`);
+  return filter;
+};
+
+// Create filter for ERC-20 Transfer events
+const monitorTokenTransfers = async (tokenAddress, fromAddress = null, toAddress = null) => {
+  // Transfer event signature: Transfer(address,address,uint256)
+  const transferSignature = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+  
+  const topics = [transferSignature];
+  
+  // Add indexed parameters (from and to addresses)
+  if (fromAddress) {
+    topics.push('0x000000000000000000000000' + fromAddress.slice(2).toLowerCase());
+  } else {
+    topics.push(null); // Wildcard for any from address
+  }
+  
+  if (toAddress) {
+    topics.push('0x000000000000000000000000' + toAddress.slice(2).toLowerCase());
+  }
+  
+  const filter = await createFilter({
+    fromBlock: 'latest',
+    toBlock: 'latest',
+    address: tokenAddress,
+    topics: topics
+  });
+  
+  return filter;
+};
+
+// Monitor multiple contracts
+const monitorMultipleContracts = async (addresses, topics = []) => {
+  const filter = await createFilter({
+    fromBlock: 'latest',
+    toBlock: 'latest',
+    address: addresses,
+    topics: topics
+  });
+  
+  console.log(`Created multi-contract filter: ${filter}`);
+  return filter;
+};
+
+// Historical event filter
+const createHistoricalFilter = async (fromBlock, toBlock, contractAddress) => {
+  const filter = await createFilter({
+    fromBlock: `0x${fromBlock.toString(16)}`,
+    toBlock: `0x${toBlock.toString(16)}`,
+    address: contractAddress,
+    topics: []
+  });
+  
+  console.log(`Created historical filter from block ${fromBlock} to ${toBlock}`);
+  return filter;
+};
+
+// Usage examples
+const contractAddress = '0xB7C609cFfa0e47DB2467ea03fF3e598bf59361A5';
+
+// Monitor all events from a contract
+monitorContractEvents(contractAddress, null).then(filterId => {
+  console.log('Monitor filter created:', filterId);
+});
+
+// Monitor token transfers
+monitorTokenTransfers(contractAddress).then(filterId => {
+  console.log('Transfer filter created:', filterId);
+});
+
+// Monitor multiple contracts
+const addresses = [
+  '0xB7C609cFfa0e47DB2467ea03fF3e598bf59361A5',
+  '0xAnother...Address'
+];
+monitorMultipleContracts(addresses).then(filterId => {
+  console.log('Multi-contract filter created:', filterId);
+});
+```
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_newFilter",
+    "params": [
+      {
+        "fromBlock": "latest",
+        "toBlock": "latest",
+        "address": "0xB7C609cFfa0e47DB2467ea03fF3e598bf59361A5",
+        "topics": []
+      }
+    ],
+    "id": 1
+  }' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_newFilter` method is essential for applications that need to:
+
+* **Event monitoring**: Monitor smart contract events in real-time
+* **DeFi applications**: Track token transfers, swaps, and other DeFi operations
+* **NFT platforms**: Monitor NFT minting, transfers, and marketplace activities
+* **Trading bots**: React to specific blockchain events for automated trading
+* **Analytics platforms**: Collect event data for analysis and reporting
+* **Notification systems**: Create alerts based on specific blockchain events
+* **Audit tools**: Monitor specific contracts for compliance and security
+* **DEX monitoring**: Track decentralized exchange activities and liquidity events
+* **Governance tracking**: Monitor DAO governance events and voting
+* **Bridge monitoring**: Track cross-chain bridge events and transfers
+* **Staking applications**: Monitor staking rewards and delegation events
+* **Oracle monitoring**: Track oracle price updates and data feeds
+* **Gaming platforms**: Monitor in-game transactions and asset transfers
+* **Supply chain tracking**: Monitor supply chain events and product transfers
+* **Insurance platforms**: Track insurance claims and policy events
+
+This method provides flexible and efficient event filtering capabilities, enabling real-time blockchain monitoring and event-driven applications on the Hyperliquid EVM platform.

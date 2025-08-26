@@ -1,0 +1,350 @@
+---
+title: eth_uninstallFilter | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_uninstall_filter.json post /evm
+---
+
+The `eth_uninstallFilter` JSON-RPC method uninstalls a filter with the given ID. This method should be called when polling is no longer needed to free up server resources and maintain optimal performance. Filters may also be automatically uninstalled if they are not polled for an extended period of time.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **filter_id** (string) — The filter ID to uninstall (returned by `eth_newFilter` or `eth_newBlockFilter`)
+
+## Response
+
+The method returns a boolean value indicating whether the filter was successfully uninstalled.
+
+### Response structure
+
+**Return values:**
+- `true` — Filter was successfully uninstalled
+- `false` — Filter was not found (may have already expired or been uninstalled)
+
+### Filter lifecycle
+
+**Automatic cleanup:**
+- Filters may be automatically uninstalled after a period of inactivity
+- The exact timeout varies by node implementation
+- Always explicitly uninstall filters when done to ensure cleanup
+
+**Resource management:**
+- Each filter consumes server resources for tracking state
+- Uninstalling filters frees these resources for other operations
+- Good practice to uninstall filters when no longer needed
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Uninstall a filter
+const uninstallFilter = async (filterId) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_uninstallFilter',
+      params: [filterId],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Filter manager with automatic cleanup
+class FilterManager {
+  constructor() {
+    this.activeFilters = new Map();
+    this.cleanupTimeouts = new Map();
+  }
+  
+  async createLogFilter(filterOptions, timeoutMs = 300000) { // 5 minutes default
+    const createResponse = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_newFilter',
+        params: [filterOptions],
+        id: 1
+      })
+    });
+    
+    const createData = await createResponse.json();
+    const filterId = createData.result;
+    
+    // Track the filter
+    this.activeFilters.set(filterId, {
+      type: 'log',
+      created: Date.now(),
+      options: filterOptions
+    });
+    
+    // Set automatic cleanup
+    if (timeoutMs > 0) {
+      this.setCleanupTimeout(filterId, timeoutMs);
+    }
+    
+    return filterId;
+  }
+  
+  async createBlockFilter(timeoutMs = 300000) { // 5 minutes default
+    const createResponse = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'eth_newBlockFilter',
+        params: [],
+        id: 1
+      })
+    });
+    
+    const createData = await createResponse.json();
+    const filterId = createData.result;
+    
+    // Track the filter
+    this.activeFilters.set(filterId, {
+      type: 'block',
+      created: Date.now()
+    });
+    
+    // Set automatic cleanup
+    if (timeoutMs > 0) {
+      this.setCleanupTimeout(filterId, timeoutMs);
+    }
+    
+    return filterId;
+  }
+  
+  setCleanupTimeout(filterId, timeoutMs) {
+    // Clear existing timeout if any
+    if (this.cleanupTimeouts.has(filterId)) {
+      clearTimeout(this.cleanupTimeouts.get(filterId));
+    }
+    
+    const timeoutId = setTimeout(() => {
+      this.uninstallFilter(filterId);
+    }, timeoutMs);
+    
+    this.cleanupTimeouts.set(filterId, timeoutId);
+  }
+  
+  resetCleanupTimeout(filterId, timeoutMs = 300000) {
+    if (this.activeFilters.has(filterId)) {
+      this.setCleanupTimeout(filterId, timeoutMs);
+    }
+  }
+  
+  async uninstallFilter(filterId) {
+    // Clear cleanup timeout
+    if (this.cleanupTimeouts.has(filterId)) {
+      clearTimeout(this.cleanupTimeouts.get(filterId));
+      this.cleanupTimeouts.delete(filterId);
+    }
+    
+    // Uninstall the filter
+    const success = await uninstallFilter(filterId);
+    
+    if (success) {
+      this.activeFilters.delete(filterId);
+      console.log(`Filter ${filterId} uninstalled successfully`);
+    } else {
+      console.log(`Filter ${filterId} was not found (may have already expired)`);
+      // Still remove from our tracking
+      this.activeFilters.delete(filterId);
+    }
+    
+    return success;
+  }
+  
+  async uninstallAllFilters() {
+    const results = {};
+    const filterIds = Array.from(this.activeFilters.keys());
+    
+    for (const filterId of filterIds) {
+      results[filterId] = await this.uninstallFilter(filterId);
+    }
+    
+    return results;
+  }
+  
+  getActiveFilters() {
+    return Array.from(this.activeFilters.entries()).map(([id, info]) => ({
+      filterId: id,
+      ...info,
+      age: Date.now() - info.created
+    }));
+  }
+  
+  // Keep a filter alive by resetting its timeout
+  keepAlive(filterId, timeoutMs = 300000) {
+    if (this.activeFilters.has(filterId)) {
+      this.resetCleanupTimeout(filterId, timeoutMs);
+      return true;
+    }
+    return false;
+  }
+}
+
+// Usage with proper cleanup
+const useFilterWithCleanup = async () => {
+  const manager = new FilterManager();
+  
+  try {
+    // Create filters
+    const logFilterId = await manager.createLogFilter({
+      fromBlock: 'latest',
+      toBlock: 'latest',
+      address: '0xB7C609cFfa0e47DB2467ea03fF3e598bf59361A5'
+    }, 60000); // 1 minute timeout
+    
+    const blockFilterId = await manager.createBlockFilter(60000);
+    
+    console.log('Created filters:', { logFilterId, blockFilterId });
+    
+    // Simulate some work
+    for (let i = 0; i < 5; i++) {
+      await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
+      
+      // Keep filters alive during work
+      manager.keepAlive(logFilterId);
+      manager.keepAlive(blockFilterId);
+      
+      console.log('Active filters:', manager.getActiveFilters().length);
+    }
+    
+  } finally {
+    // Clean up all filters
+    await manager.uninstallAllFilters();
+    console.log('All filters cleaned up');
+  }
+};
+
+// Batch filter operations
+const batchFilterOperations = async (filterIds) => {
+  const results = {
+    uninstalled: [],
+    notFound: [],
+    errors: []
+  };
+  
+  for (const filterId of filterIds) {
+    try {
+      const success = await uninstallFilter(filterId);
+      if (success) {
+        results.uninstalled.push(filterId);
+      } else {
+        results.notFound.push(filterId);
+      }
+    } catch (error) {
+      results.errors.push({ filterId, error: error.message });
+    }
+  }
+  
+  return results;
+};
+
+// Safe filter cleanup with retry
+const safeUninstallFilter = async (filterId, retries = 3) => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const success = await uninstallFilter(filterId);
+      return { success, attempt };
+    } catch (error) {
+      if (attempt === retries) {
+        throw new Error(`Failed to uninstall filter ${filterId} after ${retries} attempts: ${error.message}`);
+      }
+      // Wait before retry
+      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+    }
+  }
+};
+
+// Usage examples
+const filterId = '0x1';
+
+// Simple uninstall
+uninstallFilter(filterId).then(success => {
+  if (success) {
+    console.log(`Filter ${filterId} uninstalled successfully`);
+  } else {
+    console.log(`Filter ${filterId} was not found`);
+  }
+});
+
+// Use filter manager
+const manager = new FilterManager();
+manager.createLogFilter({
+  fromBlock: 'latest',
+  toBlock: 'latest',
+  address: '0xB7C609cFfa0e47DB2467ea03fF3e598bf59361A5'
+}).then(filterId => {
+  console.log(`Created filter: ${filterId}`);
+  
+  // Uninstall after 30 seconds
+  setTimeout(() => {
+    manager.uninstallFilter(filterId);
+  }, 30000);
+});
+
+// Batch operations
+const filterIdsToCleanup = ['0x1', '0x2', '0x3'];
+batchFilterOperations(filterIdsToCleanup).then(results => {
+  console.log('Batch cleanup results:', results);
+});
+```
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_uninstallFilter",
+    "params": [
+      "0x1"
+    ],
+    "id": 1
+  }' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_uninstallFilter` method is essential for applications that need to:
+
+* **Resource management**: Free up server resources when filters are no longer needed
+* **Memory cleanup**: Prevent memory leaks from accumulating unused filters
+* **Performance optimization**: Maintain optimal node performance by cleaning up filters
+* **Application lifecycle**: Properly clean up resources when applications shut down
+* **Session management**: Clean up filters when user sessions end
+* **Batch operations**: Clean up multiple filters efficiently
+* **Error handling**: Clean up filters when errors occur during processing
+* **Testing cleanup**: Clean up test filters in automated testing environments
+* **Load balancing**: Manage filter load across multiple connections
+* **Connection management**: Clean up filters when connections are lost
+* **Scheduled cleanup**: Implement scheduled cleanup of old filters
+* **Resource monitoring**: Monitor and manage filter resource usage
+* **Graceful shutdowns**: Ensure proper cleanup during application shutdowns
+* **Filter rotation**: Rotate filters to prevent resource exhaustion
+* **Development workflows**: Clean up filters during development and debugging
+
+This method provides essential resource management capabilities, ensuring efficient and clean operation of filter-based applications on the Hyperliquid EVM platform.

@@ -1,0 +1,182 @@
+---
+title: eth_getTransactionBySenderAndNonce | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_get_transaction_by_sender_and_nonce.json post /evm
+---
+
+The `eth_getTransactionBySenderAndNonce` JSON-RPC method retrieves transaction information by specifying the sender address and transaction nonce on the Hyperliquid EVM blockchain. This method is particularly useful for tracking specific transactions when you know the sender and the sequence number of their transaction.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+The method accepts two parameters:
+
+1. **Sender address** (string, required) — The address of the transaction sender
+2. **Nonce** (string, required) — The transaction nonce as a hexadecimal string
+
+### Parameter details
+
+- `address` — The Ethereum address that sent the transaction
+- `nonce` — The transaction sequence number for the sender, in hexadecimal format with "0x" prefix
+
+## Response
+
+The method returns detailed transaction information if found, or `null` if no transaction exists for the specified sender and nonce.
+
+### Response structure
+
+**Transaction object (if found):**
+- `blockHash` — Hash of the block containing the transaction
+- `blockNumber` — Block number containing the transaction (hexadecimal)
+- `from` — Address of the transaction sender
+- `gas` — Gas limit provided for the transaction (hexadecimal)
+- `gasPrice` — Gas price used for the transaction (hexadecimal)
+- `hash` — Transaction hash
+- `input` — Transaction data payload
+- `nonce` — Transaction nonce (hexadecimal)
+- `to` — Address of the transaction recipient
+- `transactionIndex` — Position of transaction in the block (hexadecimal)
+- `value` — Value transferred in the transaction (hexadecimal, in wei)
+- `type` — Transaction type (hexadecimal)
+- `v`, `r`, `s` — Transaction signature components
+
+**Null response:**
+- Returns `null` if no transaction is found for the specified sender and nonce
+
+## Usage example
+
+### Basic transaction lookup
+
+```javascript
+// Get transaction by sender and nonce
+const getTransactionBySenderAndNonce = async (sender, nonce) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getTransactionBySenderAndNonce',
+      params: [sender, nonce],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Track user transactions by nonce
+const trackUserTransactions = async (userAddress, startNonce = 0, count = 10) => {
+  const transactions = [];
+  
+  for (let i = 0; i < count; i++) {
+    const nonce = `0x${(startNonce + i).toString(16)}`;
+    try {
+      const tx = await getTransactionBySenderAndNonce(userAddress, nonce);
+      if (tx) {
+        transactions.push({
+          nonce: parseInt(tx.nonce, 16),
+          hash: tx.hash,
+          blockNumber: parseInt(tx.blockNumber, 16),
+          value: BigInt(tx.value).toString(),
+          gasUsed: BigInt(tx.gas).toString(),
+          to: tx.to
+        });
+      } else {
+        // No more transactions found
+        break;
+      }
+    } catch (error) {
+      console.error(`Error fetching transaction for nonce ${nonce}:`, error);
+      break;
+    }
+  }
+  
+  return transactions;
+};
+
+// Find pending transaction by nonce
+const findPendingTransaction = async (sender, nonce) => {
+  const tx = await getTransactionBySenderAndNonce(sender, nonce);
+  
+  if (!tx) {
+    return { status: 'not_found', message: 'Transaction not found' };
+  }
+  
+  if (!tx.blockNumber) {
+    return { status: 'pending', transaction: tx };
+  }
+  
+  return { status: 'confirmed', transaction: tx };
+};
+
+// Usage examples
+const sender = "0x69835D480110e4919B7899f465aAB101e21c8A87";
+const nonce = "0x0";
+
+getTransactionBySenderAndNonce(sender, nonce).then(tx => {
+  if (tx) {
+    console.log('Transaction found:', tx.hash);
+    console.log('Block number:', parseInt(tx.blockNumber, 16));
+    console.log('Value:', BigInt(tx.value).toString(), 'wei');
+  } else {
+    console.log('No transaction found for sender and nonce');
+  }
+});
+```
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_getTransactionBySenderAndNonce",
+    "params": [
+      "0x69835D480110e4919B7899f465aAB101e21c8A87",
+      "0x0"
+    ],
+    "id": 1
+  }' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_getTransactionBySenderAndNonce` method is essential for applications that need to:
+
+* **Transaction tracking**: Track specific transactions by sender and sequence number
+* **Nonce management**: Implement robust nonce management and transaction sequencing
+* **Wallet applications**: Build wallet interfaces that track user transaction history
+* **Pending transaction monitoring**: Monitor pending transactions and detect stuck transactions
+* **Transaction replacement**: Implement transaction replacement and speed-up mechanisms
+* **Account analysis**: Analyze account transaction patterns and behavior
+* **Debugging tools**: Debug transaction issues and investigate failed transactions
+* **DeFi protocols**: Track protocol interactions and user transaction sequences
+* **MEV protection**: Detect and prevent MEV attacks by monitoring transaction sequences
+* **Audit tools**: Build audit tools that trace transaction flows and account activity
+* **Analytics platforms**: Create analytics dashboards that track user transaction patterns
+* **Risk management**: Implement risk management systems that monitor transaction behavior
+* **Compliance monitoring**: Monitor transactions for compliance and regulatory requirements
+* **Trading bots**: Implement trading bots that track their own transaction sequences
+* **Arbitrage strategies**: Monitor arbitrage transaction sequences and timing
+* **Cross-chain bridges**: Track cross-chain transaction sequences and confirmations
+* **Oracle services**: Monitor oracle transaction sequences and data submission patterns
+* **Gaming applications**: Track gaming transaction sequences and player interactions
+* **NFT platforms**: Monitor NFT transaction sequences and trading patterns
+* **Social recovery**: Implement social recovery mechanisms based on transaction patterns
+* **Security monitoring**: Detect suspicious transaction patterns and potential attacks
+* **Performance optimization**: Optimize transaction submission and nonce management
+* **Development frameworks**: Build development tools with transaction tracking capabilities
+* **Testing suites**: Create comprehensive testing suites for transaction scenarios
+
+This method provides precise transaction lookup capabilities, enabling efficient transaction management and monitoring on the Hyperliquid EVM platform.

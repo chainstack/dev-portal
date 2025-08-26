@@ -1,0 +1,124 @@
+---
+title: trace_block | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_trace_block.json post /evm
+---
+
+The `trace_block` JSON-RPC method returns trace information for all transactions in a specific block. This method provides execution traces for all transactions within a block using OpenEthereum-style tracing, making it essential for comprehensive block analysis and monitoring.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **Block identifier** (string, required): Block number, hash, or "latest"/"earliest"/"pending"
+
+## Response
+
+The method returns an array of trace objects for all transactions in the specified block.
+
+### Response structure
+
+**Block traces:**
+- Array of trace objects, one for each transaction in the block
+- Each trace contains execution details, gas usage, and call hierarchy
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get traces for all transactions in a block
+const traceBlock = async (blockIdentifier) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'trace_block',
+      params: [blockIdentifier],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Analyze block execution
+const analyzeBlockExecution = async (blockIdentifier = 'latest') => {
+  const traces = await traceBlock(blockIdentifier);
+  
+  console.log(`Block analysis for ${blockIdentifier}:`);
+  console.log(`Total transactions: ${traces.length}`);
+  
+  let totalGasUsed = 0;
+  let successfulTxs = 0;
+  
+  traces.forEach((trace, index) => {
+    const gasUsed = parseInt(trace.result.gasUsed, 16);
+    totalGasUsed += gasUsed;
+    
+    if (trace.result.output && trace.result.output !== '0x') {
+      successfulTxs++;
+    }
+    
+    console.log(`  TX ${index + 1}: ${gasUsed} gas, ${trace.action.from} -> ${trace.action.to}`);
+  });
+  
+  console.log(`Successful transactions: ${successfulTxs}/${traces.length}`);
+  console.log(`Total gas used: ${totalGasUsed.toLocaleString()}`);
+  console.log(`Average gas per transaction: ${Math.round(totalGasUsed / traces.length).toLocaleString()}`);
+  
+  return traces;
+};
+
+// Usage
+analyzeBlockExecution('latest').then(traces => {
+  console.log('Block analysis completed');
+});
+```
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "trace_block",
+    "params": [
+      "latest"
+    ],
+    "id": 1
+  }' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `trace_block` method is essential for applications that need to:
+
+* **Block monitoring**: Monitor block execution and transaction patterns
+* **Performance analysis**: Analyze block performance and gas efficiency
+* **Analytics platforms**: Build comprehensive blockchain analytics tools
+* **Forensic investigation**: Investigate suspicious blocks and activities
+* **Compliance monitoring**: Monitor regulatory compliance across blocks
+* **Development tools**: Build block-level debugging and analysis tools
+* **Research platforms**: Support blockchain research and analysis
+* **MEV analysis**: Analyze Maximum Extractable Value opportunities
+* **Security monitoring**: Monitor for suspicious patterns in block execution
+* **Network health**: Monitor network health and transaction success rates
+* **Gas analysis**: Analyze gas usage patterns across blocks
+* **Protocol monitoring**: Monitor protocol behavior and adoption
+* **Trading analysis**: Analyze trading patterns and market activity
+* **DeFi monitoring**: Monitor DeFi protocol activity and usage
+* **Educational tools**: Create educational content about block execution
+
+This method provides comprehensive block-level transaction analysis capabilities on the Hyperliquid EVM platform.

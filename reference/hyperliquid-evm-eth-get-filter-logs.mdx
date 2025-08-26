@@ -1,0 +1,303 @@
+---
+title: eth_getFilterLogs | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_get_filter_logs.json post /evm
+---
+
+The `eth_getFilterLogs` JSON-RPC method returns an array of all logs matching the filter with the given ID. Unlike `eth_getFilterChanges`, this method returns all matching logs from the entire filter range, not just changes since the last poll. This method is useful for retrieving the complete history of events matching a filter.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **filter_id** (string) — The filter ID returned by `eth_newFilter` (not compatible with block filters created by `eth_newBlockFilter`)
+
+## Response
+
+The method returns an array of log objects matching the filter criteria from the entire filter range.
+
+### Response structure
+
+**Log objects contain:**
+- `address` — The address from which this log originated
+- `topics` — Array of 0 to 4 indexed log arguments (32-byte hex strings)
+- `data` — Contains non-indexed arguments of the log
+- `blockNumber` — The block number where this log was in (hex string)
+- `transactionHash` — Hash of the transaction this log was created from
+- `transactionIndex` — Integer of the transaction index position log was created from
+- `blockHash` — Hash of the block where this log was in
+- `logIndex` — Integer of the log index position in the block
+- `removed` — True when the log was removed due to a chain reorganization
+
+### Difference from eth_getFilterChanges
+
+**Complete vs incremental:**
+- `eth_getFilterLogs`: Returns ALL logs matching the filter criteria
+- `eth_getFilterChanges`: Returns only NEW logs since the last poll
+
+**Use cases:**
+- Use `eth_getFilterLogs` for complete historical analysis
+- Use `eth_getFilterChanges` for real-time monitoring
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get all filter logs
+const getFilterLogs = async (filterId) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getFilterLogs',
+      params: [filterId],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Create filter and get all matching logs
+const createFilterAndGetLogs = async (filterOptions) => {
+  // Create filter
+  const createResponse = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_newFilter',
+      params: [filterOptions],
+      id: 1
+    })
+  });
+  
+  const createData = await createResponse.json();
+  const filterId = createData.result;
+  
+  // Get all matching logs
+  const logs = await getFilterLogs(filterId);
+  
+  return {
+    filterId,
+    logs,
+    logCount: logs.length
+  };
+};
+
+// Analyze event history
+const analyzeEventHistory = async (contractAddress, eventSignature, fromBlock, toBlock) => {
+  const filterOptions = {
+    fromBlock: `0x${fromBlock.toString(16)}`,
+    toBlock: `0x${toBlock.toString(16)}`,
+    address: contractAddress,
+    topics: [eventSignature]
+  };
+  
+  const result = await createFilterAndGetLogs(filterOptions);
+  
+  // Analyze the logs
+  const analysis = {
+    totalEvents: result.logs.length,
+    blockRange: { from: fromBlock, to: toBlock },
+    eventsByBlock: {},
+    uniqueTransactions: new Set(),
+    timeAnalysis: {
+      firstEvent: null,
+      lastEvent: null,
+      blockSpread: 0
+    }
+  };
+  
+  result.logs.forEach(log => {
+    const blockNum = parseInt(log.blockNumber, 16);
+    
+    // Count events by block
+    analysis.eventsByBlock[blockNum] = (analysis.eventsByBlock[blockNum] || 0) + 1;
+    
+    // Track unique transactions
+    analysis.uniqueTransactions.add(log.transactionHash);
+    
+    // Time analysis
+    if (!analysis.timeAnalysis.firstEvent || blockNum < analysis.timeAnalysis.firstEvent) {
+      analysis.timeAnalysis.firstEvent = blockNum;
+    }
+    if (!analysis.timeAnalysis.lastEvent || blockNum > analysis.timeAnalysis.lastEvent) {
+      analysis.timeAnalysis.lastEvent = blockNum;
+    }
+  });
+  
+  analysis.timeAnalysis.blockSpread = 
+    analysis.timeAnalysis.lastEvent - analysis.timeAnalysis.firstEvent;
+  analysis.uniqueTransactions = analysis.uniqueTransactions.size;
+  
+  return { ...result, analysis };
+};
+
+// Compare filter states
+const compareFilterStates = async (filterId) => {
+  // Get all logs
+  const allLogs = await getFilterLogs(filterId);
+  
+  // Get current changes (this might return empty if no new changes)
+  const changesResponse = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getFilterChanges',
+      params: [filterId],
+      id: 1
+    })
+  });
+  
+  const changesData = await changesResponse.json();
+  const changes = changesData.result;
+  
+  return {
+    allLogsCount: allLogs.length,
+    newChangesCount: changes.length,
+    hasNewChanges: changes.length > 0,
+    allLogs,
+    newChanges: changes
+  };
+};
+
+// Export logs to CSV format
+const exportLogsToCSV = async (filterId) => {
+  const logs = await getFilterLogs(filterId);
+  
+  if (logs.length === 0) {
+    return 'No logs found for this filter';
+  }
+  
+  // CSV header
+  const headers = [
+    'blockNumber', 'blockHash', 'transactionHash', 'transactionIndex',
+    'logIndex', 'address', 'data', 'topics', 'removed'
+  ];
+  
+  const csvData = [
+    headers.join(','),
+    ...logs.map(log => [
+      parseInt(log.blockNumber, 16),
+      log.blockHash,
+      log.transactionHash,
+      parseInt(log.transactionIndex, 16),
+      parseInt(log.logIndex, 16),
+      log.address,
+      log.data,
+      `"${log.topics.join(';')}"`, // Semicolon-separated topics
+      log.removed || false
+    ].join(','))
+  ];
+  
+  return csvData.join('\n');
+};
+
+// Batch process multiple filters
+const batchProcessFilters = async (filterIds) => {
+  const results = {};
+  
+  const promises = filterIds.map(async (filterId) => {
+    try {
+      const logs = await getFilterLogs(filterId);
+      results[filterId] = {
+        success: true,
+        logCount: logs.length,
+        logs
+      };
+    } catch (error) {
+      results[filterId] = {
+        success: false,
+        error: error.message
+      };
+    }
+  });
+  
+  await Promise.all(promises);
+  return results;
+};
+
+// Usage examples
+const filterId = '0x1';
+
+// Get all logs from a filter
+getFilterLogs(filterId).then(logs => {
+  console.log(`Found ${logs.length} logs for filter ${filterId}`);
+  logs.forEach((log, index) => {
+    console.log(`Log ${index + 1}:`, {
+      block: parseInt(log.blockNumber, 16),
+      transaction: log.transactionHash,
+      address: log.address
+    });
+  });
+});
+
+// Analyze event history for ERC-20 transfers
+const tokenAddress = '0xB7C609cFfa0e47DB2467ea03fF3e598bf59361A5';
+const transferSignature = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+analyzeEventHistory(tokenAddress, transferSignature, 1000, 2000).then(result => {
+  console.log('Event Analysis:', result.analysis);
+  console.log(`Found ${result.logCount} transfer events`);
+});
+
+// Compare filter states
+compareFilterStates(filterId).then(comparison => {
+  console.log(`Total logs: ${comparison.allLogsCount}`);
+  console.log(`New changes: ${comparison.newChangesCount}`);
+});
+```
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_getFilterLogs",
+    "params": [
+      "0x1"
+    ],
+    "id": 1
+  }' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_getFilterLogs` method is useful for applications that need to:
+
+* **Historical analysis**: Analyze complete event history for a specific filter
+* **Data export**: Export all matching logs for external analysis
+* **Compliance reporting**: Generate complete reports of contract activities
+* **Audit trails**: Create comprehensive audit trails for specific events
+* **Research tools**: Support blockchain research with complete event datasets
+* **Analytics platforms**: Perform comprehensive analytics on event data
+* **Backup and archival**: Create backups of event data for specific filters
+* **Data migration**: Migrate event data between systems
+* **Forensic analysis**: Investigate blockchain activities with complete event logs
+* **Statistical analysis**: Generate statistics from complete event datasets
+* **Reconciliation**: Reconcile event data with external systems
+* **Event replay**: Replay complete sequences of events for testing
+* **Data validation**: Validate event data integrity and completeness
+* **Batch processing**: Process large batches of events efficiently
+* **Report generation**: Generate comprehensive reports from event data
+
+This method provides complete access to all logs matching a filter, enabling comprehensive blockchain data analysis and processing on the Hyperliquid EVM platform.
