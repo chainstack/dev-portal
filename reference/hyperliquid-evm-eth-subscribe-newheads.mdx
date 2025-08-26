@@ -1,0 +1,187 @@
+---
+title: eth_subscribe ("newHeads") | Hyperliquid EVM
+description: Subscribe to real-time notifications for new block headers on Hyperliquid EVM blockchain. Sends notifications whenever a new block is added.
+---
+
+The `eth_subscribe("newHeads")` JSON-RPC method allows developers to receive real-time notifications regarding new block headers on the Hyperliquid EVM blockchain. It sends notifications whenever a new block is added, making it essential for applications that need to track blockchain state changes in real-time.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **subscription type** (string, required): Keyword identifying the type of event to subscribe to, `newHeads` in this case
+
+## Response
+
+The method returns a subscription ID that can be used to identify and manage the subscription.
+
+### Response structure
+
+**Initial subscription response:**
+- `subscription` — the subscription ID
+
+**Notification structure:**
+- `number` — block number of the requested block, encoded as hexadecimal
+- `hash` — block hash of the requested block
+- `parentHash` — hash of the previous block
+- `nonce` — proof-of-work hash (0x0000000000000000 for proof-of-stake)
+- `sha3Uncles` — hash of the list of uncles included in the block
+- `logsBloom` — bloom filter for the logs of the block
+- `transactionsRoot` — root of the transaction trie of the block
+- `stateRoot` — root of the final state trie of the block
+- `receiptsRoot` — root of the receipts trie of the block
+- `miner` — address of the miner receiving the reward
+- `difficulty` — block difficulty (legacy field, typically 0x0 for PoS)
+- `totalDifficulty` — null (obsolete after merge to PoS)
+- `extraData` — extra data included by the miner
+- `size` — size of this block in bytes
+- `gasLimit` — maximum gas allowed in this block
+- `gasUsed` — total used gas by all transactions
+- `timestamp` — Unix timestamp for when the block was collated
+
+## Usage example
+
+### Basic implementation
+
+<Info>
+Note that subscriptions require a WebSocket connection. Install WebSocket cat for testing:
+
+```bash
+npm install -g wscat
+```
+</Info>
+
+```shell wscat
+$ wscat -c wss://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+# Wait for the connection to be established
+
+Connected (press CTRL+C to quit)
+
+> {"id":1,"jsonrpc":"2.0","method":"eth_subscribe","params":["newHeads"]}
+< {"jsonrpc":"2.0","id":1,"result":"0x1234567890abcdef"}
+
+# New block notifications will stream in:
+< {"jsonrpc":"2.0","method":"eth_subscription","params":{"subscription":"0x1234567890abcdef","result":{"difficulty":"0x0","extraData":"0x","gasLimit":"0x1c9c380","gasUsed":"0x5208","hash":"0x...","logsBloom":"0x...","miner":"0x...","nonce":"0x0000000000000000","number":"0x1234","parentHash":"0x...","receiptsRoot":"0x...","sha3Uncles":"0x...","size":"0x220","stateRoot":"0x...","timestamp":"0x65abc123","transactionsRoot":"0x..."}}}
+```
+
+### JavaScript implementation
+
+```javascript
+const WebSocket = require('ws');
+
+const CHAINSTACK_WSS_URL = 'wss://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm';
+
+async function subscribeToNewBlocks() {
+  const ws = new WebSocket(CHAINSTACK_WSS_URL);
+
+  ws.on('open', () => {
+    console.log('Connected to Hyperliquid EVM WebSocket');
+    
+    // Subscribe to new block headers
+    const request = {
+      id: 1,
+      jsonrpc: '2.0',
+      method: 'eth_subscribe',
+      params: ['newHeads']
+    };
+    
+    ws.send(JSON.stringify(request));
+  });
+
+  ws.on('message', (data) => {
+    const response = JSON.parse(data);
+    
+    // Handle subscription confirmation
+    if (response.id === 1) {
+      console.log(`Subscribed with ID: ${response.result}`);
+    }
+    
+    // Handle new block notifications
+    if (response.method === 'eth_subscription') {
+      const block = response.params.result;
+      console.log('New block received:');
+      console.log(`  Number: ${parseInt(block.number, 16)}`);
+      console.log(`  Hash: ${block.hash}`);
+      console.log(`  Timestamp: ${new Date(parseInt(block.timestamp, 16) * 1000).toISOString()}`);
+      console.log(`  Gas Used: ${parseInt(block.gasUsed, 16).toLocaleString()}`);
+    }
+  });
+
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error);
+  });
+
+  ws.on('close', () => {
+    console.log('WebSocket connection closed');
+  });
+}
+
+// Run the subscription
+subscribeToNewBlocks();
+```
+
+### Python implementation
+
+```python
+import json
+import asyncio
+import websockets
+from datetime import datetime
+
+CHAINSTACK_WSS_URL = 'wss://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm'
+
+async def subscribe_to_new_blocks():
+    async with websockets.connect(CHAINSTACK_WSS_URL) as websocket:
+        # Subscribe to new block headers
+        subscribe_request = {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "method": "eth_subscribe",
+            "params": ["newHeads"]
+        }
+        
+        await websocket.send(json.dumps(subscribe_request))
+        
+        while True:
+            response = json.loads(await websocket.recv())
+            
+            # Handle subscription confirmation
+            if response.get('id') == 1:
+                print(f"Subscribed with ID: {response['result']}")
+            
+            # Handle new block notifications
+            elif response.get('method') == 'eth_subscription':
+                block = response['params']['result']
+                print('New block received:')
+                print(f"  Number: {int(block['number'], 16)}")
+                print(f"  Hash: {block['hash']}")
+                timestamp = datetime.fromtimestamp(int(block['timestamp'], 16))
+                print(f"  Timestamp: {timestamp.isoformat()}")
+                print(f"  Gas Used: {int(block['gasUsed'], 16):,}")
+
+# Run the async function
+asyncio.run(subscribe_to_new_blocks())
+```
+
+## Use cases
+
+The `eth_subscribe("newHeads")` method is essential for applications that need to:
+
+* **Monitor blockchain state**: Track new blocks as they are added to the chain
+* **Calculate confirmations**: Count confirmations for transactions by tracking subsequent blocks
+* **Build real-time dashboards**: Display current block height, gas prices, and network activity
+* **Trigger automated actions**: Execute smart contract interactions when new blocks arrive
+* **Index blockchain data**: Update databases with the latest blockchain state
+* **Monitor network health**: Track block production rate and validator performance
+* **Implement event listeners**: Process events more efficiently by focusing on specific block ranges
+* **Build trading bots**: React to new blocks for time-sensitive DeFi operations
+* **Track finality**: Monitor block finalization in proof-of-stake networks
+* **Analyze gas trends**: Monitor gas usage patterns across blocks
+
+This WebSocket subscription method provides a more efficient alternative to polling, enabling real-time blockchain monitoring with lower latency and reduced bandwidth usage.

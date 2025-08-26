@@ -1,0 +1,225 @@
+---
+title: eth_newBlockFilter | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_new_block_filter.json post /evm
+---
+
+The `eth_newBlockFilter` JSON-RPC method creates a filter object to notify when new blocks arrive on the blockchain. This method returns a filter ID that can be used with `eth_getFilterChanges` to retrieve new block hashes as they are mined, providing an efficient way to monitor blockchain progression.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+This method takes no parameters. The `params` field should be an empty array.
+
+## Response
+
+The method returns a filter ID as a hexadecimal string that can be used to retrieve new block hashes.
+
+### Response structure
+
+**Filter ID:**
+- Returns a unique filter identifier as a hexadecimal string
+- Use this ID with `eth_getFilterChanges` to get new block hashes
+- Each call to `eth_getFilterChanges` returns only new blocks since the last call
+- Filters have a limited lifetime and may expire if not used
+
+### Block filter behavior
+
+**Monitoring:**
+- The filter starts monitoring from the time it's created
+- Only new blocks mined after filter creation are returned
+- Block hashes are returned in chronological order
+- The filter automatically tracks the last retrieved block
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Create a new block filter
+const createBlockFilter = async () => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_newBlockFilter',
+      params: [],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Get new blocks from filter
+const getFilterChanges = async (filterId) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getFilterChanges',
+      params: [filterId],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Monitor new blocks with callback
+const monitorNewBlocks = async (callback) => {
+  const filterId = await createBlockFilter();
+  console.log(`Created block filter: ${filterId}`);
+  
+  const pollForNewBlocks = async () => {
+    try {
+      const newBlocks = await getFilterChanges(filterId);
+      
+      if (newBlocks && newBlocks.length > 0) {
+        for (const blockHash of newBlocks) {
+          callback(blockHash);
+        }
+      }
+    } catch (error) {
+      console.error('Error polling for new blocks:', error);
+    }
+  };
+  
+  // Poll every 2 seconds
+  const intervalId = setInterval(pollForNewBlocks, 2000);
+  
+  return {
+    filterId,
+    stop: () => clearInterval(intervalId)
+  };
+};
+
+// Block statistics tracker
+const trackBlockStatistics = async () => {
+  const stats = {
+    blocksReceived: 0,
+    startTime: Date.now(),
+    blockHashes: [],
+    averageBlockTime: 0
+  };
+  
+  const monitor = await monitorNewBlocks((blockHash) => {
+    stats.blocksReceived++;
+    stats.blockHashes.push({
+      hash: blockHash,
+      timestamp: Date.now()
+    });
+    
+    // Calculate average block time
+    if (stats.blockHashes.length > 1) {
+      const timeSpan = stats.blockHashes[stats.blockHashes.length - 1].timestamp - 
+                     stats.blockHashes[0].timestamp;
+      stats.averageBlockTime = timeSpan / (stats.blockHashes.length - 1);
+    }
+    
+    console.log(`New block: ${blockHash}`);
+    console.log(`Total blocks: ${stats.blocksReceived}, Avg time: ${stats.averageBlockTime.toFixed(0)}ms`);
+  });
+  
+  return {
+    stats,
+    monitor
+  };
+};
+
+// Block notification system
+const createBlockNotifier = async (webhookUrl) => {
+  const monitor = await monitorNewBlocks(async (blockHash) => {
+    try {
+      await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'new_block',
+          blockHash,
+          timestamp: new Date().toISOString()
+        })
+      });
+    } catch (error) {
+      console.error('Failed to send block notification:', error);
+    }
+  });
+  
+  return monitor;
+};
+
+// Usage examples
+monitorNewBlocks((blockHash) => {
+  console.log(`New block mined: ${blockHash}`);
+}).then(monitor => {
+  console.log('Block monitoring started');
+  
+  // Stop monitoring after 5 minutes
+  setTimeout(() => {
+    monitor.stop();
+    console.log('Block monitoring stopped');
+  }, 5 * 60 * 1000);
+});
+
+// Track block statistics
+trackBlockStatistics().then(({ stats, monitor }) => {
+  console.log('Block statistics tracking started');
+  
+  // Display stats every 30 seconds
+  setInterval(() => {
+    console.log('Block Stats:', stats);
+  }, 30000);
+});
+```
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_newBlockFilter",
+    "params": [],
+    "id": 1
+  }' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_newBlockFilter` method is essential for applications that need to:
+
+* **Real-time monitoring**: Monitor blockchain progression in real-time
+* **Block notifications**: Create notification systems for new blocks
+* **Chain synchronization**: Implement efficient chain synchronization mechanisms
+* **Mining analytics**: Track block mining rates and patterns
+* **Network health monitoring**: Monitor network performance and block times
+* **DeFi applications**: React to new blocks for time-sensitive operations
+* **Block explorers**: Update block explorer data as new blocks arrive
+* **Transaction monitoring**: Detect new blocks to check for transaction confirmations
+* **Performance analytics**: Analyze blockchain performance metrics
+* **Automated trading**: Trigger trading logic based on new block arrivals
+* **Consensus monitoring**: Monitor blockchain consensus and chain progression
+* **Alert systems**: Create alerts based on block timing and frequency
+* **Data synchronization**: Synchronize application data with blockchain state
+* **Event triggering**: Trigger application events when new blocks are mined
+* **Statistics collection**: Collect blockchain statistics and metrics
+
+This method provides efficient real-time block monitoring capabilities, enabling responsive blockchain applications and monitoring systems on the Hyperliquid EVM platform.

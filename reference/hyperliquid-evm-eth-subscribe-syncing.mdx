@@ -1,0 +1,384 @@
+---
+title: eth_subscribe ("syncing") | Hyperliquid EVM
+description: Subscribe to notifications about the node's synchronization status on Hyperliquid EVM. Receive updates when the node starts or stops syncing with the network.
+---
+
+The `eth_subscribe("syncing")` JSON-RPC method allows developers to subscribe to notifications about the synchronization status of a Hyperliquid EVM node. The subscription provides real-time updates when the node starts or stops syncing with the network, making it essential for monitoring node health and ensuring data consistency.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **subscription type** (string, required): Keyword identifying the type of event to subscribe to, `syncing` in this case
+
+## Response
+
+The method returns a subscription ID that can be used to identify and manage the subscription.
+
+### Response structure
+
+**Initial subscription response:**
+- `subscription` — the subscription ID
+
+**Sync status notification structure:**
+
+When the node is syncing:
+- `startingBlock` — the block number where sync started
+- `currentBlock` — the current block number being processed
+- `highestBlock` — the estimated highest block number to sync to
+
+When the node is not syncing:
+- Returns `false`
+
+## Usage example
+
+### Basic implementation
+
+<Info>
+Note that subscriptions require a WebSocket connection. Install WebSocket cat for testing:
+
+```bash
+npm install -g wscat
+```
+</Info>
+
+```shell wscat
+$ wscat -c wss://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+# Wait for the connection to be established
+
+Connected (press CTRL+C to quit)
+
+> {"id":1,"jsonrpc":"2.0","method":"eth_subscribe","params":["syncing"]}
+< {"jsonrpc":"2.0","id":1,"result":"0x1234567890abcdef"}
+
+# Sync status notifications will appear when sync state changes:
+# When node starts syncing:
+< {"jsonrpc":"2.0","method":"eth_subscription","params":{"subscription":"0x1234567890abcdef","result":{"startingBlock":"0x0","currentBlock":"0x1234","highestBlock":"0x5678"}}}
+
+# When node is fully synced:
+< {"jsonrpc":"2.0","method":"eth_subscription","params":{"subscription":"0x1234567890abcdef","result":false}}
+```
+
+### JavaScript implementation
+
+```javascript
+const WebSocket = require('ws');
+
+const CHAINSTACK_WSS_URL = 'wss://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm';
+
+async function monitorSyncStatus() {
+  const ws = new WebSocket(CHAINSTACK_WSS_URL);
+  
+  let syncStartTime = null;
+  let lastProgress = 0;
+
+  ws.on('open', () => {
+    console.log('Connected to Hyperliquid EVM WebSocket');
+    
+    // Subscribe to syncing status
+    const request = {
+      id: 1,
+      jsonrpc: '2.0',
+      method: 'eth_subscribe',
+      params: ['syncing']
+    };
+    
+    ws.send(JSON.stringify(request));
+  });
+
+  ws.on('message', (data) => {
+    const response = JSON.parse(data);
+    
+    // Handle subscription confirmation
+    if (response.id === 1) {
+      console.log(`Subscribed to sync status with ID: ${response.result}`);
+    }
+    
+    // Handle sync status notifications
+    if (response.method === 'eth_subscription') {
+      const syncStatus = response.params.result;
+      
+      if (syncStatus === false) {
+        console.log('✅ Node is fully synchronized');
+        if (syncStartTime) {
+          const duration = (Date.now() - syncStartTime) / 1000;
+          console.log(`Sync completed in ${duration.toFixed(1)} seconds`);
+          syncStartTime = null;
+        }
+      } else {
+        if (!syncStartTime) {
+          syncStartTime = Date.now();
+          console.log('⏳ Node synchronization started');
+        }
+        
+        const startBlock = parseInt(syncStatus.startingBlock, 16);
+        const currentBlock = parseInt(syncStatus.currentBlock, 16);
+        const highestBlock = parseInt(syncStatus.highestBlock, 16);
+        
+        // Calculate progress
+        const totalBlocks = highestBlock - startBlock;
+        const syncedBlocks = currentBlock - startBlock;
+        const progress = (syncedBlocks / totalBlocks * 100).toFixed(2);
+        
+        // Calculate sync speed
+        const blocksPerUpdate = currentBlock - lastProgress;
+        lastProgress = currentBlock;
+        
+        console.log('📊 Sync Status:');
+        console.log(`  Current Block: ${currentBlock.toLocaleString()}`);
+        console.log(`  Target Block: ${highestBlock.toLocaleString()}`);
+        console.log(`  Progress: ${progress}%`);
+        console.log(`  Blocks Behind: ${(highestBlock - currentBlock).toLocaleString()}`);
+        
+        if (blocksPerUpdate > 0) {
+          console.log(`  Sync Speed: ${blocksPerUpdate} blocks/update`);
+          const remainingBlocks = highestBlock - currentBlock;
+          const estimatedTime = remainingBlocks / blocksPerUpdate;
+          console.log(`  Estimated Time: ${estimatedTime.toFixed(0)} updates`);
+        }
+      }
+    }
+  });
+
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error);
+  });
+
+  ws.on('close', () => {
+    console.log('WebSocket connection closed');
+  });
+}
+
+// Start monitoring
+monitorSyncStatus();
+```
+
+### Python implementation with alerting
+
+```python
+import json
+import asyncio
+import websockets
+from datetime import datetime
+import time
+
+CHAINSTACK_WSS_URL = 'wss://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm'
+
+async def monitor_sync_with_alerts():
+    async with websockets.connect(CHAINSTACK_WSS_URL) as websocket:
+        sync_start_time = None
+        last_alert_time = 0
+        alert_threshold = 100  # Alert if behind by more than 100 blocks
+        
+        # Subscribe to syncing status
+        subscribe_request = {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "method": "eth_subscribe",
+            "params": ["syncing"]
+        }
+        
+        await websocket.send(json.dumps(subscribe_request))
+        
+        while True:
+            response = json.loads(await websocket.recv())
+            
+            # Handle subscription confirmation
+            if response.get('id') == 1:
+                print(f"✅ Subscribed with ID: {response['result']}")
+                print("Monitoring sync status...")
+            
+            # Handle sync status notifications
+            elif response.get('method') == 'eth_subscription':
+                sync_status = response['params']['result']
+                current_time = datetime.now()
+                
+                if sync_status is False:
+                    print(f"\n[{current_time.strftime('%H:%M:%S')}] Node is fully synchronized ✅")
+                    if sync_start_time:
+                        duration = time.time() - sync_start_time
+                        print(f"Synchronization completed in {duration:.1f} seconds")
+                        sync_start_time = None
+                else:
+                    if not sync_start_time:
+                        sync_start_time = time.time()
+                        print(f"\n[{current_time.strftime('%H:%M:%S')}] Synchronization started ⏳")
+                    
+                    current_block = int(sync_status['currentBlock'], 16)
+                    highest_block = int(sync_status['highestBlock'], 16)
+                    blocks_behind = highest_block - current_block
+                    
+                    print(f"\n[{current_time.strftime('%H:%M:%S')}] Sync Status:")
+                    print(f"  Current: {current_block:,}")
+                    print(f"  Target:  {highest_block:,}")
+                    print(f"  Behind:  {blocks_behind:,} blocks")
+                    
+                    # Send alert if significantly behind
+                    if blocks_behind > alert_threshold:
+                        current_timestamp = time.time()
+                        if current_timestamp - last_alert_time > 60:  # Alert at most once per minute
+                            print(f"⚠️  ALERT: Node is {blocks_behind:,} blocks behind!")
+                            last_alert_time = current_timestamp
+                            # Here you could send an email, webhook, etc.
+                            await send_alert(blocks_behind)
+
+async def send_alert(blocks_behind):
+    """Placeholder for alert functionality"""
+    # Implement your alerting mechanism here
+    # e.g., send webhook, email, SMS, etc.
+    print(f"📧 Alert sent: Node is {blocks_behind:,} blocks behind")
+
+# Run the monitoring
+asyncio.run(monitor_sync_with_alerts())
+```
+
+### Combined monitoring with health checks
+
+```javascript
+const WebSocket = require('ws');
+
+class NodeHealthMonitor {
+  constructor(wsUrl) {
+    this.wsUrl = wsUrl;
+    this.ws = null;
+    this.subscriptions = new Map();
+    this.syncStatus = { isSyncing: false, blockssBehind: 0 };
+    this.lastBlockTime = Date.now();
+    this.healthCheckInterval = null;
+  }
+
+  async connect() {
+    this.ws = new WebSocket(this.wsUrl);
+    
+    this.ws.on('open', () => {
+      console.log('Connected to Hyperliquid EVM');
+      this.subscribeSyncing();
+      this.subscribeNewHeads();
+      this.startHealthCheck();
+    });
+    
+    this.ws.on('message', (data) => {
+      const response = JSON.parse(data);
+      this.handleMessage(response);
+    });
+    
+    this.ws.on('error', (error) => {
+      console.error('WebSocket error:', error);
+    });
+    
+    this.ws.on('close', () => {
+      console.log('Connection closed, attempting reconnect...');
+      setTimeout(() => this.connect(), 5000);
+    });
+  }
+  
+  subscribeSyncing() {
+    const request = {
+      id: 1,
+      jsonrpc: '2.0',
+      method: 'eth_subscribe',
+      params: ['syncing']
+    };
+    this.ws.send(JSON.stringify(request));
+  }
+  
+  subscribeNewHeads() {
+    const request = {
+      id: 2,
+      jsonrpc: '2.0',
+      method: 'eth_subscribe',
+      params: ['newHeads']
+    };
+    this.ws.send(JSON.stringify(request));
+  }
+  
+  handleMessage(response) {
+    // Store subscription IDs
+    if (response.id) {
+      if (response.id === 1) {
+        this.subscriptions.set('syncing', response.result);
+      } else if (response.id === 2) {
+        this.subscriptions.set('newHeads', response.result);
+      }
+      return;
+    }
+    
+    // Handle subscription updates
+    if (response.method === 'eth_subscription') {
+      const subscription = response.params.subscription;
+      
+      if (subscription === this.subscriptions.get('syncing')) {
+        this.handleSyncUpdate(response.params.result);
+      } else if (subscription === this.subscriptions.get('newHeads')) {
+        this.handleNewBlock(response.params.result);
+      }
+    }
+  }
+  
+  handleSyncUpdate(syncStatus) {
+    if (syncStatus === false) {
+      this.syncStatus.isSyncing = false;
+      this.syncStatus.blocksBehind = 0;
+      console.log('✅ Node synchronized');
+    } else {
+      this.syncStatus.isSyncing = true;
+      const current = parseInt(syncStatus.currentBlock, 16);
+      const highest = parseInt(syncStatus.highestBlock, 16);
+      this.syncStatus.blocksBehind = highest - current;
+      console.log(`⏳ Syncing: ${this.syncStatus.blocksBehind} blocks behind`);
+    }
+  }
+  
+  handleNewBlock(block) {
+    this.lastBlockTime = Date.now();
+    const blockNumber = parseInt(block.number, 16);
+    console.log(`📦 New block: ${blockNumber}`);
+  }
+  
+  startHealthCheck() {
+    this.healthCheckInterval = setInterval(() => {
+      const timeSinceLastBlock = (Date.now() - this.lastBlockTime) / 1000;
+      
+      if (timeSinceLastBlock > 30) {
+        console.warn(`⚠️ No new blocks for ${timeSinceLastBlock.toFixed(0)} seconds`);
+      }
+      
+      const health = {
+        connected: this.ws.readyState === WebSocket.OPEN,
+        syncing: this.syncStatus.isSyncing,
+        blocksBehind: this.syncStatus.blocksBehind,
+        lastBlockAge: timeSinceLastBlock
+      };
+      
+      console.log('Health Status:', health);
+    }, 10000); // Check every 10 seconds
+  }
+}
+
+// Start monitoring
+const monitor = new NodeHealthMonitor('wss://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm');
+monitor.connect();
+```
+
+## Use cases
+
+The `eth_subscribe("syncing")` method is essential for applications that need to:
+
+* **Node health monitoring**: Track whether nodes are keeping up with the network
+* **Data consistency checks**: Ensure queries are made against fully synced nodes
+* **Load balancing**: Route requests away from syncing nodes
+* **Alerting systems**: Notify operators when nodes fall behind
+* **Deployment validation**: Verify new nodes are syncing correctly
+* **Performance monitoring**: Track sync speed and estimate completion times
+* **Failover management**: Automatically switch to backup nodes during sync issues
+* **Infrastructure scaling**: Identify when additional nodes are needed
+* **Maintenance planning**: Schedule updates when nodes are fully synced
+* **Service reliability**: Ensure high availability by monitoring sync status
+
+This WebSocket subscription method provides real-time synchronization monitoring, enabling proactive node management and ensuring reliable blockchain data access for applications.

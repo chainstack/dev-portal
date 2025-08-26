@@ -1,0 +1,178 @@
+---
+title: eth_getHeaderByNumber | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_get_header_by_number.json post /evm
+---
+
+The `eth_getHeaderByNumber` JSON-RPC method returns the block header information for a given block number. This method provides header data without the transaction list, offering a lightweight way to access block metadata and is more efficient than fetching the full block when only header information is needed.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **block_number** (string) — The block number as a hexadecimal string, or one of the string tags: "latest", "earliest", or "pending"
+
+## Response
+
+The method returns block header information or `null` if the block doesn't exist.
+
+### Response structure
+
+**Block header fields:**
+- `hash` — The block hash
+- `parentHash` — Hash of the parent block
+- `number` — The block number
+- `timestamp` — The unix timestamp when the block was collated
+- `gasLimit` — The maximum gas allowed in this block
+- `gasUsed` — The total gas used by all transactions in this block
+- `difficulty` — The difficulty for this block
+- `totalDifficulty` — The total difficulty of the chain until this block
+- `miner` — The address of the beneficiary to whom the mining rewards were given
+- `nonce` — The nonce used to generate this block
+- `sha3Uncles` — SHA3 of the uncles data in the block
+- `logsBloom` — The bloom filter for the logs of the block
+- `transactionsRoot` — The root of the transaction trie of the block
+- `stateRoot` — The root of the final state trie of the block
+- `receiptsRoot` — The root of the receipts trie of the block
+
+### Block number tags
+
+**Available tags:**
+- `"latest"` — The most recent block in the chain
+- `"earliest"` — The genesis block (block 0)
+- `"pending"` — The pending state/transactions
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get block header by number
+const getHeaderByNumber = async (blockNumber) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getHeaderByNumber',
+      params: [blockNumber],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Monitor block headers efficiently
+const monitorBlockHeaders = async (callback) => {
+  let lastBlockNumber = 0;
+  
+  const checkLatestHeader = async () => {
+    try {
+      const header = await getHeaderByNumber('latest');
+      const currentBlock = parseInt(header.number, 16);
+      
+      if (currentBlock > lastBlockNumber) {
+        lastBlockNumber = currentBlock;
+        callback(header);
+      }
+    } catch (error) {
+      console.error('Error fetching header:', error);
+    }
+  };
+  
+  // Poll every 2 seconds
+  setInterval(checkLatestHeader, 2000);
+};
+
+// Analyze block timing
+const analyzeBlockTiming = async (fromBlock, toBlock) => {
+  const analysis = {
+    blocks: [],
+    averageBlockTime: 0,
+    minBlockTime: Infinity,
+    maxBlockTime: 0
+  };
+  
+  for (let i = fromBlock; i <= toBlock; i++) {
+    const header = await getHeaderByNumber(`0x${i.toString(16)}`);
+    if (header) {
+      const blockTime = parseInt(header.timestamp, 16);
+      analysis.blocks.push({
+        number: i,
+        timestamp: blockTime,
+        gasUsed: parseInt(header.gasUsed, 16),
+        gasLimit: parseInt(header.gasLimit, 16)
+      });
+    }
+  }
+  
+  // Calculate timing statistics
+  for (let i = 1; i < analysis.blocks.length; i++) {
+    const timeDiff = analysis.blocks[i].timestamp - analysis.blocks[i-1].timestamp;
+    analysis.minBlockTime = Math.min(analysis.minBlockTime, timeDiff);
+    analysis.maxBlockTime = Math.max(analysis.maxBlockTime, timeDiff);
+  }
+  
+  const totalTime = analysis.blocks[analysis.blocks.length - 1].timestamp - 
+                   analysis.blocks[0].timestamp;
+  analysis.averageBlockTime = totalTime / (analysis.blocks.length - 1);
+  
+  return analysis;
+};
+
+// Usage
+getHeaderByNumber('latest').then(header => {
+  console.log('Latest block header:', header);
+});
+
+monitorBlockHeaders((header) => {
+  console.log(`New block ${parseInt(header.number, 16)}: ${header.hash}`);
+});
+```
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_getHeaderByNumber",
+    "params": [
+      "latest"
+    ],
+    "id": 1
+  }' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_getHeaderByNumber` method is useful for applications that need to:
+
+* **Efficient block monitoring**: Monitor new blocks without downloading full transaction data
+* **Chain synchronization**: Implement lightweight chain synchronization mechanisms
+* **Block analytics**: Analyze block metadata, timing, and gas usage patterns
+* **Network monitoring**: Monitor network health and block production rates
+* **Mining analytics**: Track mining difficulty, block times, and miner statistics
+* **Chain validation**: Validate blockchain integrity and block relationships
+* **Performance optimization**: Reduce bandwidth usage when only header data is needed
+* **Block explorers**: Build efficient block explorer interfaces
+* **DeFi applications**: Monitor block timing for time-sensitive operations
+* **Gas analysis**: Analyze gas usage patterns across blocks
+* **Network statistics**: Generate blockchain statistics and metrics
+* **Timestamp tracking**: Track block timestamps for time-based operations
+* **Parent-child relationships**: Analyze block relationships and chain structure
+* **Difficulty analysis**: Monitor mining difficulty adjustments
+* **State root tracking**: Track state changes across blocks without transaction details
+
+This method provides efficient access to block header information, enabling lightweight blockchain monitoring and analysis on the Hyperliquid EVM platform.

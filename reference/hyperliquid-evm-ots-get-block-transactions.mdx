@@ -1,0 +1,131 @@
+---
+title: ots_getBlockTransactions | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_ots_get_block_transactions.json post /evm
+---
+
+The `ots_getBlockTransactions` JSON-RPC method retrieves paginated transactions for a specific block on the Hyperliquid EVM blockchain. This Otterscan-specific method optimizes data transfer by removing verbose fields like logs and providing pagination support for blocks with many transactions.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **block number** (integer, required): The block number to retrieve transactions from
+2. **page number** (integer, required): The page number to retrieve (0-indexed)
+3. **page size** (integer, required): The number of transactions per page
+
+## Response
+
+The method returns a paginated response with transaction data and receipts.
+
+### Response structure
+
+- `fullblock` — the complete block information
+  - `number` — block number
+  - `hash` — block hash
+  - `parentHash` — parent block hash
+  - `timestamp` — block timestamp
+  - `gasLimit` — block gas limit
+  - `gasUsed` — total gas used
+  - `baseFeePerGas` — base fee per gas
+- `receipts` — array of transaction receipts (simplified, without logs)
+  - `transactionHash` — hash of the transaction
+  - `status` — success status (0x1 for success, 0x0 for failure)
+  - `cumulativeGasUsed` — cumulative gas used up to this transaction
+  - `gasUsed` — gas used by this transaction
+  - `effectiveGasPrice` — actual gas price paid
+  - `contractAddress` — contract address created (if applicable)
+- `txs` — array of transactions for the requested page
+  - Standard transaction fields (hash, from, to, value, input, etc.)
+
+## Usage example
+
+```shell Shell
+curl -X POST https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "ots_getBlockTransactions",
+    "params": [1000, 0, 10],
+    "id": 1
+  }'
+```
+
+### Example response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "fullblock": {
+      "number": "0x3e8",
+      "hash": "0xe8399bf41516f5ca663c79bc30db02b4989385c2f3a96f42958dea5753cbf4a9",
+      "parentHash": "0x7c8f6a0e4d3b2a1c9e5f8b7d4a6c3e9f2b8d5a7c1e4f9b3a6d8c2e5f7a9b4c6d",
+      "timestamp": "0x6734e8d0",
+      "gasLimit": "0x1c9c380",
+      "gasUsed": "0xa410",
+      "baseFeePerGas": "0x7"
+    },
+    "receipts": [
+      {
+        "transactionHash": "0xf94f3d2ed5b59aefb6a0e566af8e86552014d84f6ed2f38a1366dedffe723381",
+        "status": "0x1",
+        "cumulativeGasUsed": "0x5208",
+        "gasUsed": "0x5208",
+        "effectiveGasPrice": "0x3b9aca00",
+        "contractAddress": null
+      }
+    ],
+    "txs": [
+      {
+        "hash": "0xf94f3d2ed5b59aefb6a0e566af8e86552014d84f6ed2f38a1366dedffe723381",
+        "from": "0x1234567890abcdef1234567890abcdef12345678",
+        "to": "0x5555555555555555555555555555555555555555",
+        "value": "0xde0b6b3a7640000",
+        "gas": "0x5208",
+        "gasPrice": "0x3b9aca00",
+        "input": "0x",
+        "nonce": "0x0",
+        "transactionIndex": "0x0"
+      }
+    ]
+  }
+}
+```
+
+### Pagination example
+
+To retrieve all transactions from a large block:
+```javascript
+// Page 0: transactions 0-9
+params: [1000, 0, 10]
+
+// Page 1: transactions 10-19
+params: [1000, 1, 10]
+
+// Page 2: transactions 20-29
+params: [1000, 2, 10]
+```
+
+## Use cases
+
+The `ots_getBlockTransactions` method is essential for:
+
+* **Block explorers**: Display transaction lists with pagination controls
+* **Large block handling**: Efficiently process blocks with many transactions
+* **Performance optimization**: Reduce bandwidth by excluding verbose log data
+* **Transaction indexing**: Build transaction databases with pagination
+* **API rate limiting**: Control data flow with page-based retrieval
+* **Mobile applications**: Optimize data usage with smaller response sizes
+* **Real-time monitoring**: Process new blocks transaction by transaction
+* **Data analysis**: Systematically analyze all transactions in blocks
+* **Archive services**: Export block transaction data in manageable chunks
+* **User interfaces**: Implement infinite scroll or pagination in dApps
+
+This method is particularly valuable for handling blocks with hundreds or thousands of transactions, where retrieving all data at once would be inefficient.

@@ -1,0 +1,324 @@
+---
+title: net_peerCount | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_net_peer_count.json post /evm
+---
+
+The `net_peerCount` JSON-RPC method returns the number of peers currently connected to the client. This method provides information about the node's network connectivity and can be used to monitor network health, connectivity status, and the decentralization level of the blockchain network.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+This method takes no parameters. The `params` field should be an empty array.
+
+## Response
+
+The method returns the number of connected peers as a hexadecimal string.
+
+### Response structure
+
+**Peer count:**
+- Returns the number of connected peers as a hexadecimal string
+- Convert from hex to decimal for human-readable count
+- Example: "0x2a" equals 42 peers in decimal
+
+### Peer connectivity interpretation
+
+**Network health indicators:**
+- Higher peer count generally indicates better network connectivity
+- Zero peers may indicate network connectivity issues
+- Peer count fluctuates based on network conditions and node behavior
+
+**Decentralization metrics:**
+- Peer count reflects the distributed nature of the network
+- More peers typically mean better data availability and redundancy
+- Useful for assessing network resilience and decentralization
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get peer count
+const getPeerCount = async () => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'net_peerCount',
+      params: [],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  const peerCount = parseInt(data.result, 16);
+  
+  return {
+    hex: data.result,
+    decimal: peerCount
+  };
+};
+
+// Network health monitor
+const monitorNetworkHealth = async () => {
+  const healthStatus = {
+    peerCount: 0,
+    status: 'unknown',
+    timestamp: new Date(),
+    history: []
+  };
+  
+  try {
+    const { decimal: peerCount } = await getPeerCount();
+    healthStatus.peerCount = peerCount;
+    
+    // Determine network status based on peer count
+    if (peerCount === 0) {
+      healthStatus.status = 'disconnected';
+    } else if (peerCount < 5) {
+      healthStatus.status = 'poor';
+    } else if (peerCount < 20) {
+      healthStatus.status = 'fair';
+    } else if (peerCount < 50) {
+      healthStatus.status = 'good';
+    } else {
+      healthStatus.status = 'excellent';
+    }
+    
+  } catch (error) {
+    healthStatus.status = 'error';
+    healthStatus.error = error.message;
+  }
+  
+  return healthStatus;
+};
+
+// Continuous network monitoring
+const startNetworkMonitoring = (callback, intervalMs = 30000) => {
+  const monitor = {
+    history: [],
+    isRunning: false,
+    intervalId: null
+  };
+  
+  const checkNetwork = async () => {
+    const health = await monitorNetworkHealth();
+    monitor.history.push(health);
+    
+    // Keep only last 100 readings
+    if (monitor.history.length > 100) {
+      monitor.history = monitor.history.slice(-100);
+    }
+    
+    callback(health, monitor.history);
+  };
+  
+  monitor.start = () => {
+    if (!monitor.isRunning) {
+      monitor.isRunning = true;
+      checkNetwork(); // Initial check
+      monitor.intervalId = setInterval(checkNetwork, intervalMs);
+    }
+  };
+  
+  monitor.stop = () => {
+    if (monitor.isRunning) {
+      monitor.isRunning = false;
+      clearInterval(monitor.intervalId);
+    }
+  };
+  
+  monitor.getStats = () => {
+    if (monitor.history.length === 0) return null;
+    
+    const peerCounts = monitor.history.map(h => h.peerCount);
+    return {
+      current: peerCounts[peerCounts.length - 1],
+      min: Math.min(...peerCounts),
+      max: Math.max(...peerCounts),
+      avg: Math.round(peerCounts.reduce((a, b) => a + b, 0) / peerCounts.length),
+      samples: monitor.history.length
+    };
+  };
+  
+  return monitor;
+};
+
+// Network connectivity dashboard
+class NetworkDashboard {
+  constructor() {
+    this.data = {
+      current: null,
+      history: [],
+      alerts: []
+    };
+  }
+  
+  async updateStatus() {
+    try {
+      const health = await monitorNetworkHealth();
+      this.data.current = health;
+      this.data.history.push(health);
+      
+      // Keep history manageable
+      if (this.data.history.length > 1000) {
+        this.data.history = this.data.history.slice(-1000);
+      }
+      
+      // Check for alerts
+      this.checkAlerts(health);
+      
+    } catch (error) {
+      console.error('Failed to update network status:', error);
+    }
+  }
+  
+  checkAlerts(health) {
+    const now = Date.now();
+    
+    // Low peer count alert
+    if (health.peerCount < 5 && health.status !== 'error') {
+      this.data.alerts.push({
+        type: 'low_peers',
+        message: `Low peer count detected: ${health.peerCount}`,
+        timestamp: now,
+        severity: 'warning'
+      });
+    }
+    
+    // Disconnection alert
+    if (health.peerCount === 0) {
+      this.data.alerts.push({
+        type: 'disconnected',
+        message: 'Node appears to be disconnected (0 peers)',
+        timestamp: now,
+        severity: 'critical'
+      });
+    }
+    
+    // Keep only recent alerts (last hour)
+    this.data.alerts = this.data.alerts.filter(
+      alert => now - alert.timestamp < 3600000
+    );
+  }
+  
+  getStatus() {
+    return this.data.current;
+  }
+  
+  getHistory(minutes = 60) {
+    const cutoff = Date.now() - (minutes * 60 * 1000);
+    return this.data.history.filter(h => h.timestamp.getTime() > cutoff);
+  }
+  
+  getAlerts(minutes = 60) {
+    const cutoff = Date.now() - (minutes * 60 * 1000);
+    return this.data.alerts.filter(a => a.timestamp > cutoff);
+  }
+  
+  generateReport() {
+    const recent = this.getHistory(60);
+    if (recent.length === 0) return null;
+    
+    const peerCounts = recent.map(h => h.peerCount);
+    const statusCounts = recent.reduce((acc, h) => {
+      acc[h.status] = (acc[h.status] || 0) + 1;
+      return acc;
+    }, {});
+    
+    return {
+      timeRange: '60 minutes',
+      samples: recent.length,
+      peerStats: {
+        current: this.data.current?.peerCount || 0,
+        min: Math.min(...peerCounts),
+        max: Math.max(...peerCounts),
+        avg: Math.round(peerCounts.reduce((a, b) => a + b, 0) / peerCounts.length)
+      },
+      statusDistribution: statusCounts,
+      recentAlerts: this.getAlerts(60).length
+    };
+  }
+}
+
+// Usage examples
+getPeerCount().then(result => {
+  console.log(`Connected peers: ${result.decimal} (${result.hex})`);
+});
+
+// Start network monitoring
+const monitor = startNetworkMonitoring((health, history) => {
+  console.log(`Network Status: ${health.status}, Peers: ${health.peerCount}`);
+  
+  if (health.status === 'poor' || health.status === 'disconnected') {
+    console.warn('Network connectivity issues detected!');
+  }
+}, 10000); // Check every 10 seconds
+
+monitor.start();
+
+// Stop monitoring after 5 minutes
+setTimeout(() => {
+  monitor.stop();
+  console.log('Final stats:', monitor.getStats());
+}, 5 * 60 * 1000);
+
+// Use network dashboard
+const dashboard = new NetworkDashboard();
+
+// Update dashboard every 30 seconds
+setInterval(() => {
+  dashboard.updateStatus().then(() => {
+    const report = dashboard.generateReport();
+    if (report) {
+      console.log('Network Report:', report);
+    }
+  });
+}, 30000);
+```
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "net_peerCount",
+    "params": [],
+    "id": 1
+  }' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `net_peerCount` method is useful for applications that need to:
+
+* **Network monitoring**: Monitor blockchain network health and connectivity
+* **Node diagnostics**: Diagnose node connectivity and network issues
+* **Performance optimization**: Optimize application behavior based on network conditions
+* **Health checks**: Implement health checks for blockchain applications
+* **Alert systems**: Create alerts for network connectivity issues
+* **Load balancing**: Make load balancing decisions based on network health
+* **Monitoring dashboards**: Build network monitoring and status dashboards
+* **DevOps tools**: Monitor blockchain infrastructure health
+* **Research analytics**: Analyze network decentralization and topology
+* **Automatic failover**: Implement failover logic based on connectivity
+* **Network statistics**: Generate network connectivity statistics and reports
+* **Quality assurance**: Test network connectivity in different environments
+* **Troubleshooting**: Diagnose network-related issues and connectivity problems
+* **Infrastructure monitoring**: Monitor blockchain node infrastructure health
+* **SLA monitoring**: Monitor service level agreements for network connectivity
+
+This method provides essential network connectivity information, enabling robust network monitoring and health assessment on the Hyperliquid EVM platform.

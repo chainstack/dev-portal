@@ -1,0 +1,266 @@
+---
+title: eth_subscribe ("logs") | Hyperliquid EVM
+description: Subscribe to real-time updates about new event logs on Hyperliquid EVM blockchain. Receive notifications whenever new logs matching the filter are emitted.
+---
+
+The `eth_subscribe("logs")` JSON-RPC method allows developers to subscribe to real-time updates about new event logs on the Hyperliquid EVM blockchain. The application will receive notifications whenever new logs matching the filter are emitted, making it essential for monitoring smart contract events and building reactive dApps.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **subscription type** (string, required): Keyword identifying the type of event to subscribe to, `logs` in this case
+2. **filter object** (object, optional): The event filter options
+   - `address` — the contract address from which the logs should be fetched. It can be a single address or an array of addresses
+   - `topics` — an array of DATA topics. The event topics for which the logs should be fetched. It can be a single topic or an array of topics
+
+## Response
+
+The method returns a subscription ID that can be used to identify and manage the subscription.
+
+### Response structure
+
+**Initial subscription response:**
+- `subscription` — the subscription ID
+
+**Log notification structure:**
+- `address` — the contract address from which the event originated
+- `topics` — an array of 32-byte data fields containing indexed event parameters
+- `data` — the non-indexed data that was emitted along with the event
+- `blockNumber` — the block number in which the event was included
+- `transactionHash` — the hash of the transaction that triggered the event
+- `transactionIndex` — the integer index of the transaction within the block's list of transactions
+- `blockHash` — the hash of the block in which the event was included
+- `logIndex` — the integer identifying the index of the event within the block's list of events
+- `removed` — boolean value indicating if the event was removed due to a chain reorganization
+
+## Usage example
+
+### Basic implementation
+
+<Info>
+Note that subscriptions require a WebSocket connection. Install WebSocket cat for testing:
+
+```bash
+npm install -g wscat
+```
+</Info>
+
+```shell wscat
+$ wscat -c wss://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+# Wait for the connection to be established
+
+Connected (press CTRL+C to quit)
+
+# Subscribe to all logs from a specific contract
+> {"id":1,"jsonrpc":"2.0","method":"eth_subscribe","params":["logs",{"address":"0x5555555555555555555555555555555555555555"}]}
+< {"jsonrpc":"2.0","id":1,"result":"0x1234567890abcdef"}
+
+# Log notifications will stream in as events are emitted:
+< {"jsonrpc":"2.0","method":"eth_subscription","params":{"subscription":"0x1234567890abcdef","result":{"address":"0x5555555555555555555555555555555555555555","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"data":"0x00000000000000000000000000000000000000000000000000000000000186a0","blockNumber":"0x1234","transactionHash":"0x...","transactionIndex":"0x0","blockHash":"0x...","logIndex":"0x0","removed":false}}}
+```
+
+### JavaScript implementation - Monitor ERC-20 transfers
+
+```javascript
+const WebSocket = require('ws');
+
+const CHAINSTACK_WSS_URL = 'wss://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm';
+
+// ERC-20 Transfer event signature
+const TRANSFER_EVENT_SIGNATURE = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+
+async function monitorTokenTransfers(tokenAddress) {
+  const ws = new WebSocket(CHAINSTACK_WSS_URL);
+
+  ws.on('open', () => {
+    console.log('Connected to Hyperliquid EVM WebSocket');
+    
+    // Subscribe to Transfer events from specific token
+    const request = {
+      id: 1,
+      jsonrpc: '2.0',
+      method: 'eth_subscribe',
+      params: [
+        'logs',
+        {
+          address: tokenAddress,
+          topics: [TRANSFER_EVENT_SIGNATURE]
+        }
+      ]
+    };
+    
+    ws.send(JSON.stringify(request));
+  });
+
+  ws.on('message', (data) => {
+    const response = JSON.parse(data);
+    
+    // Handle subscription confirmation
+    if (response.id === 1) {
+      console.log(`Subscribed with ID: ${response.result}`);
+    }
+    
+    // Handle log notifications
+    if (response.method === 'eth_subscription') {
+      const log = response.params.result;
+      
+      // Decode Transfer event (topics[1] = from, topics[2] = to, data = amount)
+      const from = '0x' + log.topics[1].slice(26);
+      const to = '0x' + log.topics[2].slice(26);
+      const amount = BigInt(log.data);
+      
+      console.log('Transfer detected:');
+      console.log(`  From: ${from}`);
+      console.log(`  To: ${to}`);
+      console.log(`  Amount: ${amount.toString()}`);
+      console.log(`  Block: ${parseInt(log.blockNumber, 16)}`);
+      console.log(`  TX: ${log.transactionHash}`);
+    }
+  });
+
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error);
+  });
+}
+
+// Monitor a specific token
+const tokenAddress = '0x5555555555555555555555555555555555555555';
+monitorTokenTransfers(tokenAddress);
+```
+
+### Python implementation - Monitor multiple events
+
+```python
+import json
+import asyncio
+import websockets
+
+CHAINSTACK_WSS_URL = 'wss://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm'
+
+# Common event signatures
+TRANSFER_EVENT = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+APPROVAL_EVENT = '0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925'
+
+async def monitor_multiple_events(contract_addresses):
+    async with websockets.connect(CHAINSTACK_WSS_URL) as websocket:
+        # Subscribe to Transfer and Approval events from multiple contracts
+        subscribe_request = {
+            "id": 1,
+            "jsonrpc": "2.0",
+            "method": "eth_subscribe",
+            "params": [
+                "logs",
+                {
+                    "address": contract_addresses,
+                    "topics": [[TRANSFER_EVENT, APPROVAL_EVENT]]  # OR condition
+                }
+            ]
+        }
+        
+        await websocket.send(json.dumps(subscribe_request))
+        
+        while True:
+            response = json.loads(await websocket.recv())
+            
+            # Handle subscription confirmation
+            if response.get('id') == 1:
+                print(f"Subscribed with ID: {response['result']}")
+            
+            # Handle log notifications
+            elif response.get('method') == 'eth_subscription':
+                log = response['params']['result']
+                event_sig = log['topics'][0]
+                
+                print(f"\nEvent detected in block {int(log['blockNumber'], 16)}:")
+                print(f"  Contract: {log['address']}")
+                
+                if event_sig == TRANSFER_EVENT:
+                    print("  Event: Transfer")
+                    from_addr = '0x' + log['topics'][1][26:]
+                    to_addr = '0x' + log['topics'][2][26:]
+                    print(f"  From: {from_addr}")
+                    print(f"  To: {to_addr}")
+                elif event_sig == APPROVAL_EVENT:
+                    print("  Event: Approval")
+                    owner = '0x' + log['topics'][1][26:]
+                    spender = '0x' + log['topics'][2][26:]
+                    print(f"  Owner: {owner}")
+                    print(f"  Spender: {spender}")
+
+# Monitor multiple contracts
+contracts = [
+    '0x5555555555555555555555555555555555555555',
+    '0x6666666666666666666666666666666666666666'
+]
+asyncio.run(monitor_multiple_events(contracts))
+```
+
+### Advanced filtering with topic combinations
+
+```javascript
+// Monitor specific NFT transfers (ERC-721)
+const monitorNFTTransfers = async (nftContract, fromAddress = null, toAddress = null) => {
+  const ws = new WebSocket(CHAINSTACK_WSS_URL);
+  
+  ws.on('open', () => {
+    // Build topics array for filtering
+    const topics = [
+      '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', // Transfer event
+      fromAddress ? fromAddress.toLowerCase().padStart(64, '0') : null,       // from address (optional)
+      toAddress ? toAddress.toLowerCase().padStart(64, '0') : null            // to address (optional)
+    ];
+    
+    const request = {
+      id: 1,
+      jsonrpc: '2.0',
+      method: 'eth_subscribe',
+      params: [
+        'logs',
+        {
+          address: nftContract,
+          topics: topics.filter(t => t !== null)
+        }
+      ]
+    };
+    
+    ws.send(JSON.stringify(request));
+    console.log('Monitoring NFT transfers...');
+  });
+  
+  ws.on('message', (data) => {
+    const response = JSON.parse(data);
+    
+    if (response.method === 'eth_subscription') {
+      const log = response.params.result;
+      const tokenId = BigInt(log.topics[3]); // NFT token ID is in topics[3]
+      
+      console.log(`NFT Transfer - Token ID: ${tokenId}`);
+      console.log(`  Transaction: ${log.transactionHash}`);
+    }
+  });
+};
+```
+
+## Use cases
+
+The `eth_subscribe("logs")` method is essential for applications that need to:
+
+* **Monitor token transfers**: Track ERC-20/ERC-721 transfers in real-time
+* **DEX activity tracking**: Monitor swaps, liquidity additions, and removals on decentralized exchanges
+* **Smart contract events**: React to specific contract events as they occur
+* **DeFi protocol monitoring**: Track lending, borrowing, and liquidation events
+* **Wallet activity alerts**: Notify users of incoming/outgoing transactions
+* **NFT marketplace activity**: Monitor mints, sales, and transfers of NFTs
+* **Bridge monitoring**: Track cross-chain bridge deposits and withdrawals
+* **Governance tracking**: Monitor voting and proposal events in DAOs
+* **Price oracle updates**: Track price feed updates from oracle contracts
+* **Security monitoring**: Detect suspicious contract interactions in real-time
+
+This WebSocket subscription method provides efficient, real-time event monitoring with lower latency than polling-based approaches, making it ideal for building responsive dApps and monitoring systems.

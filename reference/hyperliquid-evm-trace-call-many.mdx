@@ -1,0 +1,168 @@
+---
+title: trace_callMany | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_trace_call_many.json post /evm
+---
+
+The `trace_callMany` JSON-RPC method executes multiple calls and returns trace information for each call. This method allows batch simulation of multiple transactions with detailed execution traces, making it ideal for complex scenario testing, batch analysis, and multi-step transaction planning.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **Call/trace pairs array** (array, required): Array of [call_object, trace_types] pairs
+2. **Block parameter** (string, required): Block number, hash, or "latest"/"earliest"/"pending"
+
+### Call/trace pair structure
+
+Each element in the array contains:
+- Call object with transaction details (from, to, gas, gasPrice, value, data)
+- Array of trace types (e.g., ["trace"])
+
+## Response
+
+The method returns an array of trace results, one for each call in the input array.
+
+### Response structure
+
+**Trace results array:**
+- Array of trace result arrays, one per input call
+- Each trace result contains execution details, gas usage, and call hierarchy
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Execute multiple traced calls
+const traceCallMany = async (callTracePairs, blockParam = 'latest') => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'trace_callMany',
+      params: [callTracePairs, blockParam],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Test multiple transaction scenarios
+const testMultipleScenarios = async () => {
+  const scenarios = [
+    [
+      {
+        from: '0x69835D480110e4919B7899f465aAB101e21c8A87',
+        to: '0xB7C609cFfa0e47DB2467ea03fF3e598bf59361A5',
+        gas: '0x76c0',
+        gasPrice: '0x9184e72a000',
+        value: '0xde0b6b3a7640000',
+        data: '0x'
+      },
+      ['trace']
+    ],
+    [
+      {
+        from: '0x69835D480110e4919B7899f465aAB101e21c8A87',
+        to: '0xb4DcFE4590adBd275aC3Ef1A3dd10e819d11648c',
+        gas: '0x5208',
+        gasPrice: '0x9184e72a000',
+        value: '0x1bc16d674ec80000',
+        data: '0x'
+      },
+      ['trace']
+    ]
+  ];
+
+  const results = await traceCallMany(scenarios);
+  
+  console.log('Multi-call simulation results:');
+  results.forEach((result, index) => {
+    console.log(`Call ${index + 1}:`);
+    result.forEach(trace => {
+      console.log(`  Gas used: ${parseInt(trace.result.gasUsed, 16)}`);
+      console.log(`  Success: ${trace.result.output !== '0x'}`);
+    });
+  });
+  
+  return results;
+};
+
+// Usage
+testMultipleScenarios().then(results => {
+  console.log('Batch simulation completed');
+});
+```
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "trace_callMany",
+    "params": [
+      [
+        [
+          {
+            "from": "0x69835D480110e4919B7899f465aAB101e21c8A87",
+            "to": "0xB7C609cFfa0e47DB2467ea03fF3e598bf59361A5",
+            "gas": "0x76c0",
+            "gasPrice": "0x9184e72a000",
+            "value": "0xde0b6b3a7640000",
+            "data": "0x"
+          },
+          ["trace"]
+        ],
+        [
+          {
+            "from": "0x69835D480110e4919B7899f465aAB101e21c8A87",
+            "to": "0xb4DcFE4590adBd275aC3Ef1A3dd10e819d11648c",
+            "gas": "0x5208",
+            "gasPrice": "0x9184e72a000",
+            "value": "0x1bc16d674ec80000",
+            "data": "0x"
+          },
+          ["trace"]
+        ]
+      ],
+      "latest"
+    ],
+    "id": 1
+  }' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `trace_callMany` method is essential for applications that need to:
+
+* **Batch simulation**: Simulate multiple transactions in a single request
+* **Multi-step transaction planning**: Plan complex multi-transaction operations
+* **Performance comparison**: Compare gas usage across different transaction approaches
+* **Scenario testing**: Test multiple scenarios efficiently in batch
+* **DeFi strategy testing**: Test complex DeFi strategies with multiple steps
+* **Arbitrage analysis**: Analyze multi-step arbitrage opportunities
+* **MEV research**: Research Maximum Extractable Value across multiple transactions
+* **Protocol testing**: Test protocol interactions across multiple calls
+* **Integration testing**: Test smart contract integrations comprehensively
+* **Risk assessment**: Assess risks across multiple related transactions
+* **Development workflows**: Integrate batch simulation into development pipelines
+* **Educational tools**: Create educational content about complex transaction flows
+* **Research platforms**: Support blockchain research requiring multiple simulations
+* **Trading strategy testing**: Test complex trading strategies before execution
+* **Compliance verification**: Verify regulatory compliance across transaction batches
+
+This method provides efficient batch transaction simulation capabilities, enabling comprehensive multi-call analysis on the Hyperliquid EVM platform.

@@ -1,0 +1,227 @@
+---
+title: debug_traceCall | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_debug_trace_call.json post /evm
+---
+
+The `debug_traceCall` JSON-RPC method executes a call and returns detailed trace information without creating a transaction. This method simulates transaction execution and provides comprehensive debugging information including call traces, gas usage, and state changes, making it essential for testing and debugging smart contract interactions before committing transactions to the blockchain.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **Call object** (object, required): Transaction call details
+2. **Block parameter** (string, required): Block number, hash, or "latest"/"earliest"/"pending"
+3. **Tracer configuration** (object, required): Configuration options for the tracer
+
+### Call object structure
+
+- `from` (string, optional): Address the transaction is sent from
+- `to` (string, required): Address the transaction is directed to  
+- `gas` (string, optional): Gas provided for the transaction execution
+- `gasPrice` (string, optional): Gas price for the transaction
+- `value` (string, optional): Value sent with the transaction
+- `data` (string, optional): Hash of the method signature and encoded parameters
+
+### Tracer configuration options
+
+- `tracer` (string): The type of tracer to use
+  - `"callTracer"`: Provides detailed call trace information
+  - `"prestateTracer"`: Shows state before execution
+  - `"4byteTracer"`: Tracks function selector usage
+
+## Response
+
+The method returns detailed trace information for the simulated call, including execution details, gas usage, and state changes.
+
+### Response structure
+
+**Trace data:**
+- `type` — The type of call (CALL, DELEGATECALL, STATICCALL, CREATE, etc.)
+- `from` — The address that initiated the call
+- `to` — The address that received the call
+- `value` — The value transferred in the call
+- `gas` — The amount of gas allocated for the call
+- `gasUsed` — The amount of gas actually consumed
+- `input` — The input data for the call
+- `output` — The output data returned by the call
+- `calls` — Array of sub-calls made during execution
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Trace a simulated call
+const traceCall = async (callObject, blockParameter = 'latest') => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'debug_traceCall',
+      params: [
+        callObject,
+        blockParameter,
+        {
+          tracer: 'callTracer'
+        }
+      ],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Simulate and analyze a contract interaction
+const simulateContractCall = async () => {
+  const callObject = {
+    from: '0x69835D480110e4919B7899f465aAB101e21c8A87',
+    to: '0xB7C609cFfa0e47DB2467ea03fF3e598bf59361A5',
+    gas: '0x76c0',
+    gasPrice: '0x9184e72a000',
+    value: '0xde0b6b3a7640000',
+    data: '0x'  // Simple transfer, no data
+  };
+
+  try {
+    const trace = await traceCall(callObject);
+    
+    console.log('Call Simulation Results:');
+    console.log(`Type: ${trace.type}`);
+    console.log(`From: ${trace.from}`);
+    console.log(`To: ${trace.to}`);
+    console.log(`Value: ${parseInt(trace.value, 16)} wei`);
+    console.log(`Gas Used: ${parseInt(trace.gasUsed, 16)}`);
+    
+    return trace;
+  } catch (error) {
+    console.error('Error simulating call:', error);
+    throw error;
+  }
+};
+
+// Test contract function before execution
+const testContractFunction = async (contractAddress, functionData, fromAddress) => {
+  const callObject = {
+    from: fromAddress,
+    to: contractAddress,
+    data: functionData,
+    gas: '0x100000'  // High gas limit for testing
+  };
+
+  const trace = await traceCall(callObject);
+  
+  // Analyze the simulation
+  const analysis = {
+    willSucceed: trace.output !== '0x',
+    gasEstimate: parseInt(trace.gasUsed, 16),
+    hasSubCalls: trace.calls && trace.calls.length > 0,
+    subCallCount: trace.calls ? trace.calls.length : 0
+  };
+
+  console.log('Function Test Analysis:');
+  console.log(`Will Succeed: ${analysis.willSucceed}`);
+  console.log(`Estimated Gas: ${analysis.gasEstimate}`);
+  console.log(`Sub-calls: ${analysis.subCallCount}`);
+
+  return { trace, analysis };
+};
+
+// Compare gas usage across different scenarios
+const compareGasUsage = async (scenarios) => {
+  const results = [];
+  
+  for (const [name, callObject] of scenarios) {
+    try {
+      const trace = await traceCall(callObject);
+      results.push({
+        scenario: name,
+        gasUsed: parseInt(trace.gasUsed, 16),
+        success: trace.output !== '0x'
+      });
+    } catch (error) {
+      results.push({
+        scenario: name,
+        error: error.message,
+        success: false
+      });
+    }
+  }
+  
+  console.log('Gas Usage Comparison:');
+  results.forEach(result => {
+    if (result.success) {
+      console.log(`${result.scenario}: ${result.gasUsed.toLocaleString()} gas`);
+    } else {
+      console.log(`${result.scenario}: Failed - ${result.error}`);
+    }
+  });
+  
+  return results;
+};
+
+// Usage
+simulateContractCall().then(trace => {
+  console.log('Simulation completed successfully');
+});
+```
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "debug_traceCall",
+    "params": [
+      {
+        "from": "0x69835D480110e4919B7899f465aAB101e21c8A87",
+        "to": "0xB7C609cFfa0e47DB2467ea03fF3e598bf59361A5",
+        "gas": "0x76c0",
+        "gasPrice": "0x9184e72a000",
+        "value": "0xde0b6b3a7640000",
+        "data": "0x"
+      },
+      "latest",
+      {
+        "tracer": "callTracer"
+      }
+    ],
+    "id": 1
+  }' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `debug_traceCall` method is essential for applications that need to:
+
+* **Pre-execution testing**: Test transactions before committing them to the blockchain
+* **Gas estimation**: Accurately estimate gas requirements for complex transactions
+* **Smart contract debugging**: Debug contract interactions and identify execution issues
+* **Transaction simulation**: Simulate complex DeFi transactions and multi-step operations
+* **Error prediction**: Predict and prevent transaction failures before execution
+* **Cost optimization**: Optimize transaction parameters for better gas efficiency
+* **Integration testing**: Test smart contract integrations and compatibility
+* **Security testing**: Test for potential vulnerabilities and edge cases
+* **Development workflows**: Integrate simulation into development and testing pipelines
+* **User experience**: Provide users with transaction previews and success predictions
+* **MEV analysis**: Analyze Maximum Extractable Value opportunities safely
+* **Arbitrage testing**: Test arbitrage strategies without risking capital
+* **Flash loan simulation**: Simulate complex flash loan strategies
+* **Protocol testing**: Test new protocol features and upgrades
+* **Compliance checking**: Verify regulatory compliance before transaction execution
+* **Risk assessment**: Assess transaction risks and potential outcomes
+
+This method provides safe transaction simulation capabilities, enabling thorough testing and analysis without blockchain state changes on the Hyperliquid EVM platform.

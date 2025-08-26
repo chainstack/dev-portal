@@ -1,0 +1,208 @@
+---
+title: eth_getHeaderByHash | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_eth_get_header_by_hash.json post /evm
+---
+
+The `eth_getHeaderByHash` JSON-RPC method returns the block header information for a given block hash. This method provides header data without the transaction list, offering a lightweight way to access block metadata when you have the specific block hash.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **block_hash** (string) — The hash of the block as a hexadecimal string
+
+## Response
+
+The method returns block header information or `null` if the block doesn't exist.
+
+### Response structure
+
+**Block header fields:**
+- `hash` — The block hash (matches the input parameter)
+- `parentHash` — Hash of the parent block
+- `number` — The block number
+- `timestamp` — The unix timestamp when the block was collated
+- `gasLimit` — The maximum gas allowed in this block
+- `gasUsed` — The total gas used by all transactions in this block
+- `difficulty` — The difficulty for this block
+- `totalDifficulty` — The total difficulty of the chain until this block
+- `miner` — The address of the beneficiary to whom the mining rewards were given
+- `nonce` — The nonce used to generate this block
+- `sha3Uncles` — SHA3 of the uncles data in the block
+- `logsBloom` — The bloom filter for the logs of the block
+- `transactionsRoot` — The root of the transaction trie of the block
+- `stateRoot` — The root of the final state trie of the block
+- `receiptsRoot` — The root of the receipts trie of the block
+
+### Hash validation
+
+**Block hash format:**
+- Must be a valid 32-byte hexadecimal string with "0x" prefix
+- Example: "0x2ce91ae0ed242b4b78b432a45b982fb81a414d6b04167762ed3c7446710a4b8e"
+- Returns `null` if the hash doesn't correspond to any existing block
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Get block header by hash
+const getHeaderByHash = async (blockHash) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'eth_getHeaderByHash',
+      params: [blockHash],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Validate block hash and get header info
+const validateBlockHash = async (blockHash) => {
+  try {
+    const header = await getHeaderByHash(blockHash);
+    
+    if (header === null) {
+      return { valid: false, error: 'Block not found' };
+    }
+    
+    return {
+      valid: true,
+      header,
+      blockNumber: parseInt(header.number, 16),
+      timestamp: new Date(parseInt(header.timestamp, 16) * 1000),
+      gasUtilization: (parseInt(header.gasUsed, 16) / parseInt(header.gasLimit, 16) * 100).toFixed(2)
+    };
+  } catch (error) {
+    return { valid: false, error: error.message };
+  }
+};
+
+// Compare two block headers
+const compareBlockHeaders = async (hash1, hash2) => {
+  const [header1, header2] = await Promise.all([
+    getHeaderByHash(hash1),
+    getHeaderByHash(hash2)
+  ]);
+  
+  if (!header1 || !header2) {
+    return { error: 'One or both blocks not found' };
+  }
+  
+  return {
+    block1: {
+      hash: header1.hash,
+      number: parseInt(header1.number, 16),
+      timestamp: parseInt(header1.timestamp, 16),
+      gasUsed: parseInt(header1.gasUsed, 16)
+    },
+    block2: {
+      hash: header2.hash,
+      number: parseInt(header2.number, 16),
+      timestamp: parseInt(header2.timestamp, 16),
+      gasUsed: parseInt(header2.gasUsed, 16)
+    },
+    comparison: {
+      blockDifference: parseInt(header2.number, 16) - parseInt(header1.number, 16),
+      timeDifference: parseInt(header2.timestamp, 16) - parseInt(header1.timestamp, 16),
+      gasUsedDifference: parseInt(header2.gasUsed, 16) - parseInt(header1.gasUsed, 16)
+    }
+  };
+};
+
+// Track block ancestry
+const getBlockAncestry = async (blockHash, generations = 5) => {
+  const ancestry = [];
+  let currentHash = blockHash;
+  
+  for (let i = 0; i < generations; i++) {
+    const header = await getHeaderByHash(currentHash);
+    
+    if (!header) break;
+    
+    ancestry.push({
+      generation: i,
+      hash: header.hash,
+      number: parseInt(header.number, 16),
+      parentHash: header.parentHash,
+      timestamp: parseInt(header.timestamp, 16)
+    });
+    
+    currentHash = header.parentHash;
+    
+    // Stop if we reach the genesis block
+    if (currentHash === '0x0000000000000000000000000000000000000000000000000000000000000000') {
+      break;
+    }
+  }
+  
+  return ancestry;
+};
+
+// Usage
+const blockHash = '0x2ce91ae0ed242b4b78b432a45b982fb81a414d6b04167762ed3c7446710a4b8e';
+
+validateBlockHash(blockHash).then(result => {
+  if (result.valid) {
+    console.log(`Block ${result.blockNumber} found:`, result.header);
+  } else {
+    console.log('Block validation failed:', result.error);
+  }
+});
+
+getBlockAncestry(blockHash, 3).then(ancestry => {
+  console.log('Block ancestry:', ancestry);
+});
+```
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_getHeaderByHash",
+    "params": [
+      "0x2ce91ae0ed242b4b78b432a45b982fb81a414d6b04167762ed3c7446710a4b8e"
+    ],
+    "id": 1
+  }' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+```
+
+## Use cases
+
+The `eth_getHeaderByHash` method is useful for applications that need to:
+
+* **Block validation**: Validate specific blocks by hash without downloading transaction data
+* **Chain analysis**: Analyze blockchain structure and block relationships
+* **Block verification**: Verify block integrity and metadata
+* **Ancestry tracking**: Track parent-child relationships between blocks
+* **Fork detection**: Detect and analyze blockchain forks
+* **Block comparison**: Compare metadata between different blocks
+* **Historical analysis**: Analyze historical block data efficiently
+* **Mining analytics**: Analyze mining patterns and block characteristics
+* **Network forensics**: Investigate specific blocks in network analysis
+* **Block explorers**: Provide detailed block information by hash
+* **Audit tools**: Build blockchain audit tools with block verification
+* **Chain synchronization**: Implement selective chain synchronization
+* **Performance analysis**: Analyze block timing and gas usage patterns
+* **Security analysis**: Analyze suspicious or specific blocks
+* **Research tools**: Support blockchain research with block-level data
+
+This method provides direct access to block header information using block hashes, enabling precise blockchain analysis and verification on the Hyperliquid EVM platform.

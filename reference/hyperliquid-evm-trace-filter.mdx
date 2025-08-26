@@ -1,0 +1,230 @@
+---
+title: trace_filter | Hyperliquid EVM
+openapi: /openapi/hyperliquid_node_api/evm_trace_filter.json post /evm
+---
+
+The `trace_filter` JSON-RPC method returns traces matching specified filter criteria. This method allows filtering traces by block range, addresses, and other criteria to find specific transaction patterns, making it essential for blockchain analysis, forensic investigations, and monitoring specific address activities.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+1. **Filter object** (object, required): Criteria for filtering traces
+
+### Filter object structure
+
+- `fromBlock` (string, optional): Starting block for the search (default: "earliest")
+- `toBlock` (string, optional): Ending block for the search (default: "latest")
+- `fromAddress` (array, optional): Array of addresses to filter by sender
+- `toAddress` (array, optional): Array of addresses to filter by recipient
+- `count` (integer, optional): Maximum number of traces to return
+
+## Response
+
+The method returns an array of trace objects matching the specified filter criteria.
+
+### Response structure
+
+**Trace objects:**
+- `action` — Details about the call action (from, to, value, gas, input, callType)
+- `result` — Execution result (gasUsed, output)
+- `traceAddress` — Address path within the call hierarchy
+- `type` — Type of trace (call, create, suicide, etc.)
+- `blockNumber` — Block number containing the transaction
+- `transactionHash` — Hash of the transaction
+
+## Usage example
+
+### Basic implementation
+
+```javascript
+// Filter traces by criteria
+const filterTraces = async (filterObject) => {
+  const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'trace_filter',
+      params: [filterObject],
+      id: 1
+    })
+  });
+  
+  const data = await response.json();
+  return data.result;
+};
+
+// Monitor specific address activity
+const monitorAddressActivity = async (address, blockRange = 1000) => {
+  const currentBlock = await getCurrentBlockNumber(); // Assume this function exists
+  
+  const filter = {
+    fromBlock: `0x${(currentBlock - blockRange).toString(16)}`,
+    toBlock: 'latest',
+    fromAddress: [address],
+    toAddress: [address],
+    count: 100
+  };
+
+  const traces = await filterTraces(filter);
+  
+  console.log(`Activity for ${address}:`);
+  console.log(`Found ${traces.length} traces in last ${blockRange} blocks`);
+  
+  // Analyze activity patterns
+  const activity = {
+    outgoing: traces.filter(t => t.action.from.toLowerCase() === address.toLowerCase()),
+    incoming: traces.filter(t => t.action.to.toLowerCase() === address.toLowerCase()),
+    totalGasUsed: traces.reduce((sum, t) => sum + parseInt(t.result.gasUsed, 16), 0),
+    uniqueInteractions: new Set()
+  };
+  
+  traces.forEach(trace => {
+    if (trace.action.from.toLowerCase() === address.toLowerCase()) {
+      activity.uniqueInteractions.add(trace.action.to);
+    } else {
+      activity.uniqueInteractions.add(trace.action.from);
+    }
+  });
+  
+  console.log(`  Outgoing transactions: ${activity.outgoing.length}`);
+  console.log(`  Incoming transactions: ${activity.incoming.length}`);
+  console.log(`  Total gas used: ${activity.totalGasUsed.toLocaleString()}`);
+  console.log(`  Unique interactions: ${activity.uniqueInteractions.size}`);
+  
+  return { traces, activity };
+};
+
+// Find high-value transactions
+const findHighValueTransactions = async (minValue, maxResults = 50) => {
+  const filter = {
+    fromBlock: 'latest',
+    toBlock: 'latest',
+    count: maxResults
+  };
+
+  const traces = await filterTraces(filter);
+  
+  const highValueTraces = traces
+    .filter(trace => {
+      const value = parseInt(trace.action.value, 16);
+      return value >= minValue;
+    })
+    .sort((a, b) => parseInt(b.action.value, 16) - parseInt(a.action.value, 16));
+
+  console.log(`High-value transactions (>= ${minValue} wei):`);
+  highValueTraces.forEach((trace, index) => {
+    const value = parseInt(trace.action.value, 16);
+    console.log(`  ${index + 1}. ${value.toLocaleString()} wei: ${trace.action.from} -> ${trace.action.to}`);
+    console.log(`     TX: ${trace.transactionHash}`);
+  });
+  
+  return highValueTraces;
+};
+
+// Analyze contract deployment patterns
+const analyzeContractDeployments = async (blockRange = 1000) => {
+  const currentBlock = await getCurrentBlockNumber();
+  
+  const filter = {
+    fromBlock: `0x${(currentBlock - blockRange).toString(16)}`,
+    toBlock: 'latest',
+    count: 200
+  };
+
+  const traces = await filterTraces(filter);
+  
+  const deployments = traces.filter(trace => 
+    trace.type === 'create' || trace.type === 'create2'
+  );
+  
+  console.log(`Contract Deployments in last ${blockRange} blocks:`);
+  console.log(`Total deployments: ${deployments.length}`);
+  
+  const deploymentAnalysis = {
+    byDeployer: new Map(),
+    totalGasUsed: 0,
+    averageGasUsed: 0
+  };
+  
+  deployments.forEach(deployment => {
+    const deployer = deployment.action.from;
+    const gasUsed = parseInt(deployment.result.gasUsed, 16);
+    
+    deploymentAnalysis.byDeployer.set(
+      deployer,
+      (deploymentAnalysis.byDeployer.get(deployer) || 0) + 1
+    );
+    deploymentAnalysis.totalGasUsed += gasUsed;
+  });
+  
+  deploymentAnalysis.averageGasUsed = 
+    deploymentAnalysis.totalGasUsed / deployments.length;
+  
+  console.log(`  Total gas used: ${deploymentAnalysis.totalGasUsed.toLocaleString()}`);
+  console.log(`  Average gas per deployment: ${Math.round(deploymentAnalysis.averageGasUsed).toLocaleString()}`);
+  
+  return { deployments, analysis: deploymentAnalysis };
+};
+
+// Usage examples
+const address = '0x69835D480110e4919B7899f465aAB101e21c8A87';
+monitorAddressActivity(address, 1000);
+
+const minValue = 1e18; // 1 ETH in wei
+findHighValueTransactions(minValue, 20);
+
+analyzeContractDeployments(500);
+```
+
+## Example request
+
+```shell Shell
+curl -X POST https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "trace_filter",
+    "params": [
+      {
+        "fromBlock": "0xb92f20",
+        "toBlock": "0xb92f6d",
+        "toAddress": ["0x5555555555555555555555555555555555555555"],
+        "count": 5
+      }
+    ],
+    "id": 1
+  }'
+```
+
+## Use cases
+
+The `trace_filter` method is essential for applications that need to:
+
+* **Address monitoring**: Monitor specific addresses for activity and transactions
+* **Forensic analysis**: Investigate suspicious transactions and trace fund flows
+* **Compliance tracking**: Track regulatory compliance and generate audit reports
+* **Analytics platforms**: Build comprehensive blockchain analytics and reporting tools
+* **Security monitoring**: Monitor for suspicious patterns and potential attacks
+* **DeFi analysis**: Analyze DeFi protocol interactions and user behaviors
+* **MEV detection**: Detect Maximum Extractable Value extraction patterns
+* **Arbitrage monitoring**: Monitor arbitrage opportunities and execution patterns
+* **Protocol research**: Research blockchain protocol usage and adoption patterns
+* **Risk assessment**: Assess risks associated with specific addresses or contracts
+* **Regulatory reporting**: Generate regulatory compliance reports and audits
+* **Trading analysis**: Analyze trading patterns and market manipulation
+* **Wallet tracking**: Track wallet activities across multiple transactions
+* **Contract usage analysis**: Analyze how smart contracts are being used
+* **Network health monitoring**: Monitor overall network health and activity patterns
+* **Academic research**: Support academic blockchain research and analysis
+
+This method provides powerful filtering capabilities for blockchain trace data, enabling detailed analysis and monitoring of specific transaction patterns on the Hyperliquid EVM platform.
