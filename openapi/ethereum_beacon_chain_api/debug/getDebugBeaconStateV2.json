@@ -1,0 +1,299 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Ethereum Beacon Debug State API",
+    "version": "2.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://ethereum-mainnet.core.chainstack.com"
+    }
+  ],
+  "paths": {
+    "/beacon/2f6d649e68c2f861fecd5b8a9e35139e/eth/v2/debug/beacon/states/{state_id}": {
+      "get": {
+        "summary": "Get full BeaconState object",
+        "operationId": "getDebugBeaconStateV2",
+        "description": "Returns full BeaconState object for given stateId. This is a comprehensive debug endpoint that provides the complete state of the beacon chain at a specific point, including all validator information, balances, and other state details. Depending on Accept header it can be returned either as JSON or as bytes serialized by SSZ.",
+        "tags": [
+          "Debug"
+        ],
+        "parameters": [
+          {
+            "name": "state_id",
+            "in": "path",
+            "description": "State identifier. Can be one of: 'head' (canonical head in node's view), 'genesis', 'finalized', 'justified', <slot>, <hex encoded stateRoot with 0x prefix>.",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "default": "head"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success - Full BeaconState object retrieved",
+            "headers": {
+              "Eth-Consensus-Version": {
+                "description": "The active consensus version to which the data belongs. Required in response so client can deserialize returned JSON or SSZ data more effectively.",
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "phase0",
+                    "altair",
+                    "bellatrix",
+                    "capella",
+                    "deneb",
+                    "electra"
+                  ],
+                  "example": "deneb"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetStateV2Response"
+                }
+              },
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "SSZ serialized BeaconState object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid state ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "State not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "GetStateV2Response": {
+        "type": "object",
+        "required": [
+          "version",
+          "execution_optimistic",
+          "finalized",
+          "data"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "enum": [
+              "phase0",
+              "altair",
+              "bellatrix",
+              "capella",
+              "deneb",
+              "electra"
+            ],
+            "example": "deneb",
+            "description": "The consensus version of the state"
+          },
+          "execution_optimistic": {
+            "type": "boolean",
+            "example": false,
+            "description": "True if the response references an unverified execution payload. Optimistic information may be invalidated at a later time."
+          },
+          "finalized": {
+            "type": "boolean",
+            "example": false,
+            "description": "True if the response references the finalized history of the chain, as determined by fork choice."
+          },
+          "data": {
+            "type": "object",
+            "description": "The full BeaconState object. The structure varies based on the consensus version.",
+            "properties": {
+              "genesis_time": {
+                "type": "string",
+                "example": "1606824023",
+                "description": "Unix timestamp of the chain genesis"
+              },
+              "genesis_validators_root": {
+                "type": "string",
+                "format": "hex",
+                "example": "0x4b363db94e286120d76eb905340fdd4e54bfe9f06bf33ff6cf5ad27f511bfe95",
+                "pattern": "^0x[a-fA-F0-9]{64}$",
+                "description": "Root hash of the genesis validators"
+              },
+              "slot": {
+                "type": "string",
+                "example": "1",
+                "description": "Current slot number"
+              },
+              "fork": {
+                "type": "object",
+                "description": "Fork information",
+                "properties": {
+                  "previous_version": {
+                    "type": "string",
+                    "format": "hex",
+                    "pattern": "^0x[a-fA-F0-9]{8}$"
+                  },
+                  "current_version": {
+                    "type": "string",
+                    "format": "hex",
+                    "pattern": "^0x[a-fA-F0-9]{8}$"
+                  },
+                  "epoch": {
+                    "type": "string",
+                    "example": "1"
+                  }
+                }
+              },
+              "latest_block_header": {
+                "type": "object",
+                "description": "Latest block header information"
+              },
+              "block_roots": {
+                "type": "array",
+                "description": "Array of recent block roots",
+                "items": {
+                  "type": "string",
+                  "format": "hex",
+                  "pattern": "^0x[a-fA-F0-9]{64}$"
+                }
+              },
+              "state_roots": {
+                "type": "array",
+                "description": "Array of recent state roots",
+                "items": {
+                  "type": "string",
+                  "format": "hex",
+                  "pattern": "^0x[a-fA-F0-9]{64}$"
+                }
+              },
+              "validators": {
+                "type": "array",
+                "description": "Array of all validators",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "pubkey": {
+                      "type": "string",
+                      "format": "hex",
+                      "pattern": "^0x[a-fA-F0-9]{96}$"
+                    },
+                    "withdrawal_credentials": {
+                      "type": "string",
+                      "format": "hex",
+                      "pattern": "^0x[a-fA-F0-9]{64}$"
+                    },
+                    "effective_balance": {
+                      "type": "string"
+                    },
+                    "slashed": {
+                      "type": "boolean"
+                    },
+                    "activation_eligibility_epoch": {
+                      "type": "string"
+                    },
+                    "activation_epoch": {
+                      "type": "string"
+                    },
+                    "exit_epoch": {
+                      "type": "string"
+                    },
+                    "withdrawable_epoch": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "balances": {
+                "type": "array",
+                "description": "Validator balances",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "eth1_data": {
+                "type": "object",
+                "description": "Eth1 chain data"
+              },
+              "eth1_data_votes": {
+                "type": "array",
+                "description": "Votes for Eth1 data",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "eth1_deposit_index": {
+                "type": "string",
+                "description": "Eth1 deposit index"
+              },
+              "previous_justified_checkpoint": {
+                "type": "object",
+                "description": "Previous justified checkpoint"
+              },
+              "current_justified_checkpoint": {
+                "type": "object",
+                "description": "Current justified checkpoint"
+              },
+              "finalized_checkpoint": {
+                "type": "object",
+                "description": "Finalized checkpoint"
+              }
+            }
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "integer",
+            "format": "int32",
+            "example": 404
+          },
+          "message": {
+            "type": "string",
+            "example": "State not found"
+          }
+        }
+      }
+    }
+  },
+  "x-readme": {
+    "explorer-enabled": true,
+    "proxy-enabled": true
+  }
+}
