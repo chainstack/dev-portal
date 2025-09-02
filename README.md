@@ -137,6 +137,36 @@ Run the following command at the root of your documentation (where docs.json is)
 mintlify dev
 ```
 
+#### OpenAPI 3.0 nullability and Try it button
+
+If a reference page renders without the Try it button or throws an error like:
+
+```
+Error: no matching OpenAPI operation object found with path "/evm" and method "post"
+```
+
+check the referenced OpenAPI spec for invalid null types. OpenAPI 3.0 does not support `"type": "null"`. Use `"nullable": true` on the actual schema instead. For example, replace:
+
+```json
+"result": {
+  "oneOf": [
+    { "type": "null" },
+    { "type": "object" }
+  ]
+}
+```
+
+with:
+
+```json
+"result": {
+  "type": "object",
+  "nullable": true
+}
+```
+
+After fixing the spec, restart `mintlify dev` and the Try it button should appear.
+
 ### Available node options master list
 
 `node-options-master-list.json` is the main file for this Developer Portal where the all the available node options are kept up to date. If you need a custom table with whatever options you want, you feed the master list to an LLM and generate your own table. The context length of `node-options-master-list.json` is about 17387 tokens.

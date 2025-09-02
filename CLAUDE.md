@@ -100,6 +100,29 @@ Example:
 - Use `<Expandable>` for nested object properties
 - Always include authentication examples
 
+### OpenAPI 3.0 nullability (important for Try it)
+
+When documenting JSON-RPC via OpenAPI 3.0, do not use `type: null` anywhere in schemas. OpenAPI 3.0 does not support a standalone null type and specs using it can cause Mintlify to fail matching the operation (e.g., removing the Try it button with an error about missing path/method).
+
+Preferred pattern:
+
+```json
+"result": {
+  "type": "object",
+  "nullable": true
+}
+```
+
+Avoid patterns like:
+
+```json
+"result": {
+  "oneOf": [ { "type": "null" }, { "type": "object" } ]
+}
+```
+
+If a page is missing the Try it button and logs show "no matching OpenAPI operation object" for a valid path/method, check and replace any `type: null` usages with `nullable: true`.
+
 ## Quality standards
 
 - Test all code examples before publishing whenever possible
