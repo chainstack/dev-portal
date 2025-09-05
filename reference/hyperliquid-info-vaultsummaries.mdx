@@ -3,7 +3,7 @@ title: vaultSummaries | Hyperliquid info
 openapi: /openapi/hyperliquid_node_api/info_vaultsummaries.json post /4f8d8f4040bdacd1577bff8058438274/info
 ---
 
-The `info` endpoint with `type: "vaultSummaries"` retrieves summary information for all available investment vaults on the Hyperliquid exchange. This endpoint provides comprehensive performance metrics, vault metadata, and investment details for all active trading vaults managed by various vault leaders.
+The `info` endpoint with `type: "vaultSummaries"` retrieves summary information for all available vaults on the Hyperliquid exchange. This endpoint provides vault metadata including names, addresses, TVL, and relationship information for all vaults in the system.
 
 <Check>
 **Get your own node endpoint today**
@@ -14,14 +14,11 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
 
 <Note>
-**Data freshness and availability**
+**Data availability**
 
-The vault information system is split between multiple endpoints:
-- This `vaultSummaries` endpoint returns vaults that are less than 2 hours old
-- For hourly snapshots of all vaults, use `https://stats-data.hyperliquid.xyz/Mainnet/vaults`
-- For the most recent data on any specific vault, use the [`vaultDetails`](/reference/hyperliquid-info-vault-details) endpoint
+This endpoint returns all available vaults in the system. If the response is an empty array, it indicates that no vaults are currently deployed on the network.
 
-See also: [`vaultDetails`](/reference/hyperliquid-info-vault-details) for comprehensive information about a specific vault.
+For detailed information about a specific vault, use the [`vaultDetails`](/reference/hyperliquid-info-vault-details) endpoint.
 </Note>
 
 ## Parameters
@@ -32,48 +29,37 @@ See also: [`vaultDetails`](/reference/hyperliquid-info-vault-details) for compre
 
 ## Response
 
-The response is an array of vault summary objects containing performance and metadata:
+The response is an array of vault summary objects containing the following fields:
 
 ### Vault identification
 
-* `vaultAddress` (string) — Contract address of the vault (42-character hexadecimal)
-* `name` (string) — Human-readable name of the vault
-* `leader` (string) — Address of the vault leader/manager who controls trading decisions
+* `name` (string) — Name of the vault
+* `vaultAddress` (string) — Vault's blockchain address (42-character hexadecimal)
+* `leader` (string) — Address of the vault leader/manager
 
 ### Vault metrics
 
-* `totalShares` (string) — Total number of shares issued by the vault
-* `tvl` (string) — Total value locked in the vault expressed in USD
-* `sharePrice` (string) — Current price per share (typically starts at 1.0)
+* `tvl` (string) — Total Value Locked in the vault
+* `isClosed` (boolean) — Whether the vault is closed to new deposits
+* `createTimeMillis` (number) — Timestamp when vault was created (in milliseconds since Unix epoch)
 
-### Performance metrics
+### Relationship information
 
-* `pnl1D` (string) — 1-day profit and loss percentage
-* `pnl7D` (string) — 7-day profit and loss percentage  
-* `pnl30D` (string) — 30-day profit and loss percentage
-* `pnlAllTime` (string) — All-time profit and loss percentage since vault inception
-* `maxDD` (string) — Maximum drawdown percentage (worst peak-to-trough decline)
+* `relationship` (object) — Vault relationship structure
+  * `type` (string) — Type of vault relationship: `"normal"`, `"child"`, or `"parent"`
+  * `data` (object, optional) — Additional relationship data
+    * `childAddresses` (array of strings) — If parent vault, contains addresses of child vaults
 
-### Investment information
+### Understanding vault relationships
 
-* `isOpen` (boolean) — Whether the vault is currently accepting new deposits
-* `minDeposit` (string) — Minimum deposit amount required to invest in the vault
-
-### Understanding vault performance
-
-**Performance periods:**
-- **1D, 7D, 30D**: Short to medium-term performance indicators
-- **All-time**: Total performance since vault inception
-- **Maximum drawdown**: Risk indicator showing worst historical decline
+**Vault types:**
+- **Normal vaults**: Standard standalone vaults
+- **Parent vaults**: Vaults that manage or control other child vaults
+- **Child vaults**: Vaults that are controlled by a parent vault
 
 **Vault status:**
-- **Open vaults**: `isOpen: true` - accepting new investors
-- **Closed vaults**: `isOpen: false` - not accepting new deposits
-
-**Share pricing:**
-- Share price reflects cumulative vault performance
-- Initial share price typically starts at 1.0
-- Price increases/decreases based on trading performance
+- **Open vaults**: `isClosed: false` - accepting new deposits
+- **Closed vaults**: `isClosed: true` - not accepting new deposits
 
 ## Example request
 
@@ -89,19 +75,32 @@ curl -X POST \
 ```json
 [
   {
+    "name": "Alpha Strategy Vault",
     "vaultAddress": "0xdfc24b077bc1425ad1dea75bcb6f8158e10df303",
-    "name": "Test Vault",
     "leader": "0x677d831aef5328190852e24f13c46cac05f984e7",
-    "totalShares": "1000000.0",
-    "tvl": "329265410.90790099",
-    "sharePrice": "1.2345",
-    "pnl1D": "0.12",
-    "pnl7D": "0.85",
-    "pnl30D": "5.10",
-    "pnlAllTime": "36.39",
-    "maxDD": "-12.5",
-    "isOpen": true,
-    "minDeposit": "100.0"
+    "tvl": "1500000.50",
+    "isClosed": false,
+    "relationship": {
+      "type": "normal"
+    },
+    "createTimeMillis": 1704067200000
+  },
+  {
+    "name": "Beta Fund",
+    "vaultAddress": "0x789abc123def456ghi789jkl012mno345pqr678",
+    "leader": "0x012def456ghi789jkl012mno345pqr678stu901",
+    "tvl": "5000000.25",
+    "isClosed": false,
+    "relationship": {
+      "type": "parent",
+      "data": {
+        "childAddresses": [
+          "0xaaa111bbb222ccc333ddd444eee555fff666777",
+          "0x888999aaabbbcccdddeeefff000111222333444"
+        ]
+      }
+    },
+    "createTimeMillis": 1704153600000
   }
 ]
 ```
@@ -110,19 +109,17 @@ curl -X POST \
 
 The `info` endpoint with `type: "vaultSummaries"` is essential for applications that need to:
 
-* **Investment discovery**: Browse and compare available investment vaults
-* **Performance analysis**: Evaluate vault performance across different time periods
-* **Risk assessment**: Analyze maximum drawdown and volatility metrics
-* **Portfolio allocation**: Make informed decisions about vault investments
-* **Vault comparison**: Compare TVL, performance, and risk metrics across vaults
-* **Investment interfaces**: Build vault browsing and selection tools
-* **Due diligence**: Research vault leaders and their trading track records
-* **Performance tracking**: Monitor favorite vaults and their ongoing performance
-* **Investment dashboards**: Display comprehensive vault marketplace data
-* **Risk management**: Assess vault risk profiles before investing
-* **Market analysis**: Understand overall vault ecosystem performance
-* **Educational tools**: Provide vault performance data for learning platforms
-* **API integrations**: Feed vault data into investment management systems
-* **Notification systems**: Track vault performance changes and status updates
+* **Vault discovery**: Browse all available vaults in the system
+* **TVL analysis**: Monitor total value locked across different vaults
+* **Vault status**: Check which vaults are open or closed for deposits
+* **Relationship mapping**: Understand parent-child vault relationships
+* **Vault listing**: Build interfaces showing all available vaults
+* **Leader tracking**: Identify vault managers and their addresses
+* **Historical analysis**: Track when vaults were created
+* **Vault hierarchies**: Map complex vault structures with parent-child relationships
+* **System overview**: Get a complete picture of all vaults in the ecosystem
+* **Integration points**: Feed vault data into portfolio management systems
+* **Monitoring systems**: Track new vault deployments and closures
+* **Data aggregation**: Collect comprehensive vault metadata for analysis
 
-This endpoint is particularly valuable for investors looking to participate in managed trading strategies through Hyperliquid's vault system, providing all the essential information needed to make informed investment decisions and monitor vault performance over time.
+This endpoint provides the foundational data needed to understand the complete vault ecosystem on Hyperliquid, serving as the primary discovery mechanism for all available vaults.
