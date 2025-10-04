@@ -1,0 +1,359 @@
+---
+title: "Hyperliquid: Building a real-time copy trading bot with WebSocket order mirroring"
+description: "Learn how to build a copy trading bot that mirrors spot trades in real-time using WebSocket subscriptions."
+---
+
+Copy trading on Hyperliquid requires more than just watching orders—you need proper state management, event sequencing, and dynamic order sizing. This guide shows you how to build a copy trading bot that mirrors spot trades in real-time.
+
+## Understanding Hyperliquid's WebSocket architecture
+
+Hyperliquid provides two essential WebSocket channels for monitoring trading activity. These channels serve different purposes:
+
+**`orderUpdates`** delivers `WsOrder[]` events containing order status changes—when orders are placed, modified, or canceled. This is your primary signal for mirroring trading decisions.
+
+**`userEvents`** provides `WsUserEvent` data including fills, funding payments, and liquidations. For this tutorial, the most important part is that the channel provides TWAP order updates not available in `orderUpdates`.
+
+Together, these channels give you a complete picture of a trader's activity:
+
+```python
+order_subscription = {
+    "method": "subscribe",
+    "subscription": {"type": "orderUpdates", "user": LEADER_ADDRESS}
+}
+
+events_subscription = {
+    "method": "subscribe",
+    "subscription": {"type": "userEvents", "user": LEADER_ADDRESS}
+}
+
+await websocket.send(json.dumps(order_subscription))
+await websocket.send(json.dumps(events_subscription))
+```
+
+## How spot markets work on Hyperliquid
+
+Before diving into implementation, you need to understand how Hyperliquid distinguishes spot from perpetual assets. The `coin` field format tells you the market type:
+
+**Perpetual contracts** use simple asset names returned from the `meta` endpoint:
+- `BTC` — Bitcoin perpetual
+- `ETH` — Ethereum perpetual
+- `SOL` — Solana perpetual
+
+**Spot markets** use two formats:
+- **`@{index}`** — Numeric spot pair index (e.g., `@0` for BTC/USDC, `@107` for HYPE/USDC)
+- **`{TOKEN}/USDC`** — Human-readable pair names (e.g., `PURR/USDC`)
+
+Why the `@index` format? It's Hyperliquid's internal representation—more efficient for the order book engine. When you receive WebSocket events, the `coin` field typically contains the `@index` format for spot trades.
+
+This matters for copy trading because:
+1. You receive `@123` in WebSocket events
+2. You need to query metadata using that index
+3. You place orders using the same `@index` format
+
+The index maps to token metadata through the `spotMeta` endpoint, which provides crucial information like price precision and size decimals.
+
+## Detecting spot vs perpetual orders
+
+Your bot monitors a trader who trades both spot and perps. Spot orders are cash trades (you own the asset), perps involve leverage and funding payments. For simplicity, you might want to mirror only spot trades initially.
+
+The `coin` field in WebSocket events tells you the market type:
+
+```python
+def detect_market_type(coin_field):
+    if coin_field.startswith("@"):
+        return "SPOT"  # "@123" = spot index format
+    elif "/" in coin_field:
+        return "SPOT"  # "PURR/USDC" = spot pair name
+    else:
+        return "PERP"  # "BTC", "ETH" = perpetual contracts
+```
+
+This logic follows Hyperliquid's naming convention: if the coin starts with `@` or contains `/`, it's a spot market. Otherwise, it's a perpetual contract.
+
+Filter to spot-only mirroring:
+
+```python
+def is_spot_order(coin_field):
+    return detect_market_type(coin_field) == "SPOT"
+
+# In your event handler
+if not is_spot_order(coin_field):
+    continue  # Skip perp orders
+```
+
+## Dynamic order sizing for spot assets
+
+A leader might trade $10,000 of BTC, but your bot has a $1,000 budget. You need proportional sizing based on your capital allocation. But it's not just about scaling down—Hyperliquid enforces strict precision rules.
+
+According to the [official documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#order-limits):
+
+**Size precision** — Round to the asset's `szDecimals` (found in `meta` response):
+- `szDecimals = 3`: `1.001` valid, `1.0001` invalid
+- `szDecimals = 1`: `0.1` valid, `0.01` invalid
+
+**Price precision** — Max 5 significant figures, no more than `MAX_DECIMALS - szDecimals` decimal places (spot: `MAX_DECIMALS = 8`, perps: `MAX_DECIMALS = 6`):
+- `szDecimals = 0`: `0.0001234` valid (8 decimals)
+- `szDecimals = 2`: `0.0001234` invalid (exceeds 8-2=6 decimals)
+- `1234.5` valid, `1234.56` invalid (too many sig figs)
+
+Query metadata and calculate valid sizes:
+
+```python
+async def get_spot_asset_info(info: Info, coin_field: str) -> Optional[dict]:
+    """Get real-time price and size decimals for proper order sizing"""
+    spot_data = info.spot_meta_and_asset_ctxs()
+    spot_meta = spot_data[0]
+    asset_ctxs = spot_data[1]
+
+    index = int(coin_field[1:])  # "@123" -> 123
+    ctx = asset_ctxs[index]
+    price = float(ctx.get("midPx", ctx.get("markPx", 0)))
+
+    pair_info = next(p for p in spot_meta["universe"] if p["index"] == index)
+    token_info = spot_meta["tokens"][pair_info["tokens"][0]]
+
+    return {
+        "price": price,
+        "szDecimals": token_info.get("szDecimals", 6),
+        "coin": coin_field
+    }
+
+# Calculate and round order size
+asset_info = await get_spot_asset_info(info, "@0")
+follower_size = round(
+    FIXED_ORDER_VALUE_USDC / asset_info["price"],
+    asset_info["szDecimals"]
+)
+```
+
+**Example**: $15 / $65,000 BTC with `szDecimals = 5` → `0.00023076923...` rounds to `0.00023`.
+
+## Understanding order lifecycle and state transitions
+
+Orders on Hyperliquid go through a lifecycle with specific state transitions. When you subscribe to `orderUpdates`, you receive events for each state change. Understanding these states is critical for proper mirroring.
+
+### Order state events explained
+
+**`open` status** — Two scenarios trigger this:
+1. **New order placed** — Leader creates a fresh order that goes on the book
+2. **Order modified** — Leader changes price or size of an existing order
+
+Here's what's important: when a trader modifies an order on Hyperliquid, the exchange doesn't send a "modification" event. Instead, it cancels the old order and creates a new one atomically. In the WebSocket feed, you see both events, but they happen together.
+
+**`canceled` status** — Order removed from the book, either by:
+- Trader manually canceling
+- Part of a modification (old order canceled, new one created)
+- System cancellation (insufficient balance, delisting, etc.)
+
+**`filled` status** — Order fully executed. You'll also see detailed fill information in the `userEvents` channel.
+
+Here's the implementation with detailed rationale:
+
+```python
+async def handle_leader_order_events(data: dict, exchange: Exchange, info: Info):
+    """Process order lifecycle events from leader"""
+
+    for order_update in data.get("data", []):
+        order = order_update.get("order", {})
+        status = order_update.get("status")
+        leader_order_id = order.get("oid")
+
+        if status == "open":
+            # Check if we've seen this order ID before
+            if leader_order_id in order_mappings:
+                # Same order ID = modification
+                # Leader changed price or size, we need to update our follower order
+                follower_order_id = order_mappings[leader_order_id]
+                await modify_follower_order(exchange, info, follower_order_id, order)
+            else:
+                # New order ID = new position
+                # Leader opened a fresh order, we create a new follower order
+                follower_order_id = await place_follower_order(exchange, info, order)
+                if follower_order_id:
+                    # Store mapping for future modifications/cancellations
+                    order_mappings[leader_order_id] = follower_order_id
+
+        elif status == "canceled":
+            # Leader canceled an order
+            # Could be standalone cancellation or part of modification
+            follower_order_id = order_mappings.get(leader_order_id)
+            if follower_order_id:
+                # We have a follower order for this, cancel it
+                await cancel_follower_order(exchange, follower_order_id, coin_field)
+                # Remove from mapping - this leader order no longer active
+                del order_mappings[leader_order_id]
+            # If not in mapping, ignore - might be modification we'll handle via new open event
+```
+
+The `order_mappings` dictionary is your state tracker. It maps each leader order ID to your corresponding follower order ID. This allows you to:
+- Cancel the correct follower order when leader cancels
+- Track which orders are still active
+
+## Placing orders with the Hyperliquid SDK
+
+The [hyperliquid-python-sdk](https://github.com/hyperliquid-dex/hyperliquid-python-sdk) provides the `exchange.order()` method for placing trades. Let's break down each parameter and why it matters:
+
+```python
+result = exchange.order(
+    name=coin_field,        # "@0" for BTC/USDC - must match WebSocket coin format
+    is_buy=True,            # True for buy, False for sell
+    sz=order_size,          # Calculated with proper precision from metadata
+    limit_px=price,         # Limit price - protects against slippage
+    order_type=HLOrderType({"limit": {"tif": "Gtc"}}),  # Good-til-canceled
+    reduce_only=False       # False = can open new positions
+)
+```
+
+The response structure tells you whether your order was accepted:
+
+```python
+if result.get("status") == "ok":
+    statuses = result["response"]["data"]["statuses"]
+    status_info = statuses[0]
+
+    if "resting" in status_info:
+        # Order placed on the book, waiting to fill
+        follower_order_id = status_info["resting"]["oid"]
+        return follower_order_id
+    elif "filled" in status_info:
+        # Order executed immediately (market was liquid enough)
+        follower_order_id = status_info["filled"]["oid"]
+        return follower_order_id
+```
+
+Why check both `resting` and `filled`? If you place a limit buy at $100 and the best ask is $99, your order fills immediately. You still need the order ID for tracking fills and state management.
+
+## Testing with same wallet (development only)
+
+<Warning>
+This section describes a **development shortcut** for testing. In production, you'll use separate leader and follower wallets, and this infinite loop problem won't exist.
+</Warning>
+
+When building your bot, you probably don't want to manage two separate wallets and fund both with testnet USDC. For testing purposes, you can use the same wallet as both leader and follower—but this creates a challenge.
+
+**The infinite loop problem**:
+
+<Steps>
+  <Step title="Leader places order">
+    The leader wallet (your test wallet) initiates a new order
+  </Step>
+  <Step title="Bot mirrors it as follower">
+    Your bot detects the order and places a mirror order using the same wallet
+  </Step>
+  <Step title="Bot sees its own follower order">
+    WebSocket receives the follower order as a "new leader order" (because you're watching the same wallet)
+  </Step>
+  <Step title="Bot tries to mirror again">
+    Bot attempts to mirror the follower order, creating another order
+  </Step>
+  <Step title="Infinite loop">
+    Process repeats indefinitely, placing unlimited orders
+  </Step>
+</Steps>
+
+**The solution**: Track which orders are follower-placed and skip them:
+
+```python
+order_mappings: Dict[int, int] = {}  # leader_order_id -> follower_order_id
+
+# In event handler
+if leader_order_id in order_mappings.values():
+    # This order ID is a follower order we placed - skip it
+    print(f"Skipping follower order {leader_order_id}")
+    continue
+```
+
+When you mirror a leader order, you store the mapping `{leader_order_id: follower_order_id}`. Later, when that follower order appears in the WebSocket feed (because you're watching your own wallet), you check: "Is this order ID in my follower list?" If yes, ignore it.
+
+**Important**: In production with separate wallets, leader and follower order IDs never overlap—you don't need this check. This is purely for development convenience.
+
+## Sequential processing (simplified for testing)
+
+<Note>
+This section describes a **simplified architecture for testing**. In production with high-frequency trading, you'd process events in parallel with proper concurrency controls.
+</Note>
+
+When WebSocket messages arrive, you have two architectural choices:
+
+**Concurrent processing** (production):
+- Process multiple order events simultaneously
+- Requires locks/semaphores to prevent race conditions
+- Optimal for high-frequency traders placing hundreds of orders per minute
+- More complex to implement and debug
+
+**Sequential processing** (testing/development):
+- Process one order event at a time
+- No race conditions by design
+- Simple to implement and reason about
+- Sufficient for mirroring human traders (10-100 orders per hour)
+
+For testing and learning, sequential processing is simpler:
+
+```python
+message_queue = asyncio.Queue()
+
+async def message_receiver():
+    """Receive messages and queue them"""
+    async for message in websocket:
+        await message_queue.put(message)
+
+async def message_processor():
+    """Process messages one at a time"""
+    while running:
+        message = await asyncio.wait_for(message_queue.get(), timeout=1.0)
+        data = json.loads(message)
+        await handle_leader_order_events(data, exchange, info)
+        message_queue.task_done()
+
+# Run both tasks concurrently
+await asyncio.gather(message_receiver(), message_processor())
+```
+
+The receiver task puts messages in the queue as fast as they arrive. The processor task pulls one message, processes it completely (place order, update mapping, etc.), marks it done, then moves to the next.
+
+**When to upgrade to parallel**: When you're mirroring algorithmic traders or high-frequency strategies that place 10+ orders per second. At that scale, you need concurrent processing with proper state locking.
+
+## Key takeaways
+
+<AccordionGroup>
+  <Accordion title="Spot vs perp identification">
+    Hyperliquid uses naming conventions: `@index` or `TOKEN/USDC` for spot, simple names like `BTC` for perps.
+  </Accordion>
+
+  <Accordion title="Order modifications are cancel + create">
+    Modifications appear as canceled old order + new open order, but with same order ID.
+  </Accordion>
+
+  <Accordion title="State management via order mappings">
+    Track leader-to-follower order ID mappings to handle cancellations.
+  </Accordion>
+
+  <Accordion title="Dynamic sizing with metadata">
+    Query `szDecimals` from spot metadata to calculate properly rounded order sizes for each asset.
+  </Accordion>
+
+  <Accordion title="Testing shortcuts don't scale">
+    Same-wallet testing and sequential processing simplify development but require changes for production.
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+**Complete implementation**: See the [hyperliquid bot examples repository](https://github.com/chainstacklabs/hyperliquid-trading-bot/tree/main/learning_examples/06_copy_trading) for the full working code.
+</Note>
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Authentication Guide" icon="key" href="/docs/hyperliquid-authentication-guide">
+    Learn how to authenticate with Hyperliquid exchange API
+  </Card>
+  <Card title="L1 Action Signing" icon="pen" href="/docs/hyperliquid-l1-action-signing">
+    Understand L1 action signing for trading operations
+  </Card>
+  <Card title="API Reference" icon="book" href="/reference/hyperliquid-getting-started">
+    Explore the complete Hyperliquid API reference
+  </Card>
+  <Card title="Node Configuration" icon="server" href="/docs/hyperliquid-node-configuration">
+    Configure your Hyperliquid node endpoint
+  </Card>
+</CardGroup>
