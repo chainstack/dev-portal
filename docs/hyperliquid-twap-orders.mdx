@@ -1,0 +1,616 @@
+---
+title: "TWAP order execution and monitoring on Hyperliquid"
+description: "Learn how to place, monitor, and mirror TWAP orders on Hyperliquid using raw API calls and WebSocket subscriptions"
+---
+
+You want to buy \$50,000 of a low-liquidity altcoin. Place one market order and watch the price slip 5–10% as you consume the entire ask side. Other traders front-run you. You pay well above mid price.
+
+The alternative: Time-Weighted Average Price (TWAP) orders split large trades into smaller chunks over time. Break that \$50,000 into 50 × \$1,000 orders over 30 minutes. Each order has minimal impact. Average execution stays near mid price. Total slippage drops to 0.5–1% instead of 5–10%.
+
+Hyperliquid's native TWAP implementation handles the mechanics—you specify total size and duration, the exchange executes incrementally. This guide shows you how to place TWAP orders and monitor execution via WebSocket.
+
+## TWAP order structure
+
+TWAP orders aren't yet available in the Python SDK's high-level methods. According to the [Hyperliquid API documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#twap-order), you need to use raw API calls with the `twapOrder` action type:
+
+```python
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils.signing import get_timestamp_ms, sign_l1_action, float_to_wire
+from eth_account import Account
+
+wallet = Account.from_key(private_key)
+exchange = Exchange(wallet, BASE_URL)
+
+# For spot asset with index 5, asset ID = 10000 + 5 = 10005
+twap_action = {
+    "type": "twapOrder",
+    "twap": {
+        "a": 10005,                        # Asset ID (10000 + spot index)
+        "b": True,                         # Buy (True) or Sell (False)
+        "s": float_to_wire(100.0),         # Total size
+        "r": False,                        # Reduce-only
+        "m": 30,                           # Duration in minutes
+        "t": False                         # Randomize timing
+    }
+}
+
+timestamp = get_timestamp_ms()
+signature = sign_l1_action(wallet, twap_action, exchange.vault_address,
+                           timestamp, exchange.expires_after, False)
+result = exchange._post_action(twap_action, signature, timestamp)
+```
+
+### TWAP parameters explained
+
+- **`a` (asset ID)** — for spot: `10000 + index` from spot metadata. For perps: use the perp index directly. Get index from `info.spot_meta_and_asset_ctxs()` or `info.meta()`.
+- **`b` (buy/sell)** — `True` for buy, `False` for sell. Boolean, not string.
+- **`s` (size)** — total size to execute. Use `float_to_wire()` to avoid trailing zeros that cause API rejections.
+- **`m` (duration in minutes)** — how long to spread execution. Range: 1–1440 (24 hours). Longer duration = lower market impact but more price exposure.
+- **`t` (randomize)** — `False` = evenly spaced intervals (30-min TWAP → child orders every ~30 seconds). `True` = randomized intervals, harder for algorithms to detect.
+- **`r` (reduce-only)** — `True` prevents opening new positions, only closes existing ones.
+
+## Understanding TWAP execution
+
+When you submit a TWAP order, Hyperliquid's exchange backend calculates child order sizing and timing, then executes incrementally. You receive WebSocket updates for each fill.
+
+**Example with real numbers** — 30-minute TWAP for 100 units, `randomize=False`:
+
+- Duration — 1800 seconds
+- Child order interval — ~30 seconds (1800 / 60 ≈ 30)
+- Child order size — ~1.67 units (100 / 60 ≈ 1.67)
+- Total child orders — ~60
+
+If liquidity is thin and some child orders only partially fill, the TWAP adjusts remaining size across future child orders.
+
+Why `randomize=True` matters: In competitive markets, other algorithms detect regular 30-second intervals and front-run your orders. Randomization spreads child orders across the same total duration but at unpredictable intervals. Average still ~30 seconds, but actual intervals vary from 10–50 seconds.
+
+## Placing TWAP orders with validation
+
+Hyperliquid enforces precision and minimum size rules. Each asset has `szDecimals` (size precision) and a \$10 minimum notional value requirement:
+
+```python
+from hyperliquid.utils.signing import get_timestamp_ms, sign_l1_action, float_to_wire
+
+async def place_twap_order(
+    exchange: Exchange,
+    info: Info,
+    symbol: str,
+    is_buy: bool,
+    total_size: float,
+    duration_minutes: int,
+    randomize: bool = False,
+    reduce_only: bool = False
+):
+    # Get spot metadata and find asset
+    spot_data = info.spot_meta_and_asset_ctxs()
+    spot_meta = spot_data[0]
+
+    target_pair = None
+    for pair in spot_meta.get("universe", []):
+        if pair.get("name") == symbol:
+            target_pair = pair
+            break
+
+    if not target_pair:
+        raise ValueError(f"Asset {symbol} not found")
+
+    asset_index = target_pair.get("index")
+    asset_id = 10000 + asset_index  # Spot asset ID
+
+    # Validate size precision
+    sz_decimals = target_pair.get("szDecimals", 8)
+    valid_size = round(total_size, sz_decimals)
+
+    # Build TWAP action
+    twap_action = {
+        "type": "twapOrder",
+        "twap": {
+            "a": asset_id,
+            "b": is_buy,
+            "s": float_to_wire(valid_size),
+            "r": reduce_only,
+            "m": duration_minutes,
+            "t": randomize
+        }
+    }
+
+    # Sign and send
+    timestamp = get_timestamp_ms()
+    signature = sign_l1_action(exchange.wallet, twap_action, exchange.vault_address,
+                               timestamp, exchange.expires_after, False)
+    result = exchange._post_action(twap_action, signature, timestamp)
+
+    if result.get("status") == "ok":
+        response_data = result.get("response", {}).get("data", {})
+        status_info = response_data.get("status", {})
+        if "running" in status_info:
+            return status_info["running"]["twapId"]
+
+    return None
+```
+
+<Info>
+Why `float_to_wire()`? Prevents trailing zeros that cause API rejections. `100.0` becomes `"100"` string format.
+</Info>
+
+<Warning>
+Each child order must meet the \$10 minimum. A 30-minute TWAP creates ~60 child orders. If your TWAP is \$500 total, each child = \$500 / 60 ≈ \$8.33 (rejected). Minimum safe TWAP: \$600+ for 60 child orders.
+</Warning>
+
+## Monitoring TWAP execution via WebSocket
+
+According to the [WebSocket API documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket), the `userEvents` channel delivers TWAP updates in the `twapHistory` array:
+
+```python
+import websockets
+import json
+
+async def monitor_twap_execution(leader_address: str):
+    async with websockets.connect(WS_URL) as websocket:
+        subscription = {
+            "method": "subscribe",
+            "subscription": {"type": "userEvents", "user": leader_address}
+        }
+        await websocket.send(json.dumps(subscription))
+
+        async for message in websocket:
+            data = json.loads(message)
+            if data.get("channel") == "user":
+                for twap_event in data.get("data", {}).get("twapHistory", []):
+                    await handle_twap_event(twap_event)
+```
+
+Each TWAP event contains `state` (order details) and `status` (execution phase):
+
+```python
+async def handle_twap_event(twap_event: dict):
+    state = twap_event.get("state", {})
+    status = twap_event.get("status", {}).get("status", "unknown")
+
+    coin = state.get("coin", "N/A")
+    side = "BUY" if state.get("side") == "B" else "SELL"
+    total_size = float(state.get("sz", "0"))
+    executed_size = float(state.get("executedSz", "0"))
+    executed_notional = state.get("executedNtl", "0")
+
+    progress_pct = (executed_size / total_size * 100) if total_size > 0 else 0
+
+    if status == "activated":
+        print(f"TWAP ACTIVATED: {side} {total_size} {coin}")
+    elif status == "completed":
+        avg_price = float(executed_notional) / executed_size if executed_size > 0 else 0
+        print(f"TWAP COMPLETED: {executed_size} {coin} @ avg \${avg_price:.2f}")
+    elif status == "terminated":
+        print(f"TWAP TERMINATED: {executed_size}/{total_size} ({progress_pct:.1f}%)")
+    elif status == "canceled":
+        print(f"TWAP CANCELED: Partial fill {executed_size}/{total_size}")
+
+    return {"coin": coin, "status": status, "progress_pct": progress_pct}
+```
+
+### TWAP status lifecycle
+
+- **`activated`** — TWAP accepted by exchange, child order execution begins.
+- **`completed`** — all size executed successfully.
+- **`terminated`** — exchange stopped execution early:
+  - Insufficient balance — account ran out of funds mid-execution
+  - Market conditions — extreme volatility or order book issues
+  - Execution failure — child orders consistently rejected
+- **`canceled`** — you manually stopped the TWAP using the `twapCancel` API action.
+
+During execution, you'll also receive individual fill events in the `userEvents.fills` array for each child order. Correlate these with the active TWAP to track real-time progress.
+
+## Canceling TWAP orders
+
+Cancel active TWAPs using raw API with `twapCancel` action:
+
+```python
+from hyperliquid.utils.signing import get_timestamp_ms, sign_l1_action
+
+def cancel_twap_order(exchange: Exchange, asset_id: int, twap_id: int):
+    twap_cancel_action = {
+        "type": "twapCancel",
+        "a": asset_id,      # Same asset ID used when placing (10000 + index for spot)
+        "t": twap_id        # TWAP ID from placement response
+    }
+
+    timestamp = get_timestamp_ms()
+    signature = sign_l1_action(exchange.wallet, twap_cancel_action,
+                               exchange.vault_address, timestamp,
+                               exchange.expires_after, False)
+    result = exchange._post_action(twap_cancel_action, signature, timestamp)
+
+    if result.get("status") == "ok":
+        response_data = result.get("response", {}).get("data", {})
+        return response_data.get("status") == "success"
+
+    return False
+```
+
+<Note>
+You can only cancel TWAPs still executing (status `activated` in WebSocket events). Completed or terminated TWAPs return an error.
+</Note>
+
+## Tracking child order fills
+
+Individual child order fills appear in `userEvents.fills` alongside regular orders. Correlate with active TWAPs:
+
+```python
+async def handle_user_events(data: dict, active_twaps: dict):
+    for fill in data.get("data", {}).get("fills", []):
+        coin = fill.get("coin")
+        if coin in active_twaps:
+            size = float(fill.get("sz"))
+            price = float(fill.get("px"))
+
+            # Track for VWAP calculation
+            active_twaps[coin]["fills"].append({"size": size, "price": price})
+
+            # Calculate running VWAP
+            total_notional = sum(f["size"] * f["price"] for f in active_twaps[coin]["fills"])
+            total_size = sum(f["size"] for f in active_twaps[coin]["fills"])
+            vwap = total_notional / total_size if total_size > 0 else 0
+
+            print(f"TWAP child fill: {size} {coin} @ \${price} (VWAP: \${vwap:.2f})")
+```
+
+## Reduce-only TWAPs for position exits
+
+Set `"r": True` in the TWAP action to prevent accidentally increasing positions when closing:
+
+```python
+twap_action = {
+    "type": "twapOrder",
+    "twap": {
+        "a": 0,             # BTC perp index
+        "b": False,         # Sell to close long
+        "s": float_to_wire(10.0),
+        "r": True,          # Reduce-only
+        "m": 60,
+        "t": False
+    }
+}
+```
+
+You hold a 10 BTC long position. You place a reduce-only TWAP sell for 15 BTC. The TWAP stops after selling 10 BTC—it won't open a 5 BTC short position. Without `"r": True`, you'd flip from 10 BTC long to 5 BTC short.
+
+## Mirroring TWAP orders in copy trading
+
+Copy trading with TWAP orders presents unique challenges compared to regular limit orders. The fundamental issue: TWAP IDs are asymmetric.
+
+When you place a TWAP, the API response includes the TWAP ID:
+
+```python
+result = exchange._post_action(twap_action, signature, timestamp)
+response_data = result.get("response", {}).get("data", {})
+status_info = response_data.get("status", {})
+
+if "running" in status_info:
+    twap_id = status_info["running"]["twapId"]  # You get the ID here
+```
+
+But when monitoring via WebSocket, the `twapHistory` events don't include the TWAP ID:
+
+```python
+for twap_event in data.get("data", {}).get("twapHistory", []):
+    state = twap_event.get("state", {})
+    # state contains: coin, side, sz, minutes, randomize
+    # state does NOT contain: twapId
+```
+
+According to the [WebSocket API documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket), `twapHistory` events contain a `state` object with TWAP properties but no `twapId` field for tracking.
+
+This asymmetry creates problems for copy trading:
+
+- You can't use TWAP IDs to deduplicate events (no ID in WebSocket)
+- You can't map leader TWAP IDs to follower TWAP IDs (you never see leader's ID)
+- You can cancel your own TWAPs (you have the follower TWAP ID from placement), but you need a different strategy to know when to cancel based on leader activity
+
+The solution: Use TWAP properties as composite keys instead of relying on IDs.
+
+### The combination-based tracking strategy
+
+According to the [WebSocket API documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket), `twapHistory` events in the `userEvents` channel contain a `state` object with TWAP properties but no unique identifier for tracking.
+
+The solution: Create combination keys from TWAP properties to detect duplicates:
+
+```python
+def create_leader_twap_combination(state: dict) -> str:
+    """Create leader TWAP combination ID with original size"""
+    coin_field = state.get("coin", "")
+    side = state.get("side")  # "B" for buy, "A" for sell
+    minutes = state.get("minutes", 1)
+    randomize = state.get("randomize", False)
+    size = state.get("sz", "0")
+
+    return f"{coin_field}_{side}_{minutes}_{randomize}_{size}"
+
+leader_twap_combinations: set = set()  # Track processed leader TWAPs
+
+# In event handler
+leader_combination = create_leader_twap_combination(state)
+
+if leader_combination in leader_twap_combinations:
+    # Already processed this TWAP - skip
+    continue
+
+leader_twap_combinations.add(leader_combination)
+```
+
+<Info>
+A leader might place two identical 30-minute BTC TWAPs with different sizes (e.g., 0.5 BTC and 1.0 BTC). Without size in the combination, they'd have the same key and you'd only mirror one.
+</Info>
+
+### Handling same-wallet testing scenarios
+
+<Warning>
+This section describes a development shortcut for testing. In production with separate leader and follower wallets, this infinite loop problem won't exist.
+</Warning>
+
+When testing with the same wallet as both leader and follower, you need to prevent mirroring your own follower TWAPs. But since WebSocket events don't include TWAP IDs, you can't simply check "is this TWAP ID in my follower list?"
+
+The solution: Track follower TWAP combinations separately with adjusted sizes:
+
+```python
+follower_twap_combinations: set = set()  # Track our placed follower TWAPs
+
+def create_follower_twap_combination(coin_field: str, side: str, minutes: int,
+                                      randomize: bool, follower_size: float) -> str:
+    """Create follower TWAP combination ID with adjusted size"""
+    return f"{coin_field}_{side}_{minutes}_{randomize}_{follower_size}"
+
+# After placing follower TWAP
+follower_combination = create_follower_twap_combination(
+    coin_field, side, minutes, randomize, follower_total_size
+)
+follower_twap_combinations.add(follower_combination)
+```
+
+Leader combination uses leader's size, follower combination uses follower's (potentially different) size. When a WebSocket event arrives, you check both:
+
+<Steps>
+  <Step title="Check if processed as leader">
+    Is this combination in `leader_twap_combinations`? If yes, already processed as leader TWAP.
+  </Step>
+  <Step title="Check if own follower order">
+    Is this combination in `follower_twap_combinations`? If yes, this is our own follower TWAP—skip it.
+  </Step>
+</Steps>
+
+```python
+async def handle_leader_twap_events(data: dict, exchange: Exchange, info: Info):
+    for twap_event in data.get("data", {}).get("twapHistory", []):
+        state = twap_event.get("state", {})
+        twap_status = twap_event.get("status", {}).get("status", "unknown")
+
+        # Check if this is our own follower TWAP
+        try:
+            side = state.get("side")
+            minutes = state.get("minutes", 1)
+            randomize = state.get("randomize", False)
+            current_size = float(state.get("sz", "0"))
+            coin_field = state.get("coin", "")
+
+            potential_follower_combination = create_follower_twap_combination(
+                coin_field, side, minutes, randomize, current_size
+            )
+
+            if potential_follower_combination in follower_twap_combinations:
+                # Skip our own follower TWAP
+                continue
+        except (ValueError, TypeError):
+            pass
+
+        leader_combination = create_leader_twap_combination(state)
+
+        if twap_status == "activated":
+            if leader_combination in leader_twap_combinations:
+                # Already processed
+                continue
+
+            leader_twap_combinations.add(leader_combination)
+
+            # Mirror the TWAP with adjusted sizing
+            follower_twap_id = await place_follower_twap_order(
+                exchange, info, twap_event, leader_combination
+            )
+```
+
+<Note>
+In production with separate wallets, leader and follower sizes don't overlap in the same WebSocket feed—you don't need this follower combination check. This is purely for development convenience.
+</Note>
+
+### Placing follower TWAPs with adjusted sizing
+
+When mirroring a leader's TWAP, you need to maintain the same time parameters (duration, randomization) while adjusting size based on your capital allocation:
+
+```python
+async def place_follower_twap_order(
+    exchange: Exchange, info: Info, leader_twap_data: dict, leader_combination: str
+) -> Optional[int]:
+    """Place corresponding follower TWAP order with adjusted sizing"""
+
+    state = leader_twap_data.get("state", {})
+    coin_field = state.get("coin", "")
+    side = state.get("side")  # "B" or "A"
+    minutes = state.get("minutes", 1)
+    randomize = state.get("randomize", False)
+    reduce_only = state.get("reduceOnly", False)
+
+    # Get current price for sizing calculation
+    asset_info = await get_spot_asset_info(info, coin_field)
+    if not asset_info:
+        return None
+
+    # Calculate follower size based on fixed USDC allocation
+    follower_total_size = round(
+        FIXED_ORDER_VALUE_USDC / asset_info["price"],
+        asset_info["szDecimals"]
+    )
+
+    # Get asset index for API call
+    if coin_field.startswith("@"):
+        asset_index = int(coin_field[1:])
+    else:
+        # Lookup index for TOKEN/USDC format
+        spot_meta = info.spot_meta()
+        pair_info = next(p for p in spot_meta["universe"] if p["name"] == coin_field)
+        asset_index = pair_info["index"]
+
+    # Place TWAP with same time parameters, adjusted size
+    twap_action = {
+        "type": "twapOrder",
+        "twap": {
+            "a": 10000 + asset_index,  # Spot asset ID
+            "b": side == "B",  # Buy/sell
+            "s": float_to_wire(follower_total_size),
+            "r": reduce_only,
+            "m": minutes,  # Same duration as leader
+            "t": randomize  # Same randomization as leader
+        }
+    }
+
+    timestamp = get_timestamp_ms()
+    signature = sign_l1_action(exchange.wallet, twap_action, exchange.vault_address,
+                               timestamp, exchange.expires_after, False)
+    result = exchange._post_action(twap_action, signature, timestamp)
+
+    if result and result.get("status") == "ok":
+        response_data = result.get("response", {}).get("data", {})
+        status_info = response_data.get("status", {})
+
+        if "running" in status_info:
+            follower_twap_id = status_info["running"]["twapId"]
+
+            # Track follower combination to prevent re-mirroring
+            follower_combination = create_follower_twap_combination(
+                coin_field, side, minutes, randomize, follower_total_size
+            )
+            follower_twap_combinations.add(follower_combination)
+
+            return follower_twap_id
+
+    return None
+```
+
+<Tip>
+The leader chose those parameters based on market conditions and their execution strategy. If the leader uses 30 minutes with randomization, they're likely trading in a market where that timing avoids front-running. Your follower TWAP benefits from the same strategy.
+</Tip>
+
+### Canceling follower TWAPs when leader cancels
+
+When a leader cancels or terminates a TWAP, you need to cancel the corresponding follower TWAP.
+
+What you have:
+
+- Follower TWAP ID (from placement response — stored when you placed it)
+- Leader TWAP combination (from WebSocket event properties)
+
+What you need:
+
+- A way to map: "when this leader combination cancels → cancel this follower TWAP ID"
+
+Use combination-based mappings to bridge the gap:
+
+```python
+twap_mappings: Dict[str, int] = {}  # leader_combination -> follower_twap_id
+
+# After placing follower TWAP
+twap_mappings[leader_combination] = follower_twap_id  # Store the ID you got from placement
+
+# When leader TWAP is canceled/terminated
+if twap_status in ["canceled", "terminated"]:
+    if leader_combination in twap_mappings:
+        follower_twap_id = twap_mappings[leader_combination]  # Retrieve the stored ID
+        # Now you can cancel using the TWAP ID you saved earlier
+        await cancel_follower_twap_order(exchange, info, follower_twap_id, coin_field)
+
+        # Clean up tracking
+        del twap_mappings[leader_combination]
+        leader_twap_combinations.discard(leader_combination)
+
+        # Remove follower combination (find matching entry)
+        for follower_combo in list(follower_twap_combinations):
+            if follower_combo.startswith(f"{coin_field}_{side}_{minutes}_{randomize}_"):
+                follower_twap_combinations.discard(follower_combo)
+                break
+```
+
+<Info>
+If the leader places the same TWAP combination later (same asset, same parameters, same size), you want to mirror it again. Removing it from `leader_twap_combinations` allows reprocessing.
+</Info>
+
+### When to mirror vs when to skip
+
+Not all leader TWAPs should be mirrored. Consider these scenarios:
+
+**Mirror when:**
+
+- TWAP status is `activated` (new TWAP just started)
+- Asset is spot (unless you specifically want to mirror perp TWAPs)
+- Combination hasn't been processed yet
+- You have sufficient balance for the follower TWAP
+
+**Skip when:**
+
+- TWAP status is `completed` (already finished, no action needed)
+- Combination is in `leader_twap_combinations` (already mirrored)
+- Combination is in `follower_twap_combinations` (this is your own follower TWAP)
+- Asset is perpetual and you only mirror spot trades
+- TWAP size is too small to meet minimum notional after adjusting for your allocation
+
+**Cancel follower TWAP when:**
+
+- Leader TWAP status changes to `canceled` or `terminated`
+- You have a corresponding follower TWAP tracked in `twap_mappings`
+
+This logic ensures you mirror leader strategy changes (canceling TWAPs early) while avoiding duplicate mirrors and infinite loops.
+
+## Key takeaways
+
+<AccordionGroup>
+  <Accordion title="TWAP splits large orders over time">
+    Reduces market impact and slippage by executing incrementally.
+  </Accordion>
+
+  <Accordion title="Use raw API calls, not SDK methods">
+    TWAP functionality requires `twapOrder` and `twapCancel` actions with manual signing. The SDK doesn't provide high-level TWAP methods yet.
+  </Accordion>
+
+  <Accordion title="Asset ID calculation is critical">
+    Spot assets: `10000 + index`. Perps: use index directly. Get index from `info.spot_meta_and_asset_ctxs()` or `info.meta()`.
+  </Accordion>
+
+  <Accordion title="WebSocket monitoring is essential">
+    Subscribe to `userEvents` before placing TWAPs to catch activation, fills, and completion events via `twapHistory` array.
+  </Accordion>
+
+  <Accordion title="Child order sizing matters">
+    Each child must meet \$10 minimum notional. Calculate: (total TWAP size / estimated child orders) × price > \$10. Minimum safe TWAP: \$600 for 30-minute duration.
+  </Accordion>
+
+  <Accordion title="TWAP ID asymmetry for copy trading">
+    You receive TWAP IDs when placing orders but NOT in WebSocket events. Use combination keys (`coin_side_minutes_randomize_size`) to track leader TWAPs, then map combinations to follower TWAP IDs for cancellation.
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+The complete implementation is available in the [hyperliquid-examples repository](https://github.com/chainstacklabs/hyperliquid-trading-bot/tree/main/learning_examples/06_copy_trading).
+</Note>
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Copy trading with spot orders" icon="clone" href="/docs/hyperliquid-copy-trading-websocket">
+    Learn how to build a copy trading bot that mirrors spot trades
+  </Card>
+  <Card title="Authentication guide" icon="key" href="/docs/hyperliquid-authentication-guide">
+    Authenticate with Hyperliquid exchange API
+  </Card>
+  <Card title="L1 action signing" icon="pen" href="/docs/hyperliquid-l1-action-signing">
+    Understand L1 action signing for trading operations
+  </Card>
+  <Card title="API reference" icon="book" href="/reference/hyperliquid-getting-started">
+    Explore the complete Hyperliquid API reference
+  </Card>
+</CardGroup>
