@@ -130,24 +130,26 @@ follower_size = round(
 
 ## Understanding order lifecycle and state transitions
 
-Orders on Hyperliquid go through a lifecycle with specific state transitions. When you subscribe to `orderUpdates`, you receive events for each state change. Understanding these states is critical for proper mirroring.
+Orders on Hyperliquid go through a lifecycle with specific state transitions. When you subscribe to `orderUpdates`, you receive events for each state change.
 
 ### Order state events explained
 
-**`open` status** — Two scenarios trigger this:
-1. **New order placed** — Leader creates a fresh order that goes on the book
-2. **Order modified** — Leader changes price or size of an existing order
-
-Here's what's important: when a trader modifies an order on Hyperliquid, the exchange doesn't send a "modification" event. Instead, it cancels the old order and creates a new one atomically. In the WebSocket feed, you see both events, but they happen together.
+**`open` status** — A new order has been placed on the book by the leader.
 
 **`canceled` status** — Order removed from the book, either by:
 - Trader manually canceling
-- Part of a modification (old order canceled, new one created)
+- Part of a modification (old order canceled, new order created with different ID)
 - System cancellation (insufficient balance, delisting, etc.)
 
 **`filled` status** — Order fully executed. You'll also see detailed fill information in the `userEvents` channel.
 
-Here's the implementation with detailed rationale:
+### How order modifications work
+
+When a trader modifies an order on Hyperliquid (changes price or size), the exchange handles this atomically as:
+1. Cancel the existing order (you receive `"canceled"` event)
+2. Create a new order with the new parameters (you receive `"open"` event with **new order ID**)
+
+This means you don't need special modification logic—simply handle cancellations and new orders:
 
 ```python
 async def handle_leader_order_events(data: dict, exchange: Exchange, info: Info):
@@ -157,37 +159,28 @@ async def handle_leader_order_events(data: dict, exchange: Exchange, info: Info)
         order = order_update.get("order", {})
         status = order_update.get("status")
         leader_order_id = order.get("oid")
+        coin_field = order.get("coin", "")
+
+        # Skip non-spot orders
+        if not is_spot_order(coin_field):
+            continue
 
         if status == "open":
-            # Check if we've seen this order ID before
-            if leader_order_id in order_mappings:
-                # Same order ID = modification
-                # Leader changed price or size, we need to update our follower order
-                follower_order_id = order_mappings[leader_order_id]
-                await modify_follower_order(exchange, info, follower_order_id, order)
-            else:
-                # New order ID = new position
-                # Leader opened a fresh order, we create a new follower order
-                follower_order_id = await place_follower_order(exchange, info, order)
-                if follower_order_id:
-                    # Store mapping for future modifications/cancellations
-                    order_mappings[leader_order_id] = follower_order_id
-
-        elif status == "canceled":
-            # Leader canceled an order
-            # Could be standalone cancellation or part of modification
-            follower_order_id = order_mappings.get(leader_order_id)
+            # New order placed - mirror it
+            follower_order_id = await place_follower_order(exchange, info, order)
             if follower_order_id:
-                # We have a follower order for this, cancel it
-                await cancel_follower_order(exchange, follower_order_id, coin_field)
-                # Remove from mapping - this leader order no longer active
-                del order_mappings[leader_order_id]
-            # If not in mapping, ignore - might be modification we'll handle via new open event
+                # Store mapping for future cancellations
+                order_mappings[leader_order_id] = follower_order_id
+
+        elif status == "canceled" and leader_order_id in order_mappings:
+            # Leader canceled an order - cancel our follower order
+            follower_order_id = order_mappings[leader_order_id]
+            await cancel_follower_order(exchange, follower_order_id, coin_field)
+            # Remove from mapping - this order is no longer active
+            del order_mappings[leader_order_id]
 ```
 
-The `order_mappings` dictionary is your state tracker. It maps each leader order ID to your corresponding follower order ID. This allows you to:
-- Cancel the correct follower order when leader cancels
-- Track which orders are still active
+The `order_mappings` dictionary tracks active orders by mapping each leader order ID to your corresponding follower order ID. This allows you to cancel the correct follower order when the leader cancels
 
 ## Placing orders with the Hyperliquid SDK
 
@@ -321,7 +314,11 @@ The receiver task puts messages in the queue as fast as they arrive. The process
   </Accordion>
 
   <Accordion title="Order modifications are cancel + create">
-    Modifications appear as canceled old order + new open order, but with same order ID.
+    Modifications appear as canceled old order + new open order, with a different order ID for each.
+  </Accordion>
+
+  <Accordion title="No special modification handling needed">
+    Since Hyperliquid sends separate cancel and create events for modifications, your bot only needs to handle "open" and "canceled" statuses.
   </Accordion>
 
   <Accordion title="State management via order mappings">
