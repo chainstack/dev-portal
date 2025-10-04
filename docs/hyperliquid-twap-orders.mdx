@@ -42,26 +42,23 @@ result = exchange._post_action(twap_action, signature, timestamp)
 
 ### TWAP parameters explained
 
-**`a` (asset ID)** — For spot: `10000 + index` from spot metadata. For perps: use the perp index directly. Get index from `info.spot_meta_and_asset_ctxs()` or `info.meta()`.
-
-**`b` (buy/sell)** — `True` for buy, `False` for sell. Boolean, not string.
-
-**`s` (size)** — Total size to execute. Use `float_to_wire()` to avoid trailing zeros that cause API rejections.
-
-**`m` (duration in minutes)** — How long to spread execution. Range: 1–1440 (24 hours). Longer duration = lower market impact but more price exposure.
-
-**`t` (randomize)** — `False` = evenly spaced intervals (30-min TWAP → child orders every ~30 seconds). `True` = randomized intervals, harder for algorithms to detect.
+- **`a` (asset ID)** — for spot: `10000 + index` from spot metadata. For perps: use the perp index directly. Get index from `info.spot_meta_and_asset_ctxs()` or `info.meta()`.
+- **`b` (buy/sell)** — `True` for buy, `False` for sell. Boolean, not string.
+- **`s` (size)** — total size to execute. Use `float_to_wire()` to avoid trailing zeros that cause API rejections.
+- **`m` (duration in minutes)** — how long to spread execution. Range: 1–1440 (24 hours). Longer duration = lower market impact but more price exposure.
+- **`t` (randomize)** — `False` = evenly spaced intervals (30-min TWAP → child orders every ~30 seconds). `True` = randomized intervals, harder for algorithms to detect.
+- **`r` (reduce-only)** — `True` prevents opening new positions, only closes existing ones.
 
 ## Understanding TWAP execution
 
 When you submit a TWAP order, Hyperliquid's exchange backend calculates child order sizing and timing, then executes incrementally. You receive WebSocket updates for each fill.
 
-**Example with real numbers**: 30-minute TWAP for 100 units, `randomize=False`:
+**Example with real numbers** — 30-minute TWAP for 100 units, `randomize=False`:
 
-- Duration: 1800 seconds
-- Child order interval: ~30 seconds (1800 / 60 ≈ 30)
-- Child order size: ~1.67 units (100 / 60 ≈ 1.67)
-- Total child orders: ~60
+- Duration — 1800 seconds
+- Child order interval — ~30 seconds (1800 / 60 ≈ 30)
+- Child order size — ~1.67 units (100 / 60 ≈ 1.67)
+- Total child orders — ~60
 
 If liquidity is thin and some child orders only partially fill, the TWAP adjusts remaining size across future child orders.
 
@@ -193,17 +190,13 @@ async def handle_twap_event(twap_event: dict):
 
 ### TWAP status lifecycle
 
-**`activated`** — TWAP accepted by exchange, child order execution begins. You'll see this once when the TWAP starts.
-
-**`completed`** — All size executed successfully. The TWAP ran to completion without issues.
-
-**`terminated`** — Exchange stopped execution early:
-
-- Insufficient balance — account ran out of funds mid-execution
-- Market conditions — extreme volatility or order book issues
-- Execution failure — child orders consistently rejected
-
-**`canceled`** — You manually stopped the TWAP using the `twapCancel` API action.
+- **`activated`** — TWAP accepted by exchange, child order execution begins.
+- **`completed`** — all size executed successfully.
+- **`terminated`** — exchange stopped execution early:
+  - Insufficient balance — account ran out of funds mid-execution
+  - Market conditions — extreme volatility or order book issues
+  - Execution failure — child orders consistently rejected
+- **`canceled`** — you manually stopped the TWAP using the `twapCancel` API action.
 
 During execution, you'll also receive individual fill events in the `userEvents.fills` array for each child order. Correlate these with the active TWAP to track real-time progress.
 
@@ -279,8 +272,7 @@ twap_action = {
 }
 ```
 
-**Scenario**: You hold a 10 BTC long position. You place a reduce-only TWAP sell for 15 BTC. The TWAP stops after selling 10 BTC—it won't open a 5 BTC short position. Without `"r": True`, you'd flip from 10 BTC long to 5 BTC short.
-
+You hold a 10 BTC long position. You place a reduce-only TWAP sell for 15 BTC. The TWAP stops after selling 10 BTC—it won't open a 5 BTC short position. Without `"r": True`, you'd flip from 10 BTC long to 5 BTC short.
 
 ## Mirroring TWAP orders in copy trading
 
@@ -346,7 +338,7 @@ leader_twap_combinations.add(leader_combination)
 ```
 
 <Info>
-Why include size in the combination? A leader might place two identical 30-minute BTC TWAPs with different sizes (e.g., 0.5 BTC and 1.0 BTC). Without size, they'd have the same combination key and you'd only mirror one.
+A leader might place two identical 30-minute BTC TWAPs with different sizes (e.g., 0.5 BTC and 1.0 BTC). Without size in the combination, they'd have the same key and you'd only mirror one.
 </Info>
 
 ### Handling same-wallet testing scenarios
@@ -374,7 +366,7 @@ follower_combination = create_follower_twap_combination(
 follower_twap_combinations.add(follower_combination)
 ```
 
-The key difference: Leader combination uses leader's size, follower combination uses follower's (potentially different) size. When a WebSocket event arrives, you check both:
+Leader combination uses leader's size, follower combination uses follower's (potentially different) size. When a WebSocket event arrives, you check both:
 
 <Steps>
   <Step title="Check if processed as leader">
@@ -507,14 +499,14 @@ The leader chose those parameters based on market conditions and their execution
 
 ### Canceling follower TWAPs when leader cancels
 
-When a leader cancels or terminates a TWAP, you need to cancel the corresponding follower TWAP. Here's where the asymmetry matters:
+When a leader cancels or terminates a TWAP, you need to cancel the corresponding follower TWAP.
 
-**What you have**:
+What you have:
 
 - Follower TWAP ID (from placement response — stored when you placed it)
 - Leader TWAP combination (from WebSocket event properties)
 
-**What you need**:
+What you need:
 
 - A way to map: "when this leader combination cancels → cancel this follower TWAP ID"
 
@@ -545,21 +537,21 @@ if twap_status in ["canceled", "terminated"]:
 ```
 
 <Info>
-If the leader places the same TWAP combination later (same asset, same parameters, same size), you want to mirror it again. Removing it from `leader_twap_combinations` allows re-processing.
+If the leader places the same TWAP combination later (same asset, same parameters, same size), you want to mirror it again. Removing it from `leader_twap_combinations` allows reprocessing.
 </Info>
 
 ### When to mirror vs when to skip
 
 Not all leader TWAPs should be mirrored. Consider these scenarios:
 
-**Mirror when**:
+**Mirror when:**
 
 - TWAP status is `activated` (new TWAP just started)
 - Asset is spot (unless you specifically want to mirror perp TWAPs)
 - Combination hasn't been processed yet
 - You have sufficient balance for the follower TWAP
 
-**Skip when**:
+**Skip when:**
 
 - TWAP status is `completed` (already finished, no action needed)
 - Combination is in `leader_twap_combinations` (already mirrored)
@@ -567,7 +559,7 @@ Not all leader TWAPs should be mirrored. Consider these scenarios:
 - Asset is perpetual and you only mirror spot trades
 - TWAP size is too small to meet minimum notional after adjusting for your allocation
 
-**Cancel follower TWAP when**:
+**Cancel follower TWAP when:**
 
 - Leader TWAP status changes to `canceled` or `terminated`
 - You have a corresponding follower TWAP tracked in `twap_mappings`
@@ -578,7 +570,7 @@ This logic ensures you mirror leader strategy changes (canceling TWAPs early) wh
 
 <AccordionGroup>
   <Accordion title="TWAP splits large orders over time">
-    Reduces market impact from 5–10% slippage to 0.5–1% for illiquid assets.
+    Reduces market impact and slippage by executing incrementally.
   </Accordion>
 
   <Accordion title="Use raw API calls, not SDK methods">
