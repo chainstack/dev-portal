@@ -1,9 +1,17 @@
 ---
-title: "Implementing spot-perp funding rate arbitrage on Hyperliquid"
+title: "Implementing spot-perp funding rate arbitrage"
 description: "Learn how to implement a funding rate arbitrage strategy between Hyperliquid spot and perpetual markets"
 ---
 
 Funding rate arbitrage captures periodic payments between perpetual and spot markets. When funding is positive, you profit by longing spot and shorting perps—collecting funding payments while your positions hedge each other's price risk.
+
+<Info>
+**Prerequisites**
+
+- Python 3.8 or higher
+- `hyperliquid-python-sdk` installed (`pip install hyperliquid-python-sdk`)
+- Chainstack Hyperliquid node endpoint ([sign up for free](https://console.chainstack.com/))
+</Info>
 
 <Note>
 **Educational purpose**
@@ -21,7 +29,7 @@ We'll examine a tactical approach: opening shorts minutes before funding payment
 
 ## How funding arbitrage works
 
-Perpetual contracts on Hyperliquid pay [funding every hour](/docs/hyperliquid-tooling#funding-rate). When the rate is positive (perp price > spot price), shorts receive payments from longs.
+Perpetual contracts on Hyperliquid pay [funding every hour](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/perpetuals#funding). When the rate is positive (perp price > spot price), shorts receive payments from longs.
 
 **The strategy**:
 
@@ -228,29 +236,44 @@ Why predicted rates matter: If current funding is 0.15% but predicted is 0.05%, 
 
 **Execution flow**:
 
-1. Set alarm for 10 minutes before next funding period (funding occurs at top of each hour)
-2. Check current funding rate is > 0.11% (minimum to overcome fees)
-3. Simultaneously enter spot long + perp short
-4. Wait for funding payment notification via WebSocket
-5. Immediately close both positions
-6. Verify funding payment received via [`userFunding`](/reference/hyperliquid-info-user-funding) endpoint
+<Steps>
+  <Step title="Set timing alarm">
+    Set alarm for 10 minutes before next funding period (funding occurs at top of each hour)
+  </Step>
+  <Step title="Verify funding rate">
+    Check current funding rate is > 0.11% (minimum to overcome fees)
+  </Step>
+  <Step title="Enter positions">
+    Simultaneously enter spot long + perp short
+  </Step>
+  <Step title="Wait for funding">
+    Wait for funding payment notification via WebSocket
+  </Step>
+  <Step title="Close positions">
+    Immediately close both positions
+  </Step>
+  <Step title="Verify payment">
+    Verify funding payment received via [`userFunding`](/reference/hyperliquid-info-user-funding) endpoint
+  </Step>
+</Steps>
+
+<Check>
+Funding payment received and both positions closed successfully
+</Check>
 
 <Warning>
 If spot-perp spread widens during your 15-minute window, slippage can exceed your funding profit. Only use this when spreads are tight (&lt;0.05%).
 </Warning>
 
-## Key takeaways
+## Summary
 
-**Minimum profitable funding rate is 0.11%/hour (with maker orders)**: Using maker orders, the 0.11% total fee structure (0.055% entry + 0.055% exit) means you need funding rates above this threshold for single-period arbitrage. With taker orders, the threshold jumps to 0.23%/hour.
-
-**Tactical pre-funding approach**: 10-15 minute positions before each funding period, requires high rates (0.15%+), minimal exposure.
-
-**Asset eligibility limits opportunities**: Most altcoins only exist as perps. BTC, ETH, SOL work well; check `spotMeta` intersection with perp universe before planning.
-
-**Execution speed matters on Hyperliquid**: On-chain settlement means you can't assume instant fills. Illiquid pairs create basis risk between spot and perp entry times. This timing risk is magnified in the tactical strategy.
-
-**Opportunity compression is aggressive**: High funding rates attract capital fast. Use predicted funding rates to assess whether arbitrageurs are already compressing the opportunity.
-
-**Test with small positions first**: This strategy carries risks (funding reversal, slippage, timing). Start with small capital to understand execution dynamics before scaling.
+Funding rate arbitrage requires rates above 0.11%/hour (with maker orders) to overcome fees. The tactical approach—entering 10-15 minutes before funding—minimizes exposure but demands tight spreads and high rates (0.15%+). Only BTC, ETH, SOL and few other assets support spot-perp arbitrage on Hyperliquid. Monitor predicted funding rates to avoid compressed opportunities and test with small positions first.
 
 The complete implementation is available in the [Chainstack Hyperliquid trading bot repository](https://github.com/chainstacklabs/hyperliquid-trading-bot/tree/main/learning_examples).
+
+## Related resources
+
+- [Copy trading with spot orders](/docs/hyperliquid-copy-trading-websocket) — Build a copy trading bot that mirrors spot trades
+- [Order precision and metadata](/docs/hyperliquid-order-precision) — Handle order precision dynamically across assets
+- [Authentication guide](/docs/hyperliquid-authentication-guide) — Authenticate with Hyperliquid exchange API
+- [API reference](/reference/hyperliquid-getting-started) — Explore the complete Hyperliquid API reference

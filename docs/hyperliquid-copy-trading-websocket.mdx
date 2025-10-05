@@ -5,6 +5,14 @@ description: "Learn how to build a copy trading bot that mirrors spot trades in 
 
 Copy trading on Hyperliquid requires more than just watching orders—you need proper state management, event sequencing, and dynamic order sizing. This guide shows you how to build a copy trading bot that mirrors spot trades in real-time.
 
+<Info>
+**Prerequisites**
+
+- Python 3.8 or higher
+- `hyperliquid-python-sdk` installed (`pip install hyperliquid-python-sdk`)
+- Chainstack Hyperliquid node endpoint ([sign up for free](https://console.chainstack.com/))
+</Info>
+
 ## Understanding Hyperliquid's WebSocket architecture
 
 Hyperliquid provides two essential WebSocket channels for monitoring trading activity. These channels serve different purposes:
@@ -40,8 +48,8 @@ Before diving into implementation, you need to understand how Hyperliquid distin
 - `SOL` — Solana perpetual
 
 **Spot markets** use two formats:
-- **`@{index}`** — Numeric spot pair index (e.g., `@0` for BTC/USDC, `@107` for HYPE/USDC)
-- **`{TOKEN}/USDC`** — Human-readable pair names (e.g., `PURR/USDC`)
+- `@{index}` — numeric spot pair index (for example, `@0` for BTC/USDC, `@107` for HYPE/USDC)
+- `{TOKEN}/USDC` — human-readable pair names (for example, `PURR/USDC`)
 
 Why the `@index` format? It's Hyperliquid's internal representation—more efficient for the order book engine. When you receive WebSocket events, the `coin` field typically contains the `@index` format for spot trades.
 
@@ -216,6 +224,10 @@ if result.get("status") == "ok":
 
 Why check both `resting` and `filled`? If you place a limit buy at \$100 and the best ask is \$99, your order fills immediately. You still need the order ID for tracking fills and state management.
 
+<Check>
+Order successfully placed and order ID received for tracking
+</Check>
+
 ## Testing with same wallet (development only)
 
 <Warning>
@@ -306,51 +318,17 @@ The receiver task puts messages in the queue as fast as they arrive. The process
 
 **When to upgrade to parallel**: When you're mirroring algorithmic traders or high-frequency strategies that place 10+ orders per second. At that scale, you need concurrent processing with proper state locking.
 
-## Key takeaways
+## Summary
 
-<AccordionGroup>
-  <Accordion title="Spot vs perp identification">
-    Hyperliquid uses naming conventions: `@index` or `TOKEN/USDC` for spot, simple names like `BTC` for perps.
-  </Accordion>
-
-  <Accordion title="Order modifications are cancel + create">
-    Modifications appear as canceled old order + new open order, with a different order ID for each.
-  </Accordion>
-
-  <Accordion title="No special modification handling needed">
-    Since Hyperliquid sends separate cancel and create events for modifications, your bot only needs to handle "open" and "canceled" statuses.
-  </Accordion>
-
-  <Accordion title="State management via order mappings">
-    Track leader-to-follower order ID mappings to handle cancellations.
-  </Accordion>
-
-  <Accordion title="Dynamic sizing with metadata">
-    Query `szDecimals` from spot metadata to calculate properly rounded order sizes for each asset.
-  </Accordion>
-
-  <Accordion title="Testing shortcuts don't scale">
-    Same-wallet testing and sequential processing simplify development but require changes for production.
-  </Accordion>
-</AccordionGroup>
+Copy trading on Hyperliquid requires tracking order state through WebSocket subscriptions, mapping spot assets via `@index` format, and calculating properly rounded order sizes using metadata. Order modifications are handled as cancel + create events, eliminating the need for special modification logic. For production, use separate leader and follower wallets with concurrent event processing.
 
 <Note>
-**Complete implementation**: See the [hyperliquid bot examples repository](https://github.com/chainstacklabs/hyperliquid-trading-bot/tree/main/learning_examples/06_copy_trading) for the full working code.
+**Complete implementation**: See the [Chainstack Hyperliquid trading bot repository](https://github.com/chainstacklabs/hyperliquid-trading-bot/tree/main/learning_examples) for the full working code.
 </Note>
 
-## See also
+## Related resources
 
-<CardGroup cols={2}>
-  <Card title="Authentication Guide" icon="key" href="/docs/hyperliquid-authentication-guide">
-    Learn how to authenticate with Hyperliquid exchange API
-  </Card>
-  <Card title="L1 Action Signing" icon="pen" href="/docs/hyperliquid-l1-action-signing">
-    Understand L1 action signing for trading operations
-  </Card>
-  <Card title="API Reference" icon="book" href="/reference/hyperliquid-getting-started">
-    Explore the complete Hyperliquid API reference
-  </Card>
-  <Card title="Node Configuration" icon="server" href="/docs/hyperliquid-node-configuration">
-    Configure your Hyperliquid node endpoint
-  </Card>
-</CardGroup>
+- [Authentication guide](/docs/hyperliquid-authentication-guide) — Authenticate with Hyperliquid exchange API
+- [L1 action signing](/docs/hyperliquid-l1-action-signing) — Understand L1 action signing for trading operations
+- [API reference](/reference/hyperliquid-getting-started) — Explore the complete Hyperliquid API reference
+- [Node configuration](/docs/hyperliquid-node-configuration) — Configure your Hyperliquid node endpoint

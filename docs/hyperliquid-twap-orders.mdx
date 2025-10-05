@@ -1,13 +1,17 @@
 ---
-title: "TWAP order execution and monitoring on Hyperliquid"
+title: "TWAP order execution and monitoring"
 description: "Learn how to place, monitor, and mirror TWAP orders on Hyperliquid using raw API calls and WebSocket subscriptions"
 ---
 
-You want to buy \$50,000 of a low-liquidity altcoin. Place one market order and watch the price slip 5–10% as you consume the entire ask side. Other traders front-run you. You pay well above mid price.
+TWAP orders split large trades into smaller chunks over time to reduce market impact. Instead of consuming the entire order book with one trade, you execute incrementally—minimizing slippage and front-running risk. This guide shows you how to place TWAP orders on Hyperliquid and monitor execution via WebSocket.
 
-The alternative: Time-Weighted Average Price (TWAP) orders split large trades into smaller chunks over time. Break that \$50,000 into 50 × \$1,000 orders over 30 minutes. Each order has minimal impact. Average execution stays near mid price. Total slippage drops to 0.5–1% instead of 5–10%.
+<Info>
+**Prerequisites**
 
-Hyperliquid's native TWAP implementation handles the mechanics—you specify total size and duration, the exchange executes incrementally. This guide shows you how to place TWAP orders and monitor execution via WebSocket.
+- Python 3.8 or higher
+- `hyperliquid-python-sdk` installed (`pip install hyperliquid-python-sdk`)
+- Chainstack Hyperliquid node endpoint ([sign up for free](https://console.chainstack.com/))
+</Info>
 
 ## TWAP order structure
 
@@ -42,12 +46,12 @@ result = exchange._post_action(twap_action, signature, timestamp)
 
 ### TWAP parameters explained
 
-- **`a` (asset ID)** — for spot: `10000 + index` from spot metadata. For perps: use the perp index directly. Get index from `info.spot_meta_and_asset_ctxs()` or `info.meta()`.
-- **`b` (buy/sell)** — `True` for buy, `False` for sell. Boolean, not string.
-- **`s` (size)** — total size to execute. Use `float_to_wire()` to avoid trailing zeros that cause API rejections.
-- **`m` (duration in minutes)** — how long to spread execution. Range: 1–1440 (24 hours). Longer duration = lower market impact but more price exposure.
-- **`t` (randomize)** — `False` = evenly spaced intervals (30-min TWAP → child orders every ~30 seconds). `True` = randomized intervals, harder for algorithms to detect.
-- **`r` (reduce-only)** — `True` prevents opening new positions, only closes existing ones.
+- `a` (asset ID) — for spot: `10000 + index` from spot metadata. For perps: use the perp index directly. Get index from `info.spot_meta_and_asset_ctxs()` or `info.meta()`.
+- `b` (buy/sell) — `True` for buy, `False` for sell. Boolean, not string.
+- `s` (size) — total size to execute. Use `float_to_wire()` to avoid trailing zeros that cause API rejections.
+- `m` (duration in minutes) — how long to spread execution. Range: 1–1440 (24 hours). Longer duration = lower market impact but more price exposure.
+- `t` (randomize) — `False` = evenly spaced intervals (30-min TWAP → child orders every ~30 seconds). `True` = randomized intervals, harder for algorithms to detect.
+- `r` (reduce-only) — `True` prevents opening new positions, only closes existing ones.
 
 ## Understanding TWAP execution
 
@@ -129,6 +133,10 @@ async def place_twap_order(
     return None
 ```
 
+<Check>
+TWAP order placed successfully and TWAP ID received for tracking
+</Check>
+
 <Info>
 Why `float_to_wire()`? Prevents trailing zeros that cause API rejections. `100.0` becomes `"100"` string format.
 </Info>
@@ -190,13 +198,13 @@ async def handle_twap_event(twap_event: dict):
 
 ### TWAP status lifecycle
 
-- **`activated`** — TWAP accepted by exchange, child order execution begins.
-- **`completed`** — all size executed successfully.
-- **`terminated`** — exchange stopped execution early:
+- `activated` — TWAP accepted by exchange, child order execution begins.
+- `completed` — all size executed successfully.
+- `terminated` — exchange stopped execution early:
   - Insufficient balance — account ran out of funds mid-execution
   - Market conditions — extreme volatility or order book issues
   - Execution failure — child orders consistently rejected
-- **`canceled`** — you manually stopped the TWAP using the `twapCancel` API action.
+- `canceled` — you manually stopped the TWAP using the `twapCancel` API action.
 
 During execution, you'll also receive individual fill events in the `userEvents.fills` array for each child order. Correlate these with the active TWAP to track real-time progress.
 
@@ -338,7 +346,7 @@ leader_twap_combinations.add(leader_combination)
 ```
 
 <Info>
-A leader might place two identical 30-minute BTC TWAPs with different sizes (e.g., 0.5 BTC and 1.0 BTC). Without size in the combination, they'd have the same key and you'd only mirror one.
+A leader might place two identical 30-minute BTC TWAPs with different sizes (for example, 0.5 BTC and 1.0 BTC). Without size in the combination, they'd have the same key and you'd only mirror one.
 </Info>
 
 ### Handling same-wallet testing scenarios
@@ -566,51 +574,17 @@ Not all leader TWAPs should be mirrored. Consider these scenarios:
 
 This logic ensures you mirror leader strategy changes (canceling TWAPs early) while avoiding duplicate mirrors and infinite loops.
 
-## Key takeaways
+## Summary
 
-<AccordionGroup>
-  <Accordion title="TWAP splits large orders over time">
-    Reduces market impact and slippage by executing incrementally.
-  </Accordion>
-
-  <Accordion title="Use raw API calls, not SDK methods">
-    TWAP functionality requires `twapOrder` and `twapCancel` actions with manual signing. The SDK doesn't provide high-level TWAP methods yet.
-  </Accordion>
-
-  <Accordion title="Asset ID calculation is critical">
-    Spot assets: `10000 + index`. Perps: use index directly. Get index from `info.spot_meta_and_asset_ctxs()` or `info.meta()`.
-  </Accordion>
-
-  <Accordion title="WebSocket monitoring is essential">
-    Subscribe to `userEvents` before placing TWAPs to catch activation, fills, and completion events via `twapHistory` array.
-  </Accordion>
-
-  <Accordion title="Child order sizing matters">
-    Each child must meet \$10 minimum notional. Calculate: (total TWAP size / estimated child orders) × price > \$10. Minimum safe TWAP: \$600 for 30-minute duration.
-  </Accordion>
-
-  <Accordion title="TWAP ID asymmetry for copy trading">
-    You receive TWAP IDs when placing orders but NOT in WebSocket events. Use combination keys (`coin_side_minutes_randomize_size`) to track leader TWAPs, then map combinations to follower TWAP IDs for cancellation.
-  </Accordion>
-</AccordionGroup>
+TWAP orders split large trades into smaller chunks over time to reduce market impact. Use raw API calls with `twapOrder` action (asset ID: `10000 + index` for spot), monitor execution via `userEvents` WebSocket subscription, and ensure each child order meets the \$10 minimum notional. For copy trading, track TWAPs using combination keys (`coin_side_minutes_randomize_size`) since TWAP IDs aren't available in WebSocket events.
 
 <Note>
-The complete implementation is available in the [hyperliquid-examples repository](https://github.com/chainstacklabs/hyperliquid-trading-bot/tree/main/learning_examples/06_copy_trading).
+The complete implementation is available in the [Chainstack Hyperliquid trading bot repository](https://github.com/chainstacklabs/hyperliquid-trading-bot/tree/main/learning_examples).
 </Note>
 
-## See also
+## Related resources
 
-<CardGroup cols={2}>
-  <Card title="Copy trading with spot orders" icon="clone" href="/docs/hyperliquid-copy-trading-websocket">
-    Learn how to build a copy trading bot that mirrors spot trades
-  </Card>
-  <Card title="Authentication guide" icon="key" href="/docs/hyperliquid-authentication-guide">
-    Authenticate with Hyperliquid exchange API
-  </Card>
-  <Card title="L1 action signing" icon="pen" href="/docs/hyperliquid-l1-action-signing">
-    Understand L1 action signing for trading operations
-  </Card>
-  <Card title="API reference" icon="book" href="/reference/hyperliquid-getting-started">
-    Explore the complete Hyperliquid API reference
-  </Card>
-</CardGroup>
+- [Copy trading with spot orders](/docs/hyperliquid-copy-trading-websocket) — Build a copy trading bot that mirrors spot trades
+- [Authentication guide](/docs/hyperliquid-authentication-guide) — Authenticate with Hyperliquid exchange API
+- [L1 action signing](/docs/hyperliquid-l1-action-signing) — Understand L1 action signing for trading operations
+- [API reference](/reference/hyperliquid-getting-started) — Explore the complete Hyperliquid API reference

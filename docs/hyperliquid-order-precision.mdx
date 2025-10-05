@@ -1,9 +1,17 @@
 ---
-title: "Handling order precision and market metadata for multi-asset trading"
+title: "Handling order precision and market metadata"
 description: "Learn how to query metadata and calculate valid order sizes dynamically across different Hyperliquid assets"
 ---
 
 Hyperliquid rejects orders with wrong precision. BTC requires 5 decimal places, some memecoins need 2, others need 8. If you hardcode precision, your bot breaks when trading new assets. This guide shows you how to query metadata and calculate valid order sizes dynamically.
+
+<Info>
+**Prerequisites**
+
+- Python 3.8 or higher
+- `hyperliquid-python-sdk` installed (`pip install hyperliquid-python-sdk`)
+- Chainstack Hyperliquid node endpoint ([sign up for free](https://console.chainstack.com/))
+</Info>
 
 ## The precision problem
 
@@ -55,7 +63,9 @@ Hyperliquid enforces precision on both price and quantity:
 
 Both are enforced at the API level. Violating either causes immediate order rejection.
 
-## Understanding Hyperliquid asset formats
+## Querying asset metadata
+
+### Understanding Hyperliquid asset formats
 
 Hyperliquid uses multiple formats to identify assets:
 
@@ -70,7 +80,7 @@ Hyperliquid uses multiple formats to identify assets:
 
 You need to handle all three formats when querying metadata.
 
-## Getting spot asset metadata
+### Getting spot asset metadata
 
 Query [`spotMetaAndAssetCtxs`](/reference/hyperliquid-info-spot-meta-and-asset-ctxs) for comprehensive spot data including precision requirements:
 
@@ -138,7 +148,7 @@ async def get_spot_asset_info(info: Info, coin_field: str) -> dict:
         raise ValueError(f"Unsupported spot format: {coin_field}")
 ```
 
-## Getting perpetual asset metadata
+### Getting perpetual asset metadata
 
 Perps use a simpler structure via [`metaAndAssetCtxs`](/reference/hyperliquid-info-meta-and-asset-ctxs):
 
@@ -179,7 +189,9 @@ async def get_perp_asset_info(info: Info, symbol: str) -> dict:
     }
 ```
 
-## Calculating valid order sizes (lot size)
+## Working with order precision
+
+### Calculating valid order sizes (lot size)
 
 Order sizes must be rounded to the `szDecimals` specified in asset metadata. This is also known as the lot size—the minimum increment for order quantities.
 
@@ -209,7 +221,7 @@ def calculate_order_size(target_value_usdc: float, asset_info: dict) -> float:
 
 The `szDecimals` field in metadata determines lot size precision. Query this value from `spot_meta_and_asset_ctxs()` for spot or `meta_and_asset_ctxs()` for perps.
 
-## Minimum notional value
+### Minimum notional value
 
 Hyperliquid enforces [minimum order values](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/orders) (typically ~\$10). Check before placing:
 
@@ -227,7 +239,7 @@ def validate_order_size(size: float, price: float, min_notional: float = 10.0) -
     return True
 ```
 
-## Price precision (tick size)
+### Price precision (tick size)
 
 Price precision on Hyperliquid follows [specific rules](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/tick-and-lot-size):
 
@@ -269,7 +281,9 @@ formatted = format_price_for_hyperliquid(raw_price, max_decimals=6)  # 65432.8 (
 When signing orders, trailing zeros should be removed from price strings.
 </Note>
 
-## Complete order placement flow
+## Implementation examples
+
+### Complete order placement flow
 
 Putting it together for dynamic multi-asset trading:
 
@@ -319,7 +333,7 @@ async def place_dynamic_order(
     return result
 ```
 
-## Handling unknown assets
+### Handling unknown assets
 
 When trading new or obscure assets:
 
@@ -346,19 +360,7 @@ def get_asset_info_safe(info: Info, coin_field: str) -> Optional[dict]:
 
 Use conservative defaults when metadata is unavailable, but warn users.
 
-## Common rejection reasons
-
-**"Invalid order size"** (lot size violation) — wrong size decimals. Query `szDecimals` from metadata and round order size accordingly.
-
-**"Tick size violation"** (price precision) — price has too many significant figures (>5) or exceeds max decimals (6 for perps, 8 for spot). Format with up to 5 significant figures.
-
-**"Order too small"** — below minimum notional value (~\$10 USDC). Increase order size.
-
-**"Asset not found"** — wrong coin field format (`@index` for spot, `SYMBOL` for perps) or delisted asset.
-
-**"Insufficient balance"** — not a precision issue, but verify wallet has enough collateral before placing orders.
-
-## Caching metadata
+### Caching metadata
 
 Query metadata once, reuse for multiple orders:
 
@@ -385,18 +387,29 @@ class AssetMetadataCache:
 
 Refresh cache periodically or when orders get rejected.
 
-## Key takeaways
+## Troubleshooting
 
-**Lot size (order quantity)**: Never hardcode precision. Query `szDecimals` from metadata for each asset to determine valid order size increments.
+### Common rejection reasons
 
-**Tick size (price)**: Prices must have ≤5 significant figures with max 6 decimals (perps) or 8 decimals (spot). Remove trailing zeros when signing.
+**"Invalid order size"** (lot size violation) — wrong size decimals. Query `szDecimals` from metadata and round order size accordingly.
 
-**Handle all asset formats**: Support `@index` for spot, `PAIR/USDC` notation, and direct `SYMBOL` for perpetuals.
+**"Tick size violation"** (price precision) — price has too many significant figures (>5) or exceeds max decimals (6 for perps, 8 for spot). Format with up to 5 significant figures.
 
-**Validate before placing**: Check minimum notional (~\$10 USDC) and precision requirements to avoid rejections.
+**"Order too small"** — below minimum notional value (~\$10 USDC). Increase order size.
 
-**Use proper rounding**: Python's `round()` with dynamic decimal places from `szDecimals` field in metadata.
+**"Asset not found"** — wrong coin field format (`@index` for spot, `SYMBOL` for perps) or delisted asset.
 
-**Cache metadata**: Reduce API calls for high-frequency trading—metadata doesn't change frequently, but refresh periodically.
+**"Insufficient balance"** — not a precision issue, but verify wallet has enough collateral before placing orders.
+
+## Summary
+
+Query `szDecimals` from asset metadata to calculate valid order sizes dynamically—never hardcode precision. Prices must have ≤5 significant figures with max 6 decimals (perps) or 8 decimals (spot). Support all asset formats (`@index`, `PAIR/USDC`, `SYMBOL`), validate minimum notional (~\$10 USDC), and cache metadata to reduce API calls.
 
 The complete implementation is available in the [Chainstack Hyperliquid trading bot repository](https://github.com/chainstacklabs/hyperliquid-trading-bot/tree/main/learning_examples).
+
+## Related resources
+
+- [Copy trading with spot orders](/docs/hyperliquid-copy-trading-websocket) — Build a copy trading bot that mirrors spot trades
+- [TWAP order execution](/docs/hyperliquid-twap-orders) — Place and monitor TWAP orders on Hyperliquid
+- [Authentication guide](/docs/hyperliquid-authentication-guide) — Authenticate with Hyperliquid exchange API
+- [API reference](/reference/hyperliquid-getting-started) — Explore the complete Hyperliquid API reference
