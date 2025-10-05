@@ -1,0 +1,256 @@
+---
+title: "Implementing spot-perp funding rate arbitrage on Hyperliquid"
+description: "Learn how to implement a funding rate arbitrage strategy between Hyperliquid spot and perpetual markets"
+---
+
+Funding rate arbitrage captures periodic payments between perpetual and spot markets. When funding is positive, you profit by longing spot and shorting perps—collecting funding payments while your positions hedge each other's price risk.
+
+<Note>
+**Educational purpose**
+
+This article explores the mechanics, math, and risks of funding arbitrage as a learning exercise. The strategies discussed require careful risk management and may not be profitable under all market conditions.
+</Note>
+
+<Note>
+**Note on cross-exchange arbitrage**
+
+For simplicity, this article focuses on executing both spot and perp positions on Hyperliquid. However, developers can implement funding arbitrage across different venues—for example, holding spot on one DEX/CEX while shorting perps on another.
+</Note>
+
+We'll examine a tactical approach: opening shorts minutes before funding payments to minimize exposure.
+
+## How funding arbitrage works
+
+Perpetual contracts on Hyperliquid pay [funding every hour](/docs/hyperliquid-tooling#funding-rate). When the rate is positive (perp price > spot price), shorts receive payments from longs.
+
+**The strategy**:
+
+1. Buy spot asset (for example, 1 BTC)
+2. Short equal amount on perp (for example, 1 BTC perp)
+3. Collect hourly funding payments
+4. Exit both positions when opportunity ends
+
+**Hedged exposure**: Spot long offsets perp short price risk. If BTC rises to \$70,000, your spot gains \$5,000 while perp loses \$5,000—net zero. Profit comes from funding, not directional price movement.
+
+## Finding arbitrage opportunities
+
+Not all assets exist in both spot and perp markets on Hyperliquid. BTC, ETH, SOL are available in both, but many altcoins only trade as perps. Check eligibility before attempting arbitrage:
+
+```python
+async def find_arbitrage_eligible_assets():
+    response = await client.post(
+        f"{BASE_URL}/info",
+        json={"type": "spotMeta"}
+    )
+    spot_meta = response.json()
+    spot_assets = {token["name"] for token in spot_meta["tokens"]}
+
+    info = Info(BASE_URL, skip_ws=True)
+    meta = info.meta()
+    perp_assets = {asset["name"] for asset in meta["universe"]}
+
+    eligible = spot_assets.intersection(perp_assets)
+    return eligible
+```
+
+The `spotMeta` endpoint returns all spot-tradeable tokens. The `meta()` SDK method returns perp universe data. Their intersection shows which assets support the strategy.
+
+## Calculating real profit after fees
+
+Funding rates look attractive, but trading fees create a profitability threshold. [Hyperliquid's fee structure](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/fees) varies by maker/taker and volume tier:
+
+**Base tier fees (0-30 day rolling volume)**:
+
+- **Spot** — 0.070% taker / 0.040% maker
+- **Perpetuals** — 0.045% taker / 0.015% maker
+
+**Why use maker orders?** Maker fees are significantly lower (0.040% vs 0.070% for spot, 0.015% vs 0.045% for perps). For tactical arbitrage where you enter positions minutes before funding, using limit orders as a maker can save substantial fees—especially when repeated multiple times daily.
+
+```python
+def calculate_profit_potential(funding_rate: float, position_value: float, hours_held: int = 1):
+    gross_profit = funding_rate * position_value * hours_held
+
+    entry_fees = position_value * 0.00055  # 0.040% spot maker + 0.015% perp maker
+    exit_fees = position_value * 0.00055   # 0.040% spot maker + 0.015% perp maker
+    total_fees = entry_fees + exit_fees
+
+    net_profit = gross_profit - total_fees
+
+    return {
+        "gross_profit": gross_profit,
+        "total_fees": total_fees,
+        "net_profit": net_profit,
+        "break_even_hours": total_fees / (funding_rate * position_value) if funding_rate > 0 else 0
+    }
+```
+
+**Complete cycle fees (using maker orders)**: spot buy (0.040%) + perp short (0.015%) + spot sell (0.040%) + perp close (0.015%) = **0.11% total**.
+
+<Note>
+This calculation assumes maker fees. If using taker orders (market orders), total fees increase to 0.23% (spot 0.070% × 2 + perps 0.045% × 2), requiring much higher funding rates to be profitable.
+</Note>
+
+### Minimum profitable funding rate
+
+To make arbitrage worthwhile, you need funding to exceed fees. Let's calculate the minimum:
+
+**For 1-hour position**:
+
+- Fees — 0.11% of position value
+- Required funding rate — **>0.11%/hour** (just to break even)
+- Realistic minimum — **>0.15%/hour** for meaningful profit
+
+**Example**: \$10,000 position, 0.05% funding rate:
+
+- Gross profit — \$5.00/hour
+- Total fees — \$11.00
+- Break-even — 2.2 hours
+
+This is why arbitrageurs target rates well above 0.10%/hour to make meaningful profit on single-period positions.
+
+## Getting current funding rates
+
+The [`metaAndAssetCtxs`](/reference/hyperliquid-info-meta-and-asset-ctxs) endpoint returns market metadata and current asset contexts, including live funding rates:
+
+```python
+async def get_funding_rates():
+    info = Info(BASE_URL, skip_ws=True)
+    meta_and_contexts = info.meta_and_asset_ctxs()
+
+    meta = meta_and_contexts[0]
+    asset_ctxs = meta_and_contexts[1]
+
+    opportunities = []
+
+    for i, asset_ctx in enumerate(asset_ctxs):
+        asset_name = meta["universe"][i]["name"]
+        funding_rate = float(asset_ctx.get("funding", "0"))
+        mark_price = float(asset_ctx.get("markPx", "0"))
+
+        if funding_rate > 0.001:  # 0.1% minimum for profitability
+            opportunities.append({
+                "asset": asset_name,
+                "funding_rate": funding_rate,
+                "funding_rate_pct": funding_rate * 100,
+                "annual_rate_pct": funding_rate * 100 * 365 * 24,
+                "mark_price": mark_price
+            })
+
+    opportunities.sort(key=lambda x: x["funding_rate"], reverse=True)
+    return opportunities
+```
+
+The 0.001 (0.1%) threshold filters rates near the break-even point. Below this, you'd need multiple hours to overcome the 0.11% fee burden.
+
+## Checking market liquidity
+
+High funding rates mean nothing if slippage destroys your profit margin. The `l2Book` endpoint returns level-2 order book data for spread and depth analysis:
+
+```python
+async def check_liquidity(asset: str):
+    response = await client.post(
+        f"{BASE_URL}/info",
+        json={"type": "l2Book", "coin": asset}
+    )
+
+    book_data = response.json()
+    levels = book_data["levels"]
+    bids = levels[0]
+    asks = levels[1]
+
+    best_bid = float(bids[0]["px"])
+    best_ask = float(asks[0]["px"])
+    spread_pct = ((best_ask - best_bid) / best_bid) * 100
+
+    bid_depth = sum(float(level["sz"]) for level in bids[:5])
+    ask_depth = sum(float(level["sz"]) for level in asks[:5])
+
+    return {
+        "spread_pct": spread_pct,
+        "bid_depth": bid_depth,
+        "ask_depth": ask_depth
+    }
+```
+
+**Example**: SOL showing 0.05% funding rate:
+
+- Spread — 0.02% → acceptable, minimal slippage impact
+- Top 5 bid depth — 500 SOL → can enter 50 SOL position cleanly
+- Spread — 0.15% → avoid, slippage exceeds funding gain
+
+Check both spot and perp books. Illiquid spot markets often have wider spreads than their perp counterparts.
+
+## Predicted funding rates
+
+The [`predictedFundings`](/reference/hyperliquid-info-predicted-fundings) endpoint shows estimated rates for the next funding period, calculated based on current spot-perp price divergence:
+
+```python
+async def get_predicted_fundings():
+    response = await client.post(
+        f"{BASE_URL}/info",
+        json={"type": "predictedFundings"}
+    )
+
+    predicted = response.json()
+    hl_fundings = []
+
+    for item in predicted:
+        asset_name = item[0]
+        exchange_data = item[1]
+
+        for exchange_info in exchange_data:
+            if exchange_info[0] == 'HlPerp':
+                details = exchange_info[1]
+                if 'fundingRate' in details:
+                    funding_rate = float(details['fundingRate'])
+                    hl_fundings.append((asset_name, funding_rate))
+
+    return sorted(hl_fundings, key=lambda x: x[1], reverse=True)
+```
+
+Why predicted rates matter: If current funding is 0.15% but predicted is 0.05%, arbitrageurs are already compressing the opportunity. Entering now means lower future returns. Look for stable or increasing predictions.
+
+## Execution strategy: tactical pre-funding short
+
+**The idea**: Open positions 5-10 minutes before funding payment, collect the payment, then immediately close both positions. This minimizes price exposure while capturing funding.
+
+**Advantages**:
+
+- Minimal directional risk (short time window)
+- Lower capital requirements (high position turnover)
+- Reduced basis risk from spot-perp divergence
+
+**Challenges**:
+
+- Must overcome 0.11% fees with a single funding payment
+- Requires funding rate > 0.11% to be profitable
+- Timing is critical—miss the funding window and you pay fees for nothing
+
+**Execution flow**:
+
+1. Set alarm for 10 minutes before next funding period (funding occurs at top of each hour)
+2. Check current funding rate is > 0.11% (minimum to overcome fees)
+3. Simultaneously enter spot long + perp short
+4. Wait for funding payment notification via WebSocket
+5. Immediately close both positions
+6. Verify funding payment received via [`userFunding`](/reference/hyperliquid-info-user-funding) endpoint
+
+<Warning>
+If spot-perp spread widens during your 15-minute window, slippage can exceed your funding profit. Only use this when spreads are tight (&lt;0.05%).
+</Warning>
+
+## Key takeaways
+
+**Minimum profitable funding rate is 0.11%/hour (with maker orders)**: Using maker orders, the 0.11% total fee structure (0.055% entry + 0.055% exit) means you need funding rates above this threshold for single-period arbitrage. With taker orders, the threshold jumps to 0.23%/hour.
+
+**Tactical pre-funding approach**: 10-15 minute positions before each funding period, requires high rates (0.15%+), minimal exposure.
+
+**Asset eligibility limits opportunities**: Most altcoins only exist as perps. BTC, ETH, SOL work well; check `spotMeta` intersection with perp universe before planning.
+
+**Execution speed matters on Hyperliquid**: On-chain settlement means you can't assume instant fills. Illiquid pairs create basis risk between spot and perp entry times. This timing risk is magnified in the tactical strategy.
+
+**Opportunity compression is aggressive**: High funding rates attract capital fast. Use predicted funding rates to assess whether arbitrageurs are already compressing the opportunity.
+
+**Test with small positions first**: This strategy carries risks (funding reversal, slippage, timing). Start with small capital to understand execution dynamics before scaling.
+
+The complete implementation is available in the [Chainstack Hyperliquid trading bot repository](https://github.com/chainstacklabs/hyperliquid-trading-bot/tree/main/learning_examples).
