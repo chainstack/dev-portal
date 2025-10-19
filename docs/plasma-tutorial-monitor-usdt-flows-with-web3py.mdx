@@ -1,0 +1,202 @@
+---
+title: "Monitor Plasma USDT flows with web3.py"
+description: "Inspect Plasma block activity and USDT transfers using a Chainstack endpoint and Python without broadcasting transactions."
+---
+
+## Overview
+
+This tutorial shows how to read Plasma Mainnet Beta data with Python. You will connect to your Chainstack endpoint, confirm network metadata, scan recent blocks, and decode USDT `Transfer` events—no write operations or private-key handling required.
+
+## Prerequisites
+
+- Chainstack account with a Plasma node (chain ID `9745`, currency symbol `XPL`)
+- Python 3.10 or later
+- `pip` and `virtualenv`
+- Familiarity with `.env` files
+
+<Tip>
+  Switch to a Plasma Testnet node (chain ID `9746`) by dropping the testnet endpoint from your Chainstack console into `PLASMA_RPC_URL`.
+</Tip>
+
+## 1. Set up the project
+
+```bash
+mkdir plasma-usdt-monitor
+cd plasma-usdt-monitor
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install web3 python-dotenv
+```
+
+Create a `.env` file and paste your Chainstack HTTPS URL from **Access and credentials**:
+
+```bash
+cat <<'EOF' > .env
+PLASMA_RPC_URL="_YOUR_CHAINSTACK_ENDPOINT"
+# Optional overrides
+BLOCK_WINDOW=40
+MIN_USDT=0
+EOF
+```
+
+<Note>
+  Replace the placeholder endpoint with the URL shown in your Chainstack console. Leave `MIN_USDT` at `0` to list every transfer, or raise it to filter out dust.
+</Note>
+
+## 2. Add a read-only monitor
+
+Create `monitor.py`:
+
+```python
+import os
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import Iterable
+
+from dotenv import load_dotenv
+from web3 import Web3
+from web3.middleware.proof_of_authority import ExtraDataToPOAMiddleware
+
+PLASMA_USDT_ADDRESS = Web3.to_checksum_address("0xB8CE59FC3717Ada4C02eadf9682A9e934F625ebb")
+ERC20_ABI = [
+    {
+        "constant": True,
+        "inputs": [],
+        "name": "symbol",
+        "outputs": [{"name": "", "type": "string"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "constant": True,
+        "inputs": [],
+        "name": "decimals",
+        "outputs": [{"name": "", "type": "uint8"}],
+        "stateMutability": "view",
+        "type": "function",
+    },
+    {
+        "anonymous": False,
+        "inputs": [
+            {"indexed": True, "name": "from", "type": "address"},
+            {"indexed": True, "name": "to", "type": "address"},
+            {"indexed": False, "name": "value", "type": "uint256"},
+        ],
+        "name": "Transfer",
+        "type": "event",
+    },
+]
+
+
+@dataclass
+class TransferRecord:
+    block_number: int
+    tx_hash: str
+    sender: str
+    recipient: str
+    amount: Decimal
+    symbol: str
+    timestamp: datetime
+
+
+def make_web3() -> Web3:
+    load_dotenv()
+    rpc_url = os.environ["PLASMA_RPC_URL"]
+    w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 30}))
+    # Plasma runs a HotStuff-style consensus and returns PoA-style extraData
+    w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+    if not w3.is_connected():
+        raise SystemExit("Unable to connect. Check PLASMA_RPC_URL or network status.")
+    return w3
+
+
+def describe_network(w3: Web3) -> None:
+    latest = w3.eth.get_block("latest")
+    print(f"Connected: {w3.client_version}")
+    print(f"Chain ID     : {w3.eth.chain_id}")
+    print(f"Network ID   : {w3.net.version}")
+    print(f"Latest block : {latest.number} ({datetime.fromtimestamp(latest.timestamp, tz=timezone.utc)})")
+    print(f"Gas used     : {latest.gasUsed:,} / {latest.gasLimit:,}")
+
+
+def fetch_transfers(w3: Web3) -> Iterable[TransferRecord]:
+    block_window = int(os.environ.get("BLOCK_WINDOW", "40"))
+    min_usdt = Decimal(os.environ.get("MIN_USDT", "0"))
+    latest = w3.eth.block_number
+    start_block = max(latest - block_window, 0)
+
+    contract = w3.eth.contract(address=PLASMA_USDT_ADDRESS, abi=ERC20_ABI)
+    decimals = contract.functions.decimals().call()
+    symbol = contract.functions.symbol().call()
+    scale = Decimal(10) ** decimals
+
+    logs = contract.events.Transfer().get_logs(from_block=start_block, to_block=latest)
+
+    for event in logs:
+        block = w3.eth.get_block(event["blockNumber"])
+        amount = Decimal(event["args"]["value"]) / scale
+        if amount < min_usdt:
+            continue
+        yield TransferRecord(
+            block_number=event["blockNumber"],
+            tx_hash=event["transactionHash"].hex(),
+            sender=event["args"]["from"],
+            recipient=event["args"]["to"],
+            amount=amount,
+            symbol=symbol,
+            timestamp=datetime.fromtimestamp(block.timestamp, tz=timezone.utc),
+        )
+
+
+def main() -> None:
+    w3 = make_web3()
+    describe_network(w3)
+    print("\nRecent USDT transfers:")
+    for transfer in fetch_transfers(w3):
+        print(
+            f"- Block {transfer.block_number} | {transfer.amount:,.6f} {transfer.symbol} | "
+            f"{transfer.sender} → {transfer.recipient} | {transfer.timestamp.isoformat()} | "
+            f"{transfer.tx_hash}"
+        )
+
+
+if __name__ == "__main__":
+    main()
+```
+
+<Note>
+  `PLASMA_USDT_ADDRESS` points to the USDT contract announced by HTX for Plasma Mainnet. Always cross-check the address on Plasmascan before running production monitors.
+</Note>
+
+## 3. Run the monitor
+
+```bash
+python monitor.py
+```
+
+Expected console output:
+
+```text
+Connected: Plasma/v1.2.0-stable/linux-x86_64/go1.21.6
+Chain ID     : 9745
+Network ID   : 9745
+Latest block : 3123456 (2025-10-19 17:24:02+00:00)
+Gas used     : 3,210,000 / 30,000,000
+
+Recent USDT transfers:
+- Block 3123438 | 4,500.000000 USDT | 0x5a... → 0x91... | 2025-10-19T17:22:11+00:00 | 0x0c5f...
+- Block 3123431 | 250.000000 USDT | 0x32... → 0x5e... | 2025-10-19T17:21:28+00:00 | 0x1639...
+```
+
+If you receive an empty list, increase `BLOCK_WINDOW` or switch to Plasma Testnet where transfers are more frequent during testing.
+
+## 4. Extend the analysis
+
+- Pipe output into a CSV or database for dashboards.
+- Compare mainnet versus testnet activity by swapping the RPC URL.
+- Add token balance snapshots with `contract.functions.balanceOf(address).call()` to profile top holders.
+
+<Tip>
+  Run the script on a schedule (for example, GitHub Actions or a lightweight cron job) to feed alerting pipelines whenever a large USDT transfer crosses the Plasma network.
+</Tip>
