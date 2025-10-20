@@ -1,0 +1,126 @@
+---
+title: "Hyperliquid: Infrastructure and RPC frequently asked questions"
+description: "Common questions about Hyperliquid's dual-layer architecture, RPC nodes, HyperCore vs HyperEVM, API endpoints, and rate limiting. Understand when to use official APIs versus third-party providers."
+---
+
+This guide addresses common questions about Hyperliquid's infrastructure, particularly regarding RPC nodes and the platform's dual-layer architecture. Understanding these technical foundations is essential for developers building on Hyperliquid.
+
+## Understanding Hyperliquid terminology
+
+Hyperliquid's architecture uses several interchangeable terms that can cause confusion. The platform consists of two distinct execution layers running on a shared consensus mechanism.
+
+The native trading layer—variously called HyperCore, Hyperliquid L1, Core, or RustVM—handles all order book operations, perpetuals trading, and margin calculations. Official documentation predominantly uses "HyperCore," while community discussions often reference "Hyperliquid L1." The term "RustVM" emphasizes that this is a custom Rust-based execution environment different from the Ethereum Virtual Machine.
+
+HyperEVM refers to the Ethereum-compatible smart contract layer where developers deploy DeFi protocols and other decentralized applications.
+
+<Info>
+A critical distinction: "Hyperliquid L1" carries ambiguity. In some contexts, it refers specifically to HyperCore; in others, it encompasses the entire blockchain system including both HyperCore and HyperEVM.
+</Info>
+
+Both layers share HyperBFT consensus and produce interleaved blocks. Rather than operating as separate chains, they function as two distinct virtual machines—one Rust-based, one EVM-compatible—unified under a single consensus layer.
+
+## HyperCore vs HyperEVM
+
+### Architecture and purpose
+
+HyperCore serves as the foundation for all trading operations, managing perpetual and spot order books with sub-second latency. This Rust-based layer handles order matching, margin calculations, and position management entirely on-chain without requiring smart contract deployments.
+
+HyperEVM operates as an Ethereum-compatible smart contract layer for applications where standard Web3 tooling and composability outweigh the need for microsecond-level performance. Developers can deploy Solidity contracts using familiar tools like Hardhat, Foundry, and Remix.
+
+### API structure
+
+The platform exposes distinct endpoints for each layer. HyperCore operations route through `/info` for queries and `/exchange` for trading actions, while HyperEVM uses the standard `/evm` JSON-RPC endpoint with Chain ID 999.
+
+### Cross-layer integration
+
+HyperEVM contracts access HyperCore data directly through precompiles, eliminating the need for external oracles. Smart contracts can read order book prices, user positions, and account balances with zero latency, enabling novel DeFi primitives such as lending protocols that trigger liquidations through HyperCore's native order books rather than external automated market makers.
+
+### When to use each layer
+
+Trading infrastructure—including bots, market-making systems, and real-time analytics—belongs on HyperCore. The layer's zero gas fees and sub-second execution make it optimal for high-frequency operations requiring direct order book access.
+
+Smart contract development naturally fits HyperEVM. Protocols requiring composability with other DeFi applications, complex state management, or compatibility with existing Ethereum tooling should deploy here.
+
+The most sophisticated applications leverage both layers simultaneously. By bridging assets between HyperCore and HyperEVM, developers enable tokens to trade on the order book while maintaining full composability with the broader DeFi ecosystem.
+
+## Why proprietary methods require official Hyperliquid RPC
+
+Third-party RPC providers run non-validator nodes using the official open-source node software from the [hyperliquid-dex/node](https://github.com/hyperliquid-dex/node) GitHub repository. These nodes synchronize blockchain state but do not participate in consensus or order matching.
+
+<Warning>
+The `/exchange` endpoint is completely unavailable on non-validator nodes. You must route trading operations through `api.hyperliquid.xyz`, which forwards signed actions to validators for consensus processing.
+</Warning>
+
+While the node software includes a `--serve-info` flag to expose local info queries, it provides only a subset of capabilities. The official documentation notes that "historical time series queries and websockets are not currently supported" on self-hosted info servers. Queries requiring real-time order book state like `l2Book` or live trading feeds like `recentTrades` depend on the active matching engine, not replicated blockchain data.
+
+Third-party providers fully support HyperEVM through the `--serve-eth-rpc` flag, offering standard JSON-RPC methods (`eth_call`, `eth_getLogs`, `eth_blockNumber`) with enhanced infrastructure—better uptime, archive access, and geographic distribution. This creates a complementary model: official APIs handle trading operations exclusively, while third-party providers optimize smart contract access.
+
+## Public infrastructure rate limiting
+
+Hyperliquid's public infrastructure implements multiple overlapping rate limit systems affecting different operation types.
+
+<Note>
+This section summarizes information from the official documentation. In case of discrepancies, refer to the source at [https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits).
+</Note>
+
+### IP-based limits
+
+Weight represents a cost value assigned to each API request based on computational complexity. Requests consume weight from your 1200 weight/minute quota.
+
+| Endpoint Type | Limit | Notes |
+|--------------|-------|-------|
+| REST API (`/info`, `/exchange`) | 1200 weight/min | See weight table below |
+| HyperEVM (`/evm`) | 100 req/min | Basic rate limiting |
+| WebSocket connections | 100 connections | Maximum simultaneous connections |
+| WebSocket subscriptions | 1000 subscriptions | Across all connections |
+| WebSocket unique users | 10 users | Across user-specific subscriptions |
+| WebSocket messages | 2000 messages/min | Messages sent to Hyperliquid |
+| WebSocket inflight posts | 100 messages | Simultaneous post messages |
+
+#### REST API weight calculation
+
+Batching combines multiple operations (e.g., placing 50 orders) into a single API request.
+
+| Request Type | Base Weight | Additional Weight |
+|-------------|-------------|-------------------|
+| Exchange actions (unbatched) | 1 | `+floor(batch_length / 40)` for batched requests |
+| Info: `l2Book`, `allMids`, `clearinghouseState`, `orderStatus`, `spotClearinghouseState`, `exchangeStatus` | 2 | — |
+| Info: `userRole` | 60 | — |
+| Info: most other endpoints | 20 | — |
+| Info: `recentTrades`, `historicalOrders`, `userFills`, `userFillsByTime`, `fundingHistory`, `userFunding`, `nonUserFundingUpdates`, `twapHistory`, `userTwapSliceFills`, `userTwapSliceFillsByTime`, `delegatorHistory`, `delegatorRewards`, `validatorStats` | 20 | +1 per 20 items returned |
+| Info: `candleSnapshot` | 20 | +1 per 60 items returned |
+| Explorer API: blockchain data queries | 40 | `blockList`: +1 per block; older blocks weighted more heavily |
+
+### Address-based limits
+
+Address-based limits apply per user, with sub-accounts treated separately. These limits affect only actions, not info requests.
+
+| Limit Type | Default | Growth Mechanism | Maximum |
+|-----------|---------|------------------|---------|
+| Request quota | 10,000 initial buffer | +1 per $1 USDC traded cumulatively | — |
+| Throttled rate | 1 req/10 seconds | When quota exhausted | — |
+| Cancel quota | Higher than regular | `min(request_quota + 100000, request_quota * 2)` | — |
+| Open orders | 1,000 orders | +1 per $5M volume | 5,000 orders |
+| High congestion throttle | 2x maker percentage | During high traffic, users limited to 2x their maker order proportion | — |
+
+**Key clarifications:**
+
+- **Batched requests** — count as 1 for IP limits, but `n` for address limits (where `n` = order/cancel count)
+- **Reduce-only orders** — orders that only close existing positions
+- **Trigger orders** — orders that execute when price conditions are met
+- The system rejects orders placed at 1000+ open orders if they are reduce-only or trigger types
+
+### When to upgrade infrastructure
+
+Private RPC becomes necessary for applications requiring over 60 HyperEVM requests per minute, SLA guarantees, multi-user platforms, event indexing, or high-frequency trading. Public infrastructure suits prototyping and educational projects under 100 requests per minute.
+
+<Tip>
+Optimization strategies:
+- Use WebSocket subscriptions for real-time data
+- Batch exchange actions to reduce IP weight consumption
+- Implement local caching
+- Design strategies accounting for address-based limits
+- Avoid resending cancels during high traffic once results are returned
+
+Private RPC eliminates the 100 requests per minute ceiling while providing dedicated bandwidth and geographic routing.
+</Tip>
