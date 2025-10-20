@@ -314,6 +314,20 @@ Incorrect:
 
 Use a semicolon between two independent clauses not joined by a conjunction to signal a closer connection between them than a period would.
 
+#### Dollar signs
+
+Always escape dollar signs with a backslash in MDX files to prevent them from being interpreted as LaTeX/math delimiters.
+
+Correct:
+- \$1 USDC
+- \$5M volume
+- \$10,000
+
+Incorrect:
+- $1 USDC
+- $5M volume
+- $10,000
+
 ### Abbreviation
 
 Use full naming in first mention of term in text. Abbreviate later instances.

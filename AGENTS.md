@@ -104,6 +104,7 @@ Follow the established style guide:
 * **Active voice** over passive voice
 * **American English** spelling
 * **Oxford comma** in lists
+* **Escape dollar signs** with backslash (`\$`) in MDX files
 * **Bold UI elements** when referencing them
 * Use `>` for UI clickthrough paths
 
@@ -147,6 +148,7 @@ Before submitting changes:
 - [ ] Frontmatter includes title and description
 - [ ] Images optimized and have alt text
 - [ ] Follows sentence case convention
+- [ ] Dollar signs escaped with backslash (`\$`)
 - [ ] UI elements are bolded
 - [ ] No Title Case used
 
