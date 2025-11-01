@@ -1,9 +1,8 @@
 ---
-title: wallet/getshieldedpaymentaddress | TRON
-openapi: /openapi/tron_node_api/shielded_getshieldedpaymentaddress.json post /95e61622bf6a8af293978377718e3b77/wallet/getshieldedpaymentaddress
+title: derive shielded payment address (client‑side) | TRON
 ---
 
-TRON API method that generates a shielded payment address from an incoming viewing key (ivk) and diversifier. This address is used to receive shielded TRC20 payments while maintaining privacy.
+Generate a shielded payment address locally from an incoming viewing key (ivk) and a diversifier (d). TRON nodes typically do not expose an RPC for this; derive on the client using a Sapling library and then use the address to receive shielded TRC20 payments.
 
 <Check>
 **Get you own node endpoint today**
@@ -13,15 +12,15 @@ TRON API method that generates a shielded payment address from an incoming viewi
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
 
-## Parameters
+## Inputs
 
-* `ivk` — the incoming viewing key in hexadecimal format
-* `d` — the diversifier in hexadecimal format
+- `ivk` — incoming viewing key as a 32‑byte (64‑hex) string, no `0x` prefix.
+- `d` — diversifier as 11 bytes (22 hex), no `0x` prefix.
 
-## Response
+## Outputs
 
-* `pkd` — the shielded payment address public key in hexadecimal format
-* `payment_address` — the complete shielded payment address
+- `pkd` — payment address public key in hexadecimal format (no `0x`).
+- `payment_address` — the complete shielded payment address.
 
 ## Use case
 
@@ -31,3 +30,60 @@ The `wallet/getshieldedpaymentaddress` method is used for:
 * Creating diversified payment addresses from viewing keys and diversifiers
 * Supporting wallet implementations that need to generate receiving addresses
 * Enabling privacy-preserving transaction receiving capabilities
+
+## How it works (Sapling)
+
+1. Parse `ivk` (32 bytes) and `d` (11 bytes) from hex.
+2. Compute `g_d = diversifyHash(d)` (Jubjub point derived from the diversifier).
+3. Compute `pkd = ivk · g_d` (scalar multiplication on Jubjub).
+4. Encode `(d, pkd)` into a TRON Sapling payment address (Bech32 with HRP `ztron`).
+
+Use a Sapling implementation (Rust/WASM or native). Do not implement the primitives yourself.
+
+## Example (JavaScript, WASM Sapling)
+
+```js
+// Pseudocode — use a Sapling/Jubjub library that exposes diversifyHash and scalarMul
+import { diversifyHash, scalarMul, bech32mEncode } from 'sapling-lib';
+
+const ivkHex = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+const dHex   = '06a1b2c3d4e5f6789012ab';
+
+const ivk = Buffer.from(ivkHex, 'hex');        // 32 bytes
+const d   = Buffer.from(dHex, 'hex');          // 11 bytes
+
+const gd  = diversifyHash(d);                  // Jubjub point
+const pkd = scalarMul(ivk, gd);                // 32‑byte compressed point
+
+// payment address = Bech32m("ztron", d || pkd)
+const payload = Buffer.concat([d, pkd]);
+const paymentAddress = bech32mEncode('ztron', payload);
+
+console.log({ pkd: pkd.toString('hex'), paymentAddress });
+```
+
+## Example (Python, Rust FFI/WASM)
+
+```python
+# Pseudocode — use a Sapling library (e.g., librustzcash bindings) that exposes diversify_hash and scalar multiplication
+from sapling import diversify_hash, scalar_mul, bech32m_encode
+
+ivk_hex = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+d_hex   = '06a1b2c3d4e5f6789012ab'
+
+ivk = bytes.fromhex(ivk_hex)
+d   = bytes.fromhex(d_hex)
+
+g_d = diversify_hash(d)
+pkd = scalar_mul(ivk, g_d)
+
+payload = d + pkd
+payment_address = bech32m_encode('ztron', payload)
+
+print({'pkd': pkd.hex(), 'payment_address': payment_address})
+```
+
+<Info>
+- Exact lengths: `ivk` = 64 hex (32 bytes), `d` = 22 hex (11 bytes). No `0x` prefix.
+- Use a maintained Sapling library (Rust → WASM/FFI). The node does not provide this derivation.
+</Info>

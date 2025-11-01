@@ -3,7 +3,7 @@ title: wallet/getblockbalance | TRON
 openapi: /openapi/tron_node_api/getblockbalance.json post /95e61622bf6a8af293978377718e3b77/wallet/getblockbalance
 ---
 
-TRON API method that retrieves the balance changes within a specific block, showing how account balances were modified by transactions.
+TRON API method that returns the balance deltas within a specific block. It shows, per transaction, how account balances changed in that block.
 
 <Check>
 **Get you own node endpoint today**
@@ -16,22 +16,58 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 
 ## Parameters
 
-* `hash` — the block hash to retrieve balance changes for
-* `number` — alternative: the block number to retrieve balance changes for
-* `visible` — optional boolean parameter. When set to `true`, addresses are in base58 format. Default is `false`.
+* `hash` — block hash as a 64‑character hex string.
+* `number` — block number. Must match the provided `hash`.
+* `visible` — optional boolean. When `true`, addresses are base58; when `false`, hex. Default is `true`.
 
 ## Response
 
-* `timestamp` — block timestamp
-* `block_identifier` — block identification information
-* `balance_changes` — array of balance change objects showing how each transaction affected account balances
+* `timestamp` — block timestamp in milliseconds.
+* `block_identifier` — object with `hash` and `number`.
+* `transaction_balance_trace` — array per transaction with:
+  - `transaction_identifier` — transaction hash.
+  - `operation` — list with `operation_identifier`, `address`, and `amount` (sun; negative for debits, positive for credits).
+  - `type` — contract type (for example, `TransferContract`).
+  - `status` — execution status.
 
 ## Use case
 
-The `wallet/getblockbalance` method is used for:
+* Auditing balance changes for a given block.
+* Building explorers or analytics that summarize per‑address deltas.
+* Reconciling application balances against chain state.
 
-* Analyzing balance changes within specific blocks
-* Building detailed financial transaction tracking systems
-* Auditing account balance modifications
-* Creating balance history and reconciliation tools
-* Monitoring large value transfers within blocks
+## curl example
+
+```shell Shell
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getblockbalance' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "hash": "0000000004986736812cbf15ffbcdd229bd3d76a595db895719867cc2da3a5bd",
+    "number": 77096758,
+    "visible": true
+  }'
+```
+
+## get a valid block pair automatically
+
+```shell Shell
+# requires jq
+BLOCK_ID=$(curl -s -X POST \
+  'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getnowblock' \
+  -H 'Content-Type: application/json' --data '{}' | jq -r '.blockID')
+NUMBER=$(curl -s -X POST \
+  'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getblockbyid' \
+  -H 'Content-Type: application/json' \
+  --data "{\"value\": \"$BLOCK_ID\"}" | jq -r '.block_header.raw_data.number')
+
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getblockbalance' \
+  --header 'Content-Type: application/json' \
+  --data "{\n  \"hash\": \"$BLOCK_ID\",\n  \"number\": $NUMBER,\n  \"visible\": true\n}"
+```
+
+<Info>
+- provide both `hash` (64 hex chars) and `number` that match the same block to avoid errors like `INVALID hex String`, `hash length not equals 32`, or `number and hash do not match`.
+- amounts are in sun (1 TRX = 1,000,000 sun).
+</Info>

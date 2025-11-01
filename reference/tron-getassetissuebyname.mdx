@@ -43,3 +43,70 @@ The `wallet/getassetissuebyname` method is used for:
 * Verifying token authenticity and properties
 * Creating token discovery and analysis tools
 * Implementing token trading interfaces
+
+## curl examples
+
+Because TRC10 names are not unique on mainnet, calling `wallet/getassetissuebyname` with a plain name often returns a non‑unique error. A reliable flow is:
+
+1) search by name to see all matches
+
+```shell Shell
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getassetissuelistbyname' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "value": "SEED",
+    "visible": true
+  }'
+```
+
+This returns an `assetIssue` array with multiple SEED tokens. Each item has an `id` field (for example, `1000001`).
+
+2) fetch the exact token by id
+
+```shell Shell
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getassetissuebyid' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "value": "1000001"
+  }'
+```
+
+One‑liner using `jq` to pick the first match and query by id:
+
+```shell Shell
+ASSET_ID=$(curl -s -X POST \
+  'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getassetissuelistbyname' \
+  -H 'Content-Type: application/json' \
+  -d '{"value":"SEED","visible":true}' | jq -r '.assetIssue[0].id')
+
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getassetissuebyid' \
+  --header 'Content-Type: application/json' \
+  --data '{"value":"'"$ASSET_ID"'"}'
+```
+
+<Info>
+- if you call `wallet/getassetissuebyname` with a non‑unique name (for example, `SEED`), the node can respond with:
+
+```json
+{"Error":"class org.tron.core.exception.NonUniqueObjectException : To get more than one asset, please use getAssetIssueById syntax"}
+```
+
+- prefer `wallet/getassetissuelistbyname` to discover candidates, then `wallet/getassetissuebyid` to retrieve a specific token.
+</Info>
+
+### direct working example (hex name)
+
+You can also query a known unique token by providing the name hex‑encoded with `visible: false`. Example for `TRXTestCoin` (asset id `1000006`):
+
+```shell Shell
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getassetissuebyname' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "value": "54525854657374436f696e",
+    "visible": false
+  }'
+```

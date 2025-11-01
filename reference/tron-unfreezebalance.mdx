@@ -3,7 +3,13 @@ title: wallet/unfreezebalance | TRON
 openapi: /openapi/tron_node_api/unfreezebalance.json post /95e61622bf6a8af293978377718e3b77/wallet/unfreezebalance
 ---
 
-TRON API method that unstakes TRX previously frozen for bandwidth or energy resources (deprecated method). This method releases TRX tokens that were previously frozen, making them available for transfer after the lock period expires. Note that this is the legacy unstaking mechanism, replaced by `unfreezebalancev2`.
+TRON API method that unstakes TRX previously frozen for bandwidth or energy resources (deprecated method). This method releases TRX tokens that were previously frozen, making them available for transfer after the lock period expires. This is the legacy unstaking mechanism; for the current staking model, use `unfreezebalancev2`.
+
+<Warning>
+legacy unstake works only for legacy freezes
+
+On mainnet, new legacy freezes are disabled. You can only use `wallet/unfreezebalance` if your account still has legacy‑frozen balance. For v2 staking, use [`wallet/unfreezebalancev2`](/reference/tron-unfreezebalancev2).
+</Warning>
 
 <Check>
 **Get you own node endpoint today**
@@ -18,7 +24,7 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 
 * `owner_address` — the address that owns the frozen TRX to unfreeze (hex format)
 * `resource` — the resource type to release ("BANDWIDTH" or "ENERGY")
-* `receiver_address` — optional address that was receiving the resources (defaults to owner_address)
+* `receiver_address` — optional address that was receiving the resources. Omit to unfreeze to yourself. If provided, it must be different from `owner_address`.
 * `visible` — optional boolean to specify address format (default: false for hex format)
 
 ## Response
@@ -36,3 +42,44 @@ The `wallet/unfreezebalance` method is used for:
 * Releasing bandwidth or energy resources that are no longer needed (legacy method).
 * Supporting older applications that still use the original unstaking mechanism.
 * Migrating from the deprecated unstaking system to the new `unfreezebalancev2` method.
+
+## curl examples
+
+unfreeze to yourself (omit `receiver_address`):
+
+```shell Shell
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/unfreezebalance' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "owner_address": "41608f8da72479edc7dd921e4c30bb7e7cddbe722e",
+    "resource": "BANDWIDTH",
+    "visible": false
+  }'
+```
+
+unfreeze delegated resources to another account (receiver must differ from owner):
+
+```shell Shell
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/unfreezebalance' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "owner_address": "41608f8da72479edc7dd921e4c30bb7e7cddbe722e",
+    "resource": "ENERGY",
+    "receiver_address": "41e9d79cc47518930bc322d9bf7cddd260a0260a8d",
+    "visible": false
+  }'
+```
+
+<Info>
+if you pass `receiver_address` equal to `owner_address`, the node returns:
+
+```json
+{
+  "Error": "class org.tron.core.exception.ContractValidateException : receiverAddress must not be the same as ownerAddress"
+}
+```
+
+For the current staking model, use [`wallet/unfreezebalancev2`](/reference/tron-unfreezebalancev2). After the v2 waiting period ends, withdraw with [`wallet/withdrawexpireunfreeze`](/reference/tron-withdrawexpireunfreeze).
+</Info>
