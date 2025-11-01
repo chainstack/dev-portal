@@ -42,3 +42,75 @@ The `wallet/createaccount` method is used for:
 * Onboarding new users to the TRON ecosystem.
 
 Note: The returned transaction must be signed and broadcast to complete the account creation.
+
+## curl example
+
+The node validates that the `owner_address` can cover the protocol’s account creation fee. If the owner is not funded, you will get a validation error instead of an unsigned transaction.
+
+```shell Shell
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/createaccount' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "owner_address": "TZ4UXDV5ZhNW7fb2AMSbgfAEZ7hWsnYS2g",
+    "account_address": "TFgY1uN8buRxAtV2r6Zy5sG3ACko6pJT1y",
+    "visible": true
+  }'
+```
+
+Example error when the owner address lacks enough TRX to cover the account creation fee:
+
+```json
+{
+  "Error": "class org.tron.core.exception.ContractValidateException : Validate CreateAccountActuator error, insufficient fee."
+}
+```
+
+When the owner is funded, the response is an unsigned transaction that you must sign and then broadcast using [`wallet/broadcasttransaction`](/reference/tron-broadcasttransaction) or [`wallet/broadcasthex`](/reference/tron-broadcasthex).
+
+<Tip>
+you can also create an account implicitly by sending TRX to a new address; on first receipt the account is created and the sender pays the creation fee. Addresses can be provided in base58 with `visible: true` or in hex with `visible: false`.
+</Tip>
+
+## end-to-end steps
+
+<Steps>
+<Step title="check the payer balance">
+Use `wallet/getaccount` to confirm the `owner_address` has enough TRX to cover the account creation fee.
+
+```shell Shell
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getaccount' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "address": "TZ4UXDV5ZhNW7fb2AMSbgfAEZ7hWsnYS2g",
+    "visible": true
+  }'
+```
+</Step>
+
+<Step title="option: use nile testnet">
+For testing, you can use a Nile endpoint and get test TRX from the faucet. Replace with your own Nile endpoint from the console.
+
+```shell Shell
+curl --request POST \
+  --url 'https://tron-nile.core.chainstack.com/11112222333444555666677778888/wallet/createaccount' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "owner_address": "TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "account_address": "TYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY",
+    "visible": true
+  }'
+```
+
+Fund `owner_address` with test TRX from the Nile faucet, then run the call again.
+</Step>
+
+<Step title="sign and broadcast">
+On success, you receive an unsigned transaction. Sign the `raw_data` with your private key and broadcast via [`wallet/broadcasttransaction`](/reference/tron-broadcasttransaction) or provide the built hex to [`wallet/broadcasthex`](/reference/tron-broadcasthex).
+</Step>
+</Steps>
+
+<Warning>
+getting `insufficient fee` is expected when the payer has no TRX. Fund the `owner_address` first or create the account implicitly by sending TRX to the new address.
+</Warning>

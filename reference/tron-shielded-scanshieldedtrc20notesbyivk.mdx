@@ -13,23 +13,31 @@ TRON API method that scans for shielded TRC20 notes using an incoming viewing ke
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
 
+<Warning>
+All hex values (`ivk`, `ak`, `nk`) must be provided **without the 0x prefix** and must be exactly 64 hexadecimal characters (32 bytes). The `shielded_TRC20_contract_address` must be in **hex format** (starting with 41), not base58 format. There is a block range limit: `(end_block_index - start_block_index) <= 1000`.
+</Warning>
 
 ## Parameters
 
-* `start_block_index` — the starting block number for scanning
-* `end_block_index` — the ending block number for scanning  
-* `ivk` — the incoming viewing key for decrypting notes
-* `ak` — the authentication key for verification
-* `nk` — the nullifier key for note identification
-* `shielded_TRC20_contract_address` — the shielded TRC20 contract address to scan
+* `start_block_index` — the starting block number for scanning (inclusive)
+* `end_block_index` — the ending block number for scanning (exclusive, max 1000 blocks from start)
+* `ivk` — the incoming viewing key for decrypting notes (64 hex characters, no `0x` prefix)
+* `ak` — the authentication key for verification (64 hex characters, no `0x` prefix)
+* `nk` — the nullifier key for note identification (64 hex characters, no `0x` prefix)
+* `shielded_TRC20_contract_address` — the shielded TRC20 contract address to scan (hex format starting with 41, no `0x` prefix)
 
 ## Response
 
-* `note_txs` — array of found shielded note transactions
-* `block_num` — block number where notes were found
-* `tx_id` — transaction ID containing the notes
-* `index` — index of the note within the transaction
-* `note` — the decrypted note details including value and payment address
+* `noteTxs` — array of found shielded note transactions
+  * `txid` — transaction ID containing the note
+  * `index` — index of the note within the transaction
+  * `note` — the decrypted note details
+    * `value` — note value
+    * `payment_address` — shielded payment address
+    * `rcm` — randomness commitment
+    * `memo` — optional memo field
+  * `position` — position in the merkle tree
+  * `is_spent` — whether the note has been spent
 
 ## Use case
 
@@ -39,3 +47,23 @@ The `wallet/scanshieldedtrc20notesbyivk` method is used for:
 * Detecting received transactions without compromising sender privacy
 * Building wallet interfaces that show shielded transaction history
 * Monitoring shielded contract activity for specific addresses
+
+<Info>
+The incoming viewing key (ivk) is generated from the authentication key (ak) and nullifier key (nk) using a BLAKE2s hash. This key hierarchy allows recipients to view shielded transactions they receive without exposing their spending keys.
+</Info>
+
+## curl example
+
+```shell Shell
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/scanshieldedtrc20notesbyivk' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "start_block_index": 10000000,
+    "end_block_index": 10000001,
+    "ivk": "9f8e74bb3d7188a2781dc1db38810c6914eef4570a79e8ec8404480948e4e305",
+    "ak": "8072d9110c9de9d9ade33d5d0f5890a7aa65b0cde42af7816d187297caf2fd64",
+    "nk": "590bf33f93f792be659fd404df91e75c3b08d38d4e08ee226c3f5219cf598f14",
+    "shielded_TRC20_contract_address": "41274fc7464fadac5c00c893c58bce6c39bf59e4c7"
+  }'
+```

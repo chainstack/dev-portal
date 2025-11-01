@@ -3,7 +3,19 @@ title: wallet/freezebalance | TRON
 openapi: /openapi/tron_node_api/freezebalance.json post /95e61622bf6a8af293978377718e3b77/wallet/freezebalance
 ---
 
-TRON API method that stakes TRX for bandwidth or energy resources (deprecated method). This method freezes TRX tokens to obtain bandwidth or energy resources, which are required for transaction execution. Note that this is the legacy staking mechanism, replaced by `freezebalancev2`.
+TRON API method that stakes TRX for bandwidth or energy resources (deprecated method). This method freezes TRX tokens to obtain bandwidth or energy resources, which are required for transaction execution.
+
+<Warning>
+legacy staking closed on mainnet
+
+The legacy `wallet/freezebalance` endpoint is disabled on mainnet and returns:
+
+```json
+{"Error":"class org.tron.core.exception.ContractValidateException : freeze v2 is open, old freeze is closed"}
+```
+
+Use the current staking method instead: [`wallet/freezebalancev2`](/reference/tron-freezebalancev2). The examples below are kept for historical context and may only work on specific networks where legacy staking is still enabled.
+</Warning>
 
 <Check>
 **Get you own node endpoint today**
@@ -20,7 +32,7 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 * `frozen_balance` — the amount of TRX to freeze (in sun, where 1 TRX = 1,000,000 sun)
 * `frozen_duration` — the duration to freeze for (minimum 3 days)
 * `resource` — the resource type to obtain ("BANDWIDTH" or "ENERGY")
-* `receiver_address` — optional address to receive the resources (defaults to owner_address)
+* `receiver_address` — optional address to receive the resources. Omit this field to freeze for yourself. If provided, it must be different from `owner_address`.
 * `visible` — optional boolean to specify address format (default: false for hex format)
 
 ## Response
@@ -38,3 +50,66 @@ The `wallet/freezebalance` method is used for:
 * Freezing TRX to get energy for smart contract execution (legacy method).
 * Supporting older applications that still use the original staking mechanism.
 * Migrating from the deprecated staking system to the new `freezebalancev2` method.
+
+## curl examples
+
+freeze for yourself (omit `receiver_address`):
+
+```shell Shell
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/freezebalance' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "owner_address": "41608f8da72479edc7dd921e4c30bb7e7cddbe722e",
+    "frozen_balance": 1000000,
+    "frozen_duration": 3,
+    "resource": "BANDWIDTH",
+    "visible": false
+  }'
+```
+
+delegate resources to another account (receiver must differ from owner):
+
+```shell Shell
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/freezebalance' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "owner_address": "41608f8da72479edc7dd921e4c30bb7e7cddbe722e",
+    "frozen_balance": 1000000,
+    "frozen_duration": 3,
+    "resource": "ENERGY",
+    "receiver_address": "41e9d79cc47518930bc322d9bf7cddd260a0260a8d",
+    "visible": false
+  }'
+```
+
+<Info>
+if you pass `receiver_address` equal to `owner_address`, the node returns:
+
+```json
+{
+  "Error": "class org.tron.core.exception.ContractValidateException : receiverAddress must not be the same as ownerAddress"
+}
+```
+
+To freeze for yourself, simply omit `receiver_address`. For new staking, prefer [`wallet/freezebalancev2`](/reference/tron-freezebalancev2).
+</Info>
+
+## recommended v2 equivalent
+
+Use the v2 staking endpoint (no duration or receiver in the body):
+
+```shell Shell
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/freezebalancev2' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "owner_address": "41608f8da72479edc7dd921e4c30bb7e7cddbe722e",
+    "frozen_balance": 1000000,
+    "resource": "BANDWIDTH",
+    "visible": false
+  }'
+```
+
+To unstake and withdraw in v2, use [`wallet/unfreezebalancev2`](/reference/tron-unfreezebalancev2) followed by [`wallet/withdrawexpireunfreeze`](/reference/tron-withdrawexpireunfreeze) after the waiting period.

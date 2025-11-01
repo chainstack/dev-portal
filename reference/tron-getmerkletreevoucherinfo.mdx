@@ -1,9 +1,8 @@
 ---
-title: wallet/getmerkletreevoucherinfo | TRON
-openapi: /openapi/tron_node_api/getmerkletreevoucherinfo.json post /95e61622bf6a8af293978377718e3b77/wallet/getmerkletreevoucherinfo
+title: merkle tree voucher info (client‑side) | TRON
 ---
 
-TRON API method that retrieves merkle tree voucher information. This method provides cryptographic proof data for verifying transactions or account states using merkle tree structures.
+Retrieve merkle tree voucher information client‑side. Public TRON nodes generally do not expose an RPC for `wallet/getmerkletreevoucherinfo`; attempting to POST to that route returns HTTP 405. Build voucher data locally from shielded commitments and anchors.
 
 <Check>
 **Get you own node endpoint today**
@@ -13,28 +12,52 @@ TRON API method that retrieves merkle tree voucher information. This method prov
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
 
-## Parameters
+## Inputs
 
-* `output_point` — the output point for the merkle tree voucher
-* `ak` — the authentication key for the voucher
-* `nk` — the nullifier key for the voucher
-* `position` — position in the merkle tree
+- `output_point` — the output commitment/point for which you need a Merkle path.
+- `ak` — authentication key (64‑hex) used in verification.
+- `nk` — nullifier key (64‑hex) used in verification.
+- `position` — leaf index in the commitment tree.
 
-## Response
+## Outputs
 
-Returns merkle tree voucher information containing:
+- `voucher_info` — voucher data structure used in verification circuits.
+- `paths[]` — Merkle path elements (sibling hashes) from leaf to root.
+- `anchors[]` — accepted anchor(s) (tree roots) for the proof context.
+- `rt` — Merkle root.
+- `output_point_info` — metadata about the output commitment.
 
-* `voucher_info` — the voucher information object
-* `paths` — array of merkle tree path elements for cryptographic verification
-* `anchors` — array of anchor values for the merkle tree
-* `rt` — merkle tree root
-* `output_point_info` — detailed information about the output point
+## How to build it locally
 
-## Use case
+1. Maintain or query a local view of the shielded commitment tree (from blocks and shielded notes).
+2. Locate the `position` (leaf index) for `output_point`.
+3. Ascend the tree computing sibling hashes to assemble `paths[]` and the root `rt`.
+4. Package `voucher_info` with `ak`, `nk`, `position`, `paths[]`, and `rt` according to your proof/verifier requirements.
 
-The `wallet/getmerkletreevoucherinfo` method is used for:
+Consider using or extending an existing Sapling tree implementation. The derivation follows other Sapling‑based systems: compute diversifyHash where applicable, hash pairs per level, and collect siblings up to the root.
 
-* Generating cryptographic proofs for shielded transactions in TRON privacy features.
-* Verifying transaction authenticity using merkle tree structures.
-* Building privacy-preserving applications that require zero-knowledge proofs.
-* Implementing advanced cryptographic verification systems on TRON network.
+### Pseudocode sketch
+
+```python
+# Given: output_point (leaf), position, and a commitment tree abstraction
+def merkle_path(tree, position):
+    path = []
+    node = tree.leaf(position)
+    while node.parent is not None:
+        path.append(node.sibling.hash)
+        node = node.parent
+    return path, node.hash  # path elements, root
+
+paths, rt = merkle_path(commitment_tree, position)
+voucher = {
+  'voucher_info': { 'output_point': output_point },
+  'paths': paths,
+  'anchors': [rt],
+  'rt': rt,
+  'output_point_info': { 'position': position }
+}
+```
+
+<Info>
+Public nodes typically return HTTP 405 for this route. Build voucher data client‑side using a local tree or a dedicated indexer, then submit proofs with your transaction flows.
+</Info>

@@ -16,9 +16,9 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 
 ## Parameters
 
-* `address` — the account address to query balance information for (hex format)
-* `block_identifier` — optional block identifier to query balance at specific block
-* `visible` — optional boolean to specify address format (default: false for hex format)
+* `account_identifier.address` — the account address to query. Use base58 with `visible: true`, or hex with `visible: false`.
+* `block_identifier` — required object specifying the block to query. Provide both the 32‑byte `hash` (64 hex chars) and the matching `number`.
+* `visible` — optional boolean for address format. Default is `false` (hex).
 
 ## Response
 
@@ -37,3 +37,86 @@ The `wallet/getaccountbalance` method is used for:
 * Monitoring frozen balance and staking information.
 * Analyzing delegated resource allocations.
 * Managing account liquidity and resource planning.
+
+## curl examples
+
+Get current balance with a base58 address (at a specific block):
+
+```shell Shell
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getaccountbalance' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "account_identifier": { "address": "TZ4UXDV5ZhNW7fb2AMSbgfAEZ7hWsnYS2g" },
+    "block_identifier": { "hash": "0000000004986736812cbf15ffbcdd229bd3d76a595db895719867cc2da3a5bd", "number": 77096758 },
+    "visible": true
+  }'
+```
+
+Get balance at a specific block using a hex address:
+
+```shell Shell
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getaccountbalance' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "account_identifier": { "address": "41608f8da72479edc7dd921e4c30bb7e7cddbe722e" },
+    "block_identifier": { "hash": "0000000004986736812cbf15ffbcdd229bd3d76a595db895719867cc2da3a5bd", "number": 77096758 },
+    "visible": false
+  }'
+```
+
+<Info>
+- avoid `INVALID hex String` by providing a real 32‑byte block hash (64 hex chars).
+- avoid `account_identifier is null` by passing `account_identifier: { address: ... }` rather than a top‑level `address`.
+- avoid `block_identifier null` and `hash length not equals 32` by always including `block_identifier.hash` with 64 hex chars, and `block_identifier.number` that matches the same block.
+
+### find a valid block hash
+
+Use [`wallet/getnowblock`](/reference/tron-getnowblock) to fetch the latest block and copy the `blockID` field as the `block_identifier.hash` value.
+
+```shell Shell
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getnowblock' \
+  --header 'Content-Type: application/json'
+```
+
+Alternatively, get a specific block with [`wallet/getblockbynum`](/reference/tron-getblockbynum) and use its `blockID`.
+
+## working example (auto picks latest block)
+
+Run this to fetch the latest `blockID`, resolve its block `number`, and immediately query the balance at that block.
+
+```shell Shell
+# requires jq
+BLOCK_ID=$(curl -s -X POST \
+  'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getnowblock' \
+  -H 'Content-Type: application/json' | jq -r '.blockID')
+NUMBER=$(curl -s -X POST \
+  'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getblockbyid' \
+  -H 'Content-Type: application/json' \
+  --data "{\"value\": \"$BLOCK_ID\"}" | jq -r '.block_header.raw_data.number')
+
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getaccountbalance' \
+  --header 'Content-Type: application/json' \
+  --data "{\n  \"account_identifier\": { \"address\": \"41608f8da72479edc7dd921e4c30bb7e7cddbe722e\" },\n  \"block_identifier\": { \"hash\": \"$BLOCK_ID\", \"number\": $NUMBER },\n  \"visible\": false\n}"
+```
+
+If `jq` is not available, use Python instead:
+
+```shell Shell
+BLOCK_ID=$(curl -s -X POST \
+  'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getnowblock' \
+  -H 'Content-Type: application/json' | python3 -c 'import sys,json; print(json.load(sys.stdin)["blockID"])')
+NUMBER=$(curl -s -X POST \
+  'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getblockbyid' \
+  -H 'Content-Type: application/json' \
+  --data "{\"value\": \"$BLOCK_ID\"}" | python3 -c 'import sys,json; print(json.load(sys.stdin)["block_header"]["raw_data"]["number"])')
+
+curl --request POST \
+  --url 'https://tron-mainnet.core.chainstack.com/95e61622bf6a8af293978377718e3b77/wallet/getaccountbalance' \
+  --header 'Content-Type: application/json' \
+  --data "{\n  \"account_identifier\": { \"address\": \"41608f8da72479edc7dd921e4c30bb7e7cddbe722e\" },\n  \"block_identifier\": { \"hash\": \"$BLOCK_ID\", \"number\": $NUMBER },\n  \"visible\": false\n}"
+```
+</Info>

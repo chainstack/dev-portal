@@ -1,9 +1,8 @@
 ---
-title: wallet/getzenpaymentaddress | TRON
-openapi: /openapi/tron_node_api/shielded_getzenpaymentaddress.json post /95e61622bf6a8af293978377718e3b77/wallet/getzenpaymentaddress
+title: derive zen payment address (client‑side) | TRON
 ---
 
-TRON API method that generates a zen payment address (legacy format) from an incoming viewing key and diversifier. This is the legacy method for creating shielded payment addresses in the older zen protocol implementation.
+Generate a legacy zen payment address locally from an incoming viewing key (ivk) and a diversifier (d). Nodes commonly do not expose an RPC for this; derive the address client‑side with a Sapling library.
 
 <Check>
 **Get you own node endpoint today**
@@ -14,15 +13,15 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
 
 
-## Parameters
+## Inputs
 
-* `ivk` — the incoming viewing key in hexadecimal format
-* `d` — the diversifier in hexadecimal format
+- `ivk` — incoming viewing key as a 32‑byte (64‑hex) string, no `0x` prefix.
+- `d` — diversifier as 11 bytes (22 hex), no `0x` prefix.
 
-## Response
+## Outputs
 
-* `pkD` — the payment address public key component
-* `payment_address` — the complete shielded payment address
+- `pkD` — payment address public key component in hex (no `0x`).
+- `payment_address` — complete shielded payment address.
 
 ## Use case
 
@@ -32,3 +31,57 @@ The `wallet/getzenpaymentaddress` method is used for:
 * Generating addresses in the legacy zen protocol format
 * Supporting backwards compatibility in shielded transaction implementations
 * Maintaining compatibility with legacy shielded TRC20 applications
+
+## How it works (legacy zen)
+
+1. Parse `ivk` (32 bytes) and `d` (11 bytes) from hex.
+2. Compute `g_d = diversifyHash(d)` (Jubjub point). If invalid, choose a new `d` (rare) until `diversifyHash` returns a valid point.
+3. Compute `pkD = ivk · g_d`.
+4. Encode `(d, pkD)` as the legacy zen payment address (Bech32m with HRP `ztron`).
+
+## Example (JavaScript, WASM Sapling)
+
+```js
+// Pseudocode — use a Sapling/Jubjub library
+import { diversifyHash, scalarMul, bech32mEncode, randomDiversifier } from 'sapling-lib';
+
+const ivkHex = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+
+const ivk = Buffer.from(ivkHex, 'hex');        // 32 bytes
+let d;
+while (true) {
+  d = randomDiversifier();                     // 11 bytes
+  const gd = diversifyHash(d);                 // returns null if invalid
+  if (gd) {
+    const pkD = scalarMul(ivk, gd);
+    const addr = bech32mEncode('ztron', Buffer.concat([d, pkD]));
+    console.log({ pkD: pkD.toString('hex'), payment_address: addr });
+    break;
+  }
+}
+```
+
+## Example (Python)
+
+```python
+# Pseudocode — rely on a Sapling binding exposing diversify_hash, scalar_mul, bech32m_encode, random_diversifier
+from sapling import diversify_hash, scalar_mul, bech32m_encode, random_diversifier
+
+ivk_hex = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+ivk = bytes.fromhex(ivk_hex)
+
+while True:
+    d = random_diversifier()                   # 11 bytes
+    gd = diversify_hash(d)
+    if gd is None:
+        continue
+    pkD = scalar_mul(ivk, gd)
+    addr = bech32m_encode('ztron', d + pkD)
+    print({'pkD': pkD.hex(), 'payment_address': addr})
+    break
+```
+
+<Info>
+- Exact lengths: `ivk` = 64 hex (32 bytes), `d` = 22 hex (11 bytes), no `0x`.
+- If a specific `d` is "not valid", generate a new diversifier until `diversifyHash(d)` returns a valid point.
+</Info>
