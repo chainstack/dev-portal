@@ -146,6 +146,52 @@ In this command, `-u YOUR_USER_NAME:YOUR_PASSWORD` includes your username and pa
   Keeping your API key and username/password secure is critical to prevent unauthorized access to your blockchain node.
 </Info>
 
+### gRPC access via x-token
+
+For protocols that support gRPC endpoints (such as [Sui](/docs/sui-tooling) and [Solana Geyser](/docs/yellowstone-grpc-geyser-plugin)), Chainstack uses x-token authentication. Unlike HTTPS endpoints where the auth token is part of the URL, gRPC endpoints require passing the token in the request metadata.
+
+Your gRPC credentials in the Chainstack console include:
+
+- **gRPC endpoint** — the host and port, e.g., `sui-mainnet.core.chainstack.com:443`
+- **x-token** — your authentication token
+
+To authenticate gRPC requests, pass the x-token as metadata in your gRPC client:
+
+<CodeGroup>
+  ```bash grpcurl
+  grpcurl -H "x-token: YOUR_X_TOKEN" \
+    sui-mainnet.core.chainstack.com:443 \
+    list
+  ```
+
+  ```python Python
+  import grpc
+
+  channel = grpc.secure_channel(
+      'sui-mainnet.core.chainstack.com:443',
+      grpc.ssl_channel_credentials()
+  )
+
+  # Pass x-token in metadata for each call
+  metadata = [('x-token', 'YOUR_X_TOKEN')]
+  response = stub.YourMethod(request, metadata=metadata)
+  ```
+
+  ```javascript Node.js
+  const grpc = require('@grpc/grpc-js');
+
+  const metadata = new grpc.Metadata();
+  metadata.add('x-token', 'YOUR_X_TOKEN');
+
+  // Pass metadata when making calls
+  client.yourMethod(request, metadata, callback);
+  ```
+</CodeGroup>
+
+<Warning>
+  Keep your x-token secure. Anyone with your x-token can make requests to your gRPC endpoint.
+</Warning>
+
 ## Conclusion
 
 The realm of API authentication is vast, encompassing a variety of methods, each with its distinct security levels and complexities. From the simplest API Keys to the secure OAuth and JWT methods, the choice depends largely on your specific use case and the resources you have available for implementation.
