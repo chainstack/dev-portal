@@ -1,0 +1,332 @@
+---
+title: "Querying Monad with JavaScript"
+description: "Learn how to read blockchain data from Monad using ethers.js - no tokens required"
+---
+
+This tutorial teaches you how to query Monad blockchain data using JavaScript and ethers.js. All examples are read-only operations that don't require any MON tokens, making this perfect for getting started.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Prerequisites
+
+- Node.js installed (v16 or higher)
+- Basic JavaScript knowledge
+
+Install ethers.js:
+
+```bash
+npm install ethers
+```
+
+## Connect to Monad testnet
+
+Create a provider to connect to Monad:
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+```
+
+Monad testnet details:
+- Chain ID: 10143
+- Block time: ~1 second
+- 100% EVM compatible
+
+## Get latest block number
+
+The simplest query - get the current block height:
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function getLatestBlock() {
+  const blockNumber = await provider.getBlockNumber();
+  console.log(`Latest block: ${blockNumber}`);
+}
+
+getLatestBlock();
+```
+
+## Check account balance
+
+Query the MON balance of any address:
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function getBalance() {
+  const address = "0x0000000000000000000000000000000000001000";
+  const balance = await provider.getBalance(address);
+  console.log(`Balance: ${ethers.formatEther(balance)} MON`);
+}
+
+getBalance();
+```
+
+## Get transaction count (nonce)
+
+Check how many transactions an address has sent:
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function getTransactionCount() {
+  const address = "0xa54F56e8Cfff25b17105d6073aB0f0E7DA087225";
+  const nonce = await provider.getTransactionCount(address);
+  console.log(`Transaction count: ${nonce}`);
+}
+
+getTransactionCount();
+```
+
+## Fetch block by hash
+
+Retrieve detailed block information:
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function getBlock() {
+  const blockHash = "0xf3cf930f1b4d9637134d09f126c57c30c3f4f40edf10ba502486b26d14b4f944";
+  const block = await provider.getBlock(blockHash);
+
+  console.log(`Block number: ${block.number}`);
+  console.log(`Timestamp: ${new Date(block.timestamp * 1000).toISOString()}`);
+  console.log(`Transactions: ${block.transactions.length}`);
+  console.log(`Gas used: ${block.gasUsed.toString()}`);
+}
+
+getBlock();
+```
+
+## Get transaction details
+
+Inspect a specific transaction:
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function getTransaction() {
+  const txHash = "0xffc7cdc354942338ee028ab1c54ef395b908d6e062ef57821e2869ef37945221";
+  const tx = await provider.getTransaction(txHash);
+
+  console.log(`From: ${tx.from}`);
+  console.log(`To: ${tx.to}`);
+  console.log(`Value: ${ethers.formatEther(tx.value)} MON`);
+  console.log(`Gas price: ${ethers.formatUnits(tx.gasPrice, "gwei")} gwei`);
+}
+
+getTransaction();
+```
+
+## Get transaction receipt
+
+Check execution results and logs:
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function getReceipt() {
+  const txHash = "0xffc7cdc354942338ee028ab1c54ef395b908d6e062ef57821e2869ef37945221";
+  const receipt = await provider.getTransactionReceipt(txHash);
+
+  console.log(`Status: ${receipt.status === 1 ? "Success" : "Failed"}`);
+  console.log(`Gas used: ${receipt.gasUsed.toString()}`);
+  console.log(`Block: ${receipt.blockNumber}`);
+  console.log(`Logs: ${receipt.logs.length}`);
+}
+
+getReceipt();
+```
+
+## Call a smart contract
+
+Read data from a contract without sending a transaction. This example calls the `name()` function on the Wrapped Monad (WMON) contract:
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function callContract() {
+  // WMON contract address
+  const contractAddress = "0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701";
+
+  // name() function selector
+  const data = "0x06fdde03";
+
+  const result = await provider.call({
+    to: contractAddress,
+    data: data
+  });
+
+  // Decode the string result
+  const name = ethers.AbiCoder.defaultAbiCoder().decode(["string"], result)[0];
+  console.log(`Token name: ${name}`);
+}
+
+callContract();
+```
+
+## Check if address is a contract
+
+Determine whether an address is a smart contract or an externally owned account (EOA):
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function isContract() {
+  const address = "0xAc586b65F3cd0627D2D05AdB8EF551C9d2D76E12";
+  const code = await provider.getCode(address);
+
+  if (code === "0x") {
+    console.log("Address is an EOA (not a contract)");
+  } else {
+    console.log(`Contract found, bytecode length: ${(code.length - 2) / 2} bytes`);
+  }
+}
+
+isContract();
+```
+
+## Read contract storage
+
+Access raw storage slots of a contract:
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function getStorage() {
+  const contractAddress = "0xAc586b65F3cd0627D2D05AdB8EF551C9d2D76E12";
+  const slot = 0; // Storage slot 0
+
+  const value = await provider.getStorage(contractAddress, slot);
+  console.log(`Storage slot 0: ${value}`);
+}
+
+getStorage();
+```
+
+## Build a simple block monitor
+
+Since Monad doesn't currently support WebSocket subscriptions, use polling to monitor new blocks:
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function monitorBlocks() {
+  let lastBlock = await provider.getBlockNumber();
+  console.log(`Starting monitor at block ${lastBlock}`);
+
+  // Poll every second (Monad has ~1 second blocks)
+  setInterval(async () => {
+    try {
+      const currentBlock = await provider.getBlockNumber();
+
+      if (currentBlock > lastBlock) {
+        // New block(s) detected
+        for (let i = lastBlock + 1; i <= currentBlock; i++) {
+          const block = await provider.getBlock(i);
+          console.log(`Block ${i}: ${block.transactions.length} txs, gas used: ${block.gasUsed.toString()}`);
+        }
+        lastBlock = currentBlock;
+      }
+    } catch (error) {
+      console.error("Error fetching block:", error.message);
+    }
+  }, 1000);
+}
+
+monitorBlocks();
+```
+
+## Complete example
+
+Here's a script that demonstrates multiple queries:
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function main() {
+  console.log("=== Monad Blockchain Query Demo ===\n");
+
+  // Network info
+  const network = await provider.getNetwork();
+  console.log(`Chain ID: ${network.chainId}`);
+
+  // Latest block
+  const blockNumber = await provider.getBlockNumber();
+  console.log(`Latest block: ${blockNumber}`);
+
+  // Get block details
+  const block = await provider.getBlock(blockNumber);
+  console.log(`Block timestamp: ${new Date(block.timestamp * 1000).toISOString()}`);
+  console.log(`Transactions in block: ${block.transactions.length}`);
+
+  // Check a balance
+  const address = "0x0000000000000000000000000000000000001000";
+  const balance = await provider.getBalance(address);
+  console.log(`\nBalance of ${address}:`);
+  console.log(`${ethers.formatEther(balance)} MON`);
+
+  // Call WMON contract
+  const wmonAddress = "0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701";
+  const nameData = "0x06fdde03";
+  const result = await provider.call({ to: wmonAddress, data: nameData });
+  const tokenName = ethers.AbiCoder.defaultAbiCoder().decode(["string"], result)[0];
+  console.log(`\nWMON token name: ${tokenName}`);
+
+  // Gas price
+  const feeData = await provider.getFeeData();
+  console.log(`\nCurrent gas price: ${ethers.formatUnits(feeData.gasPrice, "gwei")} gwei`);
+}
+
+main().catch(console.error);
+```
+
+## Monad-specific notes
+
+<Note>
+**Key differences from other EVM chains**:
+- **1-second finality**: Blocks are finalized immediately, no reorganizations
+- **No pending transactions**: `eth_getTransactionByHash` only returns confirmed transactions
+- **No WebSocket subscriptions yet**: Use polling for real-time data
+- **Block gas limit**: 300M gas per block
+</Note>
+
+## Next steps
+
+Now that you can query blockchain data, you can:
+- Build dashboards to visualize network activity
+- Monitor specific addresses or contracts
+- Create alerts for on-chain events
+- Develop analytics tools
+
+For sending transactions, you'll need testnet MON tokens from a faucet.

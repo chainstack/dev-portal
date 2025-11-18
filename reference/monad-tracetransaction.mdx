@@ -1,0 +1,79 @@
+---
+title: debug_traceTransaction | Monad
+openapi: /openapi/monad_node_api/debug_and_trace/debug_traceTransaction.json POST /
+---
+
+Monad API method that returns a detailed trace of a transaction's execution. This method provides step-by-step execution information, which is essential for debugging failed transactions and understanding contract behavior.
+
+<Warning>
+**Monad-specific behavior**:
+- The trace options object parameter **must be explicitly provided**. Unlike standard EVM clients where this parameter is optional, Monad RPC will return an error (`-32602 Invalid params`) if the parameter is omitted. Always include the trace options, even if empty (`{}`).
+- When an empty trace options object `{}` is provided, Monad defaults to `callTracer` instead of struct logs, because Monad does not currently support opcode-level struct logs at the VM level.
+</Warning>
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+* `data` — the 32-byte hash of the transaction to trace.
+* `object` (optional) — the tracer options:
+  * `tracer` — the tracer to use (e.g., `callTracer`, `prestateTracer`)
+  * `tracerConfig` — configuration options for the tracer
+  * `timeout` — timeout for the trace operation
+
+## Response
+
+* `result` — the trace result object. The structure depends on the tracer used:
+  * For `callTracer`:
+    * `type` — the call type (CALL, CREATE, etc.)
+    * `from` — sender address
+    * `to` — recipient address
+    * `value` — value transferred
+    * `gas` — gas provided
+    * `gasUsed` — gas used
+    * `input` — call data
+    * `output` — return data
+    * `calls` — nested calls
+
+## `debug_traceTransaction` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function traceTransaction() {
+  const txHash = "0xffdc2accc3eae1263a9f6acdaba3d401865822f22cb3194eece4641a4c7fa133";
+  const trace = await provider.send("debug_traceTransaction", [
+    txHash,
+    { tracer: "callTracer" }
+  ]);
+  console.log("Transaction trace:", JSON.stringify(trace, null, 2));
+}
+
+traceTransaction();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+tx_hash = "0xffdc2accc3eae1263a9f6acdaba3d401865822f22cb3194eece4641a4c7fa133"
+trace = web3.provider.make_request('debug_traceTransaction', [tx_hash, {'tracer': 'callTracer'}])
+print(f'Transaction trace: {trace["result"]}')
+```
+</CodeGroup>
+
+## Use case
+
+A practical use case for `debug_traceTransaction` is debugging failed transactions to identify the exact point of failure, or analyzing the complete call graph of complex multi-contract interactions.
