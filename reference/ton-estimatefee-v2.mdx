@@ -1,0 +1,89 @@
+---
+title: estimateFee | TON v2
+openapi: "/openapi/ton_node_api/v2/estimateFee.json POST /estimateFee"
+---
+
+The `estimateFee` method estimates the fee required to send a message to the TON blockchain. This method allows you to calculate expected transaction costs before actually sending the transaction.
+
+<Check>
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+  You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+<Info>
+  There's no difference between a full node an archive node in data availability or pricing. All data is always available and all node requests are consumed as 1 request unit.
+</Info>
+
+## Request body
+
+* `address` (string, required) — The address to send the message from. Example: `EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs`.
+* `body` (string, required) — The body of the message in base64 format.
+* `init_code` (string, optional) — The init code in base64 format. Required when deploying a new contract.
+* `init_data` (string, optional) — The init data in base64 format. Required when deploying a new contract.
+* `ignore_chksig` (boolean, optional) — Whether to ignore the signature check. Set to `true` when estimating fees without a valid signature. Default: `true`.
+
+## JSON-RPC
+
+<CodeGroup>
+  ```shell shell
+  curl -X POST \
+    'https://ton-mainnet.core.chainstack.com/f2a2411bce1e54a2658f2710cd7969c3/api/v2/jsonRPC' \
+    -H 'Content-Type: application/json' \
+    -d '{
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "estimateFee",
+      "params": {
+        "address": "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs",
+        "body": "te6cckEBAQEAAgAAAEysuc0=",
+        "ignore_chksig": true
+      }
+    }'
+  ```
+</CodeGroup>
+
+## Response
+
+* `ok` (boolean) — Whether the operation was successful.
+
+* `result` (object) — The result of the operation. Contains:
+
+  * `@type` (string) — The type of the result, typically `query.fees`.
+  * `source_fees` (object) — The fees charged to the source account:
+    * `in_fwd_fee` (integer) — The incoming forward fee in nanotons.
+    * `storage_fee` (integer) — The storage fee in nanotons.
+    * `gas_fee` (integer) — The gas fee in nanotons.
+    * `fwd_fee` (integer) — The forward fee in nanotons.
+  * `destination_fees` (array) — Array of fee objects for destination accounts (for multi-hop messages).
+  * `@extra` (string) — Extra information about the operation.
+
+## Use case
+
+The `estimateFee` method is essential for applications that need to calculate transaction costs:
+
+1. Wallet applications can display estimated fees to users before they confirm transactions.
+2. Smart contract developers can estimate deployment costs before deploying contracts.
+3. DApps can optimize transaction parameters to minimize fees.
+4. Trading bots can factor in transaction costs when calculating profitability.
+5. Payment services can include accurate fee estimates in invoices.
+
+Here's an example of estimating fees for a simple transaction:
+
+<CodeGroup>
+  ```shell shell
+  curl -X 'POST' \
+    'https://ton-mainnet.core.chainstack.com/f2a2411bce1e54a2658f2710cd7969c3/api/v2/estimateFee' \
+    -H 'accept: application/json' \
+    -H 'Content-Type: application/json' \
+    -d '{
+    "address": "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs",
+    "body": "te6cckEBAQEAAgAAAEysuc0=",
+    "ignore_chksig": true
+  }'
+  ```
+</CodeGroup>
+
+<Tip>
+  The total fee is approximately the sum of `in_fwd_fee`, `storage_fee`, `gas_fee`, and `fwd_fee`. However, actual fees may vary slightly due to network conditions.
+</Tip>
