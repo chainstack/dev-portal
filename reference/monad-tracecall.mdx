@@ -1,0 +1,97 @@
+---
+title: debug_traceCall | Monad
+openapi: /openapi/monad_node_api/debug_and_trace/debug_traceCall.json POST /
+---
+
+Monad API method that traces a call without creating a transaction on the blockchain. This method is similar to `eth_call` but returns detailed execution traces, making it useful for debugging contract calls before sending actual transactions.
+
+<Warning>
+**Monad-specific behavior**:
+- The trace options object parameter **must be explicitly provided**. Unlike standard EVM clients where this parameter is optional, Monad RPC will return an error (`-32602 Invalid params`) if the parameter is omitted. Always include the trace options, even if empty (`{}`).
+- When an empty trace options object `{}` is provided, Monad defaults to `callTracer` instead of struct logs, because Monad does not currently support opcode-level struct logs at the VM level.
+</Warning>
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+* `object` — the transaction call object:
+  * `from` (optional) — address the transaction is sent from
+  * `to` — address the transaction is directed to
+  * `gas` (optional) — gas provided for the call
+  * `gasPrice` (optional) — gas price for the call
+  * `value` (optional) — value sent with the call
+  * `data` (optional) — hash of the method signature and encoded parameters
+* `quantity|tag` — the block number as a hexadecimal string, or block tag (`latest`, `earliest`, `pending`).
+* `object` (optional) — the tracer options:
+  * `tracer` — the tracer to use (e.g., `callTracer`, `prestateTracer`)
+  * `tracerConfig` — configuration options for the tracer
+  * `timeout` — timeout for the trace operation
+
+## Response
+
+* `result` — the trace result object. The structure depends on the tracer used:
+  * For `callTracer`:
+    * `type` — the call type (CALL, CREATE, etc.)
+    * `from` — sender address
+    * `to` — recipient address
+    * `value` — value transferred
+    * `gas` — gas provided
+    * `gasUsed` — gas used
+    * `input` — call data
+    * `output` — return data
+    * `calls` — nested calls
+
+## `debug_traceCall` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function traceCall() {
+  // Trace name() call on Wrapped Monad (WMON) contract
+  const tx = {
+    to: "0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701",
+    data: "0x06fdde03" // name()
+  };
+
+  const trace = await provider.send("debug_traceCall", [
+    tx,
+    "latest",
+    { tracer: "callTracer" }
+  ]);
+  console.log("Call trace:", JSON.stringify(trace, null, 2));
+}
+
+traceCall();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# Trace name() call on Wrapped Monad (WMON) contract
+tx = {
+    'to': '0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701',
+    'data': '0x06fdde03' # name()
+}
+
+trace = web3.provider.make_request('debug_traceCall', [tx, 'latest', {'tracer': 'callTracer'}])
+print(f'Call trace: {trace["result"]}')
+```
+</CodeGroup>
+
+## Use case
+
+A practical use case for `debug_traceCall` is simulating complex contract interactions before sending transactions to understand the execution path, identify potential failures, and verify expected behavior without spending gas.

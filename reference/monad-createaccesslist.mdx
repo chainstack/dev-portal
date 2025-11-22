@@ -1,0 +1,77 @@
+---
+title: eth_createAccessList | Monad
+openapi: /openapi/monad_node_api/execute_transactions/eth_createAccessList.json POST /
+---
+
+Monad API method that creates an EIP-2930 access list for a transaction. This method returns a list of addresses and storage keys that the transaction will access, which can be used to reduce gas costs for subsequent executions.
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+* `object` — the transaction call object:
+  * `from` (optional) — address the transaction is sent from
+  * `to` — address the transaction is directed to
+  * `gas` (optional) — gas provided for the call
+  * `gasPrice` (optional) — gas price for the call
+  * `value` (optional) — value sent with the call
+  * `data` (optional) — hash of the method signature and encoded parameters
+* `quantity|tag` — the block number as a hexadecimal string, or block tag (`latest`, `earliest`, `pending`).
+
+## Response
+
+* `result` — an object containing:
+  * `accessList` — array of access list entries, each with:
+    * `address` — the address that will be accessed
+    * `storageKeys` — array of storage keys that will be accessed
+  * `gasUsed` — the estimated gas used with the access list
+
+## `eth_createAccessList` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function createAccessList() {
+  const tx = {
+    to: "0x...", // Contract address
+    data: "0x..." // Encoded function call
+  };
+
+  const result = await provider.send("eth_createAccessList", [tx, "latest"]);
+  console.log("Access list:", result.accessList);
+  console.log(`Estimated gas: ${parseInt(result.gasUsed, 16)}`);
+}
+
+createAccessList();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+tx = {
+    'to': '0x...', # Contract address
+    'data': '0x...' # Encoded function call
+}
+
+result = web3.eth.create_access_list(tx, 'latest')
+print(f'Access list: {result.accessList}')
+print(f'Estimated gas: {result.gasUsed}')
+```
+</CodeGroup>
+
+## Use case
+
+A practical use case for `eth_createAccessList` is optimizing gas costs for complex smart contract interactions by pre-declaring the state that will be accessed, which reduces the cold access gas penalties introduced in EIP-2929.

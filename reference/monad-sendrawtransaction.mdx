@@ -1,0 +1,80 @@
+---
+title: eth_sendRawTransaction | Monad
+openapi: /openapi/monad_node_api/execute_transactions/eth_sendRawTransaction.json POST /
+---
+
+Monad API method that submits a pre-signed transaction for broadcast to the network. This method is used to send signed transactions, which can transfer value or interact with smart contracts.
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+<Warning>
+This method creates a transaction that alters the state of the blockchain. It requires MON tokens to pay for gas fees.
+</Warning>
+
+<Note>
+**Monad-specific behavior**:
+- May not immediately reject transactions with a nonce gap or insufficient gas balance. Due to asynchronous execution, the RPC server may not have the latest account state, so these transactions are initially allowed as they may become valid during block creation.
+- Does not accept EIP-4844 (blob) transaction type, as EIP-4844 is not supported on Monad.
+</Note>
+
+## Parameters
+
+* `data` — the signed transaction data (typically signed with a library like ethers.js or web3.py).
+
+## Response
+
+* `result` — the 32-byte transaction hash, or the zero hash if the transaction is not yet available.
+
+## `eth_sendRawTransaction` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+const wallet = new ethers.Wallet("PRIVATE_KEY", provider);
+
+async function sendTransaction() {
+  const tx = await wallet.sendTransaction({
+    to: "0x...", // Recipient address
+    value: ethers.parseEther("0.01")
+  });
+  console.log(`Transaction hash: ${tx.hash}`);
+  await tx.wait();
+  console.log("Transaction confirmed");
+}
+
+sendTransaction();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# Build and sign transaction
+tx = {
+    'nonce': web3.eth.get_transaction_count('YOUR_ADDRESS'),
+    'to': '0x...', # Recipient address
+    'value': web3.to_wei(0.01, 'ether'),
+    'gas': 21000,
+    'gasPrice': web3.eth.gas_price,
+    'chainId': 143 # Monad mainnet
+}
+
+signed_tx = web3.eth.account.sign_transaction(tx, 'PRIVATE_KEY')
+tx_hash = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
+print(f'Transaction hash: {tx_hash.hex()}')
+```
+</CodeGroup>
+
+## Use case
+
+A practical use case for `eth_sendRawTransaction` is sending MON transfers or interacting with smart contracts after signing transactions offline or in a secure environment.

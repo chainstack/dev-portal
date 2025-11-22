@@ -1,0 +1,76 @@
+---
+title: debug_traceBlockByNumber | Monad
+openapi: /openapi/monad_node_api/debug_and_trace/debug_traceBlockByNumber.json POST /
+---
+
+Monad API method that returns traces for all transactions in a block specified by block number. This method is useful for analyzing all transaction executions within a single block.
+
+<Warning>
+**Monad-specific behavior**:
+- The trace options object parameter **must be explicitly provided**. Unlike standard EVM clients where this parameter is optional, Monad RPC will return an error (`-32602 Invalid params`) if the parameter is omitted. Always include the trace options, even if empty (`{}`).
+- When an empty trace options object `{}` is provided, Monad defaults to `callTracer` instead of struct logs, because Monad does not currently support opcode-level struct logs at the VM level.
+</Warning>
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+* `quantity|tag` — the block number as a hexadecimal string, or one of the following block tags:
+  * `latest` — the most recent block in the canonical chain
+  * `earliest` — the genesis block
+  * `pending` — the pending state/transactions
+* `object` (optional) — the tracer options:
+  * `tracer` — the tracer to use (e.g., `callTracer`, `prestateTracer`)
+  * `tracerConfig` — configuration options for the tracer
+  * `timeout` — timeout for the trace operation
+
+## Response
+
+* `result` — an array of trace results, one for each transaction in the block. The structure of each trace depends on the tracer used.
+
+## `debug_traceBlockByNumber` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function traceBlock() {
+  const blockNumber = "latest"; // Or use hex like "0x1234"
+  const traces = await provider.send("debug_traceBlockByNumber", [
+    blockNumber,
+    { tracer: "callTracer" }
+  ]);
+  console.log(`Traced ${traces.length} transactions`);
+  traces.forEach((trace, i) => {
+    console.log(`Transaction ${i}:`, trace.result?.type || 'unknown');
+  });
+}
+
+traceBlock();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+traces = web3.provider.make_request('debug_traceBlockByNumber', ['latest', {'tracer': 'callTracer'}])
+print(f'Traced {len(traces["result"])} transactions')
+for i, trace in enumerate(traces['result']):
+    print(f'Transaction {i}: {trace.get("result", {}).get("type", "unknown")}')
+```
+</CodeGroup>
+
+## Use case
+
+A practical use case for `debug_traceBlockByNumber` is building block analysis tools that need to understand the complete execution flow of all transactions in a block, such as MEV detection or security monitoring systems.
