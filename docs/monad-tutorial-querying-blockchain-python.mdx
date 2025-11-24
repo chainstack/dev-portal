@@ -1,0 +1,347 @@
+---
+title: "Querying Monad with Python"
+description: "Learn how to read blockchain data from Monad using web3.py - no tokens required"
+---
+
+This tutorial teaches you how to query Monad blockchain data using Python and web3.py. All examples are read-only operations that don't require any MON tokens, making this perfect for getting started.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Prerequisites
+
+- Python 3.8 or higher
+- Basic Python knowledge
+
+Install web3.py:
+
+```bash
+pip install web3
+```
+
+## Connect to Monad testnet
+
+Create a Web3 instance to connect to Monad:
+
+```python
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# Verify connection
+print(f"Connected: {web3.is_connected()}")
+```
+
+Monad testnet details:
+- Chain ID: 10143
+- Block time: ~1 second
+- 100% EVM compatible
+
+## Get latest block number
+
+The simplest query - get the current block height:
+
+```python
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+block_number = web3.eth.block_number
+print(f"Latest block: {block_number}")
+```
+
+## Check account balance
+
+Query the MON balance of any address:
+
+```python
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+address = "0x0000000000000000000000000000000000001000"
+balance = web3.eth.get_balance(address)
+print(f"Balance: {web3.from_wei(balance, 'ether')} MON")
+```
+
+## Get transaction count (nonce)
+
+Check how many transactions an address has sent:
+
+```python
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+address = "0xa54F56e8Cfff25b17105d6073aB0f0E7DA087225"
+nonce = web3.eth.get_transaction_count(address)
+print(f"Transaction count: {nonce}")
+```
+
+## Fetch block by hash
+
+Retrieve detailed block information:
+
+```python
+from web3 import Web3
+from datetime import datetime
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+block_hash = "0xf3cf930f1b4d9637134d09f126c57c30c3f4f40edf10ba502486b26d14b4f944"
+block = web3.eth.get_block(block_hash)
+
+print(f"Block number: {block.number}")
+print(f"Timestamp: {datetime.fromtimestamp(block.timestamp).isoformat()}")
+print(f"Transactions: {len(block.transactions)}")
+print(f"Gas used: {block.gasUsed}")
+```
+
+## Get transaction details
+
+Inspect a specific transaction:
+
+```python
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+tx_hash = "0xffc7cdc354942338ee028ab1c54ef395b908d6e062ef57821e2869ef37945221"
+tx = web3.eth.get_transaction(tx_hash)
+
+print(f"From: {tx['from']}")
+print(f"To: {tx['to']}")
+print(f"Value: {web3.from_wei(tx['value'], 'ether')} MON")
+print(f"Gas price: {web3.from_wei(tx['gasPrice'], 'gwei')} gwei")
+```
+
+## Get transaction receipt
+
+Check execution results and logs:
+
+```python
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+tx_hash = "0xffc7cdc354942338ee028ab1c54ef395b908d6e062ef57821e2869ef37945221"
+receipt = web3.eth.get_transaction_receipt(tx_hash)
+
+status = "Success" if receipt.status == 1 else "Failed"
+print(f"Status: {status}")
+print(f"Gas used: {receipt.gasUsed}")
+print(f"Block: {receipt.blockNumber}")
+print(f"Logs: {len(receipt.logs)}")
+```
+
+## Call a smart contract
+
+Read data from a contract without sending a transaction. This example calls the `name()` function on the Wrapped Monad (WMON) contract:
+
+```python
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# WMON contract address
+contract_address = "0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701"
+
+# name() function selector
+data = "0x06fdde03"
+
+result = web3.eth.call({
+    'to': contract_address,
+    'data': data
+})
+
+# Decode the string result
+# Skip first 64 bytes (offset + length) and decode
+name = result[64:].decode('utf-8').rstrip('\x00')
+print(f"Token name: {name}")
+```
+
+### Using contract ABI
+
+For easier interaction, use the contract ABI:
+
+```python
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# Minimal ERC20 ABI for name()
+abi = [
+    {
+        "inputs": [],
+        "name": "name",
+        "outputs": [{"type": "string"}],
+        "stateMutability": "view",
+        "type": "function"
+    }
+]
+
+contract_address = "0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701"
+contract = web3.eth.contract(address=contract_address, abi=abi)
+
+name = contract.functions.name().call()
+print(f"Token name: {name}")
+```
+
+## Check if address is a contract
+
+Determine whether an address is a smart contract or an externally owned account (EOA):
+
+```python
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+address = "0xAc586b65F3cd0627D2D05AdB8EF551C9d2D76E12"
+code = web3.eth.get_code(address)
+
+if code == b'':
+    print("Address is an EOA (not a contract)")
+else:
+    print(f"Contract found, bytecode length: {len(code)} bytes")
+```
+
+## Read contract storage
+
+Access raw storage slots of a contract:
+
+```python
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+contract_address = "0xAc586b65F3cd0627D2D05AdB8EF551C9d2D76E12"
+slot = 0  # Storage slot 0
+
+value = web3.eth.get_storage_at(contract_address, slot)
+print(f"Storage slot 0: {value.hex()}")
+```
+
+## Build a simple block monitor
+
+Since Monad doesn't currently support WebSocket subscriptions, use polling to monitor new blocks:
+
+```python
+from web3 import Web3
+import time
+from datetime import datetime
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+def monitor_blocks():
+    last_block = web3.eth.block_number
+    print(f"Starting monitor at block {last_block}")
+
+    while True:
+        try:
+            current_block = web3.eth.block_number
+
+            if current_block > last_block:
+                # New block(s) detected
+                for block_num in range(last_block + 1, current_block + 1):
+                    block = web3.eth.get_block(block_num)
+                    timestamp = datetime.fromtimestamp(block.timestamp).strftime('%H:%M:%S')
+                    print(f"Block {block_num} [{timestamp}]: {len(block.transactions)} txs, gas: {block.gasUsed}")
+
+                last_block = current_block
+
+            # Poll every second (Monad has ~1 second blocks)
+            time.sleep(1)
+
+        except Exception as e:
+            print(f"Error: {e}")
+            time.sleep(1)
+
+if __name__ == "__main__":
+    monitor_blocks()
+```
+
+## Complete example
+
+Here's a script that demonstrates multiple queries:
+
+```python
+from web3 import Web3
+from datetime import datetime
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+def main():
+    print("=== Monad Blockchain Query Demo ===\n")
+
+    # Network info
+    chain_id = web3.eth.chain_id
+    print(f"Chain ID: {chain_id}")
+
+    # Latest block
+    block_number = web3.eth.block_number
+    print(f"Latest block: {block_number}")
+
+    # Get block details
+    block = web3.eth.get_block(block_number)
+    timestamp = datetime.fromtimestamp(block.timestamp).isoformat()
+    print(f"Block timestamp: {timestamp}")
+    print(f"Transactions in block: {len(block.transactions)}")
+
+    # Check a balance
+    address = "0x0000000000000000000000000000000000001000"
+    balance = web3.eth.get_balance(address)
+    print(f"\nBalance of {address}:")
+    print(f"{web3.from_wei(balance, 'ether')} MON")
+
+    # Call WMON contract
+    wmon_address = "0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701"
+    abi = [{"inputs": [], "name": "name", "outputs": [{"type": "string"}], "stateMutability": "view", "type": "function"}]
+    contract = web3.eth.contract(address=wmon_address, abi=abi)
+    token_name = contract.functions.name().call()
+    print(f"\nWMON token name: {token_name}")
+
+    # Gas price
+    gas_price = web3.eth.gas_price
+    print(f"\nCurrent gas price: {web3.from_wei(gas_price, 'gwei')} gwei")
+
+if __name__ == "__main__":
+    main()
+```
+
+## Monad-specific notes
+
+<Note>
+**Key differences from other EVM chains**:
+- **1-second finality**: Blocks are finalized immediately, no reorganizations
+- **No pending transactions**: `eth_getTransactionByHash` only returns confirmed transactions
+- **No WebSocket subscriptions yet**: Use polling for real-time data
+- **Block gas limit**: 300M gas per block
+</Note>
+
+## Next steps
+
+Now that you can query blockchain data, you can:
+- Build dashboards to visualize network activity
+- Monitor specific addresses or contracts
+- Create alerts for on-chain events
+- Develop analytics tools
+
+For sending transactions, you'll need testnet MON tokens from a faucet.

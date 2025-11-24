@@ -1,0 +1,68 @@
+---
+title: eth_feeHistory | Monad
+openapi: /openapi/monad_node_api/gas_data/eth_feeHistory.json POST /
+---
+
+Monad API method that returns historical gas information, allowing you to track trends over time. This method is essential for building sophisticated gas estimation strategies based on recent network conditions.
+
+<Note>
+**Monad-specific behavior**: Currently returns default values. This is temporary and will be updated with actual historical data in the future.
+</Note>
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+* `blockCount` — the number of blocks in the requested range (1 to 1024).
+* `newestBlock` — the highest block of the requested range as a hexadecimal string or block tag.
+* `rewardPercentiles` — an array of floating point values between 0 and 100 to sample the effective priority fees.
+
+## Response
+
+* `result` — an object containing:
+  * `oldestBlock` — the oldest block in the range
+  * `baseFeePerGas` — array of base fees per gas for each block
+  * `gasUsedRatio` — array of gas used ratios for each block
+  * `reward` — array of arrays containing the requested percentile values of effective priority fees
+
+## `eth_feeHistory` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function getFeeHistory() {
+  const feeHistory = await provider.send("eth_feeHistory", ["0x4", "latest", [25, 50, 75]]);
+  console.log(`Oldest block: ${parseInt(feeHistory.oldestBlock, 16)}`);
+  console.log("Base fees:", feeHistory.baseFeePerGas.map(fee => ethers.formatUnits(fee, "gwei") + " gwei"));
+  console.log("Gas used ratios:", feeHistory.gasUsedRatio);
+}
+
+getFeeHistory();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+
+web3 = Web3(Web3.HTTPProvider(node_url))
+fee_history = web3.eth.fee_history(4, 'latest', [25, 50, 75])
+
+print(f'Oldest block: {fee_history.oldestBlock}')
+print(f'Base fees: {[web3.from_wei(fee, "gwei") for fee in fee_history.baseFeePerGas]} gwei')
+print(f'Gas used ratios: {fee_history.gasUsedRatio}')
+```
+</CodeGroup>
+
+## Use case
+
+A practical use case for `eth_feeHistory` is building a gas price oracle that analyzes historical trends to predict optimal gas prices, or creating dashboards that visualize network congestion over time.
