@@ -16,7 +16,7 @@ Or *almost* the hard way as we are going to use a bit of Python.
 The focus of this guide is on keeping the [Dencun and EIP-4844 talk](/docs/ethereum-dencun-rundown-with-examples) to a minimum and to give you hands-on exposure to blob transactions, which is a good way to supplement the prior general knowledge on the topic.
 
 <Info>
-  Chainstack Ethereum nodes follow the consensus client defaults for blob data availability. With Nimbus, blob sidecars are retained for roughly 18 days (per EIP-4844).
+  Chainstack Ethereum nodes follow the consensus client defaults for blob data availability. With Lighthouse, blob sidecars are retained for roughly 18 days (per EIP-4844).
 
   [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required. You can sign up with your GitHub, X, Google, or Microsoft account.
 </Info>
@@ -291,11 +291,11 @@ Let's retrieve the blob data from the network.
 
 Since we are working with the consensus layer now, make sure you now use the consensus client endpoint from your Chainstack node details.
 
-Our example transaction is included in [block 6090748](https://sepolia.etherscan.io/txs?block=6090748&isblob=true) on the execution layer. The call we are going to use is [Retrieve blob sidecar](/reference/getblobsidecarbyslot).
+Our example transaction is included in [block 6090748](https://sepolia.etherscan.io/txs?block=6090748&isblob=true) on the execution layer. The call we are going to use is [Retrieve blobs by block ID](/reference/getblobsbyblockid).
 
 To provide a specific pointer for the blob data on the consensus layer, we can use one of the following:`head`, `genesis`, `finalized`, or `slot_number`.
 
-The original [Beacon chain API spec](https://ethereum.github.io/beacon-APIs/#/Beacon/getBlobSidecars) also includes `hex encoded blockRoot with 0x prefix`, but Nimbus nodes (that Chainstack uses) do not support this for finalized blocks for efficiency. And we don't need this anyway as you will see later.
+The original [Beacon chain API spec](https://ethereum.github.io/beacon-APIs/#/Beacon/getBlobSidecars) also includes `hex encoded blockRoot with 0x prefix`, but Chainstack nodes do not support this for finalized blocks for efficiency. And we don't need this anyway as you will see later.
 
 Note that the call does not support the execution layer block number, you can only provide the respective slot number on the consensus layer. Programmatically, we'll deal with this later. For now, we'll just pick the respective slot number from the Sepolia Beacon chain explorer: [slot 5203463](https://sepolia.beaconcha.in/slot/5203463).
 
@@ -304,7 +304,7 @@ Here's our call
 <CodeGroup>
   ```shell Shell
   curl --request GET \
-       --url CONSENSUS_LAYER_URL/eth/v1/beacon/blob_sidecars/5203463 \
+       --url CONSENSUS_LAYER_URL/eth/v1/beacon/blobs/5203463 \
        --header 'accept: application/json' | jq "."
   ```
 </CodeGroup>
@@ -530,7 +530,7 @@ We'll retrieve this parent slot root, get the slot number associated with root w
   slot_number = int(header_data['data']['header']['message']['slot']) + 1
 
   # Retrieve blobs
-  blobs_url = f"{os.getenv('CONSENSUS_LAYER_URL')}/eth/v1/beacon/blob_sidecars/{slot_number}"
+  blobs_url = f"{os.getenv('CONSENSUS_LAYER_URL')}/eth/v1/beacon/blobs/{slot_number}"
   blobs_response = requests.get(blobs_url).json()
   blobs = blobs_response['data']
 
@@ -621,7 +621,7 @@ Example for our transaction:
 
 ## Conclusion
 
-This hands-on the hard way guide walked you through creating, detecting, and verifying the type-3 transactions (aka blob transactions). It also showed you some of the pitfalls and how to navigate them like getting slot number associated with the execution layer blob transaction, being able to retrieve the blobs through the Nimbus client, blob data being stored for 18 days, and so on.
+This hands-on the hard way guide walked you through creating, detecting, and verifying the type-3 transactions (aka blob transactions). It also showed you some of the pitfalls and how to navigate them like getting slot number associated with the execution layer blob transaction, being able to retrieve the blobs through the consensus layer client, blob data being stored for 18 days, and so on.
 
 ### About the author
 
