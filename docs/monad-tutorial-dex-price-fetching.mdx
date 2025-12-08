@@ -1,0 +1,662 @@
+---
+title: "Monad: Fetching token prices from DEXs"
+description: "Learn to query real-time token prices from Uniswap V2-style DEXs on Monad using ethers.js and web3.py"
+---
+
+This tutorial teaches you how to fetch token prices directly from decentralized exchanges on Monad. You'll learn to query Uniswap V2-style liquidity pools, calculate prices from reserves, and build real-time price monitors.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+**TLDR:**
+* Query token prices from Uniswap V2-style pools on Monad
+* Calculate prices from liquidity pool reserves
+* Handle token decimals correctly
+* Monitor price changes in real-time
+* Both JavaScript and Python implementations
+
+## Prerequisites
+
+- [Chainstack account](https://console.chainstack.com/) with a Monad node endpoint
+- Node.js v16+ or Python 3.8+
+- Basic understanding of AMM mechanics
+
+## Overview
+
+Monad's 1-second finality makes it ideal for DeFi applications where price accuracy matters:
+
+- **Near real-time prices**: Query prices that are at most 1 second old
+- **Reliable data**: No reorganizations mean prices are immediately trustworthy
+- **High throughput**: DEXs can handle high trading volume without congestion
+
+This tutorial focuses on Uniswap V2-style AMMs, which are the most common DEX architecture on EVM chains.
+
+## Understanding AMM pricing
+
+Uniswap V2 pools use the constant product formula:
+
+```
+x * y = k
+```
+
+Where:
+- `x` = reserve of token A
+- `y` = reserve of token B
+- `k` = constant (product of reserves)
+
+The price of token A in terms of token B is:
+
+```
+price_A = reserve_B / reserve_A
+```
+
+<Note>
+This is the "spot price" before any trade. Actual trade prices include slippage based on trade size relative to pool liquidity.
+</Note>
+
+## Key contract addresses
+
+For this tutorial, you'll need:
+
+| Contract | Address | Description |
+|----------|---------|-------------|
+| WMON | `0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701` | Wrapped MON |
+
+<Warning>
+DEX contracts and token addresses change as the Monad ecosystem evolves. Verify current addresses on block explorers like [MonVision](https://monvision.io) or [Monadscan](https://monadscan.com).
+</Warning>
+
+## Query Uniswap V2 pool prices
+
+### Uniswap V2 Pair ABI
+
+The minimal ABI needed to query prices:
+
+```javascript
+const PAIR_ABI = [
+  "function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)",
+  "function token0() external view returns (address)",
+  "function token1() external view returns (address)",
+];
+
+const ERC20_ABI = [
+  "function decimals() external view returns (uint8)",
+  "function symbol() external view returns (string)",
+  "function name() external view returns (string)",
+];
+```
+
+### JavaScript price fetcher
+
+```javascript fetch-price.js
+const { ethers } = require("ethers");
+
+const CHAINSTACK_ENDPOINT = "YOUR_CHAINSTACK_MONAD_ENDPOINT";
+const provider = new ethers.JsonRpcProvider(CHAINSTACK_ENDPOINT);
+
+const PAIR_ABI = [
+  "function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)",
+  "function token0() external view returns (address)",
+  "function token1() external view returns (address)",
+];
+
+const ERC20_ABI = [
+  "function decimals() external view returns (uint8)",
+  "function symbol() external view returns (string)",
+];
+
+async function getPoolPrice(pairAddress) {
+  const pair = new ethers.Contract(pairAddress, PAIR_ABI, provider);
+
+  // Get reserves and token addresses
+  const [reserves, token0Address, token1Address] = await Promise.all([
+    pair.getReserves(),
+    pair.token0(),
+    pair.token1(),
+  ]);
+
+  // Get token details
+  const token0 = new ethers.Contract(token0Address, ERC20_ABI, provider);
+  const token1 = new ethers.Contract(token1Address, ERC20_ABI, provider);
+
+  const [decimals0, decimals1, symbol0, symbol1] = await Promise.all([
+    token0.decimals(),
+    token1.decimals(),
+    token0.symbol(),
+    token1.symbol(),
+  ]);
+
+  // Extract reserves
+  const reserve0 = reserves[0];
+  const reserve1 = reserves[1];
+  const lastUpdate = reserves[2];
+
+  // Calculate prices with decimal adjustment
+  // price0 = how much token1 for 1 token0
+  // price1 = how much token0 for 1 token1
+  const decimalAdjustment = 10n ** BigInt(decimals1 - decimals0);
+
+  const price0 = Number(reserve1 * decimalAdjustment) / Number(reserve0);
+  const price1 = Number(reserve0) / Number(reserve1 * decimalAdjustment);
+
+  return {
+    pair: pairAddress,
+    token0: {
+      address: token0Address,
+      symbol: symbol0,
+      decimals: decimals0,
+      reserve: ethers.formatUnits(reserve0, decimals0),
+    },
+    token1: {
+      address: token1Address,
+      symbol: symbol1,
+      decimals: decimals1,
+      reserve: ethers.formatUnits(reserve1, decimals1),
+    },
+    prices: {
+      [`${symbol0}/${symbol1}`]: price0,
+      [`${symbol1}/${symbol0}`]: price1,
+    },
+    lastUpdate: new Date(Number(lastUpdate) * 1000).toISOString(),
+  };
+}
+
+async function main() {
+  // Replace with an actual Monad DEX pair address
+  const pairAddress = "YOUR_DEX_PAIR_ADDRESS";
+
+  console.log("Fetching pool price...\n");
+
+  const priceData = await getPoolPrice(pairAddress);
+
+  console.log(`Pool: ${priceData.pair}`);
+  console.log(`\nToken 0: ${priceData.token0.symbol}`);
+  console.log(`  Address: ${priceData.token0.address}`);
+  console.log(`  Reserve: ${priceData.token0.reserve}`);
+  console.log(`\nToken 1: ${priceData.token1.symbol}`);
+  console.log(`  Address: ${priceData.token1.address}`);
+  console.log(`  Reserve: ${priceData.token1.reserve}`);
+  console.log(`\nPrices:`);
+
+  for (const [pair, price] of Object.entries(priceData.prices)) {
+    console.log(`  ${pair}: ${price.toFixed(8)}`);
+  }
+
+  console.log(`\nLast update: ${priceData.lastUpdate}`);
+}
+
+main().catch(console.error);
+```
+
+### Python price fetcher
+
+```python fetch_price.py
+from web3 import Web3
+from decimal import Decimal
+
+CHAINSTACK_ENDPOINT = "YOUR_CHAINSTACK_MONAD_ENDPOINT"
+web3 = Web3(Web3.HTTPProvider(CHAINSTACK_ENDPOINT))
+
+PAIR_ABI = [
+    {
+        "inputs": [],
+        "name": "getReserves",
+        "outputs": [
+            {"type": "uint112", "name": "reserve0"},
+            {"type": "uint112", "name": "reserve1"},
+            {"type": "uint32", "name": "blockTimestampLast"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "token0",
+        "outputs": [{"type": "address"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "token1",
+        "outputs": [{"type": "address"}],
+        "stateMutability": "view",
+        "type": "function"
+    }
+]
+
+ERC20_ABI = [
+    {
+        "inputs": [],
+        "name": "decimals",
+        "outputs": [{"type": "uint8"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "symbol",
+        "outputs": [{"type": "string"}],
+        "stateMutability": "view",
+        "type": "function"
+    }
+]
+
+def get_pool_price(pair_address):
+    """Fetch price data from a Uniswap V2-style pool."""
+
+    pair = web3.eth.contract(address=pair_address, abi=PAIR_ABI)
+
+    # Get reserves and token addresses
+    reserves = pair.functions.getReserves().call()
+    token0_address = pair.functions.token0().call()
+    token1_address = pair.functions.token1().call()
+
+    reserve0, reserve1, last_update = reserves
+
+    # Get token details
+    token0 = web3.eth.contract(address=token0_address, abi=ERC20_ABI)
+    token1 = web3.eth.contract(address=token1_address, abi=ERC20_ABI)
+
+    decimals0 = token0.functions.decimals().call()
+    decimals1 = token1.functions.decimals().call()
+    symbol0 = token0.functions.symbol().call()
+    symbol1 = token1.functions.symbol().call()
+
+    # Calculate prices with decimal adjustment
+    decimal_adjustment = 10 ** (decimals1 - decimals0)
+
+    price0 = (reserve1 * decimal_adjustment) / reserve0  # token0 price in token1
+    price1 = reserve0 / (reserve1 * decimal_adjustment)  # token1 price in token0
+
+    return {
+        'pair': pair_address,
+        'token0': {
+            'address': token0_address,
+            'symbol': symbol0,
+            'decimals': decimals0,
+            'reserve': reserve0 / (10 ** decimals0)
+        },
+        'token1': {
+            'address': token1_address,
+            'symbol': symbol1,
+            'decimals': decimals1,
+            'reserve': reserve1 / (10 ** decimals1)
+        },
+        'prices': {
+            f'{symbol0}/{symbol1}': price0,
+            f'{symbol1}/{symbol0}': price1
+        },
+        'last_update': last_update
+    }
+
+def main():
+    # Replace with an actual Monad DEX pair address
+    pair_address = "YOUR_DEX_PAIR_ADDRESS"
+
+    print("Fetching pool price...\n")
+
+    price_data = get_pool_price(pair_address)
+
+    print(f"Pool: {price_data['pair']}")
+    print(f"\nToken 0: {price_data['token0']['symbol']}")
+    print(f"  Address: {price_data['token0']['address']}")
+    print(f"  Reserve: {price_data['token0']['reserve']:,.4f}")
+    print(f"\nToken 1: {price_data['token1']['symbol']}")
+    print(f"  Address: {price_data['token1']['address']}")
+    print(f"  Reserve: {price_data['token1']['reserve']:,.4f}")
+    print(f"\nPrices:")
+
+    for pair, price in price_data['prices'].items():
+        print(f"  {pair}: {price:.8f}")
+
+if __name__ == "__main__":
+    main()
+```
+
+## Monitor price changes
+
+Build a real-time price monitor:
+
+### JavaScript price monitor
+
+```javascript monitor-price.js
+const { ethers } = require("ethers");
+
+const CHAINSTACK_ENDPOINT = "YOUR_CHAINSTACK_MONAD_ENDPOINT";
+const provider = new ethers.JsonRpcProvider(CHAINSTACK_ENDPOINT);
+
+const PAIR_ABI = [
+  "function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)",
+  "function token0() external view returns (address)",
+  "function token1() external view returns (address)",
+];
+
+const ERC20_ABI = [
+  "function decimals() external view returns (uint8)",
+  "function symbol() external view returns (string)",
+];
+
+class PriceMonitor {
+  constructor(pairAddress) {
+    this.pairAddress = pairAddress;
+    this.pair = new ethers.Contract(pairAddress, PAIR_ABI, provider);
+    this.lastPrice = null;
+    this.token0Symbol = null;
+    this.token1Symbol = null;
+    this.decimals0 = null;
+    this.decimals1 = null;
+  }
+
+  async initialize() {
+    const token0Address = await this.pair.token0();
+    const token1Address = await this.pair.token1();
+
+    const token0 = new ethers.Contract(token0Address, ERC20_ABI, provider);
+    const token1 = new ethers.Contract(token1Address, ERC20_ABI, provider);
+
+    [this.decimals0, this.decimals1, this.token0Symbol, this.token1Symbol] =
+      await Promise.all([
+        token0.decimals(),
+        token1.decimals(),
+        token0.symbol(),
+        token1.symbol(),
+      ]);
+
+    console.log(`Monitoring ${this.token0Symbol}/${this.token1Symbol} price`);
+    console.log(`Pair: ${this.pairAddress}\n`);
+  }
+
+  async getPrice() {
+    const reserves = await this.pair.getReserves();
+    const reserve0 = reserves[0];
+    const reserve1 = reserves[1];
+
+    const decimalAdjustment = 10n ** BigInt(this.decimals1 - this.decimals0);
+    const price = Number(reserve1 * decimalAdjustment) / Number(reserve0);
+
+    return price;
+  }
+
+  async monitor() {
+    await this.initialize();
+
+    this.lastPrice = await this.getPrice();
+    console.log(
+      `Initial price: ${this.lastPrice.toFixed(8)} ${this.token1Symbol}/${this.token0Symbol}`
+    );
+
+    setInterval(async () => {
+      try {
+        const currentPrice = await this.getPrice();
+
+        if (currentPrice !== this.lastPrice) {
+          const change = ((currentPrice - this.lastPrice) / this.lastPrice) * 100;
+          const direction = change > 0 ? "📈" : "📉";
+          const timestamp = new Date().toISOString().split("T")[1].split(".")[0];
+
+          console.log(
+            `${timestamp} ${direction} ${currentPrice.toFixed(8)} ${this.token1Symbol}/${this.token0Symbol} (${change > 0 ? "+" : ""}${change.toFixed(4)}%)`
+          );
+
+          this.lastPrice = currentPrice;
+        }
+      } catch (error) {
+        console.error("Error:", error.message);
+      }
+    }, 1000);
+  }
+}
+
+// Replace with an actual Monad DEX pair address
+const pairAddress = "YOUR_DEX_PAIR_ADDRESS";
+const monitor = new PriceMonitor(pairAddress);
+monitor.monitor();
+```
+
+### Python price monitor
+
+```python monitor_price.py
+from web3 import Web3
+import time
+from datetime import datetime
+
+CHAINSTACK_ENDPOINT = "YOUR_CHAINSTACK_MONAD_ENDPOINT"
+web3 = Web3(Web3.HTTPProvider(CHAINSTACK_ENDPOINT))
+
+PAIR_ABI = [
+    {
+        "inputs": [],
+        "name": "getReserves",
+        "outputs": [
+            {"type": "uint112", "name": "reserve0"},
+            {"type": "uint112", "name": "reserve1"},
+            {"type": "uint32", "name": "blockTimestampLast"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "token0",
+        "outputs": [{"type": "address"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "token1",
+        "outputs": [{"type": "address"}],
+        "stateMutability": "view",
+        "type": "function"
+    }
+]
+
+ERC20_ABI = [
+    {
+        "inputs": [],
+        "name": "decimals",
+        "outputs": [{"type": "uint8"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "symbol",
+        "outputs": [{"type": "string"}],
+        "stateMutability": "view",
+        "type": "function"
+    }
+]
+
+class PriceMonitor:
+    def __init__(self, pair_address):
+        self.pair_address = pair_address
+        self.pair = web3.eth.contract(address=pair_address, abi=PAIR_ABI)
+        self.last_price = None
+
+    def initialize(self):
+        token0_address = self.pair.functions.token0().call()
+        token1_address = self.pair.functions.token1().call()
+
+        token0 = web3.eth.contract(address=token0_address, abi=ERC20_ABI)
+        token1 = web3.eth.contract(address=token1_address, abi=ERC20_ABI)
+
+        self.decimals0 = token0.functions.decimals().call()
+        self.decimals1 = token1.functions.decimals().call()
+        self.symbol0 = token0.functions.symbol().call()
+        self.symbol1 = token1.functions.symbol().call()
+
+        print(f"Monitoring {self.symbol0}/{self.symbol1} price")
+        print(f"Pair: {self.pair_address}\n")
+
+    def get_price(self):
+        reserves = self.pair.functions.getReserves().call()
+        reserve0, reserve1, _ = reserves
+
+        decimal_adjustment = 10 ** (self.decimals1 - self.decimals0)
+        price = (reserve1 * decimal_adjustment) / reserve0
+
+        return price
+
+    def monitor(self):
+        self.initialize()
+
+        self.last_price = self.get_price()
+        print(f"Initial price: {self.last_price:.8f} {self.symbol1}/{self.symbol0}")
+
+        while True:
+            try:
+                current_price = self.get_price()
+
+                if current_price != self.last_price:
+                    change = ((current_price - self.last_price) / self.last_price) * 100
+                    direction = "📈" if change > 0 else "📉"
+                    timestamp = datetime.now().strftime("%H:%M:%S")
+                    sign = "+" if change > 0 else ""
+
+                    print(f"{timestamp} {direction} {current_price:.8f} {self.symbol1}/{self.symbol0} ({sign}{change:.4f}%)")
+
+                    self.last_price = current_price
+
+                time.sleep(1)
+
+            except Exception as e:
+                print(f"Error: {e}")
+                time.sleep(1)
+
+if __name__ == "__main__":
+    # Replace with an actual Monad DEX pair address
+    pair_address = "YOUR_DEX_PAIR_ADDRESS"
+    monitor = PriceMonitor(pair_address)
+    monitor.monitor()
+```
+
+## Calculate price impact
+
+Estimate the price impact of a trade before executing:
+
+```javascript price-impact.js
+const { ethers } = require("ethers");
+
+function calculatePriceImpact(reserveIn, reserveOut, amountIn, decimalsIn, decimalsOut) {
+  // Uniswap V2 formula: amountOut = (amountIn * 997 * reserveOut) / (reserveIn * 1000 + amountIn * 997)
+  const amountInWithFee = amountIn * 997n;
+  const numerator = amountInWithFee * reserveOut;
+  const denominator = reserveIn * 1000n + amountInWithFee;
+  const amountOut = numerator / denominator;
+
+  // Spot price (before trade)
+  const decimalAdjustment = 10n ** BigInt(decimalsOut - decimalsIn);
+  const spotPrice = Number(reserveOut * decimalAdjustment) / Number(reserveIn);
+
+  // Effective price (what you actually get)
+  const effectivePrice = Number(amountOut) / Number(amountIn) * Number(10n ** BigInt(decimalsIn - decimalsOut));
+
+  // Price impact percentage
+  const priceImpact = ((spotPrice - effectivePrice) / spotPrice) * 100;
+
+  return {
+    amountOut: amountOut,
+    spotPrice: spotPrice,
+    effectivePrice: effectivePrice,
+    priceImpact: priceImpact,
+  };
+}
+
+// Example: Calculate impact for swapping 1 token
+const reserveIn = 1000000000000000000000n; // 1000 tokens (18 decimals)
+const reserveOut = 500000000000000000000n; // 500 tokens (18 decimals)
+const amountIn = 10000000000000000000n; // 10 tokens
+
+const result = calculatePriceImpact(reserveIn, reserveOut, amountIn, 18, 18);
+
+console.log(`Amount out: ${ethers.formatEther(result.amountOut)}`);
+console.log(`Spot price: ${result.spotPrice.toFixed(8)}`);
+console.log(`Effective price: ${result.effectivePrice.toFixed(8)}`);
+console.log(`Price impact: ${result.priceImpact.toFixed(4)}%`);
+```
+
+## Working with WMON
+
+WMON (Wrapped MON) is essential for DEX trading since most pools pair tokens against WMON rather than native MON.
+
+### Wrap MON to WMON
+
+```javascript wrap-mon.js
+const { ethers } = require("ethers");
+
+const CHAINSTACK_ENDPOINT = "YOUR_CHAINSTACK_MONAD_ENDPOINT";
+const PRIVATE_KEY = "YOUR_PRIVATE_KEY";
+const WMON_ADDRESS = "0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701";
+
+const WMON_ABI = [
+  "function deposit() public payable",
+  "function withdraw(uint256 amount) public",
+  "function balanceOf(address account) public view returns (uint256)",
+];
+
+const provider = new ethers.JsonRpcProvider(CHAINSTACK_ENDPOINT);
+const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
+const wmon = new ethers.Contract(WMON_ADDRESS, WMON_ABI, wallet);
+
+async function wrapMON(amount) {
+  console.log(`Wrapping ${ethers.formatEther(amount)} MON to WMON...`);
+
+  const tx = await wmon.deposit({ value: amount });
+  console.log(`Transaction: ${tx.hash}`);
+
+  await tx.wait();
+  console.log("Wrap complete!");
+
+  const balance = await wmon.balanceOf(wallet.address);
+  console.log(`WMON balance: ${ethers.formatEther(balance)}`);
+}
+
+async function unwrapWMON(amount) {
+  console.log(`Unwrapping ${ethers.formatEther(amount)} WMON to MON...`);
+
+  const tx = await wmon.withdraw(amount);
+  console.log(`Transaction: ${tx.hash}`);
+
+  await tx.wait();
+  console.log("Unwrap complete!");
+}
+
+// Wrap 0.1 MON
+wrapMON(ethers.parseEther("0.1"));
+```
+
+## Monad-specific notes
+
+<Note>
+**Why Monad excels for DEX price fetching:**
+
+- **1-second freshness**: Prices are at most 1 second old, crucial for arbitrage and trading bots
+- **Immediate finality**: No need to wait for confirmations. The price you see is the price you get.
+- **High throughput**: DEXs can handle more trades per second, leading to more liquid markets
+- **No reorg risk**: Price data is reliable immediately. No worrying about chain reorganizations invalidating trades.
+</Note>
+
+<Warning>
+**Price fetching best practices:**
+
+- **Always check liquidity**: Low liquidity pools can have unreliable prices
+- **Account for fees**: Uniswap V2 charges 0.3% per swap
+- **Handle decimals carefully**: Token decimals vary (6 for USDC, 18 for most tokens)
+- **Use multiple sources**: Cross-check prices across pools for accuracy
+</Warning>
+
+## Next steps
+
+Now that you can fetch DEX prices on Monad, you can:
+- Build trading bots that react to price changes
+- Create price aggregators across multiple DEXs
+- Implement arbitrage detection systems
+- Build portfolio tracking dashboards
+- Create price alerts and notifications

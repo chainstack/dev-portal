@@ -1,0 +1,384 @@
+---
+title: "Monad: Deploying and verifying smart contracts"
+description: "Learn to deploy and verify smart contracts on Monad mainnet using Hardhat and Foundry with Chainstack nodes"
+---
+
+This tutorial teaches you how to deploy smart contracts to Monad mainnet and verify them on block explorers. You'll use both Hardhat and Foundry, the two most popular Ethereum development frameworks.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+**TLDR:**
+* Deploy a simple smart contract to Monad mainnet using Hardhat
+* Verify contracts on MonadExplorer (Sourcify) and Monadscan (Etherscan-based)
+* Alternative deployment using Foundry
+* Understand Monad's 1-second finality benefits for deployment
+
+## Prerequisites
+
+- [Chainstack account](https://console.chainstack.com/) with a Monad node endpoint
+- Node.js v16+ (for Hardhat) or [Foundry](https://getfoundry.sh/) installed
+- Basic Solidity knowledge
+- MON tokens for gas fees
+
+## Overview
+
+Monad is EVM-compatible at the bytecode level, so your existing Ethereum development tools work without modification. The main differences you'll notice:
+
+- **1-second finality**: Your contract is confirmed immediately after deployment
+- **No reorganizations**: Once deployed, your contract address is permanent
+- **300M gas limit**: Complex contracts deploy without hitting gas limits
+
+This tutorial covers deployment with both Hardhat (JavaScript) and Foundry (Rust-based CLI), plus verification on two block explorers.
+
+## Deploy with Hardhat
+
+### Set up the project
+
+Create a new directory and initialize a Hardhat project:
+
+```bash
+mkdir monad-contract && cd monad-contract
+npm init -y
+npm install --save-dev hardhat @nomicfoundation/hardhat-toolbox dotenv
+npx hardhat init
+```
+
+Select "Create a JavaScript project" when prompted.
+
+### Configure environment variables
+
+Create a `.env` file in your project root:
+
+```bash .env
+CHAINSTACK_ENDPOINT="YOUR_CHAINSTACK_MONAD_ENDPOINT"
+PRIVATE_KEY="YOUR_WALLET_PRIVATE_KEY"
+MONADSCAN_API_KEY="YOUR_MONADSCAN_API_KEY"
+```
+
+<Warning>
+Never commit your `.env` file to version control. Add it to `.gitignore`.
+</Warning>
+
+### Configure Hardhat for Monad
+
+Replace the contents of `hardhat.config.js`:
+
+```javascript hardhat.config.js
+require("@nomicfoundation/hardhat-toolbox");
+require("dotenv").config();
+
+module.exports = {
+  solidity: "0.8.24",
+  networks: {
+    monad: {
+      url: process.env.CHAINSTACK_ENDPOINT,
+      chainId: 143,
+      accounts: [process.env.PRIVATE_KEY],
+    },
+  },
+  etherscan: {
+    apiKey: {
+      monad: process.env.MONADSCAN_API_KEY,
+    },
+    customChains: [
+      {
+        network: "monad",
+        chainId: 143,
+        urls: {
+          apiURL: "https://api.monadscan.com/api",
+          browserURL: "https://monadscan.com",
+        },
+      },
+    ],
+  },
+  sourcify: {
+    enabled: true,
+    apiUrl: "https://sourcify-api-monad.blockvision.org",
+    browserUrl: "https://monadexplorer.com",
+  },
+};
+```
+
+### Write the smart contract
+
+Create `contracts/Counter.sol`:
+
+```solidity contracts/Counter.sol
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+contract Counter {
+    uint256 public count;
+
+    event CountChanged(uint256 newCount, address changedBy);
+
+    constructor(uint256 _initialCount) {
+        count = _initialCount;
+    }
+
+    function increment() public {
+        count += 1;
+        emit CountChanged(count, msg.sender);
+    }
+
+    function decrement() public {
+        require(count > 0, "Counter: cannot decrement below zero");
+        count -= 1;
+        emit CountChanged(count, msg.sender);
+    }
+
+    function setCount(uint256 _count) public {
+        count = _count;
+        emit CountChanged(count, msg.sender);
+    }
+}
+```
+
+### Create the deployment script
+
+Create `scripts/deploy.js`:
+
+```javascript scripts/deploy.js
+const hre = require("hardhat");
+
+async function main() {
+  console.log("Deploying Counter contract to Monad...");
+
+  const initialCount = 0;
+  const counter = await hre.ethers.deployContract("Counter", [initialCount]);
+  await counter.waitForDeployment();
+
+  const address = await counter.getAddress();
+  console.log(`Counter deployed to: ${address}`);
+  console.log(`Initial count: ${initialCount}`);
+
+  // Wait a few seconds before verification
+  console.log("Waiting for block confirmations...");
+  await new Promise((resolve) => setTimeout(resolve, 5000));
+
+  return address;
+}
+
+main()
+  .then(() => process.exit(0))
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+```
+
+### Deploy the contract
+
+Run the deployment:
+
+```bash
+npx hardhat run scripts/deploy.js --network monad
+```
+
+You'll see output like:
+
+```
+Deploying Counter contract to Monad...
+Counter deployed to: 0x1234567890abcdef1234567890abcdef12345678
+Initial count: 0
+Waiting for block confirmations...
+```
+
+### Verify on Monadscan
+
+Verify using the Etherscan-compatible API:
+
+```bash
+npx hardhat verify --network monad CONTRACT_ADDRESS 0
+```
+
+Replace `CONTRACT_ADDRESS` with your deployed address. The `0` is the constructor argument (initial count).
+
+### Verify on MonadExplorer (Sourcify)
+
+Verify using Sourcify:
+
+```bash
+npx hardhat verify --network monad --verifier sourcify CONTRACT_ADDRESS 0
+```
+
+## Deploy with Foundry
+
+Foundry offers faster compilation and a streamlined CLI experience.
+
+### Set up the project
+
+```bash
+mkdir monad-foundry && cd monad-foundry
+forge init
+```
+
+### Write the contract
+
+Replace `src/Counter.sol`:
+
+```solidity src/Counter.sol
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+contract Counter {
+    uint256 public count;
+
+    event CountChanged(uint256 newCount, address changedBy);
+
+    constructor(uint256 _initialCount) {
+        count = _initialCount;
+    }
+
+    function increment() public {
+        count += 1;
+        emit CountChanged(count, msg.sender);
+    }
+
+    function decrement() public {
+        require(count > 0, "Counter: cannot decrement below zero");
+        count -= 1;
+        emit CountChanged(count, msg.sender);
+    }
+
+    function setCount(uint256 _count) public {
+        count = _count;
+        emit CountChanged(count, msg.sender);
+    }
+}
+```
+
+### Deploy with forge
+
+```bash
+forge create src/Counter.sol:Counter \
+  --constructor-args 0 \
+  --private-key YOUR_PRIVATE_KEY \
+  --rpc-url YOUR_CHAINSTACK_ENDPOINT
+```
+
+You'll see output including the deployed contract address.
+
+### Verify on MonadExplorer (Sourcify)
+
+```bash
+forge verify-contract CONTRACT_ADDRESS src/Counter.sol:Counter \
+  --verifier sourcify \
+  --verifier-url https://sourcify-api-monad.blockvision.org \
+  --rpc-url YOUR_CHAINSTACK_ENDPOINT
+```
+
+### Verify on Monadscan
+
+```bash
+forge verify-contract CONTRACT_ADDRESS src/Counter.sol:Counter \
+  --verifier etherscan \
+  --verifier-url https://api.monadscan.com/api \
+  --etherscan-api-key YOUR_MONADSCAN_API_KEY \
+  --rpc-url YOUR_CHAINSTACK_ENDPOINT \
+  --constructor-args $(cast abi-encode "constructor(uint256)" 0)
+```
+
+## Interact with your contract
+
+After deployment, interact with your contract using cast (Foundry) or a script.
+
+### Using cast
+
+```bash
+# Read the count
+cast call CONTRACT_ADDRESS "count()" --rpc-url YOUR_CHAINSTACK_ENDPOINT
+
+# Increment the counter
+cast send CONTRACT_ADDRESS "increment()" \
+  --private-key YOUR_PRIVATE_KEY \
+  --rpc-url YOUR_CHAINSTACK_ENDPOINT
+
+# Check the new count
+cast call CONTRACT_ADDRESS "count()" --rpc-url YOUR_CHAINSTACK_ENDPOINT
+```
+
+### Using ethers.js
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("YOUR_CHAINSTACK_ENDPOINT");
+const wallet = new ethers.Wallet("YOUR_PRIVATE_KEY", provider);
+
+const counterABI = [
+  "function count() view returns (uint256)",
+  "function increment()",
+  "function decrement()",
+  "function setCount(uint256)",
+  "event CountChanged(uint256 newCount, address changedBy)",
+];
+
+const counter = new ethers.Contract("CONTRACT_ADDRESS", counterABI, wallet);
+
+async function main() {
+  // Read current count
+  const currentCount = await counter.count();
+  console.log(`Current count: ${currentCount}`);
+
+  // Increment
+  const tx = await counter.increment();
+  console.log(`Transaction hash: ${tx.hash}`);
+  await tx.wait();
+
+  // Read new count
+  const newCount = await counter.count();
+  console.log(`New count: ${newCount}`);
+}
+
+main();
+```
+
+## Monad-specific notes
+
+<Note>
+**Key differences from other EVM chains:**
+- **1-second finality**: No need to wait for multiple confirmations. Once the transaction is included in a block, it's final.
+- **No pending state**: Transactions go directly from submitted to confirmed. The mempool works differently than Ethereum.
+- **High throughput**: You can deploy multiple contracts in rapid succession without congestion.
+- **Same tooling**: All Ethereum tools (Hardhat, Foundry, Remix, etc.) work without modification.
+</Note>
+
+## Block explorers
+
+After deployment, view your contract on:
+
+- **MonadExplorer** (BlockVision): `https://monadexplorer.com/address/CONTRACT_ADDRESS`
+- **Monadscan**: `https://monadscan.com/address/CONTRACT_ADDRESS`
+- **MonVision**: `https://monvision.io/address/CONTRACT_ADDRESS`
+
+## Troubleshooting
+
+### Verification fails with "contract not found"
+
+Wait 10-15 seconds after deployment before verifying. Monad's fast finality means the contract is deployed quickly, but explorers may need time to index it.
+
+### Gas estimation errors
+
+Monad has a 300M gas limit per block. If you're hitting gas errors, check:
+- Your contract isn't infinite looping
+- Constructor logic is reasonable
+- You have enough MON for gas fees
+
+### RPC connection issues
+
+Ensure your Chainstack endpoint is correct and includes the full URL with any authentication.
+
+## Next steps
+
+Now that you can deploy and verify contracts, you can:
+- Build more complex smart contracts
+- Create a frontend to interact with your contract
+- Set up continuous deployment pipelines
+- Explore Monad's high-throughput capabilities with batch transactions
