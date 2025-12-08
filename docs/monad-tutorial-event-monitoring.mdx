@@ -1,0 +1,637 @@
+---
+title: "Monad: Monitoring events and transactions"
+description: "Build real-time monitoring tools for Monad smart contracts using polling-based event tracking with ethers.js and web3.py"
+---
+
+This tutorial teaches you how to monitor on-chain events and transactions on Monad. Since Monad doesn't currently support WebSocket subscriptions, you'll learn polling-based techniques that work reliably with Monad's 1-second blocks.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+**TLDR:**
+* Monitor ERC-20 Transfer events using eth_getLogs
+* Build a polling-based block and event monitor
+* Track specific contract events in real-time
+* Handle Monad's high-throughput blocks efficiently
+* Both JavaScript and Python implementations
+
+## Prerequisites
+
+- [Chainstack account](https://console.chainstack.com/) with a Monad node endpoint
+- Node.js v16+ or Python 3.8+
+- Basic understanding of Ethereum events and logs
+
+## Overview
+
+Monad's event monitoring differs from Ethereum in a few ways:
+
+- **No WebSocket subscriptions**: Use polling instead of `eth_subscribe`
+- **1-second blocks**: Poll every second to match block production
+- **High transaction volume**: Blocks contain many transactions, so use small block ranges
+- **Immediate finality**: No need to wait for confirmations or handle reorgs
+
+This tutorial shows you how to build efficient monitoring tools that work with Monad's architecture.
+
+## Understanding Monad's event system
+
+Events (logs) on Monad work the same as Ethereum:
+
+1. Smart contracts emit events during execution
+2. Events are stored in transaction receipts
+3. You query events using `eth_getLogs` with filters
+
+The key difference is retrieval strategy. On Monad:
+
+- Use small block ranges (1-10 blocks) per query
+- Poll every 1 second to match block time
+- Process logs immediately since they're final
+
+## Monitor WMON Transfer events
+
+Let's start by monitoring Transfer events on WMON (Wrapped MON), the most common token on Monad.
+
+### JavaScript implementation
+
+```javascript monitor-wmon.js
+const { ethers } = require("ethers");
+
+const CHAINSTACK_ENDPOINT = "YOUR_CHAINSTACK_MONAD_ENDPOINT";
+const WMON_ADDRESS = "0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701";
+
+// Transfer event signature: keccak256("Transfer(address,address,uint256)")
+const TRANSFER_TOPIC = ethers.id("Transfer(address,address,uint256)");
+
+const provider = new ethers.JsonRpcProvider(CHAINSTACK_ENDPOINT);
+
+async function getTransferEvents(fromBlock, toBlock) {
+  const filter = {
+    address: WMON_ADDRESS,
+    topics: [TRANSFER_TOPIC],
+    fromBlock: fromBlock,
+    toBlock: toBlock,
+  };
+
+  const logs = await provider.getLogs(filter);
+  return logs;
+}
+
+function decodeTransferEvent(log) {
+  // Transfer(address indexed from, address indexed to, uint256 value)
+  const from = "0x" + log.topics[1].slice(26);
+  const to = "0x" + log.topics[2].slice(26);
+  const value = BigInt(log.data);
+
+  return {
+    from,
+    to,
+    value: ethers.formatEther(value),
+    blockNumber: log.blockNumber,
+    transactionHash: log.transactionHash,
+    logIndex: log.index,
+  };
+}
+
+async function monitorTransfers() {
+  let lastBlock = await provider.getBlockNumber();
+  console.log(`Starting WMON Transfer monitor at block ${lastBlock}`);
+  console.log(`Contract: ${WMON_ADDRESS}\n`);
+
+  // Poll every second
+  setInterval(async () => {
+    try {
+      const currentBlock = await provider.getBlockNumber();
+
+      if (currentBlock > lastBlock) {
+        // Query new blocks
+        const fromBlock = lastBlock + 1;
+        const toBlock = currentBlock;
+
+        console.log(`Checking blocks ${fromBlock} to ${toBlock}...`);
+
+        const logs = await getTransferEvents(fromBlock, toBlock);
+
+        if (logs.length > 0) {
+          console.log(`Found ${logs.length} Transfer events:\n`);
+
+          for (const log of logs) {
+            const transfer = decodeTransferEvent(log);
+            console.log(`Block ${transfer.blockNumber}:`);
+            console.log(`  From: ${transfer.from}`);
+            console.log(`  To:   ${transfer.to}`);
+            console.log(`  Amount: ${transfer.value} WMON`);
+            console.log(`  Tx: ${transfer.transactionHash}\n`);
+          }
+        }
+
+        lastBlock = currentBlock;
+      }
+    } catch (error) {
+      console.error("Error:", error.message);
+    }
+  }, 1000);
+}
+
+monitorTransfers();
+```
+
+Run:
+
+```bash
+node monitor-wmon.js
+```
+
+### Python implementation
+
+```python monitor_wmon.py
+from web3 import Web3
+import time
+
+CHAINSTACK_ENDPOINT = "YOUR_CHAINSTACK_MONAD_ENDPOINT"
+WMON_ADDRESS = "0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701"
+
+# Transfer event signature
+TRANSFER_TOPIC = Web3.keccak(text="Transfer(address,address,uint256)").hex()
+
+web3 = Web3(Web3.HTTPProvider(CHAINSTACK_ENDPOINT))
+print(f"Connected: {web3.is_connected()}")
+
+def get_transfer_events(from_block, to_block):
+    """Fetch Transfer events in a block range."""
+    filter_params = {
+        'address': WMON_ADDRESS,
+        'topics': [TRANSFER_TOPIC],
+        'fromBlock': from_block,
+        'toBlock': to_block
+    }
+
+    logs = web3.eth.get_logs(filter_params)
+    return logs
+
+def decode_transfer_event(log):
+    """Decode a Transfer event log."""
+    from_address = '0x' + log['topics'][1].hex()[26:]
+    to_address = '0x' + log['topics'][2].hex()[26:]
+    value = int(log['data'].hex(), 16)
+
+    return {
+        'from': Web3.to_checksum_address(from_address),
+        'to': Web3.to_checksum_address(to_address),
+        'value': web3.from_wei(value, 'ether'),
+        'block_number': log['blockNumber'],
+        'transaction_hash': log['transactionHash'].hex(),
+        'log_index': log['logIndex']
+    }
+
+def monitor_transfers():
+    """Monitor WMON Transfer events continuously."""
+    last_block = web3.eth.block_number
+    print(f"Starting WMON Transfer monitor at block {last_block}")
+    print(f"Contract: {WMON_ADDRESS}\n")
+
+    while True:
+        try:
+            current_block = web3.eth.block_number
+
+            if current_block > last_block:
+                from_block = last_block + 1
+                to_block = current_block
+
+                print(f"Checking blocks {from_block} to {to_block}...")
+
+                logs = get_transfer_events(from_block, to_block)
+
+                if logs:
+                    print(f"Found {len(logs)} Transfer events:\n")
+
+                    for log in logs:
+                        transfer = decode_transfer_event(log)
+                        print(f"Block {transfer['block_number']}:")
+                        print(f"  From: {transfer['from']}")
+                        print(f"  To:   {transfer['to']}")
+                        print(f"  Amount: {transfer['value']} WMON")
+                        print(f"  Tx: {transfer['transaction_hash']}\n")
+
+                last_block = current_block
+
+            # Poll every second
+            time.sleep(1)
+
+        except Exception as e:
+            print(f"Error: {e}")
+            time.sleep(1)
+
+if __name__ == "__main__":
+    monitor_transfers()
+```
+
+Run:
+
+```bash
+python monitor_wmon.py
+```
+
+## Build a block monitor
+
+Monitor all transactions in new blocks:
+
+### JavaScript block monitor
+
+```javascript monitor-blocks.js
+const { ethers } = require("ethers");
+
+const CHAINSTACK_ENDPOINT = "YOUR_CHAINSTACK_MONAD_ENDPOINT";
+const provider = new ethers.JsonRpcProvider(CHAINSTACK_ENDPOINT);
+
+async function processBlock(blockNumber) {
+  const block = await provider.getBlock(blockNumber, true); // true = include transactions
+
+  const timestamp = new Date(block.timestamp * 1000).toISOString();
+  const gasUsed = block.gasUsed.toString();
+  const gasLimit = block.gasLimit.toString();
+  const utilization = ((Number(block.gasUsed) / Number(block.gasLimit)) * 100).toFixed(2);
+
+  console.log(`\n=== Block ${blockNumber} ===`);
+  console.log(`Timestamp: ${timestamp}`);
+  console.log(`Transactions: ${block.transactions.length}`);
+  console.log(`Gas used: ${gasUsed} / ${gasLimit} (${utilization}%)`);
+  console.log(`Miner: ${block.miner}`);
+
+  // Process individual transactions if needed
+  if (block.prefetchedTransactions && block.prefetchedTransactions.length > 0) {
+    // Show first 5 transactions
+    const txs = block.prefetchedTransactions.slice(0, 5);
+    console.log(`\nFirst ${txs.length} transactions:`);
+
+    for (const tx of txs) {
+      const value = ethers.formatEther(tx.value);
+      console.log(`  ${tx.hash.slice(0, 18)}... | ${tx.from.slice(0, 10)}... -> ${tx.to?.slice(0, 10) || 'Contract creation'}... | ${value} MON`);
+    }
+
+    if (block.prefetchedTransactions.length > 5) {
+      console.log(`  ... and ${block.prefetchedTransactions.length - 5} more`);
+    }
+  }
+}
+
+async function monitorBlocks() {
+  let lastBlock = await provider.getBlockNumber();
+  console.log(`Starting block monitor at block ${lastBlock}`);
+
+  setInterval(async () => {
+    try {
+      const currentBlock = await provider.getBlockNumber();
+
+      if (currentBlock > lastBlock) {
+        for (let i = lastBlock + 1; i <= currentBlock; i++) {
+          await processBlock(i);
+        }
+        lastBlock = currentBlock;
+      }
+    } catch (error) {
+      console.error("Error:", error.message);
+    }
+  }, 1000);
+}
+
+monitorBlocks();
+```
+
+### Python block monitor
+
+```python monitor_blocks.py
+from web3 import Web3
+import time
+from datetime import datetime
+
+CHAINSTACK_ENDPOINT = "YOUR_CHAINSTACK_MONAD_ENDPOINT"
+web3 = Web3(Web3.HTTPProvider(CHAINSTACK_ENDPOINT))
+
+def process_block(block_number):
+    """Process and display block information."""
+    block = web3.eth.get_block(block_number, full_transactions=True)
+
+    timestamp = datetime.fromtimestamp(block.timestamp).isoformat()
+    gas_used = block.gasUsed
+    gas_limit = block.gasLimit
+    utilization = (gas_used / gas_limit) * 100
+
+    print(f"\n=== Block {block_number} ===")
+    print(f"Timestamp: {timestamp}")
+    print(f"Transactions: {len(block.transactions)}")
+    print(f"Gas used: {gas_used:,} / {gas_limit:,} ({utilization:.2f}%)")
+    print(f"Miner: {block.miner}")
+
+    # Show first 5 transactions
+    if block.transactions:
+        txs = block.transactions[:5]
+        print(f"\nFirst {len(txs)} transactions:")
+
+        for tx in txs:
+            value = web3.from_wei(tx.value, 'ether')
+            to_addr = tx.to[:10] + '...' if tx.to else 'Contract creation'
+            print(f"  {tx.hash.hex()[:18]}... | {tx['from'][:10]}... -> {to_addr} | {value:.4f} MON")
+
+        if len(block.transactions) > 5:
+            print(f"  ... and {len(block.transactions) - 5} more")
+
+def monitor_blocks():
+    """Monitor new blocks continuously."""
+    last_block = web3.eth.block_number
+    print(f"Starting block monitor at block {last_block}")
+
+    while True:
+        try:
+            current_block = web3.eth.block_number
+
+            if current_block > last_block:
+                for block_num in range(last_block + 1, current_block + 1):
+                    process_block(block_num)
+                last_block = current_block
+
+            time.sleep(1)
+
+        except Exception as e:
+            print(f"Error: {e}")
+            time.sleep(1)
+
+if __name__ == "__main__":
+    monitor_blocks()
+```
+
+## Monitor custom contract events
+
+Track events from any contract by defining the event signature:
+
+```javascript monitor-custom.js
+const { ethers } = require("ethers");
+
+const CHAINSTACK_ENDPOINT = "YOUR_CHAINSTACK_MONAD_ENDPOINT";
+const provider = new ethers.JsonRpcProvider(CHAINSTACK_ENDPOINT);
+
+// Example: Monitor any ERC-20 Approval events
+const APPROVAL_TOPIC = ethers.id("Approval(address,address,uint256)");
+
+// Or monitor a specific contract
+const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS";
+const CUSTOM_EVENT_TOPIC = ethers.id("YourEvent(address,uint256)");
+
+async function monitorEvents(address, topics, eventName) {
+  let lastBlock = await provider.getBlockNumber();
+  console.log(`Monitoring ${eventName} events from block ${lastBlock}`);
+
+  setInterval(async () => {
+    try {
+      const currentBlock = await provider.getBlockNumber();
+
+      if (currentBlock > lastBlock) {
+        const filter = {
+          address: address, // null for all contracts
+          topics: topics,
+          fromBlock: lastBlock + 1,
+          toBlock: currentBlock,
+        };
+
+        const logs = await provider.getLogs(filter);
+
+        if (logs.length > 0) {
+          console.log(`\nFound ${logs.length} ${eventName} events:`);
+          for (const log of logs) {
+            console.log(`  Block ${log.blockNumber}: ${log.transactionHash}`);
+          }
+        }
+
+        lastBlock = currentBlock;
+      }
+    } catch (error) {
+      console.error("Error:", error.message);
+    }
+  }, 1000);
+}
+
+// Monitor all ERC-20 Approvals on Monad
+monitorEvents(null, [APPROVAL_TOPIC], "Approval");
+```
+
+## Filter events by address
+
+Monitor transfers to or from a specific address:
+
+```javascript monitor-address.js
+const { ethers } = require("ethers");
+
+const CHAINSTACK_ENDPOINT = "YOUR_CHAINSTACK_MONAD_ENDPOINT";
+const WMON_ADDRESS = "0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701";
+const WATCH_ADDRESS = "YOUR_ADDRESS_TO_WATCH";
+
+const TRANSFER_TOPIC = ethers.id("Transfer(address,address,uint256)");
+
+const provider = new ethers.JsonRpcProvider(CHAINSTACK_ENDPOINT);
+
+async function monitorAddressTransfers(address) {
+  let lastBlock = await provider.getBlockNumber();
+
+  // Pad address to 32 bytes for topic matching
+  const paddedAddress = ethers.zeroPadValue(address, 32);
+
+  console.log(`Monitoring WMON transfers for ${address}`);
+  console.log(`Starting at block ${lastBlock}\n`);
+
+  setInterval(async () => {
+    try {
+      const currentBlock = await provider.getBlockNumber();
+
+      if (currentBlock > lastBlock) {
+        // Incoming transfers (address is 'to')
+        const incomingFilter = {
+          address: WMON_ADDRESS,
+          topics: [TRANSFER_TOPIC, null, paddedAddress],
+          fromBlock: lastBlock + 1,
+          toBlock: currentBlock,
+        };
+
+        // Outgoing transfers (address is 'from')
+        const outgoingFilter = {
+          address: WMON_ADDRESS,
+          topics: [TRANSFER_TOPIC, paddedAddress, null],
+          fromBlock: lastBlock + 1,
+          toBlock: currentBlock,
+        };
+
+        const [incomingLogs, outgoingLogs] = await Promise.all([
+          provider.getLogs(incomingFilter),
+          provider.getLogs(outgoingFilter),
+        ]);
+
+        for (const log of incomingLogs) {
+          const from = "0x" + log.topics[1].slice(26);
+          const value = ethers.formatEther(BigInt(log.data));
+          console.log(`📥 INCOMING: ${value} WMON from ${from}`);
+          console.log(`   Tx: ${log.transactionHash}\n`);
+        }
+
+        for (const log of outgoingLogs) {
+          const to = "0x" + log.topics[2].slice(26);
+          const value = ethers.formatEther(BigInt(log.data));
+          console.log(`📤 OUTGOING: ${value} WMON to ${to}`);
+          console.log(`   Tx: ${log.transactionHash}\n`);
+        }
+
+        lastBlock = currentBlock;
+      }
+    } catch (error) {
+      console.error("Error:", error.message);
+    }
+  }, 1000);
+}
+
+monitorAddressTransfers(WATCH_ADDRESS);
+```
+
+## Best practices for Monad
+
+<Note>
+**Optimize your monitoring for Monad's characteristics:**
+
+1. **Use small block ranges**: Query 1-10 blocks at a time. Monad blocks can contain thousands of transactions.
+
+2. **Poll every second**: Monad produces blocks every ~1 second. Polling faster wastes requests; slower misses events.
+
+3. **Handle high volume**: Be prepared for blocks with many events. Process asynchronously if needed.
+
+4. **No reorg handling needed**: Monad has instant finality. Once you see an event, it's permanent.
+
+5. **Batch your queries**: If monitoring multiple contracts, combine filters where possible.
+</Note>
+
+<Warning>
+**eth_getLogs limitations:**
+- Most nodes limit the block range per query (typically 1,000-10,000 blocks)
+- For historical data, paginate through block ranges
+- For real-time monitoring, stick to recent blocks only
+</Warning>
+
+## Monad-specific notes
+
+<Note>
+**Key differences from Ethereum monitoring:**
+
+- **No eth_subscribe**: WebSocket subscriptions aren't available yet. Use HTTP polling.
+- **1-second blocks**: Events appear faster than on Ethereum. Your monitor needs to keep up.
+- **No pending transactions**: You can't monitor the mempool. Only confirmed transactions are visible.
+- **Immediate finality**: No need to wait for confirmations. Events are final when you see them.
+- **High throughput**: Expect more events per block than on Ethereum. Design accordingly.
+</Note>
+
+## Complete monitoring script
+
+A production-ready monitor combining all techniques:
+
+```javascript monitor-complete.js
+const { ethers } = require("ethers");
+
+const CHAINSTACK_ENDPOINT = "YOUR_CHAINSTACK_MONAD_ENDPOINT";
+const provider = new ethers.JsonRpcProvider(CHAINSTACK_ENDPOINT);
+
+class MonadEventMonitor {
+  constructor(config) {
+    this.lastBlock = 0;
+    this.config = config;
+    this.isRunning = false;
+  }
+
+  async start() {
+    this.lastBlock = await provider.getBlockNumber();
+    this.isRunning = true;
+    console.log(`Monitor started at block ${this.lastBlock}`);
+    this.poll();
+  }
+
+  stop() {
+    this.isRunning = false;
+    console.log("Monitor stopped");
+  }
+
+  async poll() {
+    while (this.isRunning) {
+      try {
+        const currentBlock = await provider.getBlockNumber();
+
+        if (currentBlock > this.lastBlock) {
+          await this.processNewBlocks(this.lastBlock + 1, currentBlock);
+          this.lastBlock = currentBlock;
+        }
+
+        await this.sleep(1000);
+      } catch (error) {
+        console.error("Poll error:", error.message);
+        await this.sleep(1000);
+      }
+    }
+  }
+
+  async processNewBlocks(fromBlock, toBlock) {
+    for (const filter of this.config.filters) {
+      const filterWithBlocks = {
+        ...filter.params,
+        fromBlock,
+        toBlock,
+      };
+
+      const logs = await provider.getLogs(filterWithBlocks);
+
+      if (logs.length > 0) {
+        filter.handler(logs);
+      }
+    }
+  }
+
+  sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+}
+
+// Example usage
+const WMON = "0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701";
+const TRANSFER = ethers.id("Transfer(address,address,uint256)");
+
+const monitor = new MonadEventMonitor({
+  filters: [
+    {
+      name: "WMON Transfers",
+      params: {
+        address: WMON,
+        topics: [TRANSFER],
+      },
+      handler: (logs) => {
+        console.log(`\n📊 ${logs.length} WMON transfers detected`);
+        for (const log of logs.slice(0, 3)) {
+          const value = ethers.formatEther(BigInt(log.data));
+          console.log(`  ${value} WMON in block ${log.blockNumber}`);
+        }
+        if (logs.length > 3) {
+          console.log(`  ... and ${logs.length - 3} more`);
+        }
+      },
+    },
+  ],
+});
+
+monitor.start();
+
+// Stop after 60 seconds (for demo)
+// setTimeout(() => monitor.stop(), 60000);
+```
+
+## Next steps
+
+Now that you can monitor events on Monad, you can:
+- Build real-time dashboards for DEX activity
+- Create alerting systems for large transfers
+- Track NFT mints and sales
+- Monitor your own smart contract events
+- Build analytics pipelines for on-chain data

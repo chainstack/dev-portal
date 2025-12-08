@@ -1,0 +1,541 @@
+---
+title: "Monad: Minting and managing NFTs"
+description: "Build and deploy an ERC-721 NFT collection on Monad mainnet with Hardhat and OpenZeppelin, then mint and query NFTs programmatically"
+---
+
+This tutorial teaches you how to create, deploy, and interact with an ERC-721 NFT collection on Monad. You'll build a mintable NFT contract with OpenZeppelin and learn to mint NFTs using both JavaScript and Python.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+**TLDR:**
+* Create an ERC-721 NFT collection contract with OpenZeppelin
+* Deploy to Monad mainnet with Hardhat
+* Mint NFTs programmatically using ethers.js and web3.py
+* Query NFT ownership and metadata
+* Understand why Monad's 1-second finality is ideal for NFTs
+
+## Prerequisites
+
+- [Chainstack account](https://console.chainstack.com/) with a Monad node endpoint
+- Node.js v16+ and Python 3.8+
+- Basic Solidity knowledge
+- MON tokens for gas fees
+
+## Overview
+
+NFTs on Monad benefit from:
+
+- **Instant ownership confirmation**: 1-second finality means buyers see their NFT immediately
+- **High throughput**: Mint thousands of NFTs without network congestion
+- **Low latency**: Real-time updates for marketplaces and galleries
+- **No reorganizations**: Ownership is permanent once confirmed
+
+This tutorial covers the full lifecycle: contract creation, deployment, minting, and querying.
+
+## Create the NFT contract
+
+### Set up the project
+
+```bash
+mkdir monad-nft && cd monad-nft
+npm init -y
+npm install --save-dev hardhat @nomicfoundation/hardhat-toolbox dotenv
+npm install @openzeppelin/contracts
+npx hardhat init
+```
+
+Select "Create a JavaScript project" when prompted.
+
+### Configure environment variables
+
+Create a `.env` file:
+
+```bash .env
+CHAINSTACK_ENDPOINT="YOUR_CHAINSTACK_MONAD_ENDPOINT"
+PRIVATE_KEY="YOUR_WALLET_PRIVATE_KEY"
+```
+
+### Configure Hardhat
+
+Replace `hardhat.config.js`:
+
+```javascript hardhat.config.js
+require("@nomicfoundation/hardhat-toolbox");
+require("dotenv").config();
+
+module.exports = {
+  solidity: "0.8.24",
+  networks: {
+    monad: {
+      url: process.env.CHAINSTACK_ENDPOINT,
+      chainId: 143,
+      accounts: [process.env.PRIVATE_KEY],
+    },
+  },
+};
+```
+
+### Write the NFT contract
+
+Create `contracts/MonadNFT.sol`:
+
+```solidity contracts/MonadNFT.sol
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract MonadNFT is ERC721, ERC721URIStorage, Ownable {
+    uint256 private _nextTokenId;
+    uint256 public maxSupply;
+    uint256 public mintPrice;
+
+    event NFTMinted(address indexed to, uint256 indexed tokenId, string tokenURI);
+
+    constructor(
+        string memory name,
+        string memory symbol,
+        uint256 _maxSupply,
+        uint256 _mintPrice
+    ) ERC721(name, symbol) Ownable(msg.sender) {
+        maxSupply = _maxSupply;
+        mintPrice = _mintPrice;
+    }
+
+    function mint(address to, string memory uri) public payable returns (uint256) {
+        require(_nextTokenId < maxSupply, "Max supply reached");
+        require(msg.value >= mintPrice, "Insufficient payment");
+
+        uint256 tokenId = _nextTokenId;
+        _nextTokenId++;
+
+        _safeMint(to, tokenId);
+        _setTokenURI(tokenId, uri);
+
+        emit NFTMinted(to, tokenId, uri);
+
+        return tokenId;
+    }
+
+    function ownerMint(address to, string memory uri) public onlyOwner returns (uint256) {
+        require(_nextTokenId < maxSupply, "Max supply reached");
+
+        uint256 tokenId = _nextTokenId;
+        _nextTokenId++;
+
+        _safeMint(to, tokenId);
+        _setTokenURI(tokenId, uri);
+
+        emit NFTMinted(to, tokenId, uri);
+
+        return tokenId;
+    }
+
+    function totalSupply() public view returns (uint256) {
+        return _nextTokenId;
+    }
+
+    function withdraw() public onlyOwner {
+        uint256 balance = address(this).balance;
+        payable(owner()).transfer(balance);
+    }
+
+    // Required overrides
+    function tokenURI(uint256 tokenId)
+        public
+        view
+        override(ERC721, ERC721URIStorage)
+        returns (string memory)
+    {
+        return super.tokenURI(tokenId);
+    }
+
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        override(ERC721, ERC721URIStorage)
+        returns (bool)
+    {
+        return super.supportsInterface(interfaceId);
+    }
+}
+```
+
+This contract includes:
+- **Mintable NFTs** with customizable metadata URIs
+- **Max supply** to limit collection size
+- **Mint price** for public mints
+- **Owner minting** for free mints by the contract owner
+- **Events** for tracking mints
+
+## Deploy the contract
+
+Create `scripts/deploy.js`:
+
+```javascript scripts/deploy.js
+const hre = require("hardhat");
+
+async function main() {
+  console.log("Deploying MonadNFT contract...");
+
+  const name = "Monad Collection";
+  const symbol = "MNFT";
+  const maxSupply = 10000;
+  const mintPrice = hre.ethers.parseEther("0.01"); // 0.01 MON
+
+  const nft = await hre.ethers.deployContract("MonadNFT", [
+    name,
+    symbol,
+    maxSupply,
+    mintPrice,
+  ]);
+
+  await nft.waitForDeployment();
+  const address = await nft.getAddress();
+
+  console.log(`MonadNFT deployed to: ${address}`);
+  console.log(`Name: ${name}`);
+  console.log(`Symbol: ${symbol}`);
+  console.log(`Max supply: ${maxSupply}`);
+  console.log(`Mint price: 0.01 MON`);
+}
+
+main()
+  .then(() => process.exit(0))
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+```
+
+Deploy:
+
+```bash
+npx hardhat run scripts/deploy.js --network monad
+```
+
+Save the deployed contract address for the next steps.
+
+## Mint NFTs with JavaScript
+
+Create `scripts/mint.js`:
+
+```javascript scripts/mint.js
+const { ethers } = require("ethers");
+require("dotenv").config();
+
+const NFT_ADDRESS = "YOUR_DEPLOYED_CONTRACT_ADDRESS";
+
+const NFT_ABI = [
+  "function mint(address to, string memory uri) public payable returns (uint256)",
+  "function ownerMint(address to, string memory uri) public returns (uint256)",
+  "function totalSupply() public view returns (uint256)",
+  "function ownerOf(uint256 tokenId) public view returns (address)",
+  "function tokenURI(uint256 tokenId) public view returns (string)",
+  "function balanceOf(address owner) public view returns (uint256)",
+  "function mintPrice() public view returns (uint256)",
+  "event NFTMinted(address indexed to, uint256 indexed tokenId, string tokenURI)",
+];
+
+async function main() {
+  const provider = new ethers.JsonRpcProvider(process.env.CHAINSTACK_ENDPOINT);
+  const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
+  const nft = new ethers.Contract(NFT_ADDRESS, NFT_ABI, wallet);
+
+  console.log(`Connected wallet: ${wallet.address}`);
+
+  // Get mint price
+  const mintPrice = await nft.mintPrice();
+  console.log(`Mint price: ${ethers.formatEther(mintPrice)} MON`);
+
+  // Get current supply
+  const supplyBefore = await nft.totalSupply();
+  console.log(`Current supply: ${supplyBefore}`);
+
+  // Mint an NFT
+  const tokenURI = "ipfs://QmExample123456789/metadata.json";
+
+  console.log("\nMinting NFT...");
+  const tx = await nft.mint(wallet.address, tokenURI, { value: mintPrice });
+  console.log(`Transaction hash: ${tx.hash}`);
+
+  const receipt = await tx.wait();
+  console.log(`Transaction confirmed in block: ${receipt.blockNumber}`);
+
+  // Parse the NFTMinted event
+  const mintEvent = receipt.logs.find(
+    (log) => log.topics[0] === ethers.id("NFTMinted(address,uint256,string)")
+  );
+
+  if (mintEvent) {
+    const tokenId = parseInt(mintEvent.topics[2], 16);
+    console.log(`\nMinted token ID: ${tokenId}`);
+
+    // Query the newly minted NFT
+    const owner = await nft.ownerOf(tokenId);
+    const uri = await nft.tokenURI(tokenId);
+
+    console.log(`Owner: ${owner}`);
+    console.log(`Token URI: ${uri}`);
+  }
+
+  // Get updated supply
+  const supplyAfter = await nft.totalSupply();
+  console.log(`\nNew total supply: ${supplyAfter}`);
+}
+
+main().catch(console.error);
+```
+
+Run:
+
+```bash
+node scripts/mint.js
+```
+
+## Mint NFTs with Python
+
+Install web3.py:
+
+```bash
+pip install web3
+```
+
+Create `mint.py`:
+
+```python mint.py
+from web3 import Web3
+import os
+
+# Configuration
+CHAINSTACK_ENDPOINT = "YOUR_CHAINSTACK_MONAD_ENDPOINT"
+PRIVATE_KEY = "YOUR_PRIVATE_KEY"
+NFT_ADDRESS = "YOUR_DEPLOYED_CONTRACT_ADDRESS"
+
+# Connect to Monad
+web3 = Web3(Web3.HTTPProvider(CHAINSTACK_ENDPOINT))
+print(f"Connected: {web3.is_connected()}")
+
+# Set up account
+account = web3.eth.account.from_key(PRIVATE_KEY)
+print(f"Wallet address: {account.address}")
+
+# Contract ABI (minimal for minting)
+NFT_ABI = [
+    {
+        "inputs": [
+            {"type": "address", "name": "to"},
+            {"type": "string", "name": "uri"}
+        ],
+        "name": "mint",
+        "outputs": [{"type": "uint256"}],
+        "stateMutability": "payable",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "totalSupply",
+        "outputs": [{"type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "mintPrice",
+        "outputs": [{"type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [{"type": "uint256", "name": "tokenId"}],
+        "name": "ownerOf",
+        "outputs": [{"type": "address"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [{"type": "uint256", "name": "tokenId"}],
+        "name": "tokenURI",
+        "outputs": [{"type": "string"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [{"type": "address", "name": "owner"}],
+        "name": "balanceOf",
+        "outputs": [{"type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function"
+    }
+]
+
+# Create contract instance
+nft = web3.eth.contract(address=NFT_ADDRESS, abi=NFT_ABI)
+
+def mint_nft(to_address, token_uri):
+    """Mint an NFT to the specified address."""
+
+    # Get mint price
+    mint_price = nft.functions.mintPrice().call()
+    print(f"Mint price: {web3.from_wei(mint_price, 'ether')} MON")
+
+    # Get current supply
+    supply_before = nft.functions.totalSupply().call()
+    print(f"Current supply: {supply_before}")
+
+    # Build transaction
+    tx = nft.functions.mint(to_address, token_uri).build_transaction({
+        'from': account.address,
+        'value': mint_price,
+        'gas': 200000,
+        'gasPrice': web3.eth.gas_price,
+        'nonce': web3.eth.get_transaction_count(account.address),
+        'chainId': 143
+    })
+
+    # Sign and send
+    signed_tx = web3.eth.account.sign_transaction(tx, PRIVATE_KEY)
+    tx_hash = web3.eth.send_raw_transaction(signed_tx.raw_transaction)
+    print(f"Transaction hash: {tx_hash.hex()}")
+
+    # Wait for confirmation
+    receipt = web3.eth.wait_for_transaction_receipt(tx_hash)
+    print(f"Confirmed in block: {receipt.blockNumber}")
+    print(f"Gas used: {receipt.gasUsed}")
+
+    # Get the minted token ID (it's the supply before minting)
+    token_id = supply_before
+    print(f"\nMinted token ID: {token_id}")
+
+    return token_id
+
+def query_nft(token_id):
+    """Query NFT details."""
+
+    owner = nft.functions.ownerOf(token_id).call()
+    uri = nft.functions.tokenURI(token_id).call()
+
+    print(f"\nToken ID: {token_id}")
+    print(f"Owner: {owner}")
+    print(f"Token URI: {uri}")
+
+def get_balance(address):
+    """Get NFT balance for an address."""
+
+    balance = nft.functions.balanceOf(address).call()
+    print(f"\nNFT balance for {address}: {balance}")
+    return balance
+
+if __name__ == "__main__":
+    # Mint an NFT
+    token_uri = "ipfs://QmExample123456789/metadata.json"
+    token_id = mint_nft(account.address, token_uri)
+
+    # Query the minted NFT
+    query_nft(token_id)
+
+    # Check balance
+    get_balance(account.address)
+```
+
+Run:
+
+```bash
+python mint.py
+```
+
+## Query NFT data
+
+### Get all NFTs owned by an address
+
+```javascript
+async function getOwnedNFTs(ownerAddress) {
+  const balance = await nft.balanceOf(ownerAddress);
+  console.log(`${ownerAddress} owns ${balance} NFTs`);
+
+  // Note: This is a simple approach. For production, use events or indexing
+  const totalSupply = await nft.totalSupply();
+  const ownedTokens = [];
+
+  for (let i = 0; i < totalSupply; i++) {
+    try {
+      const owner = await nft.ownerOf(i);
+      if (owner.toLowerCase() === ownerAddress.toLowerCase()) {
+        const uri = await nft.tokenURI(i);
+        ownedTokens.push({ tokenId: i, uri });
+      }
+    } catch (e) {
+      // Token might be burned
+    }
+  }
+
+  return ownedTokens;
+}
+```
+
+### Batch minting
+
+For minting multiple NFTs efficiently:
+
+```javascript
+async function batchMint(recipients, uris) {
+  const mintPrice = await nft.mintPrice();
+
+  for (let i = 0; i < recipients.length; i++) {
+    const tx = await nft.mint(recipients[i], uris[i], { value: mintPrice });
+    console.log(`Minting ${i + 1}/${recipients.length}: ${tx.hash}`);
+    await tx.wait();
+  }
+
+  console.log("Batch minting complete!");
+}
+```
+
+## Monad-specific notes
+
+<Note>
+**Why Monad is ideal for NFTs:**
+- **1-second finality**: Buyers see their NFT immediately after purchase. No waiting for confirmations.
+- **No reorganizations**: Once minted, ownership is permanent. No risk of losing NFTs to chain reorgs.
+- **High throughput**: Mint large collections or handle high-volume drops without network congestion.
+- **Instant marketplace updates**: Listings and sales reflect immediately on-chain.
+</Note>
+
+<Warning>
+**Token URI best practices:**
+- Store metadata on IPFS or Arweave for permanence
+- Use a standard metadata format (OpenSea metadata standards)
+- Consider using a base URI + token ID pattern for gas efficiency
+</Warning>
+
+## Complete project structure
+
+```
+monad-nft/
+├── contracts/
+│   └── MonadNFT.sol
+├── scripts/
+│   ├── deploy.js
+│   └── mint.js
+├── mint.py
+├── hardhat.config.js
+├── package.json
+└── .env
+```
+
+## Next steps
+
+Now that you can mint NFTs on Monad, you can:
+- Add metadata to IPFS using services like Pinata or NFT.Storage
+- Build a minting frontend with React or Next.js
+- Create a marketplace interface
+- Implement royalties with ERC-2981
+- Add batch minting for efficient large-scale mints
