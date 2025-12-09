@@ -1,0 +1,673 @@
+---
+title: "Hyperliquid: Bridging USDC between HyperCore and HyperEVM"
+description: "Learn how to programmatically bridge USDC between HyperCore and HyperEVM. This guide covers system addresses, the CoreWriter contract, token linking requirements, and complete code examples for both directions."
+---
+
+## TLDR
+
+| Direction | Method |
+|-----------|--------|
+| HyperCore → HyperEVM | `spot_transfer()` to system address `0x2000000000000000000000000000000000000000` |
+| HyperEVM → HyperCore | Approve native USDC to CoreDepositWallet, then call `deposit(amount, 4294967295)` for spot |
+
+## Overview
+
+Hyperliquid operates two interconnected layers:
+
+- **HyperCore** — the high-performance L1 for trading (perps and spot)
+- **HyperEVM** — the EVM-compatible layer for smart contracts
+
+Moving USDC between these layers requires understanding the bridging mechanism, system addresses, and token linking. This guide provides complete code examples for both directions.
+
+<Note>
+Connect to a [reliable Hyperliquid RPC endpoint](https://chainstack.com/build-better-with-hyperliquid/) to follow along with the examples.
+</Note>
+
+## System addresses
+
+Every token on Hyperliquid has a designated **system address** that serves as the bridge between HyperCore and HyperEVM. The format is:
+
+```
+0x20 + zeros + token_index (big-endian)
+```
+
+| Token | Index | System address |
+|-------|-------|----------------|
+| USDC | 0 | `0x2000000000000000000000000000000000000000` |
+| HYPE | N/A | `0x2222222222222222222222222222222222222222` |
+| Token 200 | 200 | `0x20000000000000000000000000000000000000c8` |
+
+<Warning>
+HYPE uses a special system address (`0x2222222222222222222222222222222222222222`) and is received as the native gas token on HyperEVM, not as an ERC20.
+</Warning>
+
+## Contract addresses
+
+### Mainnet
+
+| Contract | Address | Purpose |
+|----------|---------|---------|
+| Native USDC (Circle) | `0xb88339CB7199b77E23DB6E890353E22632Ba630f` | Standard ERC20 USDC |
+| CoreDepositWallet | `0x6b9e773128f453f5c2c60935ee2de2cbc5390a24` | Bridge contract (from `spotMeta`) |
+| System address (USDC) | `0x2000000000000000000000000000000000000000` | HyperCore → HyperEVM destination |
+| System address (HYPE) | `0x2222222222222222222222222222222222222222` | HYPE bridge |
+| CoreWriter | `0x3333333333333333333333333333333333333333` | HyperCore actions from EVM |
+
+### Testnet
+
+| Contract | Address | Purpose |
+|----------|---------|---------|
+| Native USDC (Circle) | `0x2B3370eE501B4a559b57D449569354196457D8Ab` | Standard ERC20 USDC |
+| CoreDepositWallet | `0x0b80659a4076e9e93c7dbe0f10675a16a3e5c206` | Bridge contract (from `spotMeta`) |
+| System address (USDC) | `0x2000000000000000000000000000000000000000` | HyperCore → HyperEVM destination |
+
+<Warning>
+**Important distinction between the two USDC-related contracts:**
+- **Native USDC** — Circle's standard ERC20 USDC token. Use this for DeFi apps, DEXs, and as the source for bridging.
+- **CoreDepositWallet** — Circle's bridge contract (shown in `spotMeta` as `evmContract.address`). Call `deposit()` on this contract to bridge USDC to HyperCore.
+
+The CoreDepositWallet is NOT a standard ERC20—do not call `transfer()` on it directly.
+</Warning>
+
+<Note>
+You can retrieve the correct linked USDC contract address programmatically using the `spotMeta` API endpoint. The contract address is returned in the `evmContract.address` field.
+</Note>
+
+## Endpoint requirements
+
+Different bridging operations require different endpoints:
+
+| Operation | Endpoint | Provider |
+|-----------|----------|----------|
+| HyperCore → HyperEVM (`spotSend`) | Info HTTP API | Hyperliquid public RPC only |
+| HyperEVM → HyperCore (`transfer`) | EVM JSON-RPC | Chainstack or Hyperliquid |
+| Check balances (`spotMeta`, `userState`) | Info HTTP API | Chainstack or Hyperliquid |
+| Read EVM state (`eth_call`, `eth_getBalance`) | EVM JSON-RPC | Chainstack or Hyperliquid |
+
+<Warning>
+Exchange actions like `spotSend` are only available on Hyperliquid's public RPC (`https://api.hyperliquid.xyz` for mainnet). Chainstack endpoints support Info API queries and EVM JSON-RPC but not exchange actions. See [Hyperliquid methods](/docs/hyperliquid-methods) for complete endpoint capabilities.
+</Warning>
+
+## Prerequisites
+
+<Steps>
+  <Step title="Install dependencies">
+    Install the required Python packages:
+
+    ```bash
+    pip install hyperliquid-python-sdk eth-account web3
+    ```
+  </Step>
+  <Step title="Set up configuration">
+    Create a `config.json` file with your credentials:
+
+    ```json
+    {
+      "private_key": "0x...",
+      "rpc_endpoint": "YOUR_CHAINSTACK_EVM_ENDPOINT"
+    }
+    ```
+  </Step>
+  <Step title="Verify token linking">
+    USDC must be linked between HyperCore and HyperEVM. On mainnet, USDC is already linked. On testnet, check [token linking status](#token-linking) before bridging.
+  </Step>
+</Steps>
+
+## HyperCore to HyperEVM
+
+Transfer USDC from your HyperCore spot account to your HyperEVM wallet using the `spotSend` action directed at the **system address**.
+
+<Warning>
+Exchange actions like `spotSend` require the Hyperliquid public RPC endpoint (`https://api.hyperliquid.xyz` for mainnet). Chainstack endpoints support Info API and EVM JSON-RPC but not exchange actions. See [Hyperliquid methods](/docs/hyperliquid-methods) for endpoint capabilities.
+</Warning>
+
+### Using the Python SDK
+
+```python
+#!/usr/bin/env python3
+"""
+Bridge USDC from HyperCore to HyperEVM using spotSend to system address
+"""
+
+from hyperliquid.exchange import Exchange
+from hyperliquid.info import Info
+from hyperliquid.utils import constants
+from eth_account import Account
+import json
+
+# USDC system address (token index 0)
+USDC_SYSTEM_ADDRESS = "0x2000000000000000000000000000000000000000"
+
+def bridge_to_evm(amount: float):
+    """
+    Bridge USDC from HyperCore Spot to HyperEVM.
+
+    The tokens are sent to the system address, and Hyperliquid credits
+    them to your HyperEVM address automatically.
+
+    Args:
+        amount: Amount of USDC to bridge
+    """
+    # Load configuration
+    with open('config.json') as f:
+        config = json.load(f)
+
+    wallet = Account.from_key(config['private_key'])
+
+    print(f"Bridging {amount} USDC from HyperCore to HyperEVM")
+    print(f"Wallet: {wallet.address}")
+    print(f"Sending to system address: {USDC_SYSTEM_ADDRESS}")
+
+    # Initialize exchange - must use Hyperliquid public endpoint
+    exchange = Exchange(
+        wallet=wallet,
+        base_url=constants.MAINNET_API_URL  # Exchange actions require HL public RPC
+    )
+
+    # Check current spot balance
+    info = Info(constants.MAINNET_API_URL, skip_ws=True)
+    spot_state = info.spot_user_state(wallet.address)
+    print(f"\nCurrent spot balances:")
+    for b in spot_state.get('balances', []):
+        print(f"  {b['coin']}: {b['total']}")
+
+    # spotSend to the USDC system address triggers the bridge
+    # Tokens are credited to YOUR address on HyperEVM (the sender)
+    result = exchange.spot_transfer(
+        amount=amount,
+        destination=USDC_SYSTEM_ADDRESS,  # Send to system address
+        token="USDC"
+    )
+
+    print(f"\nResult: {result}")
+
+    if result.get('status') == 'ok':
+        print("✓ Bridge transaction submitted")
+        print(f"  {amount} USDC will appear on HyperEVM at {wallet.address}")
+    else:
+        print(f"✗ Error: {result}")
+
+    return result
+
+if __name__ == "__main__":
+    # Bridge 10 USDC to HyperEVM
+    bridge_to_evm(amount=10.0)
+```
+
+### How it works
+
+1. You send a `spotSend` action with the **system address** (`0x2000000000000000000000000000000000000000`) as the destination
+2. Hyperliquid detects this as a bridge request and triggers a system transaction
+3. The system transaction calls `transfer(sender_address, amount)` on the linked ERC20 contract
+4. USDC appears in **your** HyperEVM wallet (the sender's address)
+
+<Note>
+The bridge is nearly instant—funds typically appear within 2 seconds. The HyperCore → HyperEVM transfer costs approximately 200K gas at the base gas price.
+</Note>
+
+## HyperEVM to HyperCore
+
+Transfer USDC from HyperEVM back to HyperCore for trading using the CoreDepositWallet contract.
+
+<Note>
+The linked USDC contract shown in `spotMeta` is a **CoreDepositWallet** contract developed by Circle—not a standard ERC20. To bridge USDC from HyperEVM to HyperCore, you must use the `deposit()` function on this contract after approving the native USDC token.
+</Note>
+
+### Understanding the two USDC contracts
+
+Bridging from HyperEVM to HyperCore involves two contracts:
+
+| Contract | Mainnet | Testnet | Purpose |
+|----------|---------|---------|---------|
+| Native USDC (Circle) | `0xb88339CB7199b77E23DB6E890353E22632Ba630f` | `0x2B3370eE501B4a559b57D449569354196457D8Ab` | Standard ERC20 USDC |
+| CoreDepositWallet | `0x6b9e773128f453f5c2c60935ee2de2cbc5390a24` | `0x0b80659a4076e9e93c7dbe0f10675a16a3e5c206` | Bridge contract (from `spotMeta`) |
+
+The CoreDepositWallet address is the `evmContract.address` returned by the `spotMeta` API endpoint.
+
+### Using the CoreDepositWallet
+
+The `deposit()` function signature:
+
+```solidity
+function deposit(uint256 amount, uint32 destinationDex) external
+```
+
+Parameters:
+- `amount` — amount in 6 decimals (native USDC decimals)
+- `destinationDex` — destination on HyperCore:
+  - `0` = perps balance
+  - `4294967295` (`type(uint32).max`) = spot balance
+
+```python
+#!/usr/bin/env python3
+"""
+Bridge USDC from HyperEVM to HyperCore using CoreDepositWallet
+"""
+
+from web3 import Web3
+from eth_account import Account
+import json
+
+# Contract addresses (mainnet)
+NATIVE_USDC = Web3.to_checksum_address("0xb88339CB7199b77E23DB6E890353E22632Ba630f")
+CORE_DEPOSIT_WALLET = Web3.to_checksum_address("0x6b9e773128f453f5c2c60935ee2de2cbc5390a24")
+
+# Destination dex values
+PERPS_DEX = 0
+SPOT_DEX = 4294967295  # type(uint32).max
+
+# ABIs
+ERC20_ABI = [
+    {
+        "inputs": [
+            {"name": "spender", "type": "address"},
+            {"name": "amount", "type": "uint256"}
+        ],
+        "name": "approve",
+        "outputs": [{"name": "", "type": "bool"}],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"name": "owner", "type": "address"},
+            {"name": "spender", "type": "address"}
+        ],
+        "name": "allowance",
+        "outputs": [{"name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [{"name": "account", "type": "address"}],
+        "name": "balanceOf",
+        "outputs": [{"name": "", "type": "uint256"}],
+        "stateMutability": "view",
+        "type": "function"
+    }
+]
+
+DEPOSIT_ABI = [
+    {
+        "inputs": [
+            {"name": "amount", "type": "uint256"},
+            {"name": "destinationDex", "type": "uint32"}
+        ],
+        "name": "deposit",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    }
+]
+
+def bridge_to_core(amount: float, to_spot: bool = True):
+    """
+    Bridge USDC from HyperEVM to HyperCore.
+
+    Args:
+        amount: Amount of USDC to bridge (human-readable, e.g., 10.0)
+        to_spot: If True, deposit to Spot balance; otherwise to Perps
+    """
+    with open('config.json') as f:
+        config = json.load(f)
+
+    w3 = Web3(Web3.HTTPProvider(config['rpc_endpoint']))
+    wallet = Account.from_key(config['private_key'])
+    wallet_address = Web3.to_checksum_address(wallet.address)
+
+    destination = "Spot" if to_spot else "Perps"
+    print(f"Bridging {amount} USDC from HyperEVM to HyperCore {destination}")
+
+    # USDC has 6 decimals on HyperEVM
+    amount_wei = int(amount * 10**6)
+
+    native_usdc = w3.eth.contract(address=NATIVE_USDC, abi=ERC20_ABI)
+    core_deposit = w3.eth.contract(address=CORE_DEPOSIT_WALLET, abi=DEPOSIT_ABI)
+
+    # Check native USDC balance
+    balance = native_usdc.functions.balanceOf(wallet_address).call()
+    print(f"Native USDC balance: {balance / 10**6}")
+
+    if balance < amount_wei:
+        print("Insufficient USDC balance")
+        return None
+
+    # Check HYPE for gas
+    hype_balance = w3.eth.get_balance(wallet_address)
+    if hype_balance == 0:
+        print("No HYPE for gas fees")
+        return None
+
+    nonce = w3.eth.get_transaction_count(wallet_address)
+
+    # Step 1: Approve if needed
+    allowance = native_usdc.functions.allowance(wallet_address, CORE_DEPOSIT_WALLET).call()
+    if allowance < amount_wei:
+        print(f"Approving {amount} USDC...")
+        approve_tx = native_usdc.functions.approve(
+            CORE_DEPOSIT_WALLET,
+            amount_wei
+        ).build_transaction({
+            'from': wallet_address,
+            'nonce': nonce,
+            'gas': 100000,
+            'maxFeePerGas': w3.to_wei(0.1, 'gwei'),
+            'maxPriorityFeePerGas': w3.to_wei(0.05, 'gwei'),
+        })
+        signed = w3.eth.account.sign_transaction(approve_tx, config['private_key'])
+        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+        w3.eth.wait_for_transaction_receipt(tx_hash)
+        nonce += 1
+        print("Approval confirmed")
+
+    # Step 2: Deposit to HyperCore
+    destination_dex = SPOT_DEX if to_spot else PERPS_DEX
+    print(f"Depositing to HyperCore {destination}...")
+
+    deposit_tx = core_deposit.functions.deposit(
+        amount_wei,
+        destination_dex
+    ).build_transaction({
+        'from': wallet_address,
+        'nonce': nonce,
+        'gas': 200000,
+        'maxFeePerGas': w3.to_wei(0.1, 'gwei'),
+        'maxPriorityFeePerGas': w3.to_wei(0.05, 'gwei'),
+    })
+
+    signed = w3.eth.account.sign_transaction(deposit_tx, config['private_key'])
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+
+    if receipt['status'] == 1:
+        print(f"Bridge successful! Gas used: {receipt['gasUsed']}")
+        print(f"Funds credited to HyperCore {destination}")
+    else:
+        print("Transaction failed")
+
+    return receipt
+
+if __name__ == "__main__":
+    # Bridge 10 USDC to HyperCore Spot
+    bridge_to_core(amount=10.0, to_spot=True)
+```
+
+<Note>
+The CoreDepositWallet source code is available at [circlefin/hyperevm-circle-contracts](https://github.com/circlefin/hyperevm-circle-contracts/blob/master/src/CoreDepositWallet.sol).
+</Note>
+
+### How it works
+
+1. **Approve** the native USDC contract to allow CoreDepositWallet to spend your tokens
+2. **Call `deposit()`** on the CoreDepositWallet with:
+   - Amount in 6 decimals
+   - Destination dex (`0` for perps, `4294967295` for spot)
+3. The CoreDepositWallet transfers USDC from your wallet and credits your HyperCore account
+
+<Warning>
+For new HyperCore accounts, a small account creation fee may be deducted from your first deposit.
+</Warning>
+
+### Using CoreWriter for spot/perps transfers
+
+Once USDC is on HyperCore (via the direct transfer method above), you can use the **CoreWriter** system contract to transfer between spot and perps accounts:
+
+```python
+#!/usr/bin/env python3
+"""
+Transfer USDC between Spot and Perps on HyperCore using CoreWriter
+Note: This requires USDC already on HyperCore, not HyperEVM
+"""
+
+from web3 import Web3
+from eth_account import Account
+import json
+
+# CoreWriter system contract address
+CORE_WRITER = Web3.to_checksum_address("0x3333333333333333333333333333333333333333")
+
+# CoreWriter ABI (minimal - for usdClassTransfer)
+CORE_WRITER_ABI = [
+    {
+        "inputs": [{"name": "data", "type": "bytes"}],
+        "name": "sendRawAction",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    }
+]
+
+def transfer_between_spot_perps(amount: float, to_perp: bool = True):
+    """
+    Transfer USDC between Spot and Perps accounts on HyperCore.
+
+    This uses the CoreWriter contract which emits events processed by HyperCore.
+
+    Args:
+        amount: Amount of USDC to transfer
+        to_perp: If True, transfer Spot -> Perps; otherwise Perps -> Spot
+    """
+    with open('config.json') as f:
+        config = json.load(f)
+
+    w3 = Web3(Web3.HTTPProvider(config['rpc_endpoint']))
+    wallet = Account.from_key(config['private_key'])
+    wallet_address = Web3.to_checksum_address(wallet.address)
+
+    direction = "Spot -> Perps" if to_perp else "Perps -> Spot"
+    print(f"Transferring {amount} USDC ({direction})")
+
+    # Amount in raw units (USDC has 6 decimals on HyperCore for this action)
+    amount_raw = int(amount * 1e6)
+
+    # Encode usdClassTransfer action
+    # Action code: 0x010007 for usdClassTransfer
+    # Format: action_code (3 bytes) + amount (8 bytes) + toPerp (1 byte) + subAccount (20 bytes, zeros)
+    action_code = bytes.fromhex("010007")
+    amount_bytes = amount_raw.to_bytes(8, 'big')
+    to_perp_byte = b'\x01' if to_perp else b'\x00'
+    sub_account = bytes(20)  # Zero address for no subaccount
+
+    data = action_code + amount_bytes + to_perp_byte + sub_account
+
+    core_writer = w3.eth.contract(address=CORE_WRITER, abi=CORE_WRITER_ABI)
+
+    tx = core_writer.functions.sendRawAction(data).build_transaction({
+        'from': wallet_address,
+        'nonce': w3.eth.get_transaction_count(wallet_address),
+        'gas': 100000,
+        'maxFeePerGas': w3.to_wei(0.1, 'gwei'),
+        'maxPriorityFeePerGas': w3.to_wei(0.05, 'gwei'),
+    })
+
+    signed_tx = w3.eth.account.sign_transaction(tx, config['private_key'])
+    tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+
+    print(f"Transaction submitted: {tx_hash.hex()}")
+
+    receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+
+    if receipt['status'] == 1:
+        print(f"✓ Transfer submitted to HyperCore")
+        print("  Note: CoreWriter does not revert on HyperCore failures")
+    else:
+        print("✗ EVM transaction failed")
+
+    return receipt
+
+if __name__ == "__main__":
+    # Transfer 10 USDC from Spot to Perps
+    transfer_between_spot_perps(amount=10.0, to_perp=True)
+```
+
+<Warning>
+The CoreWriter contract (`0x3333333333333333333333333333333333333333`) is an event emitter only. It does not revert if the corresponding HyperCore action fails—the EVM transaction will succeed even if the HyperCore action silently fails. Always verify balances after transfers.
+</Warning>
+
+<Note>
+For simple spot/perps transfers, you can also use the Python SDK's `usd_class_transfer()` method which handles the encoding automatically. The CoreWriter approach is useful when building smart contracts that need to interact with HyperCore.
+</Note>
+
+## Token linking
+
+For custom tokens (not USDC), you must link the HyperEVM ERC20 contract to the HyperCore spot token before bridging works.
+
+### Check if a token is linked
+
+You can use Chainstack's Info HTTP API endpoint for this:
+
+```python
+from hyperliquid.info import Info
+import requests
+
+# Using Chainstack Info HTTP API endpoint
+CHAINSTACK_INFO_ENDPOINT = "YOUR_CHAINSTACK_INFO_ENDPOINT"
+
+# Option 1: Using the SDK
+info = Info(CHAINSTACK_INFO_ENDPOINT, skip_ws=True)
+spot_meta = info.spot_meta()
+
+# Option 2: Direct API call
+spot_meta = requests.post(
+    f"{CHAINSTACK_INFO_ENDPOINT}/info",
+    json={"type": "spotMeta"}
+).json()
+
+# Check token linking status
+for token in spot_meta.get('tokens', []):
+    evm_contract = token.get('evmContract')
+    if evm_contract:
+        address = evm_contract.get('address') if isinstance(evm_contract, dict) else evm_contract
+        print(f"{token['name']}: linked to {address}")
+    else:
+        print(f"{token['name']}: NOT linked")
+```
+
+<Note>
+The `spotMeta` response includes the `evmContract` field for linked tokens. For USDC, you'll see the contract address and `evm_extra_wei_decimals` (typically -2, meaning 6 decimals on EVM vs 8 on HyperCore).
+</Note>
+
+### Linking process (for token deployers)
+
+Token linking is a two-step process:
+
+<Steps>
+  <Step title="Request EVM contract">
+    Send a `RequestEvmContract` action specifying the ERC20 contract address and decimal difference.
+  </Step>
+  <Step title="Finalize linking">
+    Send a `FinalizeEvmContract` action with nonce verification or storage slot validation.
+  </Step>
+</Steps>
+
+<Warning>
+Only the spot token deployer can link a token. USDC is already linked on mainnet.
+</Warning>
+
+## Testnet considerations
+
+<Warning>
+Testnet bridging has specific restrictions that differ from mainnet.
+</Warning>
+
+### Net-transfer restriction
+
+On testnet, the net transfer from HyperCore to HyperEVM is capped. If you try to bridge more USDC to HyperEVM than you've previously bridged to HyperCore, the transaction will fail silently.
+
+**Workaround:**
+1. First bridge USDC from an external chain (like Arbitrum Sepolia) to HyperCore
+2. Then you can bridge that amount to HyperEVM
+
+### New account fees
+
+New HyperCore accounts incur a 1 USDC fee on first deposit:
+
+- Minimum first deposit: >1 USDC + any forwarding fees
+- Deposits ≤1 USDC to new accounts fail silently
+- Multiple deposits to new accounts in the same block each incur the fee
+
+## Common issues
+
+### "Cannot self-transfer" error
+
+**Cause:** You tried to send tokens to your own address using `spot_transfer()`.
+
+**Solution:** For bridging, send to the **system address** (`0x2000000000000000000000000000000000000000`), not to your own address. Self-transfers to the same user are not allowed.
+
+### "Token not linked" error
+
+**Cause:** The token hasn't been linked between HyperCore and HyperEVM.
+
+**Solution:** For USDC, this shouldn't happen on mainnet. For custom tokens, the token deployer must complete the linking process.
+
+### balanceOf() reverts on CoreDepositWallet
+
+**Cause:** The CoreDepositWallet contract (from `spotMeta`) is not a standard ERC20—it's a bridge contract that doesn't support `balanceOf()` or other ERC20 read functions.
+
+**Solution:** This is expected behavior. To check your USDC balance on HyperEVM, call `balanceOf()` on the **Native USDC** contract (`0xb88339CB7199b77E23DB6E890353E22632Ba630f` on mainnet).
+
+### "Caller is not the system address" error
+
+**Cause:** You tried to call `transfer()` directly on the CoreDepositWallet contract. This contract has access control and does not support standard ERC20 transfers.
+
+**Solution:** Use the `deposit(amount, destinationDex)` function on the CoreDepositWallet instead:
+1. First approve your native USDC to the CoreDepositWallet
+2. Call `deposit(amount, 4294967295)` for spot balance or `deposit(amount, 0)` for perps
+
+See the [HyperEVM to HyperCore](#hyperevm-to-hypercore) section for complete code examples.
+
+### Silent failure on testnet
+
+**Cause:** Net-transfer restriction or insufficient amount for new account.
+
+**Solution:**
+- Ensure you've deposited to HyperCore before trying to bridge to HyperEVM
+- For new accounts, deposit >1 USDC
+
+### Transaction succeeds but balance unchanged
+
+**Cause:** Transfer to unlinked token system address or incorrect destination.
+
+**Solution:** Verify the system address matches the token you're bridging.
+
+### "No HYPE for gas" on HyperEVM
+
+**Cause:** HyperEVM uses HYPE as the native gas token, and your wallet has no HYPE.
+
+**Solution:** Bridge some HYPE from HyperCore to HyperEVM first. HYPE uses the special system address `0x2222222222222222222222222222222222222222`.
+
+## Gas costs
+
+| Direction | Approximate cost |
+|-----------|-----------------|
+| HyperCore → HyperEVM | ~200K gas at base price |
+| HyperEVM → HyperCore | ~100K gas (ERC20 transfer) |
+
+## Best practices
+
+<Check>
+**DO**
+- Use the Python SDK `spot_transfer()` for HyperCore → HyperEVM bridging
+- Use the `CoreDepositWallet.deposit()` function for HyperEVM → HyperCore bridging
+- Approve native USDC to the CoreDepositWallet before calling deposit
+- Verify token linking status before bridging custom tokens
+- Test with small amounts first
+- Check balances on both sides after bridging
+</Check>
+
+<Warning>
+**DON'T**
+- Call `transfer()` on the CoreDepositWallet contract (will fail with "Caller is not the system address")
+- Confuse native USDC with the CoreDepositWallet address
+- Bridge amounts ≤1 USDC to new HyperCore accounts
+- Assume testnet behaves identically to mainnet
+- Bridge unlinked tokens (they'll be lost)
+</Warning>
+
+## Related resources
+
+- [Hyperliquid methods](/docs/hyperliquid-methods) — Complete list of supported methods and endpoint capabilities
+- [Hyperliquid tooling](/docs/hyperliquid-tooling) — SDKs and API reference
+- [HyperCore to HyperEVM transfers](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/hypercore-less-than-greater-than-hyperevm-transfers) — Official Hyperliquid documentation
+- [Circle CCTP documentation](https://developers.circle.com/cctp/cctp-on-hypercore) — Cross-chain USDC transfers
+- [Circle HyperEVM contracts](https://github.com/circlefin/hyperevm-circle-contracts) — CoreDepositWallet source code
