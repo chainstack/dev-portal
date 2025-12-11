@@ -1,0 +1,372 @@
+---
+title: "Plasma: Network setup and configuration"
+description: "Set up MetaMask, Hardhat, Foundry, and other tools to connect to Plasma mainnet and testnet using a Chainstack RPC endpoint."
+---
+
+**TLDR:**
+* Plasma is an EVM-compatible blockchain with ~1-second block times and PlasmaBFT consensus.
+* Mainnet chain ID is `9745`; testnet chain ID is `9746`. Currency symbol is `XPL`.
+* Configure MetaMask manually or use the Chainstack **Connect wallet** button for automatic injection.
+* Set up Hardhat or Foundry with proper network configurations to deploy smart contracts.
+* Get testnet tokens from gas.zip or through community support in Discord.
+
+## Overview
+
+This tutorial walks through connecting your development tools to the Plasma network using a Chainstack node. You will configure MetaMask for wallet interactions, set up Hardhat and Foundry for smart contract deployment, and verify your connection is working correctly.
+
+By the end, you will have a fully configured development environment ready to deploy and interact with contracts on Plasma mainnet or testnet.
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/) to deploy a Plasma node
+* [MetaMask](https://metamask.io/) browser extension
+* [Node.js](https://nodejs.org/) 18 or later (for Hardhat)
+* [Foundry](https://getfoundry.sh/) (optional, for Forge and Cast)
+
+## Network parameters
+
+Use these values when configuring your tools:
+
+### Mainnet
+
+| Parameter | Value |
+|-----------|-------|
+| Network name | Plasma Mainnet |
+| Chain ID | `9745` |
+| Currency symbol | `XPL` |
+| Block explorer | `https://plasmascan.to` |
+
+### Testnet
+
+| Parameter | Value |
+|-----------|-------|
+| Network name | Plasma Testnet |
+| Chain ID | `9746` |
+| Currency symbol | `XPL` |
+| Block explorer | `https://testnet.plasmascan.to` |
+
+<Note>
+  Replace `YOUR_CHAINSTACK_ENDPOINT` in all examples with your actual Chainstack HTTPS endpoint. See [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+</Note>
+
+## Configure MetaMask
+
+### Automatic setup
+
+On Chainstack, navigate to your Plasma node and click **Connect wallet**. MetaMask will prompt you to add the network with all parameters pre-filled.
+
+### Manual setup
+
+If you prefer to add the network manually:
+
+1. Open MetaMask and click the network dropdown.
+2. Click **Add network** > **Add a network manually**.
+3. Enter the following values for mainnet:
+
+   * Network name: `Plasma Mainnet`
+   * New RPC URL: `YOUR_CHAINSTACK_ENDPOINT`
+   * Chain ID: `9745`
+   * Currency symbol: `XPL`
+   * Block explorer URL: `https://plasmascan.to`
+
+4. Click **Save**.
+
+For testnet, use chain ID `9746` and block explorer `https://testnet.plasmascan.to`.
+
+<Tip>
+  Your Chainstack endpoint includes authentication. Never share it publicly or commit it to version control.
+</Tip>
+
+## Configure Hardhat
+
+1. Create a new project or navigate to an existing one:
+
+   <CodeGroup>
+     ```shell Shell
+     mkdir plasma-project && cd plasma-project
+     npm init -y
+     npm install --save-dev hardhat @nomicfoundation/hardhat-toolbox dotenv
+     npx hardhat init
+     ```
+   </CodeGroup>
+
+2. Create a `.env` file with your credentials:
+
+   <CodeGroup>
+     ```shell .env
+     CHAINSTACK_PLASMA_MAINNET=YOUR_CHAINSTACK_ENDPOINT
+     CHAINSTACK_PLASMA_TESTNET=YOUR_CHAINSTACK_ENDPOINT
+     PRIVATE_KEY=your_wallet_private_key
+     ```
+   </CodeGroup>
+
+3. Update `hardhat.config.js`:
+
+   <CodeGroup>
+     ```javascript hardhat.config.js
+     require("@nomicfoundation/hardhat-toolbox");
+     require("dotenv").config();
+
+     module.exports = {
+       solidity: "0.8.26",
+       networks: {
+         plasmaMainnet: {
+           url: process.env.CHAINSTACK_PLASMA_MAINNET,
+           chainId: 9745,
+           accounts: [process.env.PRIVATE_KEY]
+         },
+         plasmaTestnet: {
+           url: process.env.CHAINSTACK_PLASMA_TESTNET,
+           chainId: 9746,
+           accounts: [process.env.PRIVATE_KEY]
+         }
+       },
+       etherscan: {
+         apiKey: {
+           plasmaMainnet: "not-needed",
+           plasmaTestnet: "not-needed"
+         },
+         customChains: [
+           {
+             network: "plasmaMainnet",
+             chainId: 9745,
+             urls: {
+               apiURL: "https://plasmascan.to/api",
+               browserURL: "https://plasmascan.to"
+             }
+           },
+           {
+             network: "plasmaTestnet",
+             chainId: 9746,
+             urls: {
+               apiURL: "https://testnet.plasmascan.to/api",
+               browserURL: "https://testnet.plasmascan.to"
+             }
+           }
+         ]
+       }
+     };
+     ```
+   </CodeGroup>
+
+4. Test the connection:
+
+   <CodeGroup>
+     ```shell Shell
+     npx hardhat console --network plasmaTestnet
+     ```
+
+     ```javascript Hardhat console
+     > await ethers.provider.getBlockNumber()
+     ```
+   </CodeGroup>
+
+<Warning>
+  Never commit your `.env` file. Add it to `.gitignore` to prevent exposing your private key and endpoint credentials.
+</Warning>
+
+## Configure Foundry
+
+1. Install Foundry if you haven't already:
+
+   <CodeGroup>
+     ```shell Shell
+     curl -L https://foundry.paradigm.xyz | bash
+     foundryup
+     ```
+   </CodeGroup>
+
+2. Create `foundry.toml` in your project root:
+
+   <CodeGroup>
+     ```toml foundry.toml
+     [profile.default]
+     src = "src"
+     out = "out"
+     libs = ["lib"]
+     solc = "0.8.26"
+
+     [rpc_endpoints]
+     plasma_mainnet = "${CHAINSTACK_PLASMA_MAINNET}"
+     plasma_testnet = "${CHAINSTACK_PLASMA_TESTNET}"
+
+     [etherscan]
+     plasma_mainnet = { key = "", chain = 9745, url = "https://plasmascan.to/api" }
+     plasma_testnet = { key = "", chain = 9746, url = "https://testnet.plasmascan.to/api" }
+     ```
+   </CodeGroup>
+
+3. Test the connection using Cast:
+
+   <CodeGroup>
+     ```shell Shell
+     cast chain-id --rpc-url $CHAINSTACK_PLASMA_TESTNET
+     ```
+   </CodeGroup>
+
+   Expected output: `9746`
+
+4. Get the latest block number:
+
+   <CodeGroup>
+     ```shell Shell
+     cast block-number --rpc-url $CHAINSTACK_PLASMA_TESTNET
+     ```
+   </CodeGroup>
+
+## Add network programmatically
+
+For dApps, you can prompt users to add the Plasma network automatically:
+
+<CodeGroup>
+  ```javascript JavaScript
+  async function addPlasmaNetwork(isTestnet = false) {
+    const chainId = isTestnet ? '0x2612' : '0x2611'; // 9746 or 9745 in hex
+    const networkName = isTestnet ? 'Plasma Testnet' : 'Plasma Mainnet';
+    const explorerUrl = isTestnet
+      ? 'https://testnet.plasmascan.to'
+      : 'https://plasmascan.to';
+    const rpcUrl = 'YOUR_PUBLIC_RPC_OR_CHAINSTACK_ENDPOINT';
+
+    try {
+      await window.ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId }],
+      });
+    } catch (switchError) {
+      if (switchError.code === 4902) {
+        await window.ethereum.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId,
+            chainName: networkName,
+            nativeCurrency: { name: 'XPL', symbol: 'XPL', decimals: 18 },
+            rpcUrls: [rpcUrl],
+            blockExplorerUrls: [explorerUrl]
+          }],
+        });
+      }
+    }
+  }
+  ```
+</CodeGroup>
+
+## Get testnet tokens
+
+Before deploying contracts on testnet, you need XPL for gas fees.
+
+### Option 1: gas.zip faucet
+
+Visit [gas.zip/faucet/plasma](https://www.gas.zip/faucet/plasma) and connect your wallet. This faucet requires some mainnet wallet activity for eligibility.
+
+### Option 2: Community support
+
+If the faucet doesn't work for your wallet, ask in the Plasma Discord `#developers` channel or DM the team members listed there.
+
+<Tip>
+  For most testing, 0.5 XPL is sufficient to deploy multiple contracts and run hundreds of transactions.
+</Tip>
+
+## Verify your setup
+
+Run these checks to confirm everything is configured correctly.
+
+### Check connection with curl
+
+<CodeGroup>
+  ```shell Shell
+  curl -X POST YOUR_CHAINSTACK_ENDPOINT \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}'
+  ```
+</CodeGroup>
+
+Expected response for testnet:
+
+<CodeGroup>
+  ```json JSON
+  {"jsonrpc":"2.0","id":1,"result":"0x2612"}
+  ```
+</CodeGroup>
+
+The result `0x2612` is the hexadecimal representation of chain ID `9746`.
+
+### Check connection with web3.py
+
+<CodeGroup>
+  ```python Python
+  from web3 import Web3
+
+  w3 = Web3(Web3.HTTPProvider('YOUR_CHAINSTACK_ENDPOINT'))
+  print(f"Connected: {w3.is_connected()}")
+  print(f"Chain ID: {w3.eth.chain_id}")
+  print(f"Latest block: {w3.eth.block_number}")
+  ```
+</CodeGroup>
+
+### Check connection with ethers.js
+
+<CodeGroup>
+  ```javascript JavaScript
+  const { ethers } = require("ethers");
+
+  const provider = new ethers.JsonRpcProvider("YOUR_CHAINSTACK_ENDPOINT", {
+    chainId: 9746,
+    name: "plasma-testnet"
+  });
+
+  async function checkConnection() {
+    const blockNumber = await provider.getBlockNumber();
+    const network = await provider.getNetwork();
+    console.log(`Chain ID: ${network.chainId}`);
+    console.log(`Latest block: ${blockNumber}`);
+  }
+
+  checkConnection();
+  ```
+</CodeGroup>
+
+## Troubleshooting
+
+### Cannot connect to RPC
+
+* Verify the endpoint URL has no trailing slash.
+* Check that your Chainstack node is running and synced.
+* Confirm the URL includes your authentication credentials.
+
+### Chain ID mismatch error
+
+* Mainnet chain ID is `9745`, testnet is `9746`.
+* Remove the network from MetaMask and re-add it with correct values.
+* Clear MetaMask activity data: **Settings** > **Advanced** > **Clear activity tab data**.
+
+### Nonce errors after switching networks
+
+MetaMask can cache nonce data from other networks. To fix:
+
+1. Open MetaMask and go to **Settings** > **Advanced**.
+2. Click **Clear activity tab data**.
+3. Check **Also reset my local nonce data**.
+4. Confirm and retry your transaction.
+
+### Transaction stuck as pending
+
+* Click the pending transaction in MetaMask and select **Speed up** to increase gas.
+* Alternatively, select **Cancel** to drop the transaction.
+* If multiple transactions are stuck, clear activity data to reset.
+
+### Hardhat deployment fails with verification error
+
+If your deployment script includes automatic verification and fails:
+
+1. Separate deployment from verification—deploy first, verify later.
+2. Remove or comment out the verification section in your deploy script.
+3. See [Plasma tooling](/docs/plasma-tooling) for verification commands.
+
+## Next steps
+
+Now that your environment is configured:
+
+* [Deploy a contract](/docs/plasma-tooling#hardhat) using Hardhat or Foundry
+* [Monitor USDT flows](/docs/plasma-tutorial-monitor-usdt-flows-with-web3py) with web3.py
+* Explore the [Plasma RPC methods](/docs/plasma-methods) reference
