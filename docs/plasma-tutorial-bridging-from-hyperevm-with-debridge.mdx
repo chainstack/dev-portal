@@ -1,0 +1,586 @@
+---
+title: "Plasma: Bridging from HyperEVM with deBridge"
+description: "Bridge assets between HyperEVM (Hyperliquid) and Plasma using the deBridge DLN API with JavaScript."
+---
+
+## Overview
+
+This tutorial shows how to bridge assets between HyperEVM (Hyperliquid's EVM layer) and Plasma using the deBridge Liquidity Network (DLN) API. You will build a JavaScript application that creates cross-chain swap orders, executes bridge transactions, and monitors their status.
+
+By the end, you will have working code that:
+
+- Quotes bridge fees and estimated output amounts
+- Executes cross-chain transfers from HyperEVM to Plasma
+- Monitors order status until completion
+- Handles the reverse direction (Plasma to HyperEVM)
+
+## Prerequisites
+
+- [Chainstack account](https://console.chainstack.com/) with Plasma and Hyperliquid nodes deployed
+- Node.js 18 or later
+- A wallet with assets on HyperEVM (HYPE, USDT, or other supported tokens)
+- Basic familiarity with ethers.js
+
+<Note>
+  deBridge supports both directions: HyperEVM → Plasma and Plasma → HyperEVM. This tutorial covers both.
+</Note>
+
+## Network parameters
+
+| Network | Chain ID | Currency | RPC endpoint |
+|---------|----------|----------|--------------|
+| HyperEVM Mainnet | `999` | HYPE | `https://rpc.hyperliquid.xyz/evm` |
+| Plasma Mainnet | `9745` | XPL | `https://rpc.plasma.to` |
+
+### Token addresses
+
+| Token | HyperEVM | Plasma |
+|-------|----------|--------|
+| Native | HYPE (18 decimals) | XPL (18 decimals) |
+| USDT | Check deBridge | `0xB8CE59FC3717Ada4C02eadf9682A9e934F625ebb` |
+
+<Tip>
+  Use your Chainstack endpoints for better reliability and higher rate limits compared to public RPCs.
+</Tip>
+
+## 1. Set up the project
+
+```bash
+mkdir hyperevm-plasma-bridge
+cd hyperevm-plasma-bridge
+npm init -y
+npm install ethers dotenv
+```
+
+Create a `.env` file:
+
+```bash
+PRIVATE_KEY=your_wallet_private_key
+CHAINSTACK_HYPEREVM_URL=YOUR_CHAINSTACK_HYPERLIQUID_ENDPOINT
+CHAINSTACK_PLASMA_URL=YOUR_CHAINSTACK_PLASMA_ENDPOINT
+```
+
+<Warning>
+  Never commit private keys to version control. Use environment variables or a secrets manager in production.
+</Warning>
+
+## 2. Initialize the bridge client
+
+Create `bridge.js`:
+
+```javascript
+import { ethers } from 'ethers';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// Standard chain IDs (for RPC connections)
+const HYPEREVM_ORIGINAL_CHAIN_ID = 999;
+const PLASMA_ORIGINAL_CHAIN_ID = 9745;
+
+// deBridge internal chain IDs (required for API calls)
+// IMPORTANT: deBridge uses different IDs than standard chain IDs
+// See: https://dln.debridge.finance/v1.0/supported-chains-info
+const DEBRIDGE_HYPEREVM_CHAIN_ID = 100000022;
+const DEBRIDGE_PLASMA_CHAIN_ID = 100000028;
+
+// deBridge DLN API
+const DLN_API_BASE = 'https://dln.debridge.finance/v1.0';
+
+// Native token address (used for native assets like HYPE)
+const NATIVE_TOKEN = '0x0000000000000000000000000000000000000000';
+
+// Plasma USDT0 address
+const PLASMA_USDT = '0xB8CE59FC3717Ada4C02eadf9682A9e934F625ebb';
+
+// Set up providers
+const hyperevmProvider = new ethers.JsonRpcProvider(
+  process.env.CHAINSTACK_HYPEREVM_URL || 'https://rpc.hyperliquid.xyz/evm'
+);
+const plasmaProvider = new ethers.JsonRpcProvider(
+  process.env.CHAINSTACK_PLASMA_URL || 'https://rpc.plasma.to'
+);
+
+// Create wallet for source chain
+const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, hyperevmProvider);
+
+console.log('Wallet address:', wallet.address);
+```
+
+## 3. Get a bridge quote
+
+Add the quote function to fetch estimated amounts and fees:
+
+```javascript
+async function getBridgeQuote({
+  srcChainId,
+  dstChainId,
+  srcTokenAddress,
+  dstTokenAddress,
+  amount,
+  recipient,
+}) {
+  const params = new URLSearchParams({
+    srcChainId: srcChainId.toString(),
+    srcChainTokenIn: srcTokenAddress,
+    srcChainTokenInAmount: amount,
+    dstChainId: dstChainId.toString(),
+    dstChainTokenOut: dstTokenAddress,
+    dstChainTokenOutAmount: 'auto',
+    dstChainTokenOutRecipient: recipient,
+    srcChainOrderAuthorityAddress: recipient,
+    dstChainOrderAuthorityAddress: recipient,
+  });
+
+  const url = `${DLN_API_BASE}/dln/order/create-tx?${params}`;
+  console.log('\nFetching quote from deBridge...');
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Quote failed: ${error}`);
+  }
+
+  const data = await response.json();
+  return data;
+}
+```
+
+## 4. Execute the bridge transaction
+
+Add functions to handle token approval and transaction execution:
+
+```javascript
+const ERC20_ABI = [
+  'function approve(address spender, uint256 amount) returns (bool)',
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function balanceOf(address account) view returns (uint256)',
+  'function decimals() view returns (uint8)',
+];
+
+async function approveToken(tokenAddress, spender, amount, signer) {
+  // Skip approval for native token
+  if (tokenAddress === NATIVE_TOKEN) {
+    console.log('Native token - no approval needed');
+    return;
+  }
+
+  const contract = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
+
+  // Check existing allowance
+  const allowance = await contract.allowance(signer.address, spender);
+  if (allowance >= BigInt(amount)) {
+    console.log('Sufficient allowance exists');
+    return;
+  }
+
+  // Approve spending
+  console.log('Approving token spend...');
+  const tx = await contract.approve(spender, amount);
+  const receipt = await tx.wait();
+  console.log('Approval confirmed in block:', receipt.blockNumber);
+}
+
+async function executeBridge({
+  srcChainId,
+  dstChainId,
+  srcTokenAddress,
+  dstTokenAddress,
+  amount,
+  signer,
+}) {
+  const recipient = signer.address;
+
+  // Get quote with transaction data
+  const quote = await getBridgeQuote({
+    srcChainId,
+    dstChainId,
+    srcTokenAddress,
+    dstTokenAddress,
+    amount,
+    recipient,
+  });
+
+  if (!quote.tx) {
+    throw new Error('No transaction data in response. Check parameters.');
+  }
+
+  // Log estimation details
+  const estimation = quote.estimation;
+  console.log('\n--- Bridge Quote ---');
+  console.log('Input:', estimation.srcChainTokenIn.amount, estimation.srcChainTokenIn.symbol);
+  console.log('Output:', estimation.dstChainTokenOut.amount, estimation.dstChainTokenOut.symbol);
+  console.log('Recommended slippage:', estimation.recommendedSlippage, '%');
+  console.log('Execution fee:', estimation.executionFee?.amount || 'included');
+
+  // Calculate and validate price impact
+  const inputUsd = estimation.srcChainTokenIn.approximateUsdValue || 0;
+  const outputUsd = estimation.dstChainTokenOut.approximateUsdValue || 0;
+  if (inputUsd > 0 && outputUsd > 0) {
+    const priceImpact = ((inputUsd - outputUsd) / inputUsd) * 100;
+    console.log('Price impact:', priceImpact.toFixed(2), '%');
+
+    // Warn if price impact exceeds 5%
+    if (priceImpact > 5) {
+      console.warn('⚠️  WARNING: High price impact detected! Consider smaller amount.');
+    }
+
+    // Abort if price impact exceeds 10%
+    if (priceImpact > 10) {
+      throw new Error(`Price impact too high (${priceImpact.toFixed(2)}%). Aborting to prevent losses.`);
+    }
+  }
+
+  // Approve token if ERC20
+  await approveToken(
+    srcTokenAddress,
+    quote.tx.to,
+    estimation.srcChainTokenIn.amount,
+    signer
+  );
+
+  // Execute bridge transaction
+  console.log('\nSending bridge transaction...');
+  const tx = await signer.sendTransaction({
+    to: quote.tx.to,
+    data: quote.tx.data,
+    value: quote.tx.value || '0',
+    gasLimit: 500000,
+  });
+
+  console.log('Transaction hash:', tx.hash);
+  console.log('Waiting for confirmation...');
+
+  const receipt = await tx.wait();
+  console.log('Confirmed in block:', receipt.blockNumber);
+
+  return {
+    txHash: tx.hash,
+    orderId: extractOrderId(receipt),
+    quote,
+  };
+}
+
+function extractOrderId(receipt) {
+  // The order ID can be found in the transaction logs
+  // For simplicity, we'll use the tx hash for tracking
+  return receipt.hash;
+}
+```
+
+## 5. Monitor order status
+
+Add status tracking to monitor the cross-chain transfer:
+
+```javascript
+async function getOrderStatus(txHash, srcChainId) {
+  const url = `https://stats-api.dln.trade/api/Order/filteredList?fromAddress=${wallet.address}`;
+
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+
+    // Find our order
+    const order = data.orders?.find(
+      (o) => o.createTx?.toLowerCase() === txHash.toLowerCase()
+    );
+
+    if (order) {
+      return {
+        status: order.status,
+        orderId: order.orderId,
+        srcChainId: order.srcChainId,
+        dstChainId: order.dstChainId,
+        fulfilled: ['Fulfilled', 'SentUnlock', 'ClaimedUnlock'].includes(order.status),
+      };
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Status check failed:', error.message);
+    return null;
+  }
+}
+
+async function waitForCompletion(txHash, srcChainId, maxWaitMs = 300000) {
+  console.log('\nMonitoring cross-chain transfer...');
+  const startTime = Date.now();
+  const pollInterval = 10000; // 10 seconds
+
+  while (Date.now() - startTime < maxWaitMs) {
+    const status = await getOrderStatus(txHash, srcChainId);
+
+    if (status) {
+      console.log(`Status: ${status.status}`);
+
+      if (status.fulfilled) {
+        console.log('✓ Bridge transfer completed!');
+        return status;
+      }
+    } else {
+      console.log('Order not yet indexed, waiting...');
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollInterval));
+  }
+
+  throw new Error('Bridge transfer timed out');
+}
+```
+
+## 6. Bridge from HyperEVM to Plasma
+
+Add the main bridging function:
+
+```javascript
+async function bridgeHyperEVMToPlasma(tokenIn, tokenOut, amount) {
+  console.log('\n=== Bridging from HyperEVM to Plasma ===');
+
+  // Check balance
+  const balance = await hyperevmProvider.getBalance(wallet.address);
+  console.log('HYPE balance:', ethers.formatEther(balance));
+
+  // Validate sufficient balance
+  if (BigInt(amount) > balance) {
+    throw new Error(`Insufficient balance. Have: ${ethers.formatEther(balance)}, need: ${ethers.formatEther(amount)}`);
+  }
+
+  try {
+    const result = await executeBridge({
+      srcChainId: DEBRIDGE_HYPEREVM_CHAIN_ID,  // Use deBridge internal ID
+      dstChainId: DEBRIDGE_PLASMA_CHAIN_ID,    // Use deBridge internal ID
+      srcTokenAddress: tokenIn,
+      dstTokenAddress: tokenOut,
+      amount: amount,
+      signer: wallet,
+    });
+
+    // Wait for completion
+    await waitForCompletion(result.txHash, DEBRIDGE_HYPEREVM_CHAIN_ID);
+
+    return result;
+  } catch (error) {
+    console.error('Bridge failed:', error.message);
+    throw error;
+  }
+}
+```
+
+## 7. Bridge from Plasma to HyperEVM
+
+Add the reverse direction:
+
+```javascript
+async function bridgePlasmaToHyperEVM(tokenIn, tokenOut, amount) {
+  console.log('\n=== Bridging from Plasma to HyperEVM ===');
+
+  // Create wallet connected to Plasma
+  const plasmaWallet = new ethers.Wallet(process.env.PRIVATE_KEY, plasmaProvider);
+
+  // Check balance
+  const balance = await plasmaProvider.getBalance(plasmaWallet.address);
+  console.log('XPL balance:', ethers.formatEther(balance));
+
+  // Validate sufficient balance
+  if (BigInt(amount) > balance) {
+    throw new Error(`Insufficient balance. Have: ${ethers.formatEther(balance)}, need: ${ethers.formatEther(amount)}`);
+  }
+
+  try {
+    const result = await executeBridge({
+      srcChainId: DEBRIDGE_PLASMA_CHAIN_ID,    // Use deBridge internal ID
+      dstChainId: DEBRIDGE_HYPEREVM_CHAIN_ID,  // Use deBridge internal ID
+      srcTokenAddress: tokenIn,
+      dstTokenAddress: tokenOut,
+      amount: amount,
+      signer: plasmaWallet,
+    });
+
+    // Wait for completion
+    await waitForCompletion(result.txHash, DEBRIDGE_PLASMA_CHAIN_ID);
+
+    return result;
+  } catch (error) {
+    console.error('Bridge failed:', error.message);
+    throw error;
+  }
+}
+```
+
+## 8. Run the bridge
+
+Add the main execution and example usage:
+
+```javascript
+async function main() {
+  const args = process.argv.slice(2);
+  const direction = args[0] || 'to-plasma';
+  const amount = args[1] || '1000000000000000'; // 0.001 in 18 decimals
+
+  console.log('Direction:', direction);
+  console.log('Amount:', amount);
+
+  try {
+    if (direction === 'to-plasma') {
+      // Bridge HYPE from HyperEVM to XPL on Plasma
+      await bridgeHyperEVMToPlasma(
+        NATIVE_TOKEN, // HYPE (native)
+        NATIVE_TOKEN, // XPL (native)
+        amount
+      );
+    } else if (direction === 'to-hyperevm') {
+      // Bridge XPL from Plasma to HYPE on HyperEVM
+      await bridgePlasmaToHyperEVM(
+        NATIVE_TOKEN, // XPL (native)
+        NATIVE_TOKEN, // HYPE (native)
+        amount
+      );
+    } else {
+      console.log('Usage: node bridge.js [to-plasma|to-hyperevm] [amount]');
+      return;
+    }
+
+    console.log('\n✓ Bridge completed successfully!');
+  } catch (error) {
+    console.error('\n✗ Bridge failed:', error.message);
+    process.exit(1);
+  }
+}
+
+main();
+```
+
+Update `package.json` for ES modules:
+
+```json
+{
+  "type": "module"
+}
+```
+
+## 9. Test the bridge
+
+Run the bridge in either direction:
+
+```bash
+# Bridge from HyperEVM to Plasma
+node bridge.js to-plasma 1000000000000000
+
+# Bridge from Plasma to HyperEVM
+node bridge.js to-hyperevm 1000000000000000
+```
+
+Expected output:
+
+```text
+Wallet address: 0x1234...5678
+Direction: to-plasma
+Amount: 1000000000000000
+
+=== Bridging from HyperEVM to Plasma ===
+HYPE balance: 0.5
+
+Fetching quote from deBridge...
+
+--- Bridge Quote ---
+Input: 1000000000000000 HYPE
+Output: 980000000000000 XPL
+Recommended slippage: 0.5 %
+Execution fee: included
+Native token - no approval needed
+
+Sending bridge transaction...
+Transaction hash: 0xabcd...ef01
+Waiting for confirmation...
+Confirmed in block: 1234567
+
+Monitoring cross-chain transfer...
+Status: Created
+Status: Fulfilled
+✓ Bridge transfer completed!
+
+✓ Bridge completed successfully!
+```
+
+## Alternative: Using the deBridge UI
+
+For manual transfers without code:
+
+1. Visit [app.debridge.finance](https://app.debridge.finance/)
+2. Connect your wallet
+3. Select **HyperEVM** as source chain
+4. Select **Plasma** as destination chain
+5. Choose token and amount
+6. Click **Swap** and confirm
+
+## Troubleshooting
+
+### "Quote failed" error
+
+Check that both chains are supported by deBridge and the token addresses are correct. Use the native token address (`0x0000...0000`) for HYPE and XPL.
+
+### Transaction stuck
+
+Cross-chain transfers typically complete in 1-5 minutes. If stuck longer:
+
+1. Check order status at [stats-api.dln.trade](https://stats-api.dln.trade/api/Order/filteredList?fromAddress=YOUR_ADDRESS)
+2. Contact deBridge support with your transaction hash
+
+### Insufficient balance
+
+Ensure you have enough:
+- Source tokens for the bridge amount
+- Native tokens for gas (HYPE on HyperEVM, XPL on Plasma)
+
+### Rate limiting
+
+The public RPC endpoints have rate limits:
+- HyperEVM public: 100 requests/minute
+- Plasma public: varies
+
+Use Chainstack endpoints for higher limits and better reliability.
+
+## Supported tokens
+
+deBridge supports bridging various tokens between HyperEVM and Plasma. Check the [deBridge app](https://app.debridge.finance/) for the current list of supported assets.
+
+Common routes:
+- HYPE ↔ XPL (native tokens)
+- USDT on HyperEVM ↔ USDT0 on Plasma
+- ETH variants ↔ wrapped versions
+
+## Conclusion
+
+You now have working code to bridge assets between HyperEVM and Plasma using the deBridge DLN API. The same pattern works for bridging between any chains supported by deBridge.
+
+For production applications, consider:
+- Adding comprehensive error handling
+- Implementing retry logic with exponential backoff
+- Setting up monitoring for stuck transactions
+- Using webhooks for status notifications
+
+## Resources
+
+- [deBridge documentation](https://docs.debridge.finance/)
+- [deBridge DLN API](https://dln.debridge.finance/v1.0)
+- [Hyperliquid HyperEVM docs](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm)
+- [Plasma documentation](https://plasma.to/docs)
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Director of Developer Experience @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>

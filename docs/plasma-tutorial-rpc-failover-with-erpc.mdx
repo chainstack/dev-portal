@@ -1,0 +1,353 @@
+---
+title: "Plasma: RPC failover with eRPC"
+description: "Set up fault-tolerant RPC access for Plasma using eRPC proxy with Chainstack as primary and public endpoints as fallback."
+---
+
+## Overview
+
+This tutorial shows how to configure eRPC as a fault-tolerant proxy for Plasma, combining your Chainstack endpoint with public RPCs for automatic failover. When your primary endpoint experiences issues, eRPC seamlessly routes requests to backup providers.
+
+By the end, you will have a local proxy that:
+
+- Routes Plasma RPC calls through Chainstack as the primary provider
+- Falls back to public endpoints when the primary is unavailable
+- Caches responses to reduce latency and RPC calls
+- Retries failed requests with exponential backoff
+
+## Prerequisites
+
+- [Chainstack account](https://console.chainstack.com/) with a Plasma node deployed
+- Docker installed
+- Basic familiarity with JSON-RPC
+
+<Tip>
+  For general eRPC setup and Chainstack Platform API auto-discovery, see [Using eRPC with Chainstack: Quickstart](/docs/using-erpc-with-chainstack-quickstart).
+</Tip>
+
+## Network parameters
+
+| Network | Chain ID | Currency |
+|---------|----------|----------|
+| Plasma Mainnet | `9745` | XPL |
+| Plasma Testnet | `9746` | XPL |
+
+## 1. Get your endpoints
+
+### Chainstack endpoint
+
+1. Navigate to your Plasma node in the [Chainstack console](https://console.chainstack.com/).
+2. Copy your HTTPS endpoint from **Access and credentials**.
+
+### Public endpoints
+
+Plasma provides public RPC endpoints as backup:
+
+- `https://rpc.plasma.to` — public mainnet
+- `https://rpc-testnet.plasma.to` — public testnet
+
+<Note>
+  Public endpoints have rate limits and no SLA. Use them as fallback only, not as primary.
+</Note>
+
+## 2. Create the configuration
+
+Create a file named `erpc.yaml`:
+
+```yaml
+logLevel: info
+
+server:
+  httpHostV4: 0.0.0.0
+  httpPortV4: 4000
+  maxTimeout: 30s
+
+projects:
+  - id: plasma
+    networks:
+      - architecture: evm
+        evm:
+          chainId: 9745
+        failsafe:
+          timeout:
+            duration: 30s
+          retry:
+            maxAttempts: 3
+            delay: 500ms
+            backoffMaxDelay: 5s
+            backoffFactor: 2
+            jitter: 200ms
+          hedge:
+            delay: 2s
+            maxCount: 2
+
+    upstreams:
+      # Primary: Chainstack (higher priority)
+      - id: chainstack-plasma
+        type: evm
+        endpoint: YOUR_CHAINSTACK_PLASMA_ENDPOINT
+        rateLimitBudget: chainstack-budget
+        evm:
+          chainId: 9745
+        failsafe:
+          timeout:
+            duration: 15s
+          retry:
+            maxAttempts: 2
+            delay: 300ms
+            backoffMaxDelay: 3s
+            backoffFactor: 1.5
+            jitter: 100ms
+
+      # Fallback: Public RPC (lower priority)
+      - id: plasma-public
+        type: evm
+        endpoint: https://rpc.plasma.to
+        rateLimitBudget: public-budget
+        evm:
+          chainId: 9745
+        failsafe:
+          timeout:
+            duration: 20s
+          retry:
+            maxAttempts: 2
+            delay: 500ms
+            backoffMaxDelay: 5s
+            backoffFactor: 2
+            jitter: 200ms
+
+rateLimiters:
+  budgets:
+    - id: chainstack-budget
+      rules:
+        - method: '*'
+          maxCount: 25
+          period: 1s
+        - method: 'eth_getLogs'
+          maxCount: 10
+          period: 1s
+    - id: public-budget
+      rules:
+        - method: '*'
+          maxCount: 5
+          period: 1s
+```
+
+Replace `YOUR_CHAINSTACK_PLASMA_ENDPOINT` with your actual Chainstack endpoint URL.
+
+<Warning>
+  Never commit configuration files with real endpoint URLs to version control. Use environment variables in production.
+</Warning>
+
+## 3. Run eRPC
+
+Start the proxy with Docker:
+
+```bash
+docker run --rm \
+  -v $(pwd)/erpc.yaml:/erpc.yaml \
+  -p 4000:4000 \
+  -p 4001:4001 \
+  ghcr.io/erpc/erpc:latest
+```
+
+You should see output indicating both upstreams are configured:
+
+```text
+INF starting eRPC server...
+INF registered upstream id=chainstack-plasma network=evm:9745
+INF registered upstream id=plasma-public network=evm:9745
+INF http server started addr=0.0.0.0:4000
+```
+
+## 4. Test the setup
+
+### Basic connectivity
+
+```bash
+curl -X POST http://localhost:4000/plasma/evm/9745 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}'
+```
+
+Expected response:
+
+```json
+{"jsonrpc":"2.0","id":1,"result":"0x2611"}
+```
+
+The hex value `0x2611` equals `9745` (Plasma Mainnet chain ID).
+
+### Get latest block
+
+```bash
+curl -X POST http://localhost:4000/plasma/evm/9745 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
+```
+
+### Check USDT balance
+
+```bash
+curl -X POST http://localhost:4000/plasma/evm/9745 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc":"2.0",
+    "method":"eth_call",
+    "params":[{
+      "to":"0xB8CE59FC3717Ada4C02eadf9682A9e934F625ebb",
+      "data":"0x70a08231000000000000000000000000YOUR_ADDRESS_HERE"
+    },"latest"],
+    "id":1
+  }'
+```
+
+## 5. Use with your application
+
+Point your application to the eRPC proxy instead of directly to an RPC endpoint.
+
+### ethers.js
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("http://localhost:4000/plasma/evm/9745", {
+  chainId: 9745,
+  name: "plasma"
+});
+
+const blockNumber = await provider.getBlockNumber();
+console.log("Current block:", blockNumber);
+```
+
+### web3.py
+
+```python
+from web3 import Web3
+
+w3 = Web3(Web3.HTTPProvider("http://localhost:4000/plasma/evm/9745"))
+print("Connected:", w3.is_connected())
+print("Block:", w3.eth.block_number)
+```
+
+### Hardhat
+
+In `hardhat.config.js`:
+
+```javascript
+module.exports = {
+  networks: {
+    plasma: {
+      url: "http://localhost:4000/plasma/evm/9745",
+      chainId: 9745,
+      accounts: [process.env.PRIVATE_KEY]
+    }
+  }
+};
+```
+
+## 6. Add testnet support
+
+To also proxy Plasma Testnet, add another network to the configuration:
+
+```yaml
+projects:
+  - id: plasma
+    networks:
+      - architecture: evm
+        evm:
+          chainId: 9745
+        # ... mainnet failsafe config
+      - architecture: evm
+        evm:
+          chainId: 9746
+        failsafe:
+          timeout:
+            duration: 30s
+          retry:
+            maxAttempts: 3
+            delay: 500ms
+            backoffMaxDelay: 5s
+            backoffFactor: 2
+            jitter: 200ms
+
+    upstreams:
+      # Mainnet upstreams
+      - id: chainstack-plasma-mainnet
+        type: evm
+        endpoint: YOUR_CHAINSTACK_PLASMA_MAINNET_ENDPOINT
+        evm:
+          chainId: 9745
+        rateLimitBudget: chainstack-budget
+        # ... failsafe config
+
+      - id: plasma-public-mainnet
+        type: evm
+        endpoint: https://rpc.plasma.to
+        evm:
+          chainId: 9745
+        rateLimitBudget: public-budget
+        # ... failsafe config
+
+      # Testnet upstreams
+      - id: chainstack-plasma-testnet
+        type: evm
+        endpoint: YOUR_CHAINSTACK_PLASMA_TESTNET_ENDPOINT
+        evm:
+          chainId: 9746
+        rateLimitBudget: chainstack-budget
+        # ... failsafe config
+
+      - id: plasma-public-testnet
+        type: evm
+        endpoint: https://rpc-testnet.plasma.to
+        evm:
+          chainId: 9746
+        rateLimitBudget: public-budget
+        # ... failsafe config
+```
+
+Access testnet at `http://localhost:4000/plasma/evm/9746`.
+
+## How failover works
+
+eRPC handles failures automatically:
+
+1. **Primary attempt** — Request goes to Chainstack first
+2. **Timeout/error** — If Chainstack fails or times out, eRPC retries based on `failsafe` config
+3. **Fallback** — After exhausting retries, request routes to the public endpoint
+4. **Hedging** — For latency-sensitive calls, eRPC can send parallel requests to multiple upstreams
+
+The `hedge` configuration sends a backup request after 2 seconds if the primary hasn't responded, using whichever completes first.
+
+## Production deployment
+
+For production, consider:
+
+- **Environment variables** — Use `${ENV_VAR}` syntax in eRPC config
+- **Docker Compose** — Run eRPC alongside your application
+- **Health checks** — Monitor eRPC metrics on port 4001
+- **Multiple Chainstack nodes** — Add nodes in different regions for geographic redundancy
+
+Example with environment variables:
+
+```yaml
+upstreams:
+  - id: chainstack-plasma
+    endpoint: ${CHAINSTACK_PLASMA_URL}
+```
+
+Run with:
+
+```bash
+docker run --rm \
+  -e CHAINSTACK_PLASMA_URL="https://your-endpoint..." \
+  -v $(pwd)/erpc.yaml:/erpc.yaml \
+  -p 4000:4000 \
+  ghcr.io/erpc/erpc:latest
+```
+
+## Conclusion
+
+You now have fault-tolerant RPC access to Plasma. When your Chainstack endpoint experiences issues, eRPC automatically fails over to public endpoints, ensuring your application stays connected.
+
+For advanced configuration options, see the [eRPC documentation](https://docs.erpc.cloud/).

@@ -1,0 +1,499 @@
+---
+title: "Plasma: Bridging assets with Symbiosis"
+description: "Bridge USDT and other tokens to Plasma programmatically using the Symbiosis JS SDK and monitor transaction status."
+---
+
+## Overview
+
+This tutorial shows how to bridge assets to Plasma programmatically using the Symbiosis cross-chain protocol. You will set up the Symbiosis JS SDK, execute a bridge transaction from Ethereum to Plasma, and monitor the transfer until completion.
+
+By the end, you will have working code that:
+
+- Connects to Symbiosis and initializes a swap
+- Bridges USDT from Ethereum to USDT0 on Plasma
+- Monitors the cross-chain transaction status
+- Handles failures with retry logic
+
+## Prerequisites
+
+- [Chainstack account](https://console.chainstack.com/) with Plasma and Ethereum nodes deployed
+- Node.js 18 or later
+- A wallet with USDT on Ethereum (testnet or mainnet)
+- Basic familiarity with ethers.js
+
+<Note>
+  This tutorial uses mainnet examples. For testing, use small amounts or deploy on testnets first.
+</Note>
+
+## Network parameters
+
+| Network | Chain ID | Currency | USDT contract |
+|---------|----------|----------|---------------|
+| Plasma Mainnet | `9745` | XPL | `0xB8CE59FC3717Ada4C02eadf9682A9e934F625ebb` |
+| Ethereum Mainnet | `1` | ETH | `0xdAC17F958D2ee523a2206206994597C13D831ec7` |
+
+## Bridge options for Plasma
+
+Several bridges support Plasma:
+
+| Bridge | Type | Best for |
+|--------|------|----------|
+| [Symbiosis](https://symbiosis.finance/bridge-plasma) | DEX aggregator | Programmatic integration |
+| [deBridge](https://app.debridge.finance/) | Cross-chain | UI-based transfers |
+| [Rhino.fi](https://rhino.fi/) | Bridge aggregator | Multiple route options |
+
+This tutorial focuses on Symbiosis for its JavaScript SDK and API support.
+
+## 1. Set up the project
+
+```bash
+mkdir plasma-bridge
+cd plasma-bridge
+npm init -y
+npm install symbiosis-js-sdk ethers dotenv
+```
+
+Create a `.env` file:
+
+```bash
+PRIVATE_KEY=your_wallet_private_key
+CHAINSTACK_ETH_URL=YOUR_CHAINSTACK_ETHEREUM_ENDPOINT
+CHAINSTACK_PLASMA_URL=YOUR_CHAINSTACK_PLASMA_ENDPOINT
+```
+
+<Warning>
+  Never commit private keys to version control. Use environment variables or a secrets manager.
+</Warning>
+
+## 2. Initialize the SDK
+
+Create `bridge.js`:
+
+```javascript
+import { Symbiosis, Token, TokenAmount } from 'symbiosis-js-sdk';
+import { ethers } from 'ethers';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// Chain IDs
+const ETHEREUM_CHAIN_ID = 1;
+const PLASMA_CHAIN_ID = 9745;
+
+// Token addresses
+const USDT_ETHEREUM = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
+const USDT_PLASMA = '0xB8CE59FC3717Ada4C02eadf9682A9e934F625ebb';
+
+// Initialize Symbiosis
+const symbiosis = new Symbiosis('mainnet', 'chainstack-bridge-tutorial');
+
+// Set up providers
+const ethProvider = new ethers.JsonRpcProvider(process.env.CHAINSTACK_ETH_URL);
+const plasmaProvider = new ethers.JsonRpcProvider(process.env.CHAINSTACK_PLASMA_URL);
+const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, ethProvider);
+
+console.log('Wallet address:', wallet.address);
+```
+
+## 3. Define tokens and amounts
+
+Add the token definitions:
+
+```javascript
+// Define source token (USDT on Ethereum)
+const tokenIn = new Token({
+  chainId: ETHEREUM_CHAIN_ID,
+  address: USDT_ETHEREUM,
+  decimals: 6,
+  symbol: 'USDT',
+  name: 'Tether USD',
+});
+
+// Define destination token (USDT0 on Plasma)
+const tokenOut = new Token({
+  chainId: PLASMA_CHAIN_ID,
+  address: USDT_PLASMA,
+  decimals: 6,
+  symbol: 'USDT0',
+  name: 'Tether USD on Plasma',
+});
+
+// Amount to bridge (10 USDT = 10_000_000 in 6 decimals)
+const amountIn = '10000000';
+const tokenAmountIn = new TokenAmount(tokenIn, amountIn);
+```
+
+## 4. Execute the bridge
+
+Add the bridging logic:
+
+```javascript
+async function bridgeToPlasma() {
+  console.log(`\nBridging ${tokenAmountIn.toSignificant()} USDT to Plasma...`);
+
+  // Check USDT balance before proceeding
+  const usdtContract = new ethers.Contract(
+    USDT_ETHEREUM,
+    ['function balanceOf(address) view returns (uint256)'],
+    ethProvider
+  );
+  const balance = await usdtContract.balanceOf(wallet.address);
+  if (BigInt(amountIn) > balance) {
+    throw new Error(`Insufficient USDT balance. Have: ${ethers.formatUnits(balance, 6)}, need: ${ethers.formatUnits(amountIn, 6)}`);
+  }
+  console.log('USDT balance:', ethers.formatUnits(balance, 6));
+
+  try {
+    // Create swapping instance
+    const swapping = symbiosis.bestPoolSwapping();
+
+    // Calculate route and fees
+    console.log('Calculating best route...');
+    const { transactionRequest, fee, route, priceImpact } = await swapping.exactIn({
+      tokenAmountIn,
+      tokenOut,
+      from: wallet.address,
+      to: wallet.address,
+      revertableAddress: wallet.address,
+      slippage: 100, // 1% slippage (100 basis points)
+      deadline: Math.floor(Date.now() / 1000) + 1800, // 30 minutes
+    });
+
+    console.log('Route:', route.map(t => t.symbol).join(' → '));
+    console.log('Fee:', fee.toSignificant(), fee.token.symbol);
+    console.log('Price impact:', priceImpact.toSignificant(), '%');
+
+    // Validate price impact - warn if high, abort if excessive
+    const impactPercent = parseFloat(priceImpact.toSignificant());
+    if (impactPercent > 5) {
+      console.warn('⚠️  WARNING: High price impact detected! Consider smaller amount.');
+    }
+    if (impactPercent > 10) {
+      throw new Error(`Price impact too high (${impactPercent}%). Aborting to prevent losses.`);
+    }
+
+    // Check and approve USDT spending
+    await approveToken(tokenIn, transactionRequest.to, amountIn);
+
+    // Send bridge transaction
+    console.log('\nSending bridge transaction...');
+    const tx = await wallet.sendTransaction({
+      to: transactionRequest.to,
+      data: transactionRequest.data,
+      value: transactionRequest.value || 0,
+      gasLimit: 500000,
+    });
+
+    console.log('Transaction hash:', tx.hash);
+    console.log('Waiting for confirmation...');
+
+    const receipt = await tx.wait();
+    console.log('Confirmed in block:', receipt.blockNumber);
+
+    // Wait for cross-chain completion
+    console.log('\nWaiting for cross-chain transfer...');
+    const completionLog = await swapping.waitForComplete(receipt);
+    console.log('Bridge complete! Destination tx:', completionLog.transactionHash);
+
+    return completionLog;
+  } catch (error) {
+    console.error('Bridge failed:', error.message);
+    throw error;
+  }
+}
+```
+
+## 5. Add token approval
+
+Add the approval helper:
+
+```javascript
+const ERC20_ABI = [
+  'function approve(address spender, uint256 amount) returns (bool)',
+  'function allowance(address owner, address spender) view returns (uint256)',
+];
+
+async function approveToken(token, spender, amount) {
+  const contract = new ethers.Contract(token.address, ERC20_ABI, wallet);
+
+  // Check existing allowance
+  const allowance = await contract.allowance(wallet.address, spender);
+  if (allowance >= BigInt(amount)) {
+    console.log('Sufficient allowance exists');
+    return;
+  }
+
+  // Approve spending
+  console.log('Approving token spend...');
+  const approveTx = await contract.approve(spender, amount);
+  await approveTx.wait();
+  console.log('Approval confirmed');
+}
+```
+
+## 6. Monitor transaction status
+
+Add status monitoring for pending transactions:
+
+```javascript
+async function checkBridgeStatus(txHash, sourceChainId) {
+  console.log(`\nChecking status for ${txHash}...`);
+
+  try {
+    // Get pending requests from Symbiosis
+    const pendingRequests = await symbiosis.getPendingRequests(wallet.address);
+
+    for (const request of pendingRequests) {
+      if (request.transactionHash === txHash) {
+        console.log('Status:', request.status);
+        console.log('Source chain:', request.chainIdFrom);
+        console.log('Destination chain:', request.chainIdTo);
+        return request;
+      }
+    }
+
+    console.log('Transaction not found in pending requests (may be complete)');
+    return null;
+  } catch (error) {
+    console.error('Status check failed:', error.message);
+    return null;
+  }
+}
+```
+
+## 7. Handle stuck transactions
+
+Add recovery logic for failed bridges:
+
+```javascript
+async function revertStuckTransaction(request) {
+  console.log('\nAttempting to revert stuck transaction...');
+
+  try {
+    const revertPending = symbiosis.newRevertPending(request);
+    const { transactionRequest } = await revertPending.revert();
+
+    const tx = await wallet.sendTransaction({
+      to: transactionRequest.to,
+      data: transactionRequest.data,
+      value: transactionRequest.value || 0,
+    });
+
+    console.log('Revert transaction:', tx.hash);
+    const receipt = await tx.wait();
+    console.log('Revert confirmed in block:', receipt.blockNumber);
+
+    // Wait for revert completion
+    const log = await revertPending.waitForComplete();
+    console.log('Funds returned! Tx:', log.transactionHash);
+
+    return log;
+  } catch (error) {
+    console.error('Revert failed:', error.message);
+    throw error;
+  }
+}
+```
+
+## 8. Add retry logic
+
+Wrap the bridge with retry handling:
+
+```javascript
+async function bridgeWithRetry(maxAttempts = 3) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    console.log(`\n=== Attempt ${attempt} of ${maxAttempts} ===`);
+
+    try {
+      const result = await bridgeToPlasma();
+      return result;
+    } catch (error) {
+      lastError = error;
+      console.error(`Attempt ${attempt} failed:`, error.message);
+
+      if (attempt < maxAttempts) {
+        const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
+        console.log(`Waiting ${delay / 1000}s before retry...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  throw new Error(`Bridge failed after ${maxAttempts} attempts: ${lastError.message}`);
+}
+```
+
+## 9. Run the bridge
+
+Add the main execution:
+
+```javascript
+async function main() {
+  // Check balances before
+  const ethBalance = await ethProvider.getBalance(wallet.address);
+  console.log('ETH balance:', ethers.formatEther(ethBalance));
+
+  // Execute bridge with retry
+  try {
+    await bridgeWithRetry(3);
+    console.log('\n✓ Bridge completed successfully!');
+  } catch (error) {
+    console.error('\n✗ Bridge failed:', error.message);
+    process.exit(1);
+  }
+
+  // Verify arrival on Plasma
+  const usdtContract = new ethers.Contract(
+    USDT_PLASMA,
+    ['function balanceOf(address) view returns (uint256)'],
+    plasmaProvider
+  );
+  const plasmaBalance = await usdtContract.balanceOf(wallet.address);
+  console.log('\nUSDT0 balance on Plasma:', ethers.formatUnits(plasmaBalance, 6));
+}
+
+main();
+```
+
+## 10. Run the script
+
+Update `package.json` to enable ES modules:
+
+```json
+{
+  "type": "module"
+}
+```
+
+Run the bridge:
+
+```bash
+node bridge.js
+```
+
+Expected output:
+
+```text
+Wallet address: 0x1234...5678
+ETH balance: 0.5
+
+=== Attempt 1 of 3 ===
+
+Bridging 10 USDT to Plasma...
+Calculating best route...
+Route: USDT → USDC → USDT0
+Fee: 0.5 USDT
+Price impact: 0.3 %
+Approving token spend...
+Approval confirmed
+
+Sending bridge transaction...
+Transaction hash: 0xabcd...ef01
+Waiting for confirmation...
+Confirmed in block: 18500000
+
+Waiting for cross-chain transfer...
+Bridge complete! Destination tx: 0x9876...5432
+
+✓ Bridge completed successfully!
+
+USDT0 balance on Plasma: 9.50
+```
+
+## Alternative: Using the Symbiosis API
+
+For production applications, Symbiosis recommends using their API instead of the SDK for better stability:
+
+```javascript
+async function bridgeViaApi(fromChainId, toChainId, tokenIn, tokenOut, amount, recipient) {
+  const response = await fetch('https://api.symbiosis.finance/crosschain/v1/swap', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      tokenAmountIn: {
+        chainId: fromChainId,
+        address: tokenIn,
+        amount: amount,
+        decimals: 6,
+      },
+      tokenOut: {
+        chainId: toChainId,
+        address: tokenOut,
+        decimals: 6,
+      },
+      from: recipient,
+      to: recipient,
+      revertableAddress: recipient,
+      slippage: 100,
+    }),
+  });
+
+  return response.json();
+}
+```
+
+## Bridge alternatives
+
+### deBridge
+
+For UI-based bridging or deBridge API integration:
+
+1. Visit [app.debridge.finance](https://app.debridge.finance/)
+2. Connect wallet and select source chain
+3. Choose Plasma as destination
+4. Enter amount and confirm
+
+### Direct USDT0 transfers on Plasma
+
+Once you have USDT0 on Plasma, transfers are zero-fee using the Relayer API:
+
+```javascript
+// POST https://api.relayer.plasma.to/v1/submit
+// Requires EIP-3009 authorization signature
+```
+
+See the [Plasma zero-fee transfers documentation](https://plasma.to/docs/plasma-chain/stablecoin-native-contracts/zero-fee-usdt-transfers) for details.
+
+## Troubleshooting
+
+### Transaction stuck
+
+If your bridge transaction is pending for more than 10 minutes:
+
+1. Check status using `checkBridgeStatus()`
+2. If stuck, use `revertStuckTransaction()` to recover funds
+3. Contact Symbiosis support with your transaction hash
+
+### Insufficient gas
+
+Ensure your wallet has enough ETH for:
+- Token approval transaction
+- Bridge transaction (typically 0.01-0.05 ETH)
+
+### Slippage errors
+
+Increase slippage tolerance for volatile conditions:
+
+```javascript
+slippage: 300, // 3% instead of 1%
+```
+
+## Conclusion
+
+You now have working code to bridge assets to Plasma programmatically. The Symbiosis SDK handles routing, fee calculation, and cross-chain monitoring automatically.
+
+For production use, consider:
+- Using the Symbiosis API for better stability
+- Adding comprehensive error handling
+- Implementing transaction logging
+- Setting up monitoring for stuck transactions
+
+## Resources
+
+- [Symbiosis documentation](https://docs.symbiosis.finance/)
+- [Symbiosis JS SDK](https://github.com/symbiosis-finance/js-sdk)
+- [deBridge Plasma integration](https://debridge.com/learn/blog/plasma-is-live-on-debridge/)
+- [Plasma bridge documentation](https://plasma.to/docs)
+
