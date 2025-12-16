@@ -1,0 +1,110 @@
+---
+title: eth_getProof | Tempo
+openapi: /openapi/tempo_node_api/account_info/eth_getProof.json POST /
+---
+
+Tempo API method that returns the Merkle proof for an account and optionally some storage keys. This is useful for verifying account state without trusting the node.
+
+
+## Parameters
+
+* `address` — the address to get the proof for
+* `storageKeys` — array of storage positions to prove (hex strings)
+* `blockParameter` — the block number (hex) or tag (`latest`, `earliest`, `pending`)
+
+## Response
+
+* `result` — the proof object:
+  * `address` — the account address
+  * `accountProof` — array of RLP-encoded Merkle Patricia trie nodes from state root to account
+  * `balance` — the account balance
+  * `codeHash` — the hash of the account code
+  * `nonce` — the account nonce
+  * `storageHash` — the hash of the storage trie root
+  * `storageProof` — array of storage proofs, one per requested key:
+    * `key` — the storage key
+    * `value` — the storage value
+    * `proof` — array of RLP-encoded trie nodes from storage root to value
+
+## `eth_getProof` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+// pathUSD token address
+const PATHUSD = "0x20c0000000000000000000000000000000000000";
+
+const getProof = async () => {
+    // Get proof for storage slot 0 (often totalSupply)
+    const proof = await provider.send("eth_getProof", [
+      PATHUSD,
+      ["0x0", "0x1"],
+      "latest"
+    ]);
+
+    console.log(`Account: ${proof.address}`);
+    console.log(`Balance: ${proof.balance}`);
+    console.log(`Nonce: ${parseInt(proof.nonce, 16)}`);
+    console.log(`Code Hash: ${proof.codeHash}`);
+    console.log(`Storage Hash: ${proof.storageHash}`);
+
+    console.log(`\nAccount Proof nodes: ${proof.accountProof.length}`);
+
+    for (const sp of proof.storageProof) {
+      console.log(`\nStorage Key: ${sp.key}`);
+      console.log(`  Value: ${sp.value}`);
+      console.log(`  Proof nodes: ${sp.proof.length}`);
+    }
+  };
+
+getProof();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# pathUSD token address
+PATHUSD = "0x20c0000000000000000000000000000000000000"
+
+result = web3.provider.make_request("eth_getProof", [
+    PATHUSD,
+    ["0x0", "0x1"],
+    "latest"
+])
+
+proof = result['result']
+print(f"Account: {proof['address']}")
+print(f"Balance: {proof['balance']}")
+print(f"Nonce: {int(proof['nonce'], 16)}")
+print(f"Code Hash: {proof['codeHash']}")
+print(f"Storage Hash: {proof['storageHash']}")
+
+print(f"\nAccount Proof nodes: {len(proof['accountProof'])}")
+
+for sp in proof['storageProof']:
+    print(f"\nStorage Key: {sp['key']}")
+    print(f"  Value: {sp['value']}")
+    print(f"  Proof nodes: {len(sp['proof'])}")
+```
+
+```bash cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_getProof",
+    "params": [
+      "0x20c0000000000000000000000000000000000000",
+      ["0x0", "0x1"],
+      "latest"
+    ],
+    "id": 1
+  }'
+```
+</CodeGroup>

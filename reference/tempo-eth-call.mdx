@@ -1,0 +1,87 @@
+---
+title: eth_call | Tempo
+openapi: /openapi/tempo_node_api/transaction_info/eth_call.json POST /
+---
+
+Tempo API method that executes a new message call immediately without creating a transaction on the blockchain. This is commonly used to read data from smart contracts, such as TIP-20 token balances.
+
+
+## Parameters
+
+* `callObject` — the call object:
+  * `from` — (optional) address the call is sent from
+  * `to` — the address the call is directed to
+  * `gas` — (optional) gas provided for the call
+  * `gasPrice` — (optional) gas price for the call
+  * `value` — (optional) value sent with the call
+  * `data` — (optional) hash of the method signature and encoded parameters
+* `blockParameter` — the block number (hex) or tag (`latest`, `earliest`, `pending`)
+
+## Response
+
+* `result` — the return value of the executed contract call
+
+## `eth_call` code examples
+
+The following example queries the `balanceOf` function on the pathUSD TIP-20 token contract:
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+// pathUSD token address
+const PATHUSD = "0x20c0000000000000000000000000000000000000";
+
+const getBalance = async (address) => {
+    const abi = ["function balanceOf(address) view returns (uint256)"];
+    const token = new ethers.Contract(PATHUSD, abi, provider);
+    const balance = await token.balanceOf(address);
+    // TIP-20 tokens use 6 decimals
+    console.log(`pathUSD balance: ${ethers.formatUnits(balance, 6)}`);
+  };
+
+getBalance("0x9729187D9E8Bbefa8295F39f5634cA454dd9d294");
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# pathUSD token address
+PATHUSD = "0x20c0000000000000000000000000000000000000"
+
+# balanceOf function signature: keccak256("balanceOf(address)")[:4]
+# Plus address padded to 32 bytes
+address = "0x9729187D9E8Bbefa8295F39f5634cA454dd9d294"
+data = "0x70a082310000000000000000000000009729187d9e8bbefa8295f39f5634ca454dd9d294"
+
+result = web3.eth.call({
+    'to': PATHUSD,
+    'data': data
+})
+
+balance = int(result.hex(), 16) / 10**6  # TIP-20 uses 6 decimals
+print(f"pathUSD balance: {balance}")
+```
+
+```bash cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_call",
+    "params": [
+      {
+        "to": "0x20c0000000000000000000000000000000000000",
+        "data": "0x70a082310000000000000000000000009729187d9e8bbefa8295f39f5634ca454dd9d294"
+      },
+      "latest"
+    ],
+    "id": 1
+  }'
+```
+</CodeGroup>

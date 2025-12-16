@@ -1,0 +1,80 @@
+---
+title: eth_uninstallFilter | Tempo
+openapi: /openapi/tempo_node_api/filter_handling/eth_uninstallFilter.json POST /
+---
+
+Tempo API method that uninstalls a filter created by `eth_newFilter`, `eth_newBlockFilter`, or `eth_newPendingTransactionFilter`. Filters should be uninstalled when no longer needed to free server resources.
+
+
+## Parameters
+
+* `filterId` — the filter ID to uninstall
+
+## Response
+
+* `result` — `true` if the filter was successfully uninstalled, `false` otherwise
+
+## `eth_uninstallFilter` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const filterLifecycle = async () => {
+    // Create a block filter
+    const filterId = await provider.send("eth_newBlockFilter", []);
+    console.log(`Created block filter: ${filterId}`);
+
+    // Use the filter
+    const blocks = await provider.send("eth_getFilterChanges", [filterId]);
+    console.log(`Got ${blocks.length} new blocks`);
+
+    // Uninstall when done
+    const uninstalled = await provider.send("eth_uninstallFilter", [filterId]);
+    console.log(`Filter uninstalled: ${uninstalled}`);
+
+    // Trying to use it again will fail
+    try {
+      await provider.send("eth_getFilterChanges", [filterId]);
+    } catch (e) {
+      console.log("Filter no longer exists (expected)");
+    }
+  };
+
+filterLifecycle();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# Create a block filter
+filter_result = web3.provider.make_request("eth_newBlockFilter", [])
+filter_id = filter_result['result']
+print(f"Created block filter: {filter_id}")
+
+# Use the filter
+changes_result = web3.provider.make_request("eth_getFilterChanges", [filter_id])
+print(f"Got {len(changes_result['result'])} new blocks")
+
+# Uninstall when done
+uninstall_result = web3.provider.make_request("eth_uninstallFilter", [filter_id])
+print(f"Filter uninstalled: {uninstall_result['result']}")
+```
+
+```bash cURL
+# First create a filter
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "eth_newBlockFilter", "params": [], "id": 1}'
+
+# Then uninstall it using the returned filter ID
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "eth_uninstallFilter", "params": ["0x1"], "id": 1}'
+```
+</CodeGroup>

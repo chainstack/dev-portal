@@ -1,0 +1,103 @@
+---
+title: trace_transaction | Tempo
+openapi: /openapi/tempo_node_api/debug_and_trace/trace_transaction.json POST /
+---
+
+Tempo API method that returns execution traces for a specific transaction. This provides detailed call-level traces using the Parity/OpenEthereum trace format.
+
+
+## Parameters
+
+* `transactionHash` — the hash of the transaction to trace
+
+## Response
+
+* `result` — array of trace objects for the transaction:
+  * `action` — the action object:
+    * `from` — sender address
+    * `to` — recipient address
+    * `callType` — type of call (call, delegatecall, staticcall, etc.)
+    * `gas` — gas provided
+    * `input` — call data
+    * `value` — value transferred
+  * `blockHash` — hash of the block
+  * `blockNumber` — block number
+  * `result` — the result object:
+    * `gasUsed` — gas consumed
+    * `output` — return data
+  * `subtraces` — number of child traces
+  * `traceAddress` — position in the trace tree
+  * `transactionHash` — hash of the transaction
+  * `transactionPosition` — index of the transaction in the block
+  * `type` — trace type (call, create, suicide, reward)
+
+## `trace_transaction` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const traceTransaction = async (txHash) => {
+    const traces = await provider.send("trace_transaction", [txHash]);
+
+    console.log(`Transaction has ${traces.length} traces`);
+
+    for (const trace of traces) {
+      const indent = "  ".repeat(trace.traceAddress.length);
+      const callType = trace.action.callType || trace.type;
+      const to = trace.action.to || "Contract Creation";
+
+      console.log(`${indent}[${trace.traceAddress.join(",")}] ${callType}`);
+      console.log(`${indent}  From: ${trace.action.from}`);
+      console.log(`${indent}  To: ${to}`);
+      console.log(`${indent}  Gas Used: ${trace.result?.gasUsed || "N/A"}`);
+
+      if (trace.error) {
+        console.log(`${indent}  Error: ${trace.error}`);
+      }
+    }
+  };
+
+traceTransaction("0xb3e821e696897b02283b7b2d602941b1d3cb08448d3a204bab05955215fc2035");
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+result = web3.provider.make_request("trace_transaction", [
+    "0xb3e821e696897b02283b7b2d602941b1d3cb08448d3a204bab05955215fc2035"
+])
+
+traces = result['result']
+print(f"Transaction has {len(traces)} traces")
+
+for trace in traces:
+    indent = "  " * len(trace['traceAddress'])
+    call_type = trace['action'].get('callType', trace['type'])
+    to = trace['action'].get('to', 'Contract Creation')
+
+    print(f"{indent}[{','.join(map(str, trace['traceAddress']))}] {call_type}")
+    print(f"{indent}  From: {trace['action']['from']}")
+    print(f"{indent}  To: {to}")
+    if trace.get('result'):
+        print(f"{indent}  Gas Used: {trace['result'].get('gasUsed', 'N/A')}")
+    if trace.get('error'):
+        print(f"{indent}  Error: {trace['error']}")
+```
+
+```bash cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "trace_transaction",
+    "params": ["0xb3e821e696897b02283b7b2d602941b1d3cb08448d3a204bab05955215fc2035"],
+    "id": 1
+  }'
+```
+</CodeGroup>

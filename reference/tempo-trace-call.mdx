@@ -1,0 +1,118 @@
+---
+title: trace_call | Tempo
+openapi: /openapi/tempo_node_api/debug_and_trace/trace_call.json POST /
+---
+
+Tempo API method that traces a call without creating a transaction. This provides detailed execution traces using the Parity/OpenEthereum trace format.
+
+
+## Parameters
+
+* `callObject` — the call object:
+  * `from` — (optional) sender address
+  * `to` — recipient address
+  * `gas` — (optional) gas limit
+  * `gasPrice` — (optional) gas price
+  * `value` — (optional) value to send
+  * `data` — (optional) call data
+* `traceTypes` — array of trace types to include:
+  * `trace` — basic execution trace
+  * `vmTrace` — full VM execution trace
+  * `stateDiff` — state changes
+* `blockParameter` — the block number (hex) or tag (`latest`, `earliest`, `pending`)
+
+## Response
+
+* `result` — the trace result object:
+  * `output` — return data from the call
+  * `trace` — array of trace objects (if requested)
+  * `vmTrace` — VM execution trace (if requested)
+  * `stateDiff` — state differences (if requested)
+
+## `trace_call` code examples
+
+The following example traces a `balanceOf` call on the pathUSD token:
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+// pathUSD token address
+const PATHUSD = "0x20c0000000000000000000000000000000000000";
+const TARGET_ADDRESS = "0x9729187D9E8Bbefa8295F39f5634cA454dd9d294";
+
+// Encode balanceOf(address)
+const iface = new ethers.Interface(["function balanceOf(address) view returns (uint256)"]);
+const data = iface.encodeFunctionData("balanceOf", [TARGET_ADDRESS]);
+
+const traceCall = async () => {
+    const result = await provider.send("trace_call", [
+      {
+        to: PATHUSD,
+        data: data
+      },
+      ["trace", "stateDiff"],
+      "latest"
+    ]);
+
+    console.log("Output:", result.output);
+    console.log("Traces:", result.trace.length);
+
+    if (result.stateDiff) {
+      console.log("State changes:", Object.keys(result.stateDiff).length, "addresses affected");
+    }
+  };
+
+traceCall();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# pathUSD token address
+PATHUSD = "0x20c0000000000000000000000000000000000000"
+TARGET_ADDRESS = "0x9729187D9E8Bbefa8295F39f5634cA454dd9d294"
+
+# balanceOf(address) calldata
+data = "0x70a08231000000000000000000000000" + TARGET_ADDRESS[2:].lower()
+
+result = web3.provider.make_request("trace_call", [
+    {
+        "to": PATHUSD,
+        "data": data
+    },
+    ["trace", "stateDiff"],
+    "latest"
+])
+
+trace_result = result['result']
+print(f"Output: {trace_result['output']}")
+print(f"Traces: {len(trace_result['trace'])}")
+
+if trace_result.get('stateDiff'):
+    print(f"State changes: {len(trace_result['stateDiff'])} addresses affected")
+```
+
+```bash cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "trace_call",
+    "params": [
+      {
+        "to": "0x20c0000000000000000000000000000000000000",
+        "data": "0x70a082310000000000000000000000009729187d9e8bbefa8295f39f5634ca454dd9d294"
+      },
+      ["trace", "stateDiff"],
+      "latest"
+    ],
+    "id": 1
+  }'
+```
+</CodeGroup>

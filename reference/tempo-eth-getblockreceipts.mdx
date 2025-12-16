@@ -1,0 +1,129 @@
+---
+title: eth_getBlockReceipts | Tempo
+openapi: /openapi/tempo_node_api/blocks_info/eth_getBlockReceipts.json POST /
+---
+
+Tempo API method that returns all transaction receipts for a given block. This is more efficient than fetching receipts individually when you need all receipts from a block.
+
+
+## Parameters
+
+* `blockParameter` — the block number (hex) or tag (`latest`, `earliest`, `pending`)
+
+## Response
+
+* `result` — array of receipt objects for all transactions in the block:
+  * `transactionHash` — hash of the transaction
+  * `transactionIndex` — index of the transaction in the block
+  * `blockHash` — hash of the block
+  * `blockNumber` — block number
+  * `from` — sender address
+  * `to` — recipient address
+  * `cumulativeGasUsed` — total gas used in the block up to this transaction
+  * `gasUsed` — gas used by this transaction
+  * `contractAddress` — contract address if this was a deployment
+  * `logs` — array of log objects
+  * `logsBloom` — bloom filter for logs
+  * `status` — `0x1` for success, `0x0` for failure
+  * `effectiveGasPrice` — actual gas price paid
+  * `type` — transaction type
+  * `feeToken` — (Tempo-specific) token used to pay fees
+  * `feePayer` — (Tempo-specific) address that paid the fees
+
+## `eth_getBlockReceipts` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const getBlockReceipts = async (blockNumber) => {
+    const receipts = await provider.send("eth_getBlockReceipts", [blockNumber]);
+
+    console.log(`Block ${blockNumber}: ${receipts.length} transactions`);
+
+    let totalGasUsed = 0n;
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const receipt of receipts) {
+      const gasUsed = BigInt(receipt.gasUsed);
+      totalGasUsed += gasUsed;
+
+      if (receipt.status === "0x1") {
+        successCount++;
+      } else {
+        failCount++;
+      }
+
+      console.log(`\nTx ${receipt.transactionIndex}: ${receipt.transactionHash}`);
+      console.log(`  Status: ${receipt.status === "0x1" ? "Success" : "Failed"}`);
+      console.log(`  Gas Used: ${gasUsed}`);
+      console.log(`  Logs: ${receipt.logs.length}`);
+
+      // Tempo-specific fields
+      if (receipt.feeToken) {
+        console.log(`  Fee Token: ${receipt.feeToken}`);
+      }
+      if (receipt.feePayer) {
+        console.log(`  Fee Payer: ${receipt.feePayer}`);
+      }
+    }
+
+    console.log(`\n--- Summary ---`);
+    console.log(`Total transactions: ${receipts.length}`);
+    console.log(`Successful: ${successCount}, Failed: ${failCount}`);
+    console.log(`Total gas used: ${totalGasUsed}`);
+  };
+
+getBlockReceipts("latest");
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+result = web3.provider.make_request("eth_getBlockReceipts", ["latest"])
+receipts = result['result']
+
+print(f"Block latest: {len(receipts)} transactions")
+
+total_gas_used = 0
+success_count = 0
+fail_count = 0
+
+for receipt in receipts:
+    gas_used = int(receipt['gasUsed'], 16)
+    total_gas_used += gas_used
+
+    if receipt['status'] == "0x1":
+        success_count += 1
+    else:
+        fail_count += 1
+
+    print(f"\nTx {receipt['transactionIndex']}: {receipt['transactionHash']}")
+    print(f"  Status: {'Success' if receipt['status'] == '0x1' else 'Failed'}")
+    print(f"  Gas Used: {gas_used}")
+    print(f"  Logs: {len(receipt['logs'])}")
+
+    # Tempo-specific fields
+    if receipt.get('feeToken'):
+        print(f"  Fee Token: {receipt['feeToken']}")
+    if receipt.get('feePayer'):
+        print(f"  Fee Payer: {receipt['feePayer']}")
+
+print(f"\n--- Summary ---")
+print(f"Total transactions: {len(receipts)}")
+print(f"Successful: {success_count}, Failed: {fail_count}")
+print(f"Total gas used: {total_gas_used}")
+```
+
+```bash cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "eth_getBlockReceipts", "params": ["latest"], "id": 1}'
+```
+</CodeGroup>

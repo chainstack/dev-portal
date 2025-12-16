@@ -1,0 +1,83 @@
+---
+title: web3_sha3 | Tempo
+openapi: /openapi/tempo_node_api/client_info/web3_sha3.json POST /
+---
+
+Tempo API method that returns the Keccak-256 hash of the given data. This is the same hashing algorithm used by Ethereum for various purposes.
+
+
+## Parameters
+
+* `data` — the data to hash (hex encoded)
+
+## Response
+
+* `result` — the Keccak-256 hash of the input data
+
+## Use case
+
+The `web3_sha3` method is useful for:
+
+- Computing function selectors (first 4 bytes of keccak256 of function signature)
+- Computing event topics
+- General-purpose hashing
+
+## `web3_sha3` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const sha3Example = async () => {
+    // Hash hex-encoded data via RPC
+    const hash = await provider.send("web3_sha3", ["0x68656c6c6f"]); // "hello" in hex
+    console.log(`Hash of 'hello': ${hash}`);
+
+    // Compare with ethers.js local computation
+    const localHash = ethers.keccak256("0x68656c6c6f");
+    console.log(`Local hash: ${localHash}`);
+    console.log(`Hashes match: ${hash === localHash}`);
+
+    // Compute a function selector
+    const transferSelector = await provider.send("web3_sha3", [
+      ethers.toUtf8Bytes("transfer(address,uint256)").reduce(
+        (hex, byte) => hex + byte.toString(16).padStart(2, '0'),
+        '0x'
+      )
+    ]);
+    console.log(`\nTransfer function selector: ${transferSelector.slice(0, 10)}`);
+  };
+
+sha3Example();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# Hash hex-encoded data
+data = "0x68656c6c6f"  # "hello" in hex
+result = web3.provider.make_request("web3_sha3", [data])
+print(f"Hash of 'hello': {result['result']}")
+
+# Compare with local computation
+local_hash = web3.keccak(hexstr=data).hex()
+print(f"Local hash: {local_hash}")
+
+# Compute a function selector
+transfer_sig = "transfer(address,uint256)"
+selector = web3.keccak(text=transfer_sig).hex()[:10]
+print(f"\nTransfer function selector: {selector}")
+```
+
+```bash cURL
+# Hash "hello" (0x68656c6c6f in hex)
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "web3_sha3", "params": ["0x68656c6c6f"], "id": 1}'
+```
+</CodeGroup>

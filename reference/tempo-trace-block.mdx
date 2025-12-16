@@ -1,0 +1,111 @@
+---
+title: trace_block | Tempo
+openapi: /openapi/tempo_node_api/debug_and_trace/trace_block.json POST /
+---
+
+Tempo API method that returns execution traces for all transactions in a block. This provides detailed call-level traces using the Parity/OpenEthereum trace format.
+
+
+## Parameters
+
+* `blockParameter` — the block number (hex) or tag (`latest`, `earliest`, `pending`)
+
+## Response
+
+* `result` — array of trace objects for all transactions in the block:
+  * `action` — the action object:
+    * `from` — sender address
+    * `to` — recipient address
+    * `callType` — type of call (call, delegatecall, staticcall, etc.)
+    * `gas` — gas provided
+    * `input` — call data
+    * `value` — value transferred
+  * `blockHash` — hash of the block
+  * `blockNumber` — block number
+  * `result` — the result object:
+    * `gasUsed` — gas consumed
+    * `output` — return data
+  * `subtraces` — number of child traces
+  * `traceAddress` — position in the trace tree
+  * `transactionHash` — hash of the transaction
+  * `transactionPosition` — index of the transaction in the block
+  * `type` — trace type (call, create, suicide, reward)
+
+## `trace_block` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const traceBlock = async (blockNumber) => {
+    const traces = await provider.send("trace_block", [blockNumber]);
+
+    console.log(`Block has ${traces.length} traces`);
+
+    // Group traces by transaction
+    const txTraces = {};
+    for (const trace of traces) {
+      const txHash = trace.transactionHash;
+      if (!txTraces[txHash]) {
+        txTraces[txHash] = [];
+      }
+      txTraces[txHash].push(trace);
+    }
+
+    console.log(`Across ${Object.keys(txTraces).length} transactions`);
+
+    for (const [txHash, txTrace] of Object.entries(txTraces)) {
+      console.log(`\nTx: ${txHash}`);
+      for (const trace of txTrace) {
+        const indent = "  ".repeat(trace.traceAddress.length);
+        console.log(`${indent}${trace.action.callType}: ${trace.action.from} -> ${trace.action.to}`);
+      }
+    }
+  };
+
+traceBlock("latest");
+```
+
+```python web3.py
+from web3 import Web3
+from collections import defaultdict
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+result = web3.provider.make_request("trace_block", ["latest"])
+traces = result['result']
+
+print(f"Block has {len(traces)} traces")
+
+# Group traces by transaction
+tx_traces = defaultdict(list)
+for trace in traces:
+    tx_hash = trace['transactionHash']
+    tx_traces[tx_hash].append(trace)
+
+print(f"Across {len(tx_traces)} transactions")
+
+for tx_hash, tx_trace in tx_traces.items():
+    print(f"\nTx: {tx_hash}")
+    for trace in tx_trace:
+        indent = "  " * len(trace['traceAddress'])
+        call_type = trace['action'].get('callType', trace['type'])
+        from_addr = trace['action']['from']
+        to_addr = trace['action'].get('to', 'Contract Creation')
+        print(f"{indent}{call_type}: {from_addr} -> {to_addr}")
+```
+
+```bash cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "trace_block",
+    "params": ["latest"],
+    "id": 1
+  }'
+```
+</CodeGroup>

@@ -1,0 +1,101 @@
+---
+title: dex_getOrderbooks | Tempo
+openapi: /openapi/tempo_node_api/dex/dex_getOrderbooks.json POST /
+---
+
+Tempo API method that returns paginated orderbooks from the Stablecoin Exchange. This is a Tempo-specific method for discovering available trading pairs on the built-in DEX.
+
+
+## Parameters
+
+* `params` — pagination object:
+  * `limit` — (optional) maximum number of orderbooks to return (default: 10, max: 100)
+  * `cursor` — (optional) cursor for pagination from previous response
+  * `filters` — (optional) filter object:
+    * `baseToken` — filter by base token address
+    * `quoteToken` — filter by quote token address
+    * `bestAskTick` — filter by best ask tick range
+    * `bestBidTick` — filter by best bid tick range
+    * `spread` — filter by spread range
+
+## Response
+
+* `result` — response object:
+  * `nextCursor` — cursor for the next page (null if no more results)
+  * `orderbooks` — array of orderbook objects:
+    * `baseToken` — base token address
+    * `quoteToken` — quote token address
+    * `bookKey` — unique orderbook identifier (used as cursor)
+    * `bestAskTick` — best (lowest) ask price tick
+    * `bestBidTick` — best (highest) bid price tick
+    * `spread` — difference between best ask and best bid ticks
+
+## Use case
+
+The `dex_getOrderbooks` method is essential for:
+
+- Discovering available trading pairs on the Tempo Stablecoin Exchange
+- Monitoring market spreads across stablecoin pairs
+- Building DEX aggregator interfaces
+- Analyzing liquidity distribution
+
+## `dex_getOrderbooks` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const getOrderbooks = async () => {
+    // Get all orderbooks
+    const result = await provider.send("dex_getOrderbooks", [{
+      limit: 10
+    }]);
+
+    console.log(`Found ${result.orderbooks.length} orderbooks`);
+    for (const book of result.orderbooks) {
+      console.log(`Pair: ${book.baseToken} / ${book.quoteToken}`);
+      console.log(`  Best Bid Tick: ${book.bestBidTick}`);
+      console.log(`  Best Ask Tick: ${book.bestAskTick}`);
+      console.log(`  Spread: ${book.spread} ticks`);
+    }
+  };
+
+getOrderbooks();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# Get all orderbooks
+result = web3.provider.make_request("dex_getOrderbooks", [{
+    "limit": 10
+}])
+
+orderbooks = result['result']['orderbooks']
+print(f"Found {len(orderbooks)} orderbooks")
+
+for book in orderbooks:
+    print(f"Pair: {book['baseToken']} / {book['quoteToken']}")
+    print(f"  Best Bid Tick: {book['bestBidTick']}")
+    print(f"  Best Ask Tick: {book['bestAskTick']}")
+    print(f"  Spread: {book['spread']} ticks")
+```
+
+```bash cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "dex_getOrderbooks",
+    "params": [{
+      "limit": 10
+    }],
+    "id": 1
+  }'
+```
+</CodeGroup>

@@ -1,0 +1,116 @@
+---
+title: debug_traceCall | Tempo
+openapi: /openapi/tempo_node_api/debug_and_trace/debug_traceCall.json POST /
+---
+
+Tempo API method that traces the execution of a call without creating a transaction on the blockchain. This is useful for debugging contract interactions before sending actual transactions.
+
+
+## Parameters
+
+* `callObject` — the call object:
+  * `from` — (optional) sender address
+  * `to` — recipient address
+  * `gas` — (optional) gas limit
+  * `gasPrice` — (optional) gas price
+  * `value` — (optional) value to send
+  * `data` — (optional) call data
+* `blockParameter` — the block number (hex) or tag (`latest`, `earliest`, `pending`)
+* `tracerConfig` — (optional) tracer configuration object:
+  * `tracer` — tracer type (e.g., `callTracer`, `prestateTracer`)
+
+## Response
+
+* `result` — the trace result object, format depends on the tracer used
+
+For the default tracer:
+* `gas` — gas used
+* `failed` — whether the call failed
+* `returnValue` — return data
+* `structLogs` — array of execution steps
+
+## `debug_traceCall` code examples
+
+The following example traces a `balanceOf` call on the pathUSD token:
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+// pathUSD token address
+const PATHUSD = "0x20c0000000000000000000000000000000000000";
+const TARGET_ADDRESS = "0x9729187D9E8Bbefa8295F39f5634cA454dd9d294";
+
+// Encode balanceOf(address)
+const iface = new ethers.Interface(["function balanceOf(address) view returns (uint256)"]);
+const data = iface.encodeFunctionData("balanceOf", [TARGET_ADDRESS]);
+
+const traceCall = async () => {
+    // Using default tracer
+    const trace = await provider.send("debug_traceCall", [
+      {
+        to: PATHUSD,
+        data: data
+      },
+      "latest",
+      {}
+    ]);
+
+    console.log("Gas used:", trace.gas);
+    console.log("Failed:", trace.failed);
+    console.log("Return value:", trace.returnValue);
+    console.log("Execution steps:", trace.structLogs.length);
+  };
+
+traceCall();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# pathUSD token address
+PATHUSD = "0x20c0000000000000000000000000000000000000"
+TARGET_ADDRESS = "0x9729187D9E8Bbefa8295F39f5634cA454dd9d294"
+
+# balanceOf(address) calldata
+data = "0x70a08231000000000000000000000000" + TARGET_ADDRESS[2:].lower()
+
+result = web3.provider.make_request("debug_traceCall", [
+    {
+        "to": PATHUSD,
+        "data": data
+    },
+    "latest",
+    {}
+])
+
+trace = result['result']
+print(f"Gas used: {trace['gas']}")
+print(f"Failed: {trace['failed']}")
+print(f"Return value: {trace['returnValue']}")
+print(f"Execution steps: {len(trace['structLogs'])}")
+```
+
+```bash cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "debug_traceCall",
+    "params": [
+      {
+        "to": "0x20c0000000000000000000000000000000000000",
+        "data": "0x70a082310000000000000000000000009729187d9e8bbefa8295f39f5634ca454dd9d294"
+      },
+      "latest",
+      {}
+    ],
+    "id": 1
+  }'
+```
+</CodeGroup>
