@@ -1,0 +1,101 @@
+---
+title: eth_feeHistory | Tempo
+openapi: /openapi/tempo_node_api/gas_data/eth_feeHistory.json POST /
+---
+
+Tempo API method that returns historical gas information for a range of blocks. This is useful for estimating appropriate gas fees based on recent network activity.
+
+
+## Parameters
+
+* `blockCount` — number of blocks to return (hex or integer, max 1024)
+* `newestBlock` — highest block number or tag (`latest`, `pending`)
+* `rewardPercentiles` — (optional) array of percentiles to calculate priority fees
+
+## Response
+
+* `result` — the fee history object:
+  * `baseFeePerGas` — array of base fees for each block (plus next block)
+  * `gasUsedRatio` — array of gas used ratios for each block
+  * `oldestBlock` — the oldest block number in the range
+  * `reward` — (optional) array of priority fee percentiles for each block
+
+## `eth_feeHistory` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const getFeeHistory = async () => {
+    // Get fee history for last 10 blocks with 25th, 50th, 75th percentiles
+    const feeHistory = await provider.send("eth_feeHistory", [
+      "0xa",
+      "latest",
+      [25, 50, 75]
+    ]);
+
+    console.log(`Oldest block: ${parseInt(feeHistory.oldestBlock, 16)}`);
+    console.log(`\nBase fees (gwei):`);
+
+    for (let i = 0; i < feeHistory.baseFeePerGas.length; i++) {
+      const baseFee = ethers.formatUnits(feeHistory.baseFeePerGas[i], "gwei");
+      const gasRatio = feeHistory.gasUsedRatio[i] ? (feeHistory.gasUsedRatio[i] * 100).toFixed(2) : "N/A";
+      console.log(`  Block +${i}: ${baseFee} gwei (${gasRatio}% full)`);
+    }
+
+    if (feeHistory.reward) {
+      console.log(`\nPriority fee percentiles for latest block (gwei):`);
+      const latest = feeHistory.reward[feeHistory.reward.length - 1];
+      console.log(`  25th: ${ethers.formatUnits(latest[0], "gwei")}`);
+      console.log(`  50th: ${ethers.formatUnits(latest[1], "gwei")}`);
+      console.log(`  75th: ${ethers.formatUnits(latest[2], "gwei")}`);
+    }
+  };
+
+getFeeHistory();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# Get fee history for last 10 blocks
+result = web3.provider.make_request("eth_feeHistory", [
+    "0xa",
+    "latest",
+    [25, 50, 75]
+])
+
+fee_history = result['result']
+oldest = int(fee_history['oldestBlock'], 16)
+print(f"Oldest block: {oldest}")
+
+print("\nBase fees (gwei):")
+for i, base_fee in enumerate(fee_history['baseFeePerGas']):
+    base_fee_gwei = web3.from_wei(int(base_fee, 16), 'gwei')
+    gas_ratio = fee_history['gasUsedRatio'][i] * 100 if i < len(fee_history['gasUsedRatio']) else 'N/A'
+    print(f"  Block +{i}: {base_fee_gwei} gwei ({gas_ratio:.2f}% full)" if isinstance(gas_ratio, float) else f"  Block +{i}: {base_fee_gwei} gwei")
+
+if fee_history.get('reward'):
+    print("\nPriority fee percentiles for latest block (gwei):")
+    latest = fee_history['reward'][-1]
+    print(f"  25th: {web3.from_wei(int(latest[0], 16), 'gwei')}")
+    print(f"  50th: {web3.from_wei(int(latest[1], 16), 'gwei')}")
+    print(f"  75th: {web3.from_wei(int(latest[2], 16), 'gwei')}")
+```
+
+```bash cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_feeHistory",
+    "params": ["0xa", "latest", [25, 50, 75]],
+    "id": 1
+  }'
+```
+</CodeGroup>

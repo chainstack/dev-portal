@@ -1,0 +1,115 @@
+---
+title: eth_getFilterLogs | Tempo
+openapi: /openapi/tempo_node_api/logs_and_events/eth_getFilterLogs.json POST /
+---
+
+Tempo API method that returns an array of all logs matching the filter with the given ID. Unlike `eth_getFilterChanges`, this returns all matching logs, not just new ones since the last poll.
+
+
+## Parameters
+
+* `filterId` — the filter ID returned from `eth_newFilter`
+
+## Response
+
+* `result` — array of log objects matching the filter:
+  * `address` — contract address that emitted the log
+  * `topics` — array of indexed log parameters
+  * `data` — non-indexed log parameters
+  * `blockNumber` — block number containing the log
+  * `blockHash` — hash of the block
+  * `transactionHash` — hash of the transaction that emitted the log
+  * `transactionIndex` — index of the transaction in the block
+  * `logIndex` — position of the log in the block
+  * `removed` — `true` if the log was removed due to a chain reorganization
+
+## `eth_getFilterLogs` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+// pathUSD token address
+const PATHUSD = "0x20c0000000000000000000000000000000000000";
+const TRANSFER_TOPIC = ethers.id("Transfer(address,address,uint256)");
+
+const getFilterLogs = async () => {
+    // Create a log filter
+    const filterId = await provider.send("eth_newFilter", [{
+      address: PATHUSD,
+      topics: [TRANSFER_TOPIC],
+      fromBlock: "0x560000"
+    }]);
+    console.log(`Created filter: ${filterId}`);
+
+    // Get all matching logs
+    const logs = await provider.send("eth_getFilterLogs", [filterId]);
+    console.log(`Found ${logs.length} Transfer events`);
+
+    for (const log of logs.slice(0, 5)) {
+      console.log(`\nBlock ${parseInt(log.blockNumber, 16)}:`);
+      console.log(`  Tx: ${log.transactionHash}`);
+      console.log(`  From: 0x${log.topics[1].slice(26)}`);
+      console.log(`  To: 0x${log.topics[2].slice(26)}`);
+    }
+
+    // Clean up
+    await provider.send("eth_uninstallFilter", [filterId]);
+  };
+
+getFilterLogs();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# pathUSD token address
+PATHUSD = "0x20c0000000000000000000000000000000000000"
+TRANSFER_TOPIC = web3.keccak(text="Transfer(address,address,uint256)").hex()
+
+# Create a log filter
+filter_result = web3.provider.make_request("eth_newFilter", [{
+    "address": PATHUSD,
+    "topics": [TRANSFER_TOPIC],
+    "fromBlock": "0x560000"
+}])
+filter_id = filter_result['result']
+print(f"Created filter: {filter_id}")
+
+# Get all matching logs
+logs_result = web3.provider.make_request("eth_getFilterLogs", [filter_id])
+logs = logs_result['result']
+print(f"Found {len(logs)} Transfer events")
+
+for log in logs[:5]:
+    print(f"\nBlock {int(log['blockNumber'], 16)}:")
+    print(f"  Tx: {log['transactionHash']}")
+    print(f"  From: 0x{log['topics'][1][26:]}")
+    print(f"  To: 0x{log['topics'][2][26:]}")
+
+# Clean up
+web3.provider.make_request("eth_uninstallFilter", [filter_id])
+```
+
+```bash cURL
+# First create a filter
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_newFilter",
+    "params": [{"address": "0x20c0000000000000000000000000000000000000", "fromBlock": "0x560000"}],
+    "id": 1
+  }'
+
+# Then get all logs using the returned filter ID
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "eth_getFilterLogs", "params": ["0x1"], "id": 1}'
+```
+</CodeGroup>

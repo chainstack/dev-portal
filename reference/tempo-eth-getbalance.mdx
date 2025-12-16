@@ -1,0 +1,74 @@
+---
+title: eth_getBalance | Tempo
+openapi: /openapi/tempo_node_api/account_info/eth_getBalance.json POST /
+---
+
+Tempo API method that returns the balance of an account.
+
+<Warning>
+**Important**: Tempo has no native token. This method returns a placeholder value instead of an actual balance. To check real balances, query TIP-20 stablecoin contracts using the `balanceOf` function.
+</Warning>
+
+
+## Parameters
+
+* `address` — the address to check balance for
+* `blockParameter` — the block number (hex) or tag (`latest`, `earliest`, `pending`)
+
+## Response
+
+* `result` — returns a placeholder value `0x5e5de0bada3a8d...` since Tempo has no native token
+
+## Checking TIP-20 token balances
+
+To check actual stablecoin balances on Tempo, use `eth_call` with the TIP-20 `balanceOf` function:
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+// pathUSD token address
+const PATHUSD = "0x20c0000000000000000000000000000000000000";
+
+const checkBalance = async (address) => {
+    const abi = ["function balanceOf(address) view returns (uint256)"];
+    const token = new ethers.Contract(PATHUSD, abi, provider);
+    const balance = await token.balanceOf(address);
+    // TIP-20 tokens use 6 decimals
+    console.log(`pathUSD balance: ${ethers.formatUnits(balance, 6)}`);
+  };
+
+checkBalance("0x9729187D9E8Bbefa8295F39f5634cA454dd9d294");
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# pathUSD token address
+PATHUSD = "0x20c0000000000000000000000000000000000000"
+
+# ERC20 balanceOf ABI
+abi = [{"constant": True, "inputs": [{"name": "account", "type": "address"}], "name": "balanceOf", "outputs": [{"name": "", "type": "uint256"}], "type": "function"}]
+
+token = web3.eth.contract(address=PATHUSD, abi=abi)
+balance = token.functions.balanceOf("0x9729187D9E8Bbefa8295F39f5634cA454dd9d294").call()
+# TIP-20 tokens use 6 decimals
+print(f"pathUSD balance: {balance / 10**6}")
+```
+</CodeGroup>
+
+## Testnet tokens
+
+Tempo testnet has these predeployed stablecoins:
+
+| Token | Address |
+|-------|---------|
+| pathUSD | `0x20c0000000000000000000000000000000000000` |
+| AlphaUSD | `0x20c0000000000000000000000000000000000001` |
+| BetaUSD | `0x20c0000000000000000000000000000000000002` |
+| ThetaUSD | `0x20c0000000000000000000000000000000000003` |

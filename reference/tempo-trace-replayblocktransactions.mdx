@@ -1,0 +1,96 @@
+---
+title: trace_replayBlockTransactions | Tempo
+openapi: /openapi/tempo_node_api/debug_and_trace/trace_replayBlockTransactions.json POST /
+---
+
+Tempo API method that replays all transactions in a block and returns execution traces for each. This is useful for detailed analysis of block execution with customizable trace options.
+
+
+## Parameters
+
+* `blockParameter` — the block number (hex) or tag (`latest`, `earliest`, `pending`)
+* `traceTypes` — array of trace types to include:
+  * `trace` — basic execution trace
+  * `vmTrace` — full VM execution trace
+  * `stateDiff` — state changes
+
+## Response
+
+* `result` — array of trace results, one per transaction:
+  * `output` — return data from the transaction
+  * `trace` — array of trace objects (if requested)
+  * `vmTrace` — VM execution trace (if requested)
+  * `stateDiff` — state differences (if requested)
+  * `transactionHash` — hash of the transaction
+
+## `trace_replayBlockTransactions` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const replayBlock = async (blockNumber) => {
+    const results = await provider.send("trace_replayBlockTransactions", [
+      blockNumber,
+      ["trace"]
+    ]);
+
+    console.log(`Replayed ${results.length} transactions`);
+
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      console.log(`\nTransaction ${i}: ${result.transactionHash}`);
+      console.log(`  Output: ${result.output}`);
+      console.log(`  Traces: ${result.trace?.length || 0}`);
+
+      if (result.trace && result.trace.length > 0) {
+        for (const trace of result.trace) {
+          const callType = trace.action.callType || trace.type;
+          console.log(`    ${callType}: ${trace.action.from} -> ${trace.action.to || 'Create'}`);
+        }
+      }
+    }
+  };
+
+replayBlock("latest");
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+result = web3.provider.make_request("trace_replayBlockTransactions", [
+    "latest",
+    ["trace"]
+])
+
+results = result['result']
+print(f"Replayed {len(results)} transactions")
+
+for i, tx_result in enumerate(results):
+    print(f"\nTransaction {i}: {tx_result['transactionHash']}")
+    print(f"  Output: {tx_result['output']}")
+    traces = tx_result.get('trace', [])
+    print(f"  Traces: {len(traces)}")
+
+    for trace in traces:
+        call_type = trace['action'].get('callType', trace['type'])
+        to = trace['action'].get('to', 'Create')
+        print(f"    {call_type}: {trace['action']['from']} -> {to}")
+```
+
+```bash cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "trace_replayBlockTransactions",
+    "params": ["latest", ["trace"]],
+    "id": 1
+  }'
+```
+</CodeGroup>

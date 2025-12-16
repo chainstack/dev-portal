@@ -1,0 +1,124 @@
+---
+title: eth_getFilterChanges | Tempo
+openapi: /openapi/tempo_node_api/filter_handling/eth_getFilterChanges.json POST /
+---
+
+Tempo API method that returns an array of logs or block/transaction hashes that occurred since the last poll. Used with filters created by `eth_newFilter`, `eth_newBlockFilter`, or `eth_newPendingTransactionFilter`.
+
+
+## Parameters
+
+* `filterId` — the filter ID returned from a filter creation method
+
+## Response
+
+* `result` — array of changes since last poll:
+  * For log filters: array of log objects
+  * For block filters: array of block hashes
+  * For pending transaction filters: array of transaction hashes
+
+## `eth_getFilterChanges` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+// pathUSD token address
+const PATHUSD = "0x20c0000000000000000000000000000000000000";
+const TRANSFER_TOPIC = ethers.id("Transfer(address,address,uint256)");
+
+const pollFilter = async () => {
+    // Create a log filter for Transfer events
+    const filterId = await provider.send("eth_newFilter", [{
+      address: PATHUSD,
+      topics: [TRANSFER_TOPIC]
+    }]);
+    console.log(`Created filter: ${filterId}`);
+
+    // Poll for changes every 2 seconds
+    const interval = setInterval(async () => {
+      const changes = await provider.send("eth_getFilterChanges", [filterId]);
+
+      if (changes.length > 0) {
+        console.log(`\nFound ${changes.length} new Transfer events:`);
+        for (const log of changes) {
+          console.log(`  Block ${parseInt(log.blockNumber, 16)}: ${log.transactionHash}`);
+        }
+      } else {
+        console.log("No new changes...");
+      }
+    }, 2000);
+
+    // Stop after 20 seconds
+    setTimeout(async () => {
+      clearInterval(interval);
+      await provider.send("eth_uninstallFilter", [filterId]);
+      console.log("\nFilter uninstalled");
+    }, 20000);
+  };
+
+pollFilter();
+```
+
+```python web3.py
+from web3 import Web3
+import time
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# pathUSD token address
+PATHUSD = "0x20c0000000000000000000000000000000000000"
+TRANSFER_TOPIC = web3.keccak(text="Transfer(address,address,uint256)").hex()
+
+# Create a log filter
+filter_result = web3.provider.make_request("eth_newFilter", [{
+    "address": PATHUSD,
+    "topics": [TRANSFER_TOPIC]
+}])
+filter_id = filter_result['result']
+print(f"Created filter: {filter_id}")
+
+# Poll for changes
+try:
+    for _ in range(10):
+        changes_result = web3.provider.make_request("eth_getFilterChanges", [filter_id])
+        changes = changes_result['result']
+
+        if changes:
+            print(f"\nFound {len(changes)} new Transfer events:")
+            for log in changes:
+                print(f"  Block {int(log['blockNumber'], 16)}: {log['transactionHash']}")
+        else:
+            print("No new changes...")
+
+        time.sleep(2)
+finally:
+    web3.provider.make_request("eth_uninstallFilter", [filter_id])
+    print("\nFilter uninstalled")
+```
+
+```bash cURL
+# First create a filter
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_newFilter",
+    "params": [{"address": "0x20c0000000000000000000000000000000000000"}],
+    "id": 1
+  }'
+
+# Then poll for changes using the returned filter ID
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "eth_getFilterChanges",
+    "params": ["0x1"],
+    "id": 1
+  }'
+```
+</CodeGroup>

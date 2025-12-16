@@ -1,0 +1,119 @@
+---
+title: trace_filter | Tempo
+openapi: /openapi/tempo_node_api/debug_and_trace/trace_filter.json POST /
+---
+
+Tempo API method that returns execution traces matching specific filter criteria. This is useful for finding all interactions with a specific contract or address across multiple blocks.
+
+
+## Parameters
+
+* `filterObject` — the filter object:
+  * `fromBlock` — (optional) starting block number (hex)
+  * `toBlock` — (optional) ending block number (hex)
+  * `fromAddress` — (optional) array of sender addresses to filter
+  * `toAddress` — (optional) array of recipient addresses to filter
+  * `after` — (optional) offset for pagination
+  * `count` — (optional) maximum number of traces to return
+
+## Response
+
+* `result` — array of trace objects matching the filter:
+  * `action` — the action object:
+    * `from` — sender address
+    * `to` — recipient address
+    * `callType` — type of call
+    * `gas` — gas provided
+    * `input` — call data
+    * `value` — value transferred
+  * `blockHash` — hash of the block
+  * `blockNumber` — block number
+  * `result` — the result object
+  * `subtraces` — number of child traces
+  * `traceAddress` — position in the trace tree
+  * `transactionHash` — hash of the transaction
+  * `transactionPosition` — index in the block
+  * `type` — trace type
+
+## `trace_filter` code examples
+
+The following example finds all calls to the pathUSD token contract:
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+// pathUSD token address
+const PATHUSD = "0x20c0000000000000000000000000000000000000";
+
+const traceFilter = async () => {
+    const currentBlock = await provider.getBlockNumber();
+    const fromBlock = "0x" + (currentBlock - 1000).toString(16);
+    const toBlock = "0x" + currentBlock.toString(16);
+
+    const traces = await provider.send("trace_filter", [{
+      fromBlock: fromBlock,
+      toBlock: toBlock,
+      toAddress: [PATHUSD],
+      count: 20
+    }]);
+
+    console.log(`Found ${traces.length} traces to pathUSD`);
+
+    for (const trace of traces) {
+      console.log(`Block ${trace.blockNumber}: ${trace.action.from} -> ${trace.action.to}`);
+      console.log(`  Call type: ${trace.action.callType}`);
+      console.log(`  Tx: ${trace.transactionHash}`);
+    }
+  };
+
+traceFilter();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# pathUSD token address
+PATHUSD = "0x20c0000000000000000000000000000000000000"
+
+current_block = web3.eth.block_number
+from_block = hex(current_block - 1000)
+to_block = hex(current_block)
+
+result = web3.provider.make_request("trace_filter", [{
+    "fromBlock": from_block,
+    "toBlock": to_block,
+    "toAddress": [PATHUSD],
+    "count": 20
+}])
+
+traces = result['result']
+print(f"Found {len(traces)} traces to pathUSD")
+
+for trace in traces:
+    print(f"Block {trace['blockNumber']}: {trace['action']['from']} -> {trace['action']['to']}")
+    print(f"  Call type: {trace['action']['callType']}")
+    print(f"  Tx: {trace['transactionHash']}")
+```
+
+```bash cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "trace_filter",
+    "params": [{
+      "fromBlock": "0x564000",
+      "toBlock": "0x565000",
+      "toAddress": ["0x20c0000000000000000000000000000000000000"],
+      "count": 20
+    }],
+    "id": 1
+  }'
+```
+</CodeGroup>

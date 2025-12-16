@@ -1,0 +1,89 @@
+---
+title: txpool_content | Tempo
+openapi: /openapi/tempo_node_api/txpool/txpool_content.json POST /
+---
+
+Tempo API method that returns the contents of the transaction pool. This includes both pending and queued transactions.
+
+
+## Parameters
+
+None.
+
+## Response
+
+* `result` — object containing pending and queued transactions:
+  * `pending` — object mapping addresses to their pending transactions (keyed by nonce)
+  * `queued` — object mapping addresses to their queued transactions (keyed by nonce)
+
+Each transaction object contains:
+* `hash` — transaction hash
+* `nonce` — sender's nonce
+* `from` — sender address
+* `to` — recipient address
+* `value` — value in wei
+* `gas` — gas limit
+* `gasPrice` — gas price
+* `input` — transaction data
+
+## `txpool_content` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const getTxpoolContent = async () => {
+    const content = await provider.send("txpool_content", []);
+
+    const pendingAddresses = Object.keys(content.pending);
+    const queuedAddresses = Object.keys(content.queued);
+
+    console.log(`Pending transactions from ${pendingAddresses.length} addresses`);
+    console.log(`Queued transactions from ${queuedAddresses.length} addresses`);
+
+    // Show details for pending transactions
+    for (const [address, txs] of Object.entries(content.pending)) {
+      console.log(`\nPending from ${address}:`);
+      for (const [nonce, tx] of Object.entries(txs)) {
+        console.log(`  Nonce ${nonce}: ${tx.hash}`);
+        console.log(`    To: ${tx.to || 'Contract Creation'}`);
+        console.log(`    Gas: ${parseInt(tx.gas, 16)}`);
+      }
+    }
+  };
+
+getTxpoolContent();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+result = web3.provider.make_request("txpool_content", [])
+content = result['result']
+
+pending_addresses = list(content['pending'].keys())
+queued_addresses = list(content['queued'].keys())
+
+print(f"Pending transactions from {len(pending_addresses)} addresses")
+print(f"Queued transactions from {len(queued_addresses)} addresses")
+
+# Show details for pending transactions
+for address, txs in content['pending'].items():
+    print(f"\nPending from {address}:")
+    for nonce, tx in txs.items():
+        print(f"  Nonce {nonce}: {tx['hash']}")
+        print(f"    To: {tx.get('to', 'Contract Creation')}")
+        print(f"    Gas: {int(tx['gas'], 16)}")
+```
+
+```bash cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "txpool_content", "params": [], "id": 1}'
+```
+</CodeGroup>
