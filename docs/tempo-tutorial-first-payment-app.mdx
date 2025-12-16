@@ -1,0 +1,438 @@
+---
+title: "Tempo: Building your first payment app"
+description: "Learn how to send TIP-20 stablecoin transfers with payment memos on Tempo blockchain"
+---
+
+This tutorial teaches you how to build a payment application on Tempo using TIP-20 tokens. You'll learn to send transfers, attach payment memos for reconciliation, and monitor incoming payments.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## What you'll build
+
+A simple payment app that can:
+- Check TIP-20 token balances
+- Send stablecoin transfers
+- Attach invoice IDs as payment memos
+- Monitor incoming payments
+
+## Prerequisites
+
+- Node.js v18 or higher
+- A Tempo testnet RPC endpoint from [Chainstack](https://console.chainstack.com/)
+- Basic JavaScript/TypeScript knowledge
+
+## Tempo testnet details
+
+| Property | Value |
+|----------|-------|
+| Chain ID | 42429 |
+| RPC endpoint | `https://rpc.testnet.tempo.xyz` |
+| WebSocket | `wss://rpc.testnet.tempo.xyz` |
+| Explorer | [explore.tempo.xyz](https://explore.tempo.xyz) |
+| Finality | ~0.5 seconds |
+
+<Note>
+**No native gas token**: Tempo uses USD stablecoins for fees. When you transfer a TIP-20 token, fees are paid in that same token automatically.
+</Note>
+
+## Test tokens
+
+Tempo testnet provides these TIP-20 stablecoins:
+
+| Token | Address |
+|-------|---------|
+| pathUSD | `0x20c0000000000000000000000000000000000000` |
+| AlphaUSD | `0x20c0000000000000000000000000000000000001` |
+| BetaUSD | `0x20c0000000000000000000000000000000000002` |
+| ThetaUSD | `0x20c0000000000000000000000000000000000003` |
+
+## Project setup
+
+Create a new project and install dependencies:
+
+```bash
+mkdir tempo-payment-app && cd tempo-payment-app
+npm init -y
+npm install ethers
+```
+
+## Get testnet tokens
+
+Fund your wallet using the `tempo_fundAddress` RPC method:
+
+```bash
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tempo_fundAddress",
+    "params": ["YOUR_WALLET_ADDRESS"],
+    "id": 1
+  }'
+```
+
+This provides pathUSD tokens for testing.
+
+## TIP-20 token interface
+
+TIP-20 extends ERC-20 with payment-optimized features. The key functions are:
+
+```solidity
+interface ITIP20 {
+    // Standard ERC-20 transfer
+    function transfer(address to, uint256 amount) external returns (bool);
+
+    // Transfer with 32-byte memo for payment references
+    function transferWithMemo(address to, uint256 amount, bytes32 memo) external;
+
+    // Standard ERC-20 functions
+    function balanceOf(address account) external view returns (uint256);
+    function decimals() external view returns (uint8);
+    function symbol() external view returns (string memory);
+}
+```
+
+<Tip>
+**6 decimals**: TIP-20 tokens use 6 decimals (like USDC), not 18 like ETH. So \$100.00 = `100000000` (100 * 10^6).
+</Tip>
+
+## Check token balance
+
+Query the balance of any address:
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+// pathUSD token address
+const PATHUSD = "0x20c0000000000000000000000000000000000000";
+
+// TIP-20 ABI (subset)
+const TIP20_ABI = [
+  "function balanceOf(address account) view returns (uint256)",
+  "function decimals() view returns (uint8)",
+  "function symbol() view returns (string)"
+];
+
+async function getBalance(address) {
+  const token = new ethers.Contract(PATHUSD, TIP20_ABI, provider);
+
+  const balance = await token.balanceOf(address);
+  const decimals = await token.decimals();
+  const symbol = await token.symbol();
+
+  const formatted = ethers.formatUnits(balance, decimals);
+  console.log(`Balance: ${formatted} ${symbol}`);
+
+  return balance;
+}
+
+getBalance("0x9729187D9E8Bbefa8295F39f5634cA454dd9d294");
+```
+
+## Send a basic transfer
+
+Transfer TIP-20 tokens to another address:
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+const wallet = new ethers.Wallet("YOUR_PRIVATE_KEY", provider);
+
+const PATHUSD = "0x20c0000000000000000000000000000000000000";
+
+const TIP20_ABI = [
+  "function transfer(address to, uint256 amount) returns (bool)",
+  "function decimals() view returns (uint8)"
+];
+
+async function sendPayment(recipient, amount) {
+  const token = new ethers.Contract(PATHUSD, TIP20_ABI, wallet);
+  const decimals = await token.decimals();
+
+  // Convert dollar amount to token units (6 decimals)
+  const amountInUnits = ethers.parseUnits(amount.toString(), decimals);
+
+  console.log(`Sending $${amount} pathUSD to ${recipient}...`);
+
+  const tx = await token.transfer(recipient, amountInUnits);
+  console.log(`Transaction hash: ${tx.hash}`);
+
+  const receipt = await tx.wait();
+  console.log(`Confirmed in block ${receipt.blockNumber}`);
+
+  return receipt;
+}
+
+sendPayment("0x9729187D9E8Bbefa8295F39f5634cA454dd9d294", 10);
+```
+
+## Send a transfer with memo
+
+Attach a payment reference (invoice ID, order number) to your transfer:
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+const wallet = new ethers.Wallet("YOUR_PRIVATE_KEY", provider);
+
+const PATHUSD = "0x20c0000000000000000000000000000000000000";
+
+const TIP20_ABI = [
+  "function transferWithMemo(address to, uint256 amount, bytes32 memo)",
+  "function decimals() view returns (uint8)"
+];
+
+async function sendPaymentWithMemo(recipient, amount, invoiceId) {
+  const token = new ethers.Contract(PATHUSD, TIP20_ABI, wallet);
+  const decimals = await token.decimals();
+
+  const amountInUnits = ethers.parseUnits(amount.toString(), decimals);
+
+  // Convert invoice ID to bytes32 (padded to 32 bytes)
+  const memoBytes = ethers.encodeBytes32String(invoiceId.slice(0, 31));
+
+  console.log(`Sending $${amount} pathUSD with memo "${invoiceId}"...`);
+
+  const tx = await token.transferWithMemo(recipient, amountInUnits, memoBytes);
+  console.log(`Transaction hash: ${tx.hash}`);
+
+  const receipt = await tx.wait();
+  console.log(`Confirmed in block ${receipt.blockNumber}`);
+
+  return receipt;
+}
+
+sendPaymentWithMemo(
+  "0x9729187D9E8Bbefa8295F39f5634cA454dd9d294",
+  25,
+  "INV-2025-001234"
+);
+```
+
+<Note>
+**Memo limit**: The memo field is 32 bytes. For longer references, store the full data off-chain and use a hash or short ID in the memo.
+</Note>
+
+## Monitor incoming payments
+
+Watch for transfers to your address using event filters:
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+const PATHUSD = "0x20c0000000000000000000000000000000000000";
+const MY_ADDRESS = "0x9729187D9E8Bbefa8295F39f5634cA454dd9d294";
+
+// TransferWithMemo event signature
+const TIP20_ABI = [
+  "event Transfer(address indexed from, address indexed to, uint256 value)",
+  "event TransferWithMemo(address indexed from, address indexed to, uint256 value, bytes32 indexed memo)",
+  "function decimals() view returns (uint8)"
+];
+
+async function monitorPayments() {
+  const token = new ethers.Contract(PATHUSD, TIP20_ABI, provider);
+  const decimals = await token.decimals();
+
+  console.log(`Monitoring payments to ${MY_ADDRESS}...`);
+
+  // Filter for transfers TO our address
+  const filter = token.filters.Transfer(null, MY_ADDRESS);
+
+  token.on(filter, (from, to, value, event) => {
+    const amount = ethers.formatUnits(value, decimals);
+    console.log(`\nPayment received!`);
+    console.log(`  From: ${from}`);
+    console.log(`  Amount: $${amount}`);
+    console.log(`  Tx: ${event.log.transactionHash}`);
+  });
+
+  // Also monitor transfers with memos
+  const memoFilter = token.filters.TransferWithMemo(null, MY_ADDRESS);
+
+  token.on(memoFilter, (from, to, value, memo, event) => {
+    const amount = ethers.formatUnits(value, decimals);
+    const memoText = ethers.decodeBytes32String(memo);
+    console.log(`\nPayment with memo received!`);
+    console.log(`  From: ${from}`);
+    console.log(`  Amount: $${amount}`);
+    console.log(`  Memo: ${memoText}`);
+    console.log(`  Tx: ${event.log.transactionHash}`);
+  });
+}
+
+monitorPayments();
+```
+
+## Query historical payments
+
+Fetch past transfers using `eth_getLogs`:
+
+```javascript
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+const PATHUSD = "0x20c0000000000000000000000000000000000000";
+const MY_ADDRESS = "0x9729187D9E8Bbefa8295F39f5634cA454dd9d294";
+
+const TIP20_ABI = [
+  "event TransferWithMemo(address indexed from, address indexed to, uint256 value, bytes32 indexed memo)",
+  "function decimals() view returns (uint8)"
+];
+
+async function getPaymentHistory(fromBlock, toBlock) {
+  const token = new ethers.Contract(PATHUSD, TIP20_ABI, provider);
+  const decimals = await token.decimals();
+
+  // Query TransferWithMemo events where we're the recipient
+  const filter = token.filters.TransferWithMemo(null, MY_ADDRESS);
+  const events = await token.queryFilter(filter, fromBlock, toBlock);
+
+  console.log(`Found ${events.length} payments with memos:\n`);
+
+  for (const event of events) {
+    const amount = ethers.formatUnits(event.args.value, decimals);
+    const memo = ethers.decodeBytes32String(event.args.memo);
+
+    console.log(`Block ${event.blockNumber}:`);
+    console.log(`  From: ${event.args.from}`);
+    console.log(`  Amount: $${amount}`);
+    console.log(`  Memo: ${memo}`);
+    console.log(`  Tx: ${event.transactionHash}\n`);
+  }
+
+  return events;
+}
+
+// Query last 10000 blocks
+getPaymentHistory(-10000, "latest");
+```
+
+## Complete payment app
+
+Here's a full example combining all the functionality:
+
+```javascript
+const { ethers } = require("ethers");
+
+// Configuration
+const RPC_URL = "CHAINSTACK_NODE_URL";
+const PATHUSD = "0x20c0000000000000000000000000000000000000";
+
+const TIP20_ABI = [
+  "function balanceOf(address account) view returns (uint256)",
+  "function decimals() view returns (uint8)",
+  "function symbol() view returns (string)",
+  "function transfer(address to, uint256 amount) returns (bool)",
+  "function transferWithMemo(address to, uint256 amount, bytes32 memo)",
+  "event Transfer(address indexed from, address indexed to, uint256 value)",
+  "event TransferWithMemo(address indexed from, address indexed to, uint256 value, bytes32 indexed memo)"
+];
+
+class TempoPaymentApp {
+  constructor(privateKey) {
+    this.provider = new ethers.JsonRpcProvider(RPC_URL);
+    this.wallet = new ethers.Wallet(privateKey, this.provider);
+    this.token = new ethers.Contract(PATHUSD, TIP20_ABI, this.wallet);
+  }
+
+  async getBalance(address) {
+    const balance = await this.token.balanceOf(address || this.wallet.address);
+    const decimals = await this.token.decimals();
+    return ethers.formatUnits(balance, decimals);
+  }
+
+  async send(recipient, amount, invoiceId = null) {
+    const decimals = await this.token.decimals();
+    const amountInUnits = ethers.parseUnits(amount.toString(), decimals);
+
+    let tx;
+    if (invoiceId) {
+      const memo = ethers.encodeBytes32String(invoiceId.slice(0, 31));
+      tx = await this.token.transferWithMemo(recipient, amountInUnits, memo);
+    } else {
+      tx = await this.token.transfer(recipient, amountInUnits);
+    }
+
+    return tx.wait();
+  }
+
+  async watchPayments(callback) {
+    const decimals = await this.token.decimals();
+    const filter = this.token.filters.Transfer(null, this.wallet.address);
+
+    this.token.on(filter, async (from, to, value, event) => {
+      callback({
+        from,
+        amount: ethers.formatUnits(value, decimals),
+        txHash: event.log.transactionHash
+      });
+    });
+  }
+}
+
+// Usage example
+async function main() {
+  const app = new TempoPaymentApp("YOUR_PRIVATE_KEY");
+
+  // Check balance
+  const balance = await app.getBalance();
+  console.log(`Balance: $${balance} pathUSD`);
+
+  // Send payment with invoice ID
+  const receipt = await app.send(
+    "0x9729187D9E8Bbefa8295F39f5634cA454dd9d294",
+    50,
+    "INV-2025-001234"
+  );
+  console.log(`Payment sent: ${receipt.hash}`);
+
+  // Watch for incoming payments
+  app.watchPayments((payment) => {
+    console.log(`Received $${payment.amount} from ${payment.from}`);
+  });
+}
+
+main().catch(console.error);
+```
+
+## Tempo-specific notes
+
+<Warning>
+**Fee behavior**: When you call `transfer` or `transferWithMemo`, the full amount goes to the recipient. Fees are deducted separately from your balance. This differs from some chains where fees reduce the transfer amount.
+</Warning>
+
+Key differences from other EVM chains:
+
+- **Sub-second finality**: Transactions finalize in ~0.5 seconds with no reorganizations
+- **USD-denominated fees**: No volatile gas token; fees are paid in the token you're transferring
+- **6 decimals**: All TIP-20 tokens use 6 decimals (standard for stablecoins)
+- **32-byte memos**: Native support for payment references aligned with ISO 20022
+
+## Next steps
+
+Now that you can send and receive payments:
+
+- Add invoice tracking with a database
+- Implement webhook notifications for incoming payments
+- Build a payment page for your application
+- Explore batch payments with TempoTransactions
+
+## See also
+
+- [Tempo API reference](/reference/tempo-getting-started)
+- [eth_getLogs](/reference/tempo-eth-getlogs) — query historical events
+- [eth_call](/reference/tempo-eth-call) — read contract state
