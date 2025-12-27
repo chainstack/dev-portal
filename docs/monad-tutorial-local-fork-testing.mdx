@@ -1,0 +1,472 @@
+---
+title: "Monad: Local fork testing with Foundry"
+description: "Learn to fork Monad mainnet locally with Anvil for reliable, reproducible smart contract testing without testnet dependencies"
+---
+
+This tutorial teaches you how to set up a local Monad fork using Foundry's Anvil. You'll learn to test smart contracts against real mainnet state without spending gas or relying on testnet availability.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+**TLDR:**
+* Fork Monad mainnet locally using Anvil and a Chainstack RPC endpoint
+* Run tests against real on-chain state without spending gas
+* Impersonate any account to test interactions with deployed contracts
+* Avoid testnet instability and re-genesis disruptions
+
+## Prerequisites
+
+- [Chainstack account](https://console.chainstack.com/) with a Monad node endpoint
+- [Foundry](https://getfoundry.sh/) installed
+- Basic Solidity and command-line knowledge
+
+## Why fork locally?
+
+Testing on public testnets comes with challenges:
+
+- **Testnet resets**: Networks occasionally undergo re-genesis, wiping all deployed contracts and balances
+- **Faucet limitations**: Getting test tokens can be slow or rate-limited
+- **Shared state**: Other developers' transactions can interfere with your tests
+- **Network issues**: Testnets may experience downtime or congestion
+
+A local fork solves these problems by copying the mainnet state to your machine. You get:
+
+- **Reproducible tests**: Same state every time you run tests
+- **Instant execution**: No network latency, no waiting for blocks
+- **Free transactions**: No gas costs for testing
+- **Account impersonation**: Test as any address, including whales and protocols
+
+## Set up the fork
+
+### Install Foundry
+
+If you haven't installed Foundry yet:
+
+```bash
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+```
+
+### Start the fork
+
+Launch Anvil with your Chainstack Monad endpoint:
+
+```bash
+anvil --fork-url YOUR_CHAINSTACK_MONAD_ENDPOINT
+```
+
+You'll see output like:
+
+```
+                             _   _
+                            (_) | |
+      __ _   _ __   __   __  _  | |
+     / _` | | '_ \  \ \ / / | | | |
+    | (_| | | | | |  \ V /  | | | |
+     \__,_| |_| |_|   \_/   |_| |_|
+
+    0.2.0 (abcdef 2024-01-01T00:00:00.000000000Z)
+    https://github.com/foundry-rs/foundry
+
+Available Accounts
+==================
+(0) 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 (10000.000000000000000000 ETH)
+(1) 0x70997970C51812dc3A010C7d01b50e0d17dc79C8 (10000.000000000000000000 ETH)
+...
+
+Listening on 127.0.0.1:8545
+```
+
+Anvil provides 10 pre-funded accounts with 10,000 ETH each (displayed as ETH but these are MON on Monad forks).
+
+### Fork configuration options
+
+Customize your fork with additional flags:
+
+```bash
+# Fork from a specific block
+anvil --fork-url YOUR_CHAINSTACK_MONAD_ENDPOINT --fork-block-number 12345678
+
+# Increase the number of accounts
+anvil --fork-url YOUR_CHAINSTACK_MONAD_ENDPOINT --accounts 20
+
+# Set a custom chain ID (useful for wallet compatibility)
+anvil --fork-url YOUR_CHAINSTACK_MONAD_ENDPOINT --chain-id 31337
+
+# Enable auto-mining with a specific interval
+anvil --fork-url YOUR_CHAINSTACK_MONAD_ENDPOINT --block-time 1
+```
+
+## Interact with forked state
+
+With the fork running, you can query real mainnet data using the local RPC.
+
+### Query account balances
+
+```bash
+# Check a mainnet address balance on your fork
+cast balance 0xYOUR_ADDRESS --rpc-url http://127.0.0.1:8545
+```
+
+### Read contract state
+
+```bash
+# Call a view function on a deployed contract
+cast call CONTRACT_ADDRESS "balanceOf(address)" 0xYOUR_ADDRESS --rpc-url http://127.0.0.1:8545
+```
+
+### Send transactions
+
+Use one of Anvil's pre-funded accounts:
+
+```bash
+# Send MON from a test account
+cast send 0xRECIPIENT --value 1ether \
+  --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+  --rpc-url http://127.0.0.1:8545
+```
+
+The private key above is Anvil's first default account—safe to use in local testing.
+
+## Impersonate accounts
+
+One of the most powerful features of local forking is account impersonation. You can send transactions as any address without needing its private key.
+
+### Impersonate a whale
+
+```bash
+# Unlock an account for impersonation
+cast rpc anvil_impersonateAccount 0xWHALE_ADDRESS --rpc-url http://127.0.0.1:8545
+
+# Send a transaction as the whale
+cast send 0xRECIPIENT --value 100ether \
+  --from 0xWHALE_ADDRESS \
+  --unlocked \
+  --rpc-url http://127.0.0.1:8545
+
+# Stop impersonating
+cast rpc anvil_stopImpersonatingAccount 0xWHALE_ADDRESS --rpc-url http://127.0.0.1:8545
+```
+
+### Test protocol interactions
+
+Impersonation is useful for testing how your contract interacts with existing protocols:
+
+```bash
+# Impersonate a DEX router to test swap callbacks
+cast rpc anvil_impersonateAccount 0xDEX_ROUTER_ADDRESS --rpc-url http://127.0.0.1:8545
+
+# Call your contract as if the DEX router is calling it
+cast send YOUR_CONTRACT "swapCallback(uint256,uint256,bytes)" 1000 2000 0x \
+  --from 0xDEX_ROUTER_ADDRESS \
+  --unlocked \
+  --rpc-url http://127.0.0.1:8545
+```
+
+## Write fork tests with Forge
+
+Foundry's Forge test framework has built-in fork testing support.
+
+### Create a test file
+
+Create `test/ForkTest.t.sol`:
+
+```solidity test/ForkTest.t.sol
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import "forge-std/Test.sol";
+
+contract ForkTest is Test {
+
+    function setUp() public {
+        // Fork is configured via command line or foundry.toml
+    }
+
+    function testForkBlockNumber() public view {
+        // Verify we're on a Monad fork
+        uint256 blockNum = block.number;
+        console.log("Current block number:", blockNum);
+        assertGt(blockNum, 0, "Should be on a fork with blocks");
+    }
+
+    function testChainId() public view {
+        // Monad mainnet chain ID is 143
+        uint256 chainId = block.chainid;
+        console.log("Chain ID:", chainId);
+        assertEq(chainId, 143, "Should be Monad chain");
+    }
+
+    function testImpersonateAndSend() public {
+        // Create fresh addresses for testing
+        address whale = makeAddr("whale");
+        address recipient = makeAddr("recipient");
+
+        // Give the whale some MON
+        vm.deal(whale, 100 ether);
+
+        // Impersonate the whale
+        vm.startPrank(whale);
+
+        // Send MON
+        (bool success,) = recipient.call{value: 1 ether}("");
+        require(success, "Transfer failed");
+
+        vm.stopPrank();
+
+        // Verify transfer
+        assertEq(recipient.balance, 1 ether);
+        assertEq(whale.balance, 99 ether);
+    }
+
+    function testDealNativeToken() public {
+        address recipient = makeAddr("recipient");
+
+        // Give recipient some MON
+        vm.deal(recipient, 50 ether);
+
+        assertEq(recipient.balance, 50 ether);
+    }
+}
+```
+
+### Configure fork in foundry.toml
+
+Add your RPC endpoint to `foundry.toml`:
+
+```toml foundry.toml
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+
+[rpc_endpoints]
+monad = "${CHAINSTACK_MONAD_ENDPOINT}"
+
+[profile.default.fuzz]
+runs = 256
+```
+
+### Run fork tests
+
+```bash
+# Run all tests against the fork
+forge test --fork-url YOUR_CHAINSTACK_MONAD_ENDPOINT
+
+# Run with verbose output
+forge test --fork-url YOUR_CHAINSTACK_MONAD_ENDPOINT -vvv
+
+# Run a specific test
+forge test --fork-url YOUR_CHAINSTACK_MONAD_ENDPOINT --match-test testImpersonateTransfer
+
+# Use environment variable
+export CHAINSTACK_MONAD_ENDPOINT="your-endpoint-here"
+forge test --fork-url $CHAINSTACK_MONAD_ENDPOINT
+```
+
+### Fork from a specific block
+
+For reproducible tests, pin to a specific block:
+
+```bash
+forge test --fork-url YOUR_CHAINSTACK_MONAD_ENDPOINT --fork-block-number 12345678
+```
+
+Or in `foundry.toml`:
+
+```toml foundry.toml
+[profile.default]
+fork_block_number = 12345678
+```
+
+## Advanced fork techniques
+
+### Snapshot and revert
+
+Save and restore fork state during tests:
+
+```solidity
+function testWithSnapshot() public {
+    address target = makeAddr("target");
+    uint256 snapshot = vm.snapshotState();
+
+    // Make changes
+    vm.deal(target, 1000 ether);
+    assertEq(target.balance, 1000 ether);
+
+    // Revert to snapshot
+    vm.revertToState(snapshot);
+
+    // State is restored
+    assertEq(target.balance, 0);
+}
+```
+
+### Manipulate block properties
+
+```solidity
+function testTimeTravel() public {
+    // Move forward 1 day
+    vm.warp(block.timestamp + 1 days);
+
+    // Move forward 100 blocks
+    vm.roll(block.number + 100);
+
+    // Set block base fee
+    vm.fee(1 gwei);
+}
+```
+
+### Mock contract calls
+
+```solidity
+function testMockCall() public {
+    // Mock a specific call to return custom data
+    vm.mockCall(
+        address(token),
+        abi.encodeWithSelector(IERC20.balanceOf.selector, address(this)),
+        abi.encode(1_000_000)
+    );
+
+    // Now this returns 1_000_000 regardless of actual balance
+    assertEq(token.balanceOf(address(this)), 1_000_000);
+}
+```
+
+## Example: Testing a DEX interaction
+
+Here's a complete example testing a swap on a forked DEX:
+
+```solidity test/DexForkTest.t.sol
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import "forge-std/Test.sol";
+
+interface IRouter {
+    function swapExactTokensForTokens(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external returns (uint256[] memory amounts);
+}
+
+interface IERC20 {
+    function balanceOf(address) external view returns (uint256);
+    function approve(address, uint256) external returns (bool);
+}
+
+contract DexForkTest is Test {
+    // Replace with actual Monad mainnet addresses
+    address constant ROUTER = 0xROUTER_ADDRESS;
+    address constant TOKEN_A = 0xTOKEN_A_ADDRESS;
+    address constant TOKEN_B = 0xTOKEN_B_ADDRESS;
+    address constant WHALE = 0xWHALE_WITH_TOKEN_A;
+
+    IRouter router;
+    IERC20 tokenA;
+    IERC20 tokenB;
+
+    function setUp() public {
+        router = IRouter(ROUTER);
+        tokenA = IERC20(TOKEN_A);
+        tokenB = IERC20(TOKEN_B);
+    }
+
+    function testSwap() public {
+        uint256 swapAmount = 1000e18;
+
+        // Impersonate whale
+        vm.startPrank(WHALE);
+
+        // Approve router
+        tokenA.approve(ROUTER, swapAmount);
+
+        // Build swap path
+        address[] memory path = new address[](2);
+        path[0] = TOKEN_A;
+        path[1] = TOKEN_B;
+
+        // Get initial balance
+        uint256 initialBalance = tokenB.balanceOf(WHALE);
+
+        // Execute swap
+        router.swapExactTokensForTokens(
+            swapAmount,
+            0, // Accept any amount for testing
+            path,
+            WHALE,
+            block.timestamp + 1 hours
+        );
+
+        vm.stopPrank();
+
+        // Verify swap succeeded
+        assertGt(tokenB.balanceOf(WHALE), initialBalance);
+        console.log("Received:", tokenB.balanceOf(WHALE) - initialBalance);
+    }
+}
+```
+
+Run the test:
+
+```bash
+forge test --fork-url YOUR_CHAINSTACK_MONAD_ENDPOINT --match-test testSwap -vvv
+```
+
+## Troubleshooting
+
+### Fork is slow to start
+
+Large state can take time to cache. Subsequent runs are faster. You can also:
+
+```bash
+# Limit the number of storage slots cached
+anvil --fork-url YOUR_CHAINSTACK_MONAD_ENDPOINT --no-storage-caching
+```
+
+### RPC rate limiting
+
+If you hit rate limits, Chainstack paid plans offer higher limits. You can also:
+
+```bash
+# Reduce concurrent requests
+anvil --fork-url YOUR_CHAINSTACK_MONAD_ENDPOINT --compute-units-per-second 100
+```
+
+### State mismatch errors
+
+If contract state doesn't match expectations, ensure you're forking from the correct block:
+
+```bash
+# Check current block number
+cast block-number --rpc-url YOUR_CHAINSTACK_MONAD_ENDPOINT
+
+# Fork from that specific block
+anvil --fork-url YOUR_CHAINSTACK_MONAD_ENDPOINT --fork-block-number BLOCK_NUMBER
+```
+
+### Transaction reverts unexpectedly
+
+Enable tracing to debug:
+
+```bash
+forge test --fork-url YOUR_CHAINSTACK_MONAD_ENDPOINT -vvvv
+```
+
+The extra `v` flags show detailed call traces.
+
+## Next steps
+
+Now that you can test against forked mainnet state, you can:
+
+- Build integration tests for complex protocol interactions
+- Test upgrades against production contract state
+- Debug mainnet transaction failures locally
