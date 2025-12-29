@@ -1,0 +1,704 @@
+// ============================================
+// IRANcoin Global Reserve - Mastercard/Visa Integration System
+// ============================================
+// سیستم کامل ادغام پرداخت کارتی برای IRANcoin
+// نسخه: 2.0.0 - باگ فیکس شده و بهینه‌سازی شده
+// ============================================
+
+const axios = require('axios');
+const crypto = require('crypto');
+const https = require('https');
+
+class IRANcoinCardIntegration {
+    constructor(config = {}) {
+        // اطلاعات IRANcoin
+        this.name = "IRANcoin Global Reserve";
+        this.symbol = "IRCOIN";
+        this.decimals = 18;
+        this.totalSupply = "720000000000000000000000000000000000000000000000000000000000";
+        this.contractAddress = "0x49ba5d9a00115d494a01fb938ebd94bd919aa445";
+        this.network = "Base Network";
+        
+        // تنظیمات مسترکارت
+        this.mastercardConfig = {
+            apiKey: config.mastercardApiKey || process.env.MASTERCARD_API_KEY,
+            merchantId: config.merchantId || process.env.MASTERCARD_MERCHANT_ID,
+            apiVersion: config.apiVersion || "61", // آخرین نسخه API
+            sandbox: config.sandbox || true,
+            baseUrl: config.sandbox ? 
+                "https://test-gateway.mastercard.com/api" : 
+                "https://gateway.mastercard.com/api"
+        };
+        
+        // تنظیمات ویزاکارت
+        this.visaConfig = {
+            apiKey: config.visaApiKey || process.env.VISA_API_KEY,
+            sharedSecret: config.visaSharedSecret || process.env.VISA_SHARED_SECRET,
+            merchantId: config.visaMerchantId || process.env.VISA_MERCHANT_ID,
+            baseUrl: config.sandbox ? 
+                "https://sandbox.api.visa.com" : 
+                "https://api.visa.com"
+        };
+        
+        // بانک‌ها و شبکه‌های پرداخت
+        this.banks = {
+            iranian: [
+                "0x1A038F1d8F7520564492e310F374533FCECa58D0", // بانک ملی
+                "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD", // بانک ملت
+                "0x617F2E2fD72FD9D5503197092aC168c91465E7f2", // بانک صادرات
+                "0x78731D3Ca6b7E34aC0F824c42a7cC18A495cabaB", // بانک تجارت
+                "0xCA35b7d915458EF540aDe6068dFe2F44E8fa733c"  // بانک کشاورزی
+            ],
+            international: [
+                "0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2", // JPMorgan
+                "0x4B20993Bc481177ec7E8f571ceCaE8A9e22C02db", // HSBC
+                "0x5B38Da6a701c568545dCfcB03FcB875f56beddC4", // Citibank
+                "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"  // Bank of America
+            ]
+        };
+        
+        // نرخ تبدیل ارز
+        this.exchangeRates = {
+            USD: 1,
+            EUR: 0.92,
+            GBP: 0.79,
+            IRR: 4200000,
+            AED: 3.67,
+            CNY: 7.24
+        };
+        
+        // تراکنش‌های ذخیره شده
+        this.transactions = new Map();
+        
+        // امنیت
+        this.securityTokens = new Map();
+    }
+
+    // ============================================
+    // سیستم امنیتی
+    // ============================================
+
+    generateSecurityToken() {
+        const token = crypto.randomBytes(32).toString('hex');
+        const timestamp = Date.now();
+        this.securityTokens.set(token, {
+            created: timestamp,
+            expires: timestamp + (30 * 60 * 1000) // 30 دقیقه
+        });
+        return token;
+    }
+
+    validateToken(token) {
+        const tokenData = this.securityTokens.get(token);
+        if (!tokenData) {
+            throw new Error("Invalid security token");
+        }
+        if (Date.now() > tokenData.expires) {
+            this.securityTokens.delete(token);
+            throw new Error("Security token expired");
+        }
+        return true;
+    }
+
+    // ============================================
+    // مسترکارت Integration
+    // ============================================
+
+    async createMastercardSession(amount, currency = 'USD') {
+        try {
+            const sessionData = {
+                apiOperation: "CREATE_CHECKOUT_SESSION",
+                order: {
+                    amount: amount.toFixed(2),
+                    currency: currency,
+                    description: `IRANcoin ${this.symbol} Purchase`,
+                    id: `IRAN-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+                },
+                interaction: {
+                    operation: "PURCHASE",
+                    merchant: {
+                        name: "IRANcoin Global Reserve",
+                        url: "https://irancoinglobalreserve.edgeone.app",
+                        logo: "https://i.ibb.co/353MDWVg/IRANcoin-LLC-256x256xtrustwallet.png"
+                    }
+                }
+            };
+
+            const response = await axios.post(
+                `${this.mastercardConfig.baseUrl}/rest/${this.mastercardConfig.apiVersion}/session`,
+                sessionData,
+                {
+                    headers: {
+                        'Authorization': `Basic ${Buffer.from(`merchant.${this.mastercardConfig.merchantId}:${this.mastercardConfig.apiKey}`).toString('base64')}`,
+                        'Content-Type': 'application/json'
+                    },
+                    httpsAgent: new https.Agent({
+                        rejectUnauthorized: false
+                    })
+                }
+            );
+
+            return {
+                success: true,
+                sessionId: response.data.session.id,
+                sessionVersion: response.data.session.version,
+                successIndicator: response.data.successIndicator
+            };
+        } catch (error) {
+            console.error("Mastercard session creation error:", error.response?.data || error.message);
+            throw new Error(`Failed to create Mastercard session: ${error.message}`);
+        }
+    }
+
+    async processMastercardPayment(sessionId, paymentDetails) {
+        try {
+            this.validateToken(paymentDetails.securityToken);
+
+            const paymentData = {
+                apiOperation: "PAY",
+                sessionId: sessionId,
+                order: {
+                    amount: paymentDetails.amount,
+                    currency: paymentDetails.currency
+                },
+                sourceOfFunds: {
+                    type: "CARD",
+                    token: paymentDetails.cardToken
+                },
+                transaction: {
+                    amount: paymentDetails.amount,
+                    currency: paymentDetails.currency,
+                    descriptor: `IRANcoin ${this.symbol} Purchase`
+                }
+            };
+
+            const response = await axios.post(
+                `${this.mastercardConfig.baseUrl}/rest/${this.mastercardConfig.apiVersion}/order/${paymentDetails.orderId}/transaction/${paymentDetails.transactionId}`,
+                paymentData,
+                {
+                    headers: {
+                        'Authorization': `Basic ${Buffer.from(`merchant.${this.mastercardConfig.merchantId}:${this.mastercardConfig.apiKey}`).toString('base64')}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            // ذخیره تراکنش
+            const transactionId = `MC-${Date.now()}-${response.data.transaction.id}`;
+            this.transactions.set(transactionId, {
+                type: "MASTERCARD",
+                amount: paymentDetails.amount,
+                currency: paymentDetails.currency,
+                status: response.data.response.gatewayCode === "APPROVED" ? "COMPLETED" : "FAILED",
+                timestamp: new Date().toISOString(),
+                details: response.data
+            });
+
+            return {
+                success: response.data.response.gatewayCode === "APPROVED",
+                transactionId: transactionId,
+                gatewayCode: response.data.response.gatewayCode,
+                amount: paymentDetails.amount,
+                currency: paymentDetails.currency,
+                irancoinAmount: this.convertToIRANcoin(paymentDetails.amount, paymentDetails.currency)
+            };
+        } catch (error) {
+            console.error("Mastercard payment error:", error.response?.data || error.message);
+            throw new Error(`Mastercard payment failed: ${error.message}`);
+        }
+    }
+
+    // ============================================
+    // ویزاکارت Integration
+    // ============================================
+
+    async createVisaPayment(amount, currency = 'USD') {
+        try {
+            const orderId = `VISA-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            const timestamp = Math.floor(Date.now() / 1000);
+            
+            // ایجاد امضای امنیتی برای ویزا
+            const message = `${this.visaConfig.merchantId}${orderId}${amount}${currency}${timestamp}`;
+            const signature = crypto
+                .createHmac('sha256', this.visaConfig.sharedSecret)
+                .update(message)
+                .digest('hex');
+
+            const paymentData = {
+                orderId: orderId,
+                amount: amount.toFixed(2),
+                currency: currency,
+                merchantId: this.visaConfig.merchantId,
+                timestamp: timestamp,
+                signature: signature,
+                description: `IRANcoin ${this.symbol} Purchase`,
+                merchantUrl: "https://irancoinglobalreserve.edgeone.app",
+                callbackUrl: "https://irancoinglobalreserve.edgeone.app/api/visa/callback"
+            };
+
+            const response = await axios.post(
+                `${this.visaConfig.baseUrl}/v2/payments`,
+                paymentData,
+                {
+                    headers: {
+                        'apikey': this.visaConfig.apiKey,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            return {
+                success: true,
+                orderId: orderId,
+                paymentUrl: response.data.paymentUrl,
+                paymentId: response.data.paymentId
+            };
+        } catch (error) {
+            console.error("Visa payment creation error:", error.response?.data || error.message);
+            throw new Error(`Failed to create Visa payment: ${error.message}`);
+        }
+    }
+
+    async verifyVisaPayment(paymentId, securityToken) {
+        try {
+            this.validateToken(securityToken);
+
+            const response = await axios.get(
+                `${this.visaConfig.baseUrl}/v2/payments/${paymentId}`,
+                {
+                    headers: {
+                        'apikey': this.visaConfig.apiKey
+                    }
+                }
+            );
+
+            if (response.data.status === "APPROVED") {
+                // ذخیره تراکنش
+                const transactionId = `VISA-${Date.now()}-${paymentId}`;
+                this.transactions.set(transactionId, {
+                    type: "VISA",
+                    amount: response.data.amount,
+                    currency: response.data.currency,
+                    status: "COMPLETED",
+                    timestamp: new Date().toISOString(),
+                    details: response.data
+                });
+
+                return {
+                    success: true,
+                    transactionId: transactionId,
+                    amount: response.data.amount,
+                    currency: response.data.currency,
+                    irancoinAmount: this.convertToIRANcoin(response.data.amount, response.data.currency),
+                    approvalCode: response.data.approvalCode
+                };
+            }
+
+            return {
+                success: false,
+                status: response.data.status,
+                reason: response.data.reason
+            };
+        } catch (error) {
+            console.error("Visa payment verification error:", error.response?.data || error.message);
+            throw new Error(`Visa payment verification failed: ${error.message}`);
+        }
+    }
+
+    // ============================================
+    // تبدیل ارز و محاسبات
+    // ============================================
+
+    convertToIRANcoin(amount, currency) {
+        const baseAmount = amount * this.exchangeRates[currency] || amount;
+        // 1 دلار = 100 IRCOIN (مثال)
+        const irancoinAmount = (baseAmount * 100).toFixed(2);
+        return irancoinAmount;
+    }
+
+    convertFromIRANcoin(irancoinAmount, toCurrency) {
+        // 100 IRCOIN = 1 دلار (مثال)
+        const usdAmount = irancoinAmount / 100;
+        const convertedAmount = usdAmount / (this.exchangeRates[toCurrency] || 1);
+        return convertedAmount.toFixed(2);
+    }
+
+    calculateTransactionFee(amount, paymentMethod) {
+        const fees = {
+            MASTERCARD: 0.029, // 2.9%
+            VISA: 0.028,       // 2.8%
+            BANK_TRANSFER: 0.01 // 1%
+        };
+        
+        const feePercentage = fees[paymentMethod] || 0.03;
+        const fee = amount * feePercentage;
+        const netAmount = amount - fee;
+        
+        return {
+            originalAmount: amount,
+            fee: fee.toFixed(2),
+            netAmount: netAmount.toFixed(2),
+            feePercentage: (feePercentage * 100).toFixed(1)
+        };
+    }
+
+    // ============================================
+    // پرداخت ترکیبی (کارت + IRANcoin)
+    // ============================================
+
+    async hybridPayment(paymentDetails) {
+        try {
+            const securityToken = this.generateSecurityToken();
+            
+            // محاسبه کارمزد
+            const feeCalculation = this.calculateTransactionFee(
+                paymentDetails.amount, 
+                paymentDetails.paymentMethod
+            );
+
+            let paymentResult;
+            
+            if (paymentDetails.paymentMethod === "MASTERCARD") {
+                // ایجاد سشن مسترکارت
+                const session = await this.createMastercardSession(
+                    parseFloat(feeCalculation.netAmount),
+                    paymentDetails.currency
+                );
+
+                paymentResult = await this.processMastercardPayment(session.sessionId, {
+                    amount: feeCalculation.netAmount,
+                    currency: paymentDetails.currency,
+                    cardToken: paymentDetails.cardToken,
+                    orderId: paymentDetails.orderId,
+                    transactionId: paymentDetails.transactionId,
+                    securityToken: securityToken
+                });
+
+            } else if (paymentDetails.paymentMethod === "VISA") {
+                // ایجاد پرداخت ویزا
+                const visaPayment = await this.createVisaPayment(
+                    parseFloat(feeCalculation.netAmount),
+                    paymentDetails.currency
+                );
+
+                paymentResult = await this.verifyVisaPayment(
+                    visaPayment.paymentId,
+                    securityToken
+                );
+
+            } else {
+                throw new Error("Unsupported payment method");
+            }
+
+            if (paymentResult.success) {
+                // تخصیص IRANcoin به کاربر
+                const irancoinAllocation = {
+                    userId: paymentDetails.userId,
+                    amount: paymentResult.irancoinAmount,
+                    transactionId: paymentResult.transactionId,
+                    timestamp: new Date().toISOString(),
+                    status: "ALLOCATED"
+                };
+
+                return {
+                    success: true,
+                    transaction: {
+                        id: paymentResult.transactionId,
+                        amount: paymentDetails.amount,
+                        currency: paymentDetails.currency,
+                        irancoinAllocated: paymentResult.irancoinAmount,
+                        fees: feeCalculation,
+                        paymentMethod: paymentDetails.paymentMethod
+                    },
+                    securityToken: securityToken,
+                    allocation: irancoinAllocation
+                };
+            }
+
+            return {
+                success: false,
+                error: "Payment processing failed"
+            };
+
+        } catch (error) {
+            console.error("Hybrid payment error:", error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    // ============================================
+    // Webhook Handler
+    // ============================================
+
+    async handleWebhook(webhookData, source) {
+        try {
+            const eventType = webhookData.eventType || webhookData.type;
+            const transactionId = webhookData.transactionId || webhookData.id;
+
+            switch (eventType) {
+                case "PAYMENT_AUTHORIZED":
+                case "TRANSACTION_APPROVED":
+                    await this.processSuccessfulPayment(webhookData, source);
+                    break;
+
+                case "PAYMENT_DECLINED":
+                case "TRANSACTION_DECLINED":
+                    await this.processFailedPayment(webhookData, source);
+                    break;
+
+                case "REFUND_COMPLETED":
+                    await this.processRefund(webhookData, source);
+                    break;
+
+                default:
+                    console.log(`Unhandled webhook event: ${eventType}`);
+            }
+
+            return { success: true, processed: true };
+        } catch (error) {
+            console.error("Webhook handling error:", error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async processSuccessfulPayment(data, source) {
+        const transactionId = `${source}-${data.transactionId || data.id}`;
+        
+        this.transactions.set(transactionId, {
+            type: source,
+            amount: data.amount,
+            currency: data.currency,
+            status: "COMPLETED",
+            timestamp: new Date().toISOString(),
+            details: data,
+            webhookReceived: true
+        });
+
+        // در اینجا می‌توانید IRANcoin به کاربر تخصیص دهید
+        console.log(`Payment successful: ${transactionId}, Amount: ${data.amount} ${data.currency}`);
+    }
+
+    // ============================================
+    // گزارش‌گیری و آنالیز
+    // ============================================
+
+    getTransactionReport(startDate, endDate) {
+        const report = {
+            totalTransactions: 0,
+            totalAmount: 0,
+            byCurrency: {},
+            byMethod: {},
+            successful: 0,
+            failed: 0
+        };
+
+        for (const [id, transaction] of this.transactions) {
+            const transDate = new Date(transaction.timestamp);
+            if (transDate >= new Date(startDate) && transDate <= new Date(endDate)) {
+                report.totalTransactions++;
+                report.totalAmount += parseFloat(transaction.amount);
+                
+                // بر اساس ارز
+                if (!report.byCurrency[transaction.currency]) {
+                    report.byCurrency[transaction.currency] = {
+                        count: 0,
+                        amount: 0
+                    };
+                }
+                report.byCurrency[transaction.currency].count++;
+                report.byCurrency[transaction.currency].amount += parseFloat(transaction.amount);
+                
+                // بر اساس روش پرداخت
+                if (!report.byMethod[transaction.type]) {
+                    report.byMethod[transaction.type] = {
+                        count: 0,
+                        amount: 0
+                    };
+                }
+                report.byMethod[transaction.type].count++;
+                report.byMethod[transaction.type].amount += parseFloat(transaction.amount);
+                
+                // وضعیت
+                if (transaction.status === "COMPLETED") {
+                    report.successful++;
+                } else {
+                    report.failed++;
+                }
+            }
+        }
+
+        return report;
+    }
+
+    // ============================================
+    // Utility Functions
+    // ============================================
+
+    formatCurrency(amount, currency) {
+        const formatter = new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: currency
+        });
+        return formatter.format(amount);
+    }
+
+    generateQRCodeData(paymentData) {
+        const data = {
+            v: "IRANcoin-Payment-1.0",
+            merchant: "IRANcoin Global Reserve",
+            amount: paymentData.amount,
+            currency: paymentData.currency,
+            address: this.contractAddress,
+            network: this.network,
+            timestamp: Date.now(),
+            memo: `IRANcoin ${this.symbol} Purchase`
+        };
+        
+        return Buffer.from(JSON.stringify(data)).toString('base64');
+    }
+
+    // ============================================
+    // Health Check
+    // ============================================
+
+    async healthCheck() {
+        const checks = {
+            mastercard: false,
+            visa: false,
+            transactions: this.transactions.size,
+            securityTokens: this.securityTokens.size,
+            exchangeRates: Object.keys(this.exchangeRates).length
+        };
+
+        try {
+            // تست اتصال مسترکارت
+            const mcResponse = await axios.get(
+                `${this.mastercardConfig.baseUrl}/rest/${this.mastercardConfig.apiVersion}/merchant/${this.mastercardConfig.merchantId}`,
+                {
+                    headers: {
+                        'Authorization': `Basic ${Buffer.from(`merchant.${this.mastercardConfig.merchantId}:${this.mastercardConfig.apiKey}`).toString('base64')}`
+                    }
+                }
+            );
+            checks.mastercard = mcResponse.status === 200;
+        } catch (error) {
+            console.warn("Mastercard health check failed:", error.message);
+        }
+
+        try {
+            // تست اتصال ویزا
+            const visaResponse = await axios.get(
+                `${this.visaConfig.baseUrl}/v2/health`,
+                {
+                    headers: {
+                        'apikey': this.visaConfig.apiKey
+                    }
+                }
+            );
+            checks.visa = visaResponse.status === 200;
+        } catch (error) {
+            console.warn("Visa health check failed:", error.message);
+        }
+
+        return {
+            status: checks.mastercard && checks.visa ? "HEALTHY" : "DEGRADED",
+            timestamp: new Date().toISOString(),
+            checks: checks
+        };
+    }
+}
+
+// ============================================
+// مثال استفاده
+// ============================================
+
+async function exampleUsage() {
+    // ایجاد نمونه
+    const irancoinPayments = new IRANcoinCardIntegration({
+        mastercardApiKey: process.env.MASTERCARD_API_KEY,
+        merchantId: process.env.MERCHANT_ID,
+        visaApiKey: process.env.VISA_API_KEY,
+        visaSharedSecret: process.env.VISA_SHARED_SECRET,
+        sandbox: true
+    });
+
+    // 1. بررسی سلامت سیستم
+    const health = await irancoinPayments.healthCheck();
+    console.log("Health Check:", health);
+
+    // 2. ایجاد یک توکن امنیتی
+    const securityToken = irancoinPayments.generateSecurityToken();
+    console.log("Security Token:", securityToken);
+
+    // 3. پرداخت ترکیبی مثال
+    const paymentResult = await irancoinPayments.hybridPayment({
+        paymentMethod: "MASTERCARD",
+        amount: 100,
+        currency: "USD",
+        userId: "USER123",
+        cardToken: "TOKEN123",
+        orderId: "ORDER123",
+        transactionId: "TRANS123"
+    });
+
+    console.log("Payment Result:", paymentResult);
+
+    // 4. گزارش تراکنش‌ها
+    const report = irancoinPayments.getTransactionReport(
+        "2024-01-01",
+        new Date().toISOString()
+    );
+    console.log("Transaction Report:", report);
+}
+
+// ============================================
+// Export برای استفاده در پروژه‌های دیگر
+// ============================================
+
+module.exports = {
+    IRANcoinCardIntegration,
+    
+    // توابع کمکی
+    validateCardNumber: (cardNumber) => {
+        // الگوریتم Luhn برای اعتبارسنجی شماره کارت
+        let sum = 0;
+        let shouldDouble = false;
+        
+        for (let i = cardNumber.length - 1; i >= 0; i--) {
+            let digit = parseInt(cardNumber.charAt(i));
+            
+            if (shouldDouble) {
+                digit *= 2;
+                if (digit > 9) digit -= 9;
+            }
+            
+            sum += digit;
+            shouldDouble = !shouldDouble;
+        }
+        
+        return (sum % 10) === 0;
+    },
+    
+    maskCardNumber: (cardNumber) => {
+        return cardNumber.replace(/\d(?=\d{4})/g, "*");
+    },
+    
+    getCardType: (cardNumber) => {
+        const patterns = {
+            mastercard: /^5[1-5][0-9]{14}$/,
+            visa: /^4[0-9]{12}(?:[0-9]{3})?$/,
+            amex: /^3[47][0-9]{13}$/
+        };
+        
+        for (const [type, pattern] of Object.entries(patterns)) {
+            if (pattern.test(cardNumber)) {
+                return type.toUpperCase();
+            }
+        }
+        
+        return "UNKNOWN";
+    }
+};
