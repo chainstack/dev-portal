@@ -1,0 +1,583 @@
+// ============================================
+// IMPROVED HEALTH CHECK SYSTEM - SECURE VERSION
+// ============================================
+
+async function secureHealthCheck() {
+    const healthData = {
+        status: "UNKNOWN",
+        timestamp: new Date().toISOString(),
+        services: {},
+        uptime: process.uptime(),
+        version: process.env.npm_package_version || "2.0.0"
+    };
+
+    try {
+        // 1. Check Mastercard Service
+        healthData.services.mastercard = await checkMastercardService();
+        
+        // 2. Check Visa Service
+        healthData.services.visa = await checkVisaService();
+        
+        // 3. Check Internal Services
+        healthData.services.internal = checkInternalServices();
+        
+        // 4. Check Database/Storage
+        healthData.services.storage = await checkStorageHealth();
+        
+        // 5. Check Network Connectivity
+        healthData.services.network = await checkNetworkConnectivity();
+        
+        // Determine overall status
+        healthData.status = determineOverallStatus(healthData.services);
+        
+        // Add minimal diagnostic info
+        healthData.diagnostics = generateSafeDiagnostics(healthData);
+        
+    } catch (error) {
+        // Secure error handling - no stack traces in production
+        healthData.status = "UNHEALTHY";
+        healthData.services = {
+            error: "Service unavailable",
+            timestamp: new Date().toISOString()
+        };
+        
+        // Log internally (not exposed to client)
+        logInternalError("Health check failed", {
+            error: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+            timestamp: new Date().toISOString()
+        });
+    }
+    
+    return sanitizeHealthResponse(healthData);
+}
+
+// ============================================
+// Service Check Functions (Improved)
+// ============================================
+
+async function checkMastercardService() {
+    try {
+        // Use timeout to prevent hanging
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error("Mastercard service timeout")), 5000);
+        });
+
+        const checkPromise = axios.get(
+            `${this.mastercardConfig.baseUrl}/rest/${this.mastercardConfig.apiVersion}/merchant/${this.mastercardConfig.merchantId}`,
+            {
+                headers: {
+                    'Authorization': `Basic ${Buffer.from(`merchant.${this.mastercardConfig.merchantId}:${this.mastercardConfig.apiKey}`).toString('base64')}`
+                },
+                timeout: 3000,
+                validateStatus: (status) => status < 500 // Don't throw on 4xx errors
+            }
+        );
+
+        const response = await Promise.race([checkPromise, timeoutPromise]);
+        
+        return {
+            status: response.status === 200 ? "OPERATIONAL" : "DEGRADED",
+            responseTime: response.headers['x-response-time'] || 'unknown',
+            version: response.headers['x-api-version'] || 'unknown'
+        };
+        
+    } catch (error) {
+        // Return standardized error without details
+        return {
+            status: "UNAVAILABLE",
+            error: "Connection failed",
+            code: classifyErrorCode(error)
+        };
+    }
+}
+
+async function checkVisaService() {
+    try {
+        // Simple ping without sensitive data
+        const response = await axios.get(
+            `${this.visaConfig.baseUrl}/v2/health`,
+            {
+                headers: {
+                    'apikey': 'health-check-key' // Use limited health check key
+                },
+                timeout: 3000,
+                validateStatus: () => true // Don't throw on any status
+            }
+        );
+
+        return {
+            status: response.status === 200 ? "OPERATIONAL" : 
+                   response.status === 401 ? "AUTH_ERROR" : "DEGRADED",
+            timestamp: response.headers['date'] || new Date().toISOString()
+        };
+        
+    } catch (error) {
+        return {
+            status: "UNAVAILABLE",
+            error: "Service unreachable"
+        };
+    }
+}
+
+function checkInternalServices() {
+    try {
+        const checks = {
+            memory: {
+                used: process.memoryUsage().heapUsed / 1024 / 1024, // MB
+                total: process.memoryUsage().heapTotal / 1024 / 1024,
+                status: "OK"
+            },
+            transactions: {
+                count: this.transactions.size,
+                active: Array.from(this.transactions.values())
+                    .filter(t => t.status === "COMPLETED").length,
+                status: "OK"
+            },
+            security: {
+                tokens: this.securityTokens.size,
+                status: "OK"
+            }
+        };
+
+        // Add warnings if thresholds exceeded
+        if (checks.memory.used > 500) { // 500MB
+            checks.memory.status = "WARNING";
+        }
+
+        return checks;
+        
+    } catch (error) {
+        return {
+            status: "ERROR",
+            message: "Internal service check failed"
+        };
+    }
+}
+
+async function checkStorageHealth() {
+    try {
+        // Check if we can read/write to storage
+        const testKey = `health-check-${Date.now()}`;
+        const testValue = { timestamp: Date.now() };
+        
+        // Test storage (adjust based on your storage solution)
+        if (typeof this.transactions.set === 'function') {
+            this.transactions.set(testKey, testValue);
+            const retrieved = this.transactions.get(testKey);
+            this.transactions.delete(testKey);
+            
+            return {
+                status: retrieved ? "OPERATIONAL" : "DEGRADED",
+                readWrite: true
+            };
+        }
+        
+        return { status: "OPERATIONAL" };
+        
+    } catch (error) {
+        return {
+            status: "UNAVAILABLE",
+            error: "Storage system error"
+        };
+    }
+}
+
+async function checkNetworkConnectivity() {
+    try {
+        // Check external connectivity without exposing internal URLs
+        const dnsCheck = await dns.promises.resolve('api.mastercard.com').catch(() => null);
+        const sslCheck = true; // Simplified - in real app, check SSL certs
+        
+        return {
+            dns: dnsCheck ? "OK" : "FAILED",
+            ssl: sslCheck ? "VALID" : "INVALID",
+            timestamp: new Date().toISOString()
+        };
+        
+    } catch (error) {
+        return {
+            status: "NETWORK_ERROR",
+            error: "Connectivity issues detected"
+        };
+    }
+}
+
+// ============================================
+// Security & Sanitization Functions
+// ============================================
+
+function determineOverallStatus(services) {
+    const statuses = Object.values(services).map(s => s.status || s);
+    
+    if (statuses.includes("UNAVAILABLE") || statuses.includes("ERROR")) {
+        return "UNHEALTHY";
+    } else if (statuses.includes("DEGRADED") || statuses.includes("WARNING")) {
+        return "DEGRADED";
+    } else if (statuses.every(s => s === "OPERATIONAL" || s.status === "OK")) {
+        return "HEALTHY";
+    } else {
+        return "UNKNOWN";
+    }
+}
+
+function classifyErrorCode(error) {
+    if (!error.code && !error.response) return "UNKNOWN_ERROR";
+    
+    // Map internal codes to generic ones
+    const errorMap = {
+        'ECONNREFUSED': 'CONNECTION_REFUSED',
+        'ETIMEDOUT': 'TIMEOUT',
+        'ENOTFOUND': 'DNS_ERROR',
+        'ECONNRESET': 'CONNECTION_RESET',
+        'UNAUTHORIZED': 'AUTH_ERROR',
+        'FORBIDDEN': 'ACCESS_DENIED'
+    };
+    
+    return errorMap[error.code] || 
+           error.response?.status?.toString() || 
+           'INTERNAL_ERROR';
+}
+
+function generateSafeDiagnostics(healthData) {
+    // Return only safe, non-sensitive diagnostic info
+    return {
+        servicesCount: Object.keys(healthData.services).length,
+        operationalServices: Object.values(healthData.services)
+            .filter(s => s.status === "OPERATIONAL" || s.status === "OK").length,
+        lastUpdated: healthData.timestamp,
+        environment: process.env.NODE_ENV || 'development'
+    };
+}
+
+function sanitizeHealthResponse(healthData) {
+    // Remove any potentially sensitive data
+    const sanitized = { ...healthData };
+    
+    // Remove error details in production
+    if (process.env.NODE_ENV === 'production') {
+        Object.keys(sanitized.services).forEach(service => {
+            if (sanitized.services[service].error) {
+                sanitized.services[service].error = "Service unavailable";
+            }
+            // Remove stack traces
+            if (sanitized.services[service].stack) {
+                delete sanitized.services[service].stack;
+            }
+        });
+    }
+    
+    // Ensure no API keys, URLs, or internal paths are exposed
+    delete sanitized.mastercardConfig;
+    delete sanitized.visaConfig;
+    delete sanitized.banks;
+    
+    return sanitized;
+}
+
+function logInternalError(message, details) {
+    // Internal logging - not exposed to clients
+    const logEntry = {
+        timestamp: new Date().toISOString(),
+        level: "ERROR",
+        message,
+        service: "health-check",
+        environment: process.env.NODE_ENV,
+        ...details
+    };
+    
+    // Log to internal system (console, file, etc.)
+    console.error(JSON.stringify(logEntry));
+    
+    // In production, you might want to send to monitoring service
+    if (process.env.MONITORING_ENDPOINT) {
+        axios.post(process.env.MONITORING_ENDPOINT, logEntry, {
+            headers: { 'Content-Type': 'application/json' }
+        }).catch(() => {
+            // Silent fail - don't affect health check response
+        });
+    }
+}
+
+// ============================================
+// Updated IRANcoinCardIntegration Class
+// ============================================
+
+class IRANcoinCardIntegration {
+    // ... [existing code] ...
+
+    async healthCheck() {
+        return await secureHealthCheck.call(this);
+    }
+
+    // ... [rest of the class] ...
+}
+
+// ============================================
+// Enhanced Express Route Handler
+// ============================================
+
+function createHealthCheckRouter() {
+    const router = require('express').Router();
+    
+    // Middleware to add security headers
+    router.use((req, res, next) => {
+        res.set({
+            'X-Content-Type-Options': 'nosniff',
+            'X-Frame-Options': 'DENY',
+            'X-XSS-Protection': '1; mode=block',
+            'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+            'Content-Security-Policy': "default-src 'self'",
+            'Cache-Control': 'no-store, no-cache, must-revalidate, private'
+        });
+        next();
+    });
+    
+    // Health check endpoint
+    router.get('/health', async (req, res) => {
+        try {
+            const startTime = Date.now();
+            const healthStatus = await irancoinPayments.healthCheck();
+            const responseTime = Date.now() - startTime;
+            
+            // Add response time to headers
+            res.set('X-Response-Time', `${responseTime}ms`);
+            
+            // Determine HTTP status code
+            let httpStatus = 200;
+            if (healthStatus.status === "UNHEALTHY") {
+                httpStatus = 503; // Service Unavailable
+            } else if (healthStatus.status === "DEGRADED") {
+                httpStatus = 206; // Partial Content
+            }
+            
+            // Standardized response format
+            const response = {
+                status: healthStatus.status,
+                timestamp: healthStatus.timestamp,
+                responseTime: `${responseTime}ms`,
+                services: healthStatus.services,
+                version: healthStatus.version,
+                uptime: `${Math.floor(healthStatus.uptime)}s`,
+                requestId: req.headers['x-request-id'] || generateRequestId()
+            };
+            
+            res.status(httpStatus).json(response);
+            
+        } catch (error) {
+            // Generic error response
+            res.status(503).json({
+                status: "ERROR",
+                timestamp: new Date().toISOString(),
+                message: "Service health check failed",
+                requestId: req.headers['x-request-id'] || generateRequestId()
+            });
+            
+            // Internal logging
+            logInternalError("Health check route error", {
+                error: error.message,
+                path: req.path,
+                ip: req.ip
+            });
+        }
+    });
+    
+    // Liveness probe (simple check)
+    router.get('/live', (req, res) => {
+        res.json({
+            status: "ALIVE",
+            timestamp: new Date().toISOString()
+        });
+    });
+    
+    // Readiness probe (check if ready to serve traffic)
+    router.get('/ready', async (req, res) => {
+        try {
+            const health = await irancoinPayments.healthCheck();
+            const ready = health.status !== "UNHEALTHY";
+            
+            res.status(ready ? 200 : 503).json({
+                ready: ready,
+                status: health.status,
+                timestamp: new Date().toISOString()
+            });
+        } catch (error) {
+            res.status(503).json({
+                ready: false,
+                timestamp: new Date().toISOString()
+            });
+        }
+    });
+    
+    // Metrics endpoint (optional, for monitoring)
+    router.get('/metrics', (req, res) => {
+        const metrics = {
+            timestamp: new Date().toISOString(),
+            transactions: {
+                total: irancoinPayments.transactions.size,
+                completed: Array.from(irancoinPayments.transactions.values())
+                    .filter(t => t.status === "COMPLETED").length,
+                failed: Array.from(irancoinPayments.transactions.values())
+                    .filter(t => t.status === "FAILED").length
+            },
+            memory: {
+                heapUsed: process.memoryUsage().heapUsed,
+                heapTotal: process.memoryUsage().heapTotal,
+                rss: process.memoryUsage().rss
+            },
+            uptime: process.uptime()
+        };
+        
+        res.json(metrics);
+    });
+    
+    return router;
+}
+
+function generateRequestId() {
+    return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// ============================================
+// Configuration for Health Check
+// ============================================
+
+const healthCheckConfig = {
+    // Timeout for each service check
+    timeouts: {
+        mastercard: 5000,
+        visa: 5000,
+        storage: 3000,
+        network: 3000
+    },
+    
+    // Thresholds for warnings
+    thresholds: {
+        memory: {
+            warning: 500, // MB
+            critical: 800 // MB
+        },
+        responseTime: {
+            warning: 1000, // ms
+            critical: 3000 // ms
+        }
+    },
+    
+    // Services to check
+    services: ['mastercard', 'visa', 'storage', 'network'],
+    
+    // Retry configuration
+    retry: {
+        attempts: 2,
+        delay: 1000
+    },
+    
+    // Cache health check results (in ms)
+    cacheDuration: 30000 // 30 seconds
+};
+
+// ============================================
+// Usage in Main Application
+// ============================================
+
+const express = require('express');
+const app = express();
+
+// ... [other middleware] ...
+
+// Add health check routes
+const healthRouter = createHealthCheckRouter();
+app.use('/api', healthRouter);
+
+// Error handling middleware for health endpoints
+app.use('/api/health', (err, req, res, next) => {
+    // Only trigger for health endpoint errors
+    res.status(503).json({
+        status: "ERROR",
+        timestamp: new Date().toISOString(),
+        message: "Health check service unavailable"
+    });
+});
+
+// ============================================
+// Example Test Suite for Health Check
+// ============================================
+
+async function testHealthCheck() {
+    console.log("Testing health check system...\n");
+    
+    const testCases = [
+        {
+            name: "Normal operation",
+            setup: () => {
+                // Mock successful responses
+                jest.spyOn(axios, 'get').mockResolvedValue({
+                    status: 200,
+                    headers: { 'date': new Date().toISOString() }
+                });
+            }
+        },
+        {
+            name: "Mastercard timeout",
+            setup: () => {
+                jest.spyOn(axios, 'get').mockImplementation((url) => {
+                    if (url.includes('mastercard')) {
+                        return new Promise((_, reject) => {
+                            setTimeout(() => reject(new Error('timeout')), 6000);
+                        });
+                    }
+                    return Promise.resolve({ status: 200 });
+                });
+            }
+        },
+        {
+            name: "Visa authentication error",
+            setup: () => {
+                jest.spyOn(axios, 'get').mockImplementation((url) => {
+                    if (url.includes('visa')) {
+                        return Promise.reject({
+                            response: { status: 401 },
+                            code: 'UNAUTHORIZED'
+                        });
+                    }
+                    return Promise.resolve({ status: 200 });
+                });
+            }
+        }
+    ];
+    
+    for (const testCase of testCases) {
+        console.log(`Test: ${testCase.name}`);
+        testCase.setup();
+        
+        try {
+            const result = await secureHealthCheck();
+            console.log(`  Status: ${result.status}`);
+            console.log(`  Services: ${Object.keys(result.services).length}`);
+            console.log(`  Secure: ${!result.services.mastercard?.error?.includes('api')}`);
+            console.log("---\n");
+        } catch (error) {
+            console.log(`  Error: ${error.message}`);
+            console.log("---\n");
+        }
+    }
+}
+
+// ============================================
+// Export the Improved System
+// ============================================
+
+module.exports = {
+    IRANcoinCardIntegration,
+    secureHealthCheck,
+    createHealthCheckRouter,
+    healthCheckConfig,
+    
+    // Security utilities
+    sanitizeHealthResponse,
+    classifyErrorCode,
+    logInternalError,
+    
+    // Testing utilities
+    testHealthCheck
+};
