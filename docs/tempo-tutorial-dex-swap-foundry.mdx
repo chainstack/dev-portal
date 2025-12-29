@@ -1,0 +1,264 @@
+---
+title: "Tempo: Basic DEX swap with Foundry"
+description: "Learn to swap stablecoins on Tempo's native DEX using tempo-foundry CLI tools"
+---
+
+This tutorial teaches you how to perform a basic token swap on Tempo's native stablecoin DEX. You'll use tempo-foundry CLI tools to interact directly with the protocol-level exchange.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+**TLDR:**
+* Swap stablecoins directly on Tempo's enshrined DEX precompile
+* Use tempo-foundry's `cast` with the `--fee-token` flag for gas payment
+* Pay fees in the same stablecoin you're swapping—no native gas token required
+* Execute swaps in seconds with sub-second finality
+
+## Prerequisites
+
+- [Chainstack account](https://console.chainstack.com/)
+- Basic command-line knowledge
+- A wallet with a private key for testnet
+
+## Tempo stablecoin exchange overview
+
+Tempo features an enshrined DEX—a precompiled contract built into the protocol at a fixed address. You interact with it directly using the `cast` command from tempo-foundry.
+
+### Key addresses
+
+| Contract | Address |
+|----------|---------|
+| Stablecoin Exchange | `0xDEc0000000000000000000000000000000000000` |
+| pathUSD (quote token) | `0x20C0000000000000000000000000000000000000` |
+| AlphaUSD | `0x20C0000000000000000000000000000000000001` |
+| BetaUSD | `0x20C0000000000000000000000000000000000002` |
+| ThetaUSD | `0x20C0000000000000000000000000000000000003` |
+
+### Testnet configuration
+
+| Parameter | Value |
+|-----------|-------|
+| Network name | Tempo Testnet (Andantino) |
+| Chain ID | `42429` |
+| RPC URL | `https://rpc.testnet.tempo.xyz` |
+| Explorer | [explore.tempo.xyz](https://explore.tempo.xyz) |
+
+## Step 1. Install tempo-foundry
+
+Tempo-foundry is a Foundry fork with Tempo-specific features, including the `--fee-token` flag for paying gas in stablecoins.
+
+```bash
+foundryup -n tempo
+```
+
+Verify the installation:
+
+```bash
+cast --version
+```
+
+You should see output containing `tempo` in the version string.
+
+## Step 2. Fund your wallet
+
+Get testnet stablecoins using the faucet RPC method:
+
+```bash
+cast rpc tempo_fundAddress YOUR_ADDRESS --rpc-url https://rpc.testnet.tempo.xyz
+```
+
+Check your balance:
+
+```bash
+cast call 0x20C0000000000000000000000000000000000001 \
+  "balanceOf(address)(uint256)" \
+  YOUR_ADDRESS \
+  --rpc-url https://rpc.testnet.tempo.xyz
+```
+
+<Note>
+The faucet provides AlphaUSD tokens. All testnet stablecoins use 6 decimals, so `100000000` equals \$100.
+</Note>
+
+## Step 3. Get a swap quote
+
+Before swapping, check the expected output. The DEX uses `uint128` for amounts:
+
+```bash
+cast call 0xDEc0000000000000000000000000000000000000 \
+  "quoteSwapExactAmountIn(address,address,uint128)(uint128)" \
+  0x20C0000000000000000000000000000000000001 \
+  0x20C0000000000000000000000000000000000002 \
+  100000000 \
+  --rpc-url https://rpc.testnet.tempo.xyz
+```
+
+This quotes swapping 100 AlphaUSD for BetaUSD. Expected output: `100000000` (100 BetaUSD at 1:1 rate).
+
+## Step 4. Approve the DEX
+
+Set your private key as an environment variable:
+
+```bash
+export PRIVATE_KEY=your_private_key_here
+```
+
+Approve the DEX to spend your tokens:
+
+```bash
+cast send 0x20C0000000000000000000000000000000000001 \
+  "approve(address,uint256)" \
+  0xDEc0000000000000000000000000000000000000 \
+  100000000 \
+  --rpc-url https://rpc.testnet.tempo.xyz \
+  --private-key $PRIVATE_KEY \
+  --fee-token 0x20C0000000000000000000000000000000000001
+```
+
+<Tip>
+The `--fee-token` flag specifies which TIP-20 token to use for gas payment. Here we're paying gas in AlphaUSD—the same token we're approving.
+</Tip>
+
+## Step 5. Execute the swap
+
+Swap 100 AlphaUSD for BetaUSD with 1% slippage tolerance:
+
+```bash
+cast send 0xDEc0000000000000000000000000000000000000 \
+  "swapExactAmountIn(address,address,uint128,uint128)(uint128)" \
+  0x20C0000000000000000000000000000000000001 \
+  0x20C0000000000000000000000000000000000002 \
+  100000000 \
+  99000000 \
+  --rpc-url https://rpc.testnet.tempo.xyz \
+  --private-key $PRIVATE_KEY \
+  --fee-token 0x20C0000000000000000000000000000000000001
+```
+
+The parameters are:
+- `tokenIn` — AlphaUSD address
+- `tokenOut` — BetaUSD address
+- `amountIn` — 100 tokens (100000000 with 6 decimals)
+- `minAmountOut` — minimum 99 tokens (1% slippage protection)
+
+## Step 6. Verify the swap
+
+Check your new BetaUSD balance:
+
+```bash
+cast call 0x20C0000000000000000000000000000000000002 \
+  "balanceOf(address)(uint256)" \
+  YOUR_ADDRESS \
+  --rpc-url https://rpc.testnet.tempo.xyz
+```
+
+## DEX interface reference
+
+The stablecoin exchange provides these key functions:
+
+```solidity
+// Swap exact input for variable output
+function swapExactAmountIn(
+    address tokenIn,
+    address tokenOut,
+    uint128 amountIn,
+    uint128 minAmountOut
+) external returns (uint128 amountOut);
+
+// Swap variable input for exact output
+function swapExactAmountOut(
+    address tokenIn,
+    address tokenOut,
+    uint128 amountOut,
+    uint128 maxAmountIn
+) external returns (uint128 amountIn);
+
+// Quote functions (view, no gas)
+function quoteSwapExactAmountIn(address tokenIn, address tokenOut, uint128 amountIn)
+    external view returns (uint128 amountOut);
+
+function quoteSwapExactAmountOut(address tokenIn, address tokenOut, uint128 amountOut)
+    external view returns (uint128 amountIn);
+```
+
+<Note>
+The interface uses `uint128` for amounts, not `uint256`. This is important when building Solidity contracts that interact with the DEX.
+</Note>
+
+## How routing works
+
+Each stablecoin has pathUSD as its quote token. When swapping AlphaUSD → BetaUSD, the DEX routes automatically:
+
+1. AlphaUSD → pathUSD
+2. pathUSD → BetaUSD
+
+Both orderbooks need liquidity for the swap to succeed. The quote functions account for this routing when calculating output amounts.
+
+## Slippage protection
+
+Always set slippage bounds to protect against price movement:
+
+- `minAmountOut` — minimum tokens to receive (for exact input swaps)
+- `maxAmountIn` — maximum tokens to spend (for exact output swaps)
+
+For stablecoin pairs, 0.5-1% is typical since prices are pegged.
+
+## Fee payment
+
+Tempo has no native gas token. Use `--fee-token` with any TIP-20 stablecoin to pay transaction fees. The Fee AMM converts your payment to the validator's preferred token automatically.
+
+## Integrating from Solidity
+
+If you're building a smart contract that needs to swap, import the interface from tempo-std:
+
+```bash
+forge install tempoxyz/tempo-std
+```
+
+```solidity
+import {IStablecoinExchange} from "tempo-std/interfaces/IStablecoinExchange.sol";
+
+IStablecoinExchange constant DEX = IStablecoinExchange(0xDEc0000000000000000000000000000000000000);
+
+// Approve first, then:
+uint128 amountOut = DEX.swapExactAmountIn(tokenIn, tokenOut, amountIn, minAmountOut);
+```
+
+## Troubleshooting
+
+### Quote returns zero or fails
+
+The orderbook may lack liquidity for the requested pair or amount. Try:
+- A smaller swap amount
+- Checking if orders exist for this token pair on the explorer
+
+### Swap reverts
+
+Common causes:
+- Insufficient token approval for the DEX
+- Slippage tolerance too tight for current liquidity
+- No liquidity in one leg of the route (tokenIn → pathUSD or pathUSD → tokenOut)
+
+### Transaction fails with gas error
+
+Ensure you're using the `--fee-token` flag with a valid TIP-20 token address. Tempo requires stablecoin gas payment.
+
+## Next steps
+
+Now that you can execute basic swaps:
+
+- Build a swap aggregator that finds optimal routes
+- Monitor orderbook state with `dex_getOrderbooks` RPC method
+- Create limit orders by providing liquidity to the orderbook
+
+## See also
+
+- [Tempo: Building your first payment app](/docs/tempo-tutorial-first-payment-app)
+- [Tempo API reference](/reference/tempo-getting-started)
+- [dex_getOrderbooks](/reference/tempo-dex-getorderbooks) — query orderbook state
+- [dex_getOrders](/reference/tempo-dex-getorders) — query orders
