@@ -1,0 +1,104 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+const { IRANcoinCardIntegration } = require('./irancoin-card-integration');
+
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.use(bodyParser.json());
+
+// ایجاد نمونه سیستم
+const irancoinPayments = new IRANcoinCardIntegration({
+    mastercardApiKey: process.env.MASTERCARD_API_KEY,
+    merchantId: process.env.MASTERCARD_MERCHANT_ID,
+    visaApiKey: process.env.VISA_API_KEY,
+    visaSharedSecret: process.env.VISA_SHARED_SECRET,
+    sandbox: process.env.NODE_ENV !== 'production'
+});
+
+// Route برای ایجاد پرداخت
+app.post('/api/payment/create', async (req, res) => {
+    try {
+        const { amount, currency, paymentMethod, userId } = req.body;
+        
+        const result = await irancoinPayments.hybridPayment({
+            paymentMethod,
+            amount: parseFloat(amount),
+            currency,
+            userId,
+            cardToken: req.body.cardToken,
+            orderId: req.body.orderId,
+            transactionId: req.body.transactionId
+        });
+        
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Route برای Webhook مسترکارت
+app.post('/api/webhook/mastercard', async (req, res) => {
+    try {
+        const result = await irancoinPayments.handleWebhook(req.body, 'MASTERCARD');
+        res.json(result);
+    } catch (error) {
+        console.error('Webhook error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Route برای Webhook ویزا
+app.post('/api/webhook/visa', async (req, res) => {
+    try {
+        const result = await irancoinPayments.handleWebhook(req.body, 'VISA');
+        res.json(result);
+    } catch (error) {
+        console.error('Webhook error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Route برای دریافت گزارش‌ها
+app.get('/api/transactions/report', (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        const report = irancoinPayments.getTransactionReport(startDate, endDate);
+        res.json(report);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Route برای سلامت سیستم
+app.get('/api/health', async (req, res) => {
+    try {
+        const health = await irancoinPayments.healthCheck();
+        res.json(health);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Route اصلی
+app.get('/', (req, res) => {
+    res.json({
+        name: "IRANcoin Card Integration API",
+        version: "2.0.0",
+        status: "online",
+        endpoints: [
+            "/api/payment/create",
+            "/api/webhook/mastercard",
+            "/api/webhook/visa",
+            "/api/transactions/report",
+            "/api/health"
+        ]
+    });
+});
+
+app.listen(port, () => {
+    console.log(`IRANcoin Card Integration API running on port ${port}`);
+});
