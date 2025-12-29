@@ -1,0 +1,263 @@
+class CoinMarketCapLister {
+    constructor(tokenInfo) {
+        this.tokenInfo = tokenInfo;
+        this.apiBase = 'https://pro-api.coinmarketcap.com/v1';
+        this.apiKey = 'YOUR_API_KEY_HERE';
+    }
+
+    // 1. بررسی اعتبار توکن
+    async validateToken() {
+        const response = await fetch(`${this.apiBase}/cryptocurrency/info?symbol=${this.tokenInfo.symbol}`, {
+            headers: {
+                'X-CMC_PRO_API_KEY': this.apiKey
+            }
+        });
+        return await response.json();
+    }
+
+    // 2. ارسال درخواست لیستینگ
+    async submitListingRequest() {
+        const formData = {
+            project_name: this.tokenInfo.name,
+            ticker: this.tokenInfo.symbol,
+            description: this.tokenInfo.description,
+            website: this.tokenInfo.website,
+            explorer: this.tokenInfo.explorer,
+            source_code: this.tokenInfo.github,
+            technical_doc: this.tokenInfo.whitepaper,
+            message_to_reviewer: this.tokenInfo.message
+        };
+
+        // ارسال به فرم CMC
+        const response = await fetch('https://coinmarketcap.com/request-for-listing/submit/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(formData)
+        });
+        
+        return await response.json();
+    }
+
+    // 3. دریافت وضعیت لیستینگ
+    async getListingStatus() {
+        const response = await fetch(`${this.apiBase}/cryptocurrency/listings/latest?symbol=${this.tokenInfo.symbol}`, {
+            headers: {
+                'X-CMC_PRO_API_KEY': this.apiKey
+            }
+        });
+        return await response.json();
+    }
+
+    // 4. ایجاد PR اتوماتیک
+    async generatePRContent() {
+        return {
+            title: `🚀 ${this.tokenInfo.name} (${this.tokenInfo.symbol}) Listing Request`,
+            content: `
+# ${this.tokenInfo.name} Listing Request
+
+## Token Information
+- **Symbol:** ${this.tokenInfo.symbol}
+- **Name:** ${this.tokenInfo.name}
+- **Contract:** ${this.tokenInfo.contract}
+- **Network:** ${this.tokenInfo.network}
+- **Total Supply:** ${this.tokenInfo.totalSupply}
+- **Holders:** ${this.tokenInfo.holders}
+
+## Project Details
+- **Website:** ${this.tokenInfo.website}
+- **Website 2:** ${this.tokenInfo.website2}
+- **Whitepaper:** ${this.tokenInfo.whitepaper}
+- **GitHub:** ${this.tokenInfo.github}
+- **Twitter/X:** ${this.tokenInfo.twitter}
+- **Medium Articles:** ${this.tokenInfo.mediumArticles}
+
+## Blockchain Explorers
+- **Routescan:** ${this.tokenInfo.routescan}
+- **Basescan:** ${this.tokenInfo.basescan}
+- **Blockscout:** ${this.tokenInfo.blockscout}
+- **Polygonscan (NFT):** ${this.tokenInfo.polygonscan}
+
+## Market Information
+- **Current Price:** ${this.tokenInfo.price}
+- **Market Cap:** ${this.tokenInfo.marketCap}
+- **Liquidity:** ${this.tokenInfo.liquidity}
+- **Trading Volume:** ${this.tokenInfo.volume}
+
+## Already Listed On
+${this.tokenInfo.alreadyListed.map(site => `- ${site}`).join('\n')}
+
+## Technical Details
+- **Token Standards:** ERC-20, ERC-721, ERC-1155
+- **Launch Date:** May 18, 2025
+- **Blockchain:** Base Network (with Polygon for NFTs)
+- **Contract Address:** ${this.tokenInfo.contract}
+
+## Project Description
+${this.tokenInfo.projectDescription}
+
+## Community & Social Proof
+- **Community Size:** ${this.tokenInfo.communitySize}
+- **Social Media Presence:** Strong across multiple platforms
+- **Press Coverage:** Multiple crypto news sites and listings
+- **DEX Listings:** Uniswap V3, PancakeSwap V2, SushiSwap
+
+## Why List ${this.tokenInfo.symbol}?
+1. **Innovative Approach:** First Iranian-origin cryptocurrency aiming to create a global payment network
+2. **Strong Technical Foundation:** Multi-chain deployment (Base + Polygon)
+3. **Growing Community:** Active social media presence and holder base
+4. **Transparent Development:** Open-source code and regular updates
+5. **Market Potential:** Targets the Iranian market with global ambitions
+6. **Already Vetted:** Successfully listed on multiple reputable crypto tracking platforms
+7. **Comprehensive Documentation:** Detailed whitepapers and technical documentation available
+
+## Verification & Security
+- Contract verified on multiple blockchain explorers
+- Green tick verification on Routescan and Blockscout
+- Logo and metadata properly configured
+- Active development with regular commits
+
+## Additional Resources
+- YouTube Introduction: ${this.tokenInfo.youtube}
+- MasterCard Sandbox Integration: Available
+- NFT Collection: Active on Polygon network
+- Multiple exchange integrations in progress
+
+## Supporting Documents
+${this.tokenInfo.supportingLinks.map(link => `- ${link}`).join('\n')}
+            `,
+            hashtags: ['#CMC', '#Listing', '#Crypto', '#DeFi', '#TokenListing', '#IRANcoin', '#BaseNetwork', '#Blockchain']
+        };
+    }
+}
+
+// نمونه استفاده برای IRANcoin Global Reserve
+const irancoinGlobalReserve = new CoinMarketCapLister({
+    name: "IRANcoin Global Reserve",
+    symbol: "IRCOIN",
+    contract: "0x49BA5D9A00115D494a01fb938EBd94BD919AA445",
+    network: "Base Network (with Polygon for NFTs)",
+    website: "https://sites.google.com/view/irancoinglobalreserve/home",
+    website2: "https://irancoinglobalreserve.edgeone.app/",
+    twitter: "https://x.com/IRANcoinGlobal",
+    github: "https://github.com/xlogan1987/IRANcoin-Global-Reserve",
+    whitepaper: "Available on official website",
+    description: "IRANcoin Global Reserve (IRCOIN) is a decentralized digital currency designed as a global payment network utilizing a basket of fiat-pegged stablecoins stabilized by its own IRcoin reserve currency. Deployed on BASE blockchain with multi-token standard support (ERC-20, ERC-721, ERC-1155).",
+    projectDescription: `IRANcoin Global Reserve (IRCOIN) is an Iranian digital cryptocurrency deployed on the BASE blockchain, supporting token standards ERC-20, ERC-721, and ERC-1155. It is designed as a decentralized financial payment network aiming to rebuild traditional payment systems on the blockchain by using a basket of fiat-pegged stablecoins stabilized algorithmically by the reserve currency IRCOIN. Its goal is to create a programmable, stable, and accessible global payment ecosystem originating from Iran's economic and technological context.`,
+    price: "To be determined",
+    marketCap: "To be determined",
+    liquidity: "Active on multiple DEXs",
+    holders: "200+",
+    volume: "Growing daily",
+    communitySize: "Active across social platforms",
+    routescan: "https://routescan.io/token/0x49BA5D9A00115D494a01fb938EBd94BD919AA445?chainid=8453",
+    basescan: "https://basescan.org/token/0x49ba5d9a00115d494a01fb938ebd94bd919aa445",
+    blockscout: "https://base.blockscout.com/token/0x49BA5D9A00115D494a01fb938EBd94BD919AA445",
+    polygonscan: "https://polygonscan.com/token/0xb1ee16d0e009add14428a32488b73ed1ea8463c5",
+    youtube: "https://www.youtube.com/watch?v=smoazBykgiM",
+    totalSupply: "720 sextillion (7.2×10^38)",
+    explorer: "https://base.blockscout.com/token/0x49BA5D9A00115D494a01fb938EBd94BD919AA445",
+    message: "IRANcoin Global Reserve represents a significant innovation in blockchain-based payment systems from the Iranian region. With strong technical foundations, growing community support, and multiple successful listings on reputable platforms, it meets all criteria for CoinMarketCap listing. The project brings unique value through its focus on global financial accessibility and innovative stablecoin mechanisms.",
+    
+    alreadyListed: [
+        "Routescan (Verified with Green Tick)",
+        "Blockscout (Verified with Green Tick)",
+        "DexGuru",
+        "Arkham Intel",
+        "OKLink",
+        "OKX Web3",
+        "Bitget On-Chain",
+        "MEXC News",
+        "Coinranking",
+        "Coincodex",
+        "LiveCoinWatch",
+        "CoinSniper",
+        "Dexpaprika",
+        "DexView",
+        "SushiSwap",
+        "Foundico",
+        "ICOHolder",
+        "ICOLink",
+        "TopICOList",
+        "CoinVote",
+        "CoinCheckup",
+        "CoinBazooka",
+        "CoinDiscovery",
+        "Top100Token",
+        "CoinBoom",
+        "CoinTopList",
+        "CyberScope Verified"
+    ],
+    
+    supportingLinks: [
+        "https://github.com/dex-guru/assets/pull/69",
+        "https://github.com/MetaMask/contract-metadata/pull/1665",
+        "https://github.com/trustwallet/assets/pull/34844",
+        "https://github.com/trustwallet/assets/pull/34845",
+        "https://github.com/trustwallet/assets/pull/34846",
+        "https://github.com/trustwallet/assets/pull/34847",
+        "https://medium.com/@xlogan1987/valuation-analysis-of-irancoin-global-reserve-ircoin-a-projected-750-000-early-stage-assessment-70ff7153d2c8",
+        "https://medium.com/@ohyeah72721/empowering-innovation-the-legitimate-liquidity-strategy-behind-irancoin-global-reserve-ircoin-f7232d1b37b37",
+        "https://medium.com/@xlogan1987/emerging-powerhouse-irancoin-global-reserve-ircoin-a-comparative-analysis-against-peer-efb460ddb33a",
+        "https://medium.com/@xlogan1987/comprehensive-analysis-irancoin-global-reserve-vs-89d1b1a36b0f",
+        "https://ircoin.substack.com/p/88e278d1-6bf0-413f-bdef-74d5c35aebb9",
+        "https://www.mexc.com/news/irancoin-global-reserve-ircoin-launches-to-reshape-global-digital-payments/140208",
+        "https://www.platinumcryptoacademy.com/demo/irancoin-global-reserve-ircoin-launches-to-reshape-global-digital-payments"
+    ],
+    
+    mediumArticles: [
+        "Valuation Analysis",
+        "Legitimate Liquidity Strategy",
+        "Comparative Analysis",
+        "Comprehensive Market Analysis",
+        "Launch Announcement"
+    ]
+});
+
+// توابع کمکی برای استفاده
+async function processIrancoinListing() {
+    console.log("Starting IRANcoin Global Reserve listing process...");
+    
+    // 1. بررسی اعتبار توکن
+    try {
+        console.log("Validating token...");
+        const validation = await irancoinGlobalReserve.validateToken();
+        console.log("Validation result:", validation);
+    } catch (error) {
+        console.log("Validation API not available in demo mode");
+    }
+    
+    // 2. ایجاد محتوای PR
+    console.log("\nGenerating PR content...");
+    const prContent = await irancoinGlobalReserve.generatePRContent();
+    console.log("PR Title:", prContent.title);
+    console.log("PR Hashtags:", prContent.hashtags);
+    
+    // 3. نمایش اطلاعات توکن
+    console.log("\n=== IRANcoin Global Reserve Information ===");
+    console.log("Token Name:", irancoinGlobalReserve.tokenInfo.name);
+    console.log("Symbol:", irancoinGlobalReserve.tokenInfo.symbol);
+    console.log("Contract:", irancoinGlobalReserve.tokenInfo.contract);
+    console.log("Network:", irancoinGlobalReserve.tokenInfo.network);
+    console.log("Holders:", irancoinGlobalReserve.tokenInfo.holders);
+    console.log("Websites:", irancoinGlobalReserve.tokenInfo.website, "|", irancoinGlobalReserve.tokenInfo.website2);
+    console.log("Already listed on", irancoinGlobalReserve.tokenInfo.alreadyListed.length, "platforms");
+    
+    return {
+        success: true,
+        message: "IRANcoin Global Reserve listing package prepared successfully",
+        prContent: prContent,
+        tokenInfo: irancoinGlobalReserve.tokenInfo
+    };
+}
+
+// اجرای فرآیند
+processIrancoinListing().then(result => {
+    console.log("\n✅ " + result.message);
+    console.log("\n📋 Next steps:");
+    console.log("1. Replace 'YOUR_API_KEY_HERE' with actual CoinMarketCap API key");
+    console.log("2. Use submitListingRequest() to submit to CoinMarketCap");
+    console.log("3. Monitor status with getListingStatus()");
+    console.log("4. Use generated PR content for community outreach");
+});
