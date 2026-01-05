@@ -1,38 +1,55 @@
 ---
 title: jsonrpc eth_sendRawTransaction | TRON
-description: "TRON API method that submits a pre-signed transaction for broadcast to the network. This method provides Ethereum-compatible interface for TRON blockchain."
-openapi: /openapi/tron_node_api/jsonrpc_eth_sendRawTransaction.json POST /95e61622bf6a8af293978377718e3b77/jsonrpc
+description: "TRON API — eth_sendRawTransaction is not supported on TRON's JSON-RPC endpoint. Use the native /wallet/broadcasttransaction endpoint instead."
 ---
 
-TRON API method that broadcasts a signed transaction to the network, providing an Ethereum-compatible interface for accessing TRON blockchain data.
+<Warning>
+  ### Method not supported
 
-<Check>
-**Get you own node endpoint today**
+  The `eth_sendRawTransaction` method is **not available** on TRON's `/jsonrpc` endpoint. TRON's JSON-RPC implementation provides limited Ethereum compatibility for **read operations only**.
 
-[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+  To broadcast transactions on TRON, use the native [broadcasttransaction](/reference/tron-broadcasttransaction) method via the `/wallet` endpoint.
+</Warning>
 
-You can sign up with your GitHub, X, Google, or Microsoft account.
-</Check>
+## Why this method is not supported
 
-## Parameters
+TRON's JSON-RPC endpoint does not support transaction submission methods because:
 
-* `jsonrpc` — the JSON-RPC protocol version (always "2.0")
-* `method` — the method name (always "eth_sendRawTransaction")
-* `params` — array containing method parameters
-  * `signedTransactionData` — the signed transaction data as hex string
-* `id` — request identifier (number or string)
+- TRON uses a different transaction format (Protobuf) than Ethereum (RLP-encoded)
+- TRON addresses use Base58 encoding natively, not hex
+- Transaction nonces work differently on TRON
 
-## Response
+## Alternative: Use TronWeb.js
 
-* `jsonrpc` — the JSON-RPC protocol version ("2.0")
-* `id` — the request identifier that matches the request
-* `result` — the transaction hash of the submitted transaction
+To send transactions on TRON, use [TronWeb.js](https://tronweb.network/) with your Chainstack node:
 
-## Use case
+```js
+const { TronWeb } = require('tronweb');
 
-The `jsonrpc eth_sendRawTransaction` method is used for:
+const tronWeb = new TronWeb({
+    fullHost: 'YOUR_CHAINSTACK_ENDPOINT',
+    privateKey: 'YOUR_PRIVATE_KEY'
+});
 
-* Broadcasting pre-signed transactions to the TRON network through Web3 interfaces
-* Implementing secure transaction submission from hardware wallets and offline signers
-* Building transaction relay services and meta-transaction functionality
-* Enabling programmatic transaction submission in automated trading and payment systems
+async function sendTRX() {
+    const transaction = await tronWeb.transactionBuilder.sendTrx(
+        'RECIPIENT_ADDRESS',
+        1000000, // Amount in SUN (1 TRX = 1,000,000 SUN)
+        tronWeb.defaultAddress.base58
+    );
+
+    const signedTx = await tronWeb.trx.sign(transaction);
+    const result = await tronWeb.trx.sendRawTransaction(signedTx);
+
+    console.log('Transaction ID:', result.txid);
+}
+
+sendTRX();
+```
+
+where YOUR\_CHAINSTACK\_ENDPOINT is your TRON node **base** endpoint without the `/jsonrpc`, `/wallet`, or `/walletsolidity` postfixes.
+
+See also:
+
+- [TRON tooling](/docs/tron-tooling) for complete examples
+- [broadcasttransaction](/reference/tron-broadcasttransaction) for the native TRON API
