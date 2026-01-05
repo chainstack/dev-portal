@@ -1,16 +1,16 @@
 ---
 title: "TRON tooling"
-description: "TRON blockchain development tools guide. Use TronWeb.js, web3.py, MetaMask, Hardhat, Remix IDE, and Foundry with Chainstack TRON nodes and endpoints."
+description: "TRON blockchain development tools guide. Use TronWeb.js, web3.py, Hardhat, and Foundry with Chainstack TRON nodes and endpoints."
 ---
 
 <Info>
-  ### `/jsonrpc`, `/wallet`, `/walletsolidty` support
+  ### `/jsonrpc`, `/wallet`, `/walletsolidity` support
 
-  Chainstack supports all three method endpoints:
+  Chainstack supports all three TRON API endpoints:
 
-  * `/jsonrpc`
-  * `/wallet`
-  * `/walletsoldity`
+  * `/jsonrpc` — Ethereum-compatible JSON-RPC (read-only operations)
+  * `/wallet` — TRON HTTP API (full node operations including transactions)
+  * `/walletsolidity` — TRON HTTP API (confirmed data from solidity node)
 
   Note that the TRON nodes provided are full only (non-archive), which makes some of the methods unsupported.
 </Info>
@@ -19,55 +19,27 @@ Get started with a [reliable TRON RPC endpoint](https://chainstack.com/build-bet
 
 For the full API reference, see the official [TRON API Reference](https://developers.tron.network/reference/).
 
+<Warning>
+  ### Ethereum tooling limitations
+
+  TRON's `/jsonrpc` endpoint provides limited Ethereum compatibility for **read operations only**. Methods required for transaction submission (`eth_sendRawTransaction`, `eth_getTransactionCount`) are not available.
+
+  This means Ethereum-native tools like **Foundry**, **Hardhat**, and **web3.py** cannot deploy contracts or send transactions to TRON directly. For write operations, use **TronWeb.js** with the `/wallet` endpoint.
+
+  You can still use Foundry or Hardhat for **compilation and testing**, then deploy with TronWeb.js. See the [hybrid workflow](#hybrid-workflow) section.
+</Warning>
+
 <Note>
   ### WebSocket event subscription not available
-  
+
   TRON nodes currently do not support WebSocket connections for event subscriptions. If you need to subscribe to events, please vote and follow the feature request at [TRON event plugin support](https://ideas.chainstack.com/p/implement-tron-event-plugin).
 </Note>
 
-## MetaMask
-
-On [node access details](/docs/manage-your-node#view-node-access-and-credentials), click **Connect wallet**.
-
-## web3.py
-
-Build DApps using [web3.py](https://github.com/ethereum/web3.py) and TRON nodes deployed with Chainstack.
-
-1. Install [web3.py](https://web3py.readthedocs.io/).
-
-2. Connect over HTTP. See also [EVM node connection: HTTP vs WebSocket](https://support.chainstack.com/hc/en-us/articles/900002187586-Ethereum-node-connection-HTTP-vs-WebSocket).
-
-### HTTP
-
-Use the `HTTPProvider` to connect to your node endpoint and get the latest block number.
-
-<CodeGroup>
-  ```python Key Protected
-  from web3 import Web3
-
-  web3 = Web3(Web3.HTTPProvider('YOUR_CHAINSTACK_ENDPOINT'))
-  print(web3.eth.block_number)
-  ```
-
-  ```python Password Protected
-  from web3 import Web3
-
-  web3 = Web3(Web3.HTTPProvider('https://%s:%s@%s'% ("USERNAME", "PASSWORD", "HOSTNAME")))
-  print(web3.eth.block_number)
-  ```
-</CodeGroup>
-
-where
-
-* YOUR\_CHAINSTACK\_ENDPOINT — your node HTTPS endpoint protected either with the key or password
-
-See also [node access details](/docs/manage-your-node#view-node-access-and-credentials).
-
 ## TronWeb.js
 
-See [TronWeb](https://tronweb.network/).
+[TronWeb](https://tronweb.network/) is the official JavaScript library for TRON. It supports all TRON operations including contract deployment and transactions.
 
-Example of doing a `getBalance` call:
+### Get balance
 
 ```js
 const { TronWeb } = require('tronweb');
@@ -80,11 +52,9 @@ const address = 'TWiEv2wfqQ8FkbAJ6bXt1uA2Uav9ZWvXip';
 
 async function getBalance() {
     try {
-
         const balanceInSun = await tronWeb.trx.getBalance(address);
-
         const balanceInTRX = tronWeb.fromSun(balanceInSun);
-        
+
         console.log(`Address: ${address}`);
         console.log(`Balance in SUN: ${balanceInSun}`);
         console.log(`Balance in TRX: ${balanceInTRX}`);
@@ -93,16 +63,105 @@ async function getBalance() {
     }
 }
 
-getBalance(); 
+getBalance();
+```
+
+where YOUR\_CHAINSTACK\_ENDPOINT is your TRON node **base** endpoint without the `/jsonrpc`, `/wallet`, or `/walletsolidity` postfixes.
+
+### Deploy a contract
+
+```js
+const { TronWeb } = require('tronweb');
+
+const tronWeb = new TronWeb({
+    fullHost: 'YOUR_CHAINSTACK_ENDPOINT',
+    privateKey: 'YOUR_PRIVATE_KEY'
+});
+
+// Contract ABI and bytecode
+const abi = [/* your contract ABI */];
+const bytecode = 'your_contract_bytecode';
+
+async function deployContract() {
+    try {
+        console.log('Deploying contract...');
+        console.log('From address:', tronWeb.defaultAddress.base58);
+
+        const transaction = await tronWeb.transactionBuilder.createSmartContract({
+            abi: abi,
+            bytecode: bytecode,
+            feeLimit: 100000000,
+            callValue: 0,
+            userFeePercentage: 100,
+            originEnergyLimit: 10000000
+        }, tronWeb.defaultAddress.base58);
+
+        const signedTx = await tronWeb.trx.sign(transaction);
+        const result = await tronWeb.trx.sendRawTransaction(signedTx);
+
+        if (result.result) {
+            console.log('Contract deployed!');
+            console.log('Transaction ID:', result.txid);
+            console.log('Contract address:', tronWeb.address.fromHex(result.transaction.contract_address));
+        }
+    } catch (error) {
+        console.error('Deployment error:', error.message || error);
+    }
+}
+
+deployContract();
 ```
 
 where
 
-* YOUR\_CHAINSTACK\_ENDPOINT — your TRON node **base** endpoint without the `/jsonrpc`, `/wallet`, or `/walletsolidity` postfixes.
+* YOUR\_CHAINSTACK\_ENDPOINT — your TRON node **base** endpoint without the `/jsonrpc`, `/wallet`, or `/walletsolidity` postfixes
+* YOUR\_PRIVATE\_KEY — the private key of the account that you use to deploy the contract
+
+See also [node access details](/docs/manage-your-node#view-node-access-and-credentials).
+
+## web3.py
+
+<Note>
+  web3.py can only perform **read operations** on TRON through the `/jsonrpc` endpoint. For contract deployment and transactions, use [TronWeb.js](#tronwebjs).
+</Note>
+
+Build DApps using [web3.py](https://github.com/ethereum/web3.py) and TRON nodes deployed with Chainstack.
+
+1. Install [web3.py](https://web3py.readthedocs.io/).
+
+2. Connect over HTTP.
+
+### HTTP
+
+Use the `HTTPProvider` to connect to your node endpoint and get the latest block number.
+
+<CodeGroup>
+  ```python Key protected
+  from web3 import Web3
+
+  web3 = Web3(Web3.HTTPProvider('YOUR_CHAINSTACK_ENDPOINT'))
+  print(web3.eth.block_number)
+  ```
+
+  ```python Password protected
+  from web3 import Web3
+
+  web3 = Web3(Web3.HTTPProvider('https://%s:%s@%s'% ("USERNAME", "PASSWORD", "HOSTNAME")))
+  print(web3.eth.block_number)
+  ```
+</CodeGroup>
+
+where YOUR\_CHAINSTACK\_ENDPOINT is your node HTTPS endpoint with the `/jsonrpc` postfix, protected either with the key or password.
+
+See also [node access details](/docs/manage-your-node#view-node-access-and-credentials).
 
 ## Hardhat
 
-Configure [Hardhat](https://hardhat.org/) to deploy contracts and interact through your Klaytn nodes.
+<Note>
+  Hardhat can only perform **read operations** on TRON through the `/jsonrpc` endpoint. For contract deployment, use the [hybrid workflow](#hybrid-workflow) or [TronWeb.js](#tronwebjs) directly.
+</Note>
+
+Configure [Hardhat](https://hardhat.org/) to compile contracts and perform read operations through your TRON nodes.
 
 1. Install [Hardhat](https://hardhat.org/) and create a project.
 
@@ -112,70 +171,152 @@ Configure [Hardhat](https://hardhat.org/) to deploy contracts and interact throu
    require("@nomiclabs/hardhat-waffle");
    ...
    module.exports = {
-     solidity: "0.7.3",
+     solidity: "0.8.19",
      networks: {
-       chainstack: {
+       tron: {
            url: "YOUR_CHAINSTACK_ENDPOINT",
-           accounts: ["YOUR_PRIVATE_KEY"]
        },
      }
    };
    ```
 
-   where
+   where YOUR\_CHAINSTACK\_ENDPOINT is your node HTTPS endpoint with the `/jsonrpc` postfix, protected either with the key or password. See [node access details](/docs/manage-your-node#view-node-access-and-credentials).
 
-   * YOUR\_CHAINSTACK\_ENDPOINT — your node HTTPS or WSS endpoint protected either with the key or password. See [node access details](/docs/manage-your-node#view-node-access-and-credentials).
-   * YOUR\_PRIVATE\_KEY — the private key of the account that you use to deploy the contract
-
-3. Run `npx hardhat run scripts/deploy.js --network chainstack` and Hardhat will deploy using Chainstack.
-
-See also [Forking EVM-compatible mainnet with Hardhat](https://support.chainstack.com/hc/en-us/articles/900004242406).
-
-## Remix IDE
-
-To make Remix IDE interact with the network through a Chainstack node:
-
-1. Get [MetaMask](https://metamask.io/) and set it to interact through a Chainstack node. See [Interacting through MetaMask](#metamask).
-
-2. In Remix IDE, navigate to the **Deploy** tab. Select **Injected Provider - MetaMask** in **Environment**.
-
-This will engage MetaMask and make Remix IDE interact with the network through a Chainstack node.
+3. Compile your contracts with `npx hardhat compile`, then deploy using TronWeb.js.
 
 ## Foundry
 
+<Note>
+  Foundry can only perform **read operations** on TRON through the `/jsonrpc` endpoint. For contract deployment, use the [hybrid workflow](#hybrid-workflow) below.
+</Note>
+
 1. Install [Foundry](https://getfoundry.sh/).
 
-2. Use `--rpc-url` to run the operation through your Chainstack node.
-
-### Forge
-
-Use `forge` to develop, test, and deploy your smart contracts.
-
-To deploy a contract:
-
-<CodeGroup>
-  ```shell Shell
-  forge create CONTRACT_NAME --contracts CONTRACT_PATH --private-key YOUR_PRIVATE_KEY --rpc-url YOUR_CHAINSTACK_ENDPOINT
-  ```
-</CodeGroup>
-
-where
-
-* CONTRACT\_NAME — name of the contract in the Solidity source code
-* CONTRACT\_PATH — path to your smart contract
-* YOUR\_PRIVATE\_KEY — the private key to your funded account that you will use to deploy the contract
-* YOUR\_CHAINSTACK\_ENDPOINT — your node HTTPS endpoint protected either with the key or password
+2. Use `--rpc-url` to run read operations through your Chainstack node.
 
 ### Cast
 
-Use `cast` to interact with the network and the deployed contracts.
+Use `cast` to query the network.
 
 To get the latest block number:
 
-<CodeGroup>
-  ```shell Shell
-  cast block-number --rpc-url YOUR_CHAINSTACK_ENDPOINT
-  ```
-</CodeGroup>
+```shell
+cast block-number --rpc-url YOUR_CHAINSTACK_ENDPOINT
+```
 
-where YOUR\_CHAINSTACK\_ENDPOINT is your node HTTPS endpoint protected either with the key or password
+To get an account balance:
+
+```shell
+cast balance 0xYOUR_HEX_ADDRESS --rpc-url YOUR_CHAINSTACK_ENDPOINT
+```
+
+where YOUR\_CHAINSTACK\_ENDPOINT is your node HTTPS endpoint with the `/jsonrpc` postfix, protected either with the key or password.
+
+## Hybrid workflow
+
+Use Foundry for fast compilation and testing, then deploy to TRON with TronWeb.js.
+
+### Set up the project
+
+1. Initialize a Foundry project:
+
+   ```shell
+   forge init my-tron-project
+   cd my-tron-project
+   ```
+
+2. Write your contract in `src/`:
+
+   ```solidity
+   // src/MyContract.sol
+   // SPDX-License-Identifier: MIT
+   pragma solidity ^0.8.19;
+
+   contract MyContract {
+       string public message;
+
+       constructor(string memory _message) {
+           message = _message;
+       }
+
+       function setMessage(string memory _message) public {
+           message = _message;
+       }
+   }
+   ```
+
+3. Compile with Foundry:
+
+   ```shell
+   forge build
+   ```
+
+   The compiled artifacts are in `out/MyContract.sol/MyContract.json`.
+
+### Deploy with TronWeb.js
+
+1. Install TronWeb:
+
+   ```shell
+   npm init -y
+   npm install tronweb
+   ```
+
+2. Create a deployment script `deploy.js`:
+
+   ```js
+   const { TronWeb } = require('tronweb');
+   const fs = require('fs');
+
+   const tronWeb = new TronWeb({
+       fullHost: 'YOUR_CHAINSTACK_ENDPOINT',
+       privateKey: 'YOUR_PRIVATE_KEY'
+   });
+
+   // Load Foundry artifacts
+   const artifact = JSON.parse(
+       fs.readFileSync('./out/MyContract.sol/MyContract.json', 'utf8')
+   );
+
+   async function deploy() {
+       try {
+           console.log('Deploying from:', tronWeb.defaultAddress.base58);
+
+           const transaction = await tronWeb.transactionBuilder.createSmartContract({
+               abi: artifact.abi,
+               bytecode: artifact.bytecode.object,
+               feeLimit: 150000000,
+               callValue: 0,
+               userFeePercentage: 100,
+               originEnergyLimit: 10000000,
+               parameters: ['Hello TRON!']  // Constructor arguments
+           }, tronWeb.defaultAddress.base58);
+
+           const signedTx = await tronWeb.trx.sign(transaction);
+           const result = await tronWeb.trx.sendRawTransaction(signedTx);
+
+           if (result.result) {
+               console.log('Contract deployed!');
+               console.log('Transaction ID:', result.txid);
+               console.log('Contract address:', tronWeb.address.fromHex(result.transaction.contract_address));
+           }
+       } catch (error) {
+           console.error('Error:', error.message || error);
+       }
+   }
+
+   deploy();
+   ```
+
+3. Run the deployment:
+
+   ```shell
+   node deploy.js
+   ```
+
+where
+
+* YOUR\_CHAINSTACK\_ENDPOINT — your TRON node **base** endpoint without the `/jsonrpc`, `/wallet`, or `/walletsolidity` postfixes
+* YOUR\_PRIVATE\_KEY — the private key of the account that you use to deploy the contract
+
+See also [node access details](/docs/manage-your-node#view-node-access-and-credentials).
