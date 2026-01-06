@@ -1,0 +1,384 @@
+---
+title: "Hyperliquid: Debugging signature errors"
+description: "Troubleshoot common Hyperliquid authentication failures including 'User or API Wallet does not exist', chainId mismatches in browser wallets, and TypeScript SDK integration issues."
+---
+
+## Overview
+
+Signature errors on Hyperliquid often produce cryptic messages that don't point to the actual cause. This guide covers the most common issues developers encounter, based on real problems reported in the Hyperliquid developer community.
+
+<Note>
+For foundational signing concepts, see the [authentication guide](/docs/hyperliquid-authentication-guide) and [signing overview](/docs/hyperliquid-signing-overview).
+</Note>
+
+## "User or API Wallet does not exist" with changing addresses
+
+This error is one of the most confusing because the wallet address in the error message changes with every request:
+
+```
+L1 error: User or API Wallet 0xABC123... does not exist.
+L1 error: User or API Wallet 0xDEF456... does not exist.  // Different address!
+```
+
+### Why the address changes
+
+The address isn't random—it's the **recovered address** from your signature. Hyperliquid uses ECDSA signature recovery to determine who signed the message. When your signature is malformed, the recovery produces a different (invalid) address each time.
+
+### Root causes
+
+<Accordion title="Key ordering in action objects">
+
+The action hash depends on msgpack serialization, which is **order-sensitive**. Different key orders produce different hashes, leading to different recovered addresses.
+
+```python
+# WRONG - unpredictable key order in Python dict
+action = {"sz": "0.001", "coin": "BTC", "is_buy": True}
+
+# CORRECT - use SDK helper functions that ensure consistent ordering
+from hyperliquid.utils.signing import order_request_to_order_wire
+action = order_request_to_order_wire(order_request)
+```
+
+```typescript
+// WRONG - object property order can vary
+const action = { sz: "0.001", coin: "BTC", isBuy: true };
+
+// CORRECT - use SDK methods that handle ordering
+const result = await client.order({
+  orders: [{ a: 0, b: true, p: "50000", s: "0.001", r: false, t: { limit: { tif: "Gtc" } } }],
+  grouping: "na"
+});
+```
+
+</Accordion>
+
+<Accordion title="Address case sensitivity">
+
+Hyperliquid requires lowercase addresses for signature verification:
+
+```python
+# WRONG - mixed case
+agent_address = "0xAbCdEf1234567890AbCdEf1234567890AbCdEf12"
+
+# CORRECT - lowercase
+agent_address = "0xabcdef1234567890abcdef1234567890abcdef12"
+```
+
+<Warning>
+Always lowercase addresses before signing. The SDK does this automatically, but manual implementations must handle it explicitly.
+</Warning>
+
+</Accordion>
+
+<Accordion title="Agent wallet not approved">
+
+If you're using an agent wallet that hasn't been approved by the master account, signature recovery fails:
+
+```python
+from hyperliquid.info import Info
+from hyperliquid.utils import constants
+
+info = Info(constants.MAINNET_API_URL, skip_ws=True)
+state = info.user_state("0x_YOUR_MASTER_ADDRESS")
+
+# Check approved agents
+print(state.get("agentAddresses", []))
+```
+
+If your agent isn't listed, approve it first:
+
+```python
+result, agent_key = exchange.approve_agent("my_bot")
+```
+
+</Accordion>
+
+<Accordion title="Account has no funds">
+
+Even with a valid signature, the error appears if the master account has zero balance:
+
+```python
+# Verify account has collateral
+state = info.user_state("0x_YOUR_ADDRESS")
+print(f"Margin summary: {state.get('marginSummary', {})}")
+```
+
+Deposit USDC before attempting trades.
+
+</Accordion>
+
+### Debugging checklist
+
+<Steps>
+  <Step title="Log the exact action object">
+    Print the action just before signing to verify structure and key order
+  </Step>
+  <Step title="Verify address formatting">
+    Ensure all addresses are lowercase with `0x` prefix
+  </Step>
+  <Step title="Check agent approval">
+    Query `user_state` to confirm agent is in `agentAddresses` list
+  </Step>
+  <Step title="Verify account balance">
+    Confirm the master account has collateral deposited
+  </Step>
+  <Step title="Compare with SDK output">
+    Run the equivalent SDK method and compare the generated signature
+  </Step>
+</Steps>
+
+## chainId mismatch in browser wallets
+
+When integrating with viem or wagmi, you may encounter:
+
+```
+ChainMismatchError: Provided chainId '1337' must match the active chainId '42161'
+```
+
+Or from MetaMask:
+
+```
+Provided chainId "1337" must match the active chainId "10"
+```
+
+### Why this happens
+
+Hyperliquid L1 actions require signing with **chainId 1337**, but your wallet is connected to Arbitrum (42161), Optimism (10), or another chain. Browser wallets enforce that the signing chain matches the connected chain.
+
+### Solutions
+
+<Tabs>
+  <Tab title="Use agent wallets (recommended)">
+
+  Create an agent wallet for trading operations. The agent signs server-side with chainId 1337, avoiding the browser mismatch entirely:
+
+  ```typescript
+  import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+  import { PrivateKeySigner } from "@nktkas/hyperliquid/signing";
+
+  // Agent wallet signs with chainId 1337 automatically
+  const agentSigner = new PrivateKeySigner({ privateKey: AGENT_PRIVATE_KEY });
+  const client = new ExchangeClient({
+    transport: new HttpTransport(),
+    wallet: agentSigner
+  });
+
+  // User's browser wallet only signs approveAgent (chainId 0x66eee)
+  // which matches Arbitrum, so no mismatch
+  ```
+
+  </Tab>
+  <Tab title="Custom chain definition">
+
+  Define a custom chain for Hyperliquid signing:
+
+  ```typescript
+  import { createWalletClient, custom } from "viem";
+
+  const hyperliquidL1 = {
+    id: 1337,
+    name: "Hyperliquid L1",
+    nativeCurrency: { name: "USD", symbol: "USD", decimals: 18 },
+    rpcUrls: {
+      default: { http: ["https://api.hyperliquid.xyz"] }
+    }
+  } as const;
+
+  const walletClient = createWalletClient({
+    chain: hyperliquidL1,
+    transport: custom(window.ethereum)
+  });
+  ```
+
+  <Warning>
+  This approach shows users unreadable hex data when signing. Not recommended for production frontends where user trust matters.
+  </Warning>
+
+  </Tab>
+  <Tab title="Sign with local account">
+
+  Use a local viem account that doesn't enforce chain matching:
+
+  ```typescript
+  import { privateKeyToAccount } from "viem/accounts";
+  import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+
+  // Local accounts don't enforce chainId matching
+  const account = privateKeyToAccount(PRIVATE_KEY);
+  const client = new ExchangeClient({ transport: new HttpTransport(), wallet: account });
+  ```
+
+  </Tab>
+</Tabs>
+
+### Best practice for frontends
+
+For production applications, use this two-wallet pattern:
+
+1. **Browser wallet** (user's MetaMask/WalletConnect) — signs `approveAgent` (chainId 0x66eee matches Arbitrum)
+2. **Agent wallet** (generated keypair stored locally) — signs all L1 actions (chainId 1337)
+
+```typescript
+import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { PrivateKeySigner } from "@nktkas/hyperliquid/signing";
+
+// First: user approves agent via browser wallet (one-time)
+const agentAddress = await approveAgentWithBrowserWallet();
+
+// Then: agent handles all trading
+const agentClient = new ExchangeClient({
+  transport: new HttpTransport(),
+  wallet: new PrivateKeySigner({ privateKey: agentPrivateKey })
+});
+
+// No chainId conflicts because browser wallet never signs L1 actions
+```
+
+## TypeScript SDK options
+
+Hyperliquid has two community TypeScript SDKs:
+
+| SDK | Maintainer | Features |
+|-----|------------|----------|
+| [@nktkas/hyperliquid](https://github.com/nktkas/hyperliquid) | nktkas | Full API coverage, PrivateKeySigner, viem/ethers support |
+| [nomeida/hyperliquid](https://github.com/nomeida/hyperliquid) | nomeida | Simpler API, good for quick integrations |
+
+### @nktkas/hyperliquid examples
+
+Install:
+
+```bash
+npm install @nktkas/hyperliquid viem
+```
+
+<CodeGroup>
+```typescript With viem
+import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { privateKeyToAccount } from "viem/accounts";
+
+const account = privateKeyToAccount("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+const client = new ExchangeClient({
+  transport: new HttpTransport(),
+  wallet: account
+});
+
+const result = await client.order({
+  orders: [{
+    a: 0,  // Asset index (0 = BTC)
+    b: true,  // is_buy
+    p: "50000",  // price
+    s: "0.001",  // size
+    r: false,  // reduce_only
+    t: { limit: { tif: "Gtc" } }
+  }],
+  grouping: "na"
+});
+```
+
+```typescript With PrivateKeySigner (no viem dependency)
+import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { PrivateKeySigner } from "@nktkas/hyperliquid/signing";
+
+const signer = new PrivateKeySigner({ privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" });
+const client = new ExchangeClient({
+  transport: new HttpTransport(),
+  wallet: signer
+});
+
+// Same API as with viem
+const result = await client.order({...});
+```
+
+```typescript Manual signing for custom wallets
+import { signL1Action } from "@nktkas/hyperliquid/signing";
+
+// For hardware wallets, MPC, or other custom signers
+const signature = await signL1Action({
+  wallet: myCustomWallet,  // Must implement signTypedData
+  action: orderAction,
+  nonce: Date.now(),
+  isTestnet: false
+});
+
+// Submit manually
+const response = await fetch("https://api.hyperliquid.xyz/exchange", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    action: orderAction,
+    nonce: signature.nonce,
+    signature: signature.signature,
+    vaultAddress: null
+  })
+});
+```
+</CodeGroup>
+
+## reserveRequestWeight for HIP-3 builders
+
+If you're building a HIP-3 DEX and need to push oracle prices, you'll encounter `reserveRequestWeight`—an action that uses a unique hybrid signing pattern.
+
+### The edge case
+
+Most actions follow clear rules:
+- L1 actions → phantom agent schema, signed by agent wallet
+- User-signed actions → direct EIP-712, signed by user wallet
+
+`reserveRequestWeight` breaks this pattern: it uses the **agent-style schema** but must be signed by the **user wallet**.
+
+<Note>
+This hybrid exists because oracle updates need the authority of the main account but use the same submission path as L1 actions.
+</Note>
+
+### Implementation
+
+```python
+# The SDK handles this internally for HIP-3 operations
+# If implementing manually, use phantom agent construction
+# but sign with the user's wallet (not an agent wallet)
+
+action = {
+    "type": "reserveRequestWeight",
+    "asset": 110000,  # HIP-3 asset index
+    "weight": 1000
+}
+
+# Uses phantom agent hash BUT requires user wallet signature
+signature = sign_l1_action(
+    user_wallet,  # NOT agent_wallet
+    action,
+    None,
+    timestamp,
+    None,
+    True
+)
+```
+
+## Error reference
+
+| Error message | Likely cause | Solution |
+|---------------|--------------|----------|
+| "User or API Wallet does not exist" | Signature recovery failed | Check key ordering, address case, agent approval |
+| "Invalid signature" | Wrong signing scheme | L1 actions: chainId 1337; user-signed: chainId 0x66eee |
+| "Provided chainId must match" | Browser wallet chain mismatch | Use agent wallet for L1 actions |
+| "Invalid or expired nonce" | Nonce not in milliseconds | Use `get_timestamp_ms()` or `Date.now()` |
+| "Failed to deserialize" | Missing required fields | Ensure all required fields present (e.g., `grouping` for orders) |
+| "Agent not approved" | Agent wallet not authorized | Call `approve_agent()` first |
+| "Agent already exists" | Duplicate agent name | Use unique names per agent |
+
+## Summary
+
+Most Hyperliquid signature errors fall into three categories:
+
+1. **Serialization issues** — Key ordering, address casing, missing fields
+2. **Chain ID confusion** — Using wrong chainId for L1 vs user-signed actions
+3. **Wallet configuration** — Agent not approved, no funds, wrong wallet type
+
+When debugging, always start by comparing your implementation against the SDK's output—it handles all the edge cases correctly.
+
+## Related resources
+
+- [Authentication guide](/docs/hyperliquid-authentication-guide) — Overview of both signing mechanisms
+- [L1 action signing](/docs/hyperliquid-l1-action-signing) — Phantom agent construction details
+- [User-signed actions](/docs/hyperliquid-user-signed-actions) — Agent approval and transfers
+- [Hyperliquid API reference](/reference/hyperliquid-getting-started) — Complete endpoint documentation
