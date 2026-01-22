@@ -406,8 +406,8 @@ Correct:
 #### Linking the words Chainstack and Chainstack account
 
 Correct:
-- Use [Chainstack account](link) to link to console.chainstack.com
-- Use [Chainstack](link) for chainstack.com
+- Use `[Chainstack account](link)` to link to console.chainstack.com
+- Use `[Chainstack](link)` for chainstack.com
 
 Do not mix these two.
 
