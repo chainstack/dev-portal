@@ -1,16 +1,17 @@
 ---
 title: "TRON tooling"
-description: "TRON blockchain development tools guide. Use TronWeb.js, web3.py, Hardhat, and Foundry with Chainstack TRON nodes and endpoints."
+description: "TRON blockchain development tools guide. Use TronWeb.js, gRPC, web3.py, Hardhat, and Foundry with Chainstack TRON nodes and endpoints."
 ---
 
 <Info>
-  ### `/jsonrpc`, `/wallet`, `/walletsolidity` support
+  ### `/jsonrpc`, `/wallet`, `/walletsolidity`, and gRPC support
 
-  Chainstack supports all three TRON API endpoints:
+  Chainstack supports all TRON API endpoints:
 
   * `/jsonrpc` — Ethereum-compatible JSON-RPC (read-only operations)
   * `/wallet` — TRON HTTP API (full node operations including transactions)
   * `/walletsolidity` — TRON HTTP API (confirmed data from solidity node)
+  * **gRPC** — high-performance binary protocol for efficient data access
 
   Note that the TRON nodes provided are full only (non-archive), which makes some of the methods unsupported.
 </Info>
@@ -34,6 +35,247 @@ For the full API reference, see the official [TRON API Reference](https://develo
 
   TRON nodes currently do not support WebSocket connections for event subscriptions. If you need to subscribe to events, please vote and follow the feature request at [TRON event plugin support](https://ideas.chainstack.com/p/implement-tron-event-plugin).
 </Note>
+
+## gRPC API
+
+TRON nodes on Chainstack support gRPC for high-performance access. gRPC uses HTTP/2 and Protocol Buffers for efficient binary serialization, making it ideal for high-throughput applications and data indexing.
+
+### Endpoint format
+
+Your TRON gRPC endpoints are available at:
+
+- **Mainnet**: `tron-mainnet.core.chainstack.com:443`
+- **Nile Testnet**: `tron-nile.core.chainstack.com:443`
+
+### Authentication
+
+gRPC endpoints use x-token authentication. Pass your token in the request metadata:
+
+- **x-token** — your authentication token from the Chainstack console
+
+<Info>
+  Find your gRPC endpoint and x-token in the Chainstack console under your TRON node's **Access and credentials** section.
+</Info>
+
+### Proto files
+
+TRON gRPC does not support server reflection, so you need the protocol buffer definitions to make calls. Get them from the official TRON protocol repository:
+
+```shell
+git clone https://github.com/tronprotocol/protocol.git
+```
+
+The main service definitions are in:
+- `api/api.proto` — Wallet service with methods like `GetNowBlock`, `GetBlockByNum`, `GetAccount`
+- `core/Tron.proto` — Core data types (blocks, transactions, accounts)
+
+### Generate client code
+
+To use gRPC with TRON, generate client code from the proto files.
+
+<Tabs>
+  <Tab title="Python">
+    Install dependencies and generate the Python stubs:
+
+    ```shell
+    pip install grpcio grpcio-tools
+    ```
+
+    ```shell
+    # Clone proto files
+    git clone https://github.com/tronprotocol/protocol.git
+    mkdir -p googleapis/google/api
+
+    # Download Google API dependencies
+    curl -sL https://raw.githubusercontent.com/googleapis/googleapis/master/google/api/annotations.proto \
+      -o googleapis/google/api/annotations.proto
+    curl -sL https://raw.githubusercontent.com/googleapis/googleapis/master/google/api/http.proto \
+      -o googleapis/google/api/http.proto
+
+    # Generate Python code
+    python -m grpc_tools.protoc \
+      -I./protocol \
+      -I./googleapis \
+      --python_out=./generated \
+      --grpc_python_out=./generated \
+      $(find ./protocol -name "*.proto")
+    ```
+  </Tab>
+  <Tab title="Node.js">
+    Install dependencies:
+
+    ```shell
+    npm install @grpc/grpc-js @grpc/proto-loader
+    ```
+
+    Clone the proto files:
+
+    ```shell
+    git clone https://github.com/tronprotocol/protocol.git
+    ```
+  </Tab>
+  <Tab title="Go">
+    Install the protoc compiler and Go plugins:
+
+    ```shell
+    go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+    ```
+
+    Clone and generate:
+
+    ```shell
+    git clone https://github.com/tronprotocol/protocol.git
+
+    protoc --go_out=. --go-grpc_out=. \
+      -I./protocol \
+      protocol/api/api.proto protocol/core/Tron.proto
+    ```
+  </Tab>
+</Tabs>
+
+### Usage examples
+
+<CodeGroup>
+  ```python Python
+  import grpc
+  import sys
+  sys.path.insert(0, './generated')
+
+  from api import api_pb2, api_pb2_grpc
+
+  ENDPOINT = "tron-mainnet.core.chainstack.com:443"
+  X_TOKEN = "YOUR_X_TOKEN"
+
+  def get_now_block():
+      # Create secure channel with TLS
+      credentials = grpc.ssl_channel_credentials()
+      channel = grpc.secure_channel(ENDPOINT, credentials)
+
+      # Create stub
+      stub = api_pb2_grpc.WalletStub(channel)
+
+      # Add x-token to metadata
+      metadata = [("x-token", X_TOKEN)]
+
+      # Call GetNowBlock
+      response = stub.GetNowBlock(
+          api_pb2.EmptyMessage(),
+          metadata=metadata,
+          timeout=15
+      )
+
+      print(f"Block number: {response.block_header.raw_data.number}")
+      print(f"Transactions: {len(response.transactions)}")
+
+      channel.close()
+
+  get_now_block()
+  ```
+
+  ```javascript Node.js
+  const grpc = require('@grpc/grpc-js');
+  const protoLoader = require('@grpc/proto-loader');
+  const path = require('path');
+
+  const ENDPOINT = 'tron-mainnet.core.chainstack.com:443';
+  const X_TOKEN = 'YOUR_X_TOKEN';
+
+  // Load proto files
+  const packageDefinition = protoLoader.loadSync(
+    path.join(__dirname, 'protocol/api/api.proto'),
+    {
+      keepCase: true,
+      longs: String,
+      enums: String,
+      defaults: true,
+      oneofs: true,
+      includeDirs: [
+        path.join(__dirname, 'protocol'),
+        path.join(__dirname, 'googleapis')
+      ]
+    }
+  );
+
+  const proto = grpc.loadPackageDefinition(packageDefinition);
+
+  // Create credentials with TLS
+  const credentials = grpc.credentials.createSsl();
+
+  // Create client
+  const client = new proto.protocol.Wallet(ENDPOINT, credentials);
+
+  // Add x-token to metadata
+  const metadata = new grpc.Metadata();
+  metadata.add('x-token', X_TOKEN);
+
+  // Call GetNowBlock
+  client.GetNowBlock({}, metadata, (error, response) => {
+    if (error) {
+      console.error('Error:', error);
+      return;
+    }
+    console.log('Block number:', response.block_header.raw_data.number);
+    console.log('Transactions:', response.transactions.length);
+  });
+  ```
+
+  ```go Go
+  package main
+
+  import (
+      "context"
+      "fmt"
+      "log"
+
+      "google.golang.org/grpc"
+      "google.golang.org/grpc/credentials"
+      "google.golang.org/grpc/metadata"
+
+      // Import your generated proto packages
+      pb "your-module/api"
+  )
+
+  const (
+      endpoint = "tron-mainnet.core.chainstack.com:443"
+      xToken   = "YOUR_X_TOKEN"
+  )
+
+  func main() {
+      // Create TLS credentials
+      creds := credentials.NewTLS(nil)
+
+      // Connect to gRPC endpoint
+      conn, err := grpc.Dial(endpoint, grpc.WithTransportCredentials(creds))
+      if err != nil {
+          log.Fatalf("Failed to connect: %v", err)
+      }
+      defer conn.Close()
+
+      // Create client
+      client := pb.NewWalletClient(conn)
+
+      // Add x-token to context
+      ctx := metadata.AppendToOutgoingContext(
+          context.Background(),
+          "x-token", xToken,
+      )
+
+      // Call GetNowBlock
+      response, err := client.GetNowBlock(ctx, &pb.EmptyMessage{})
+      if err != nil {
+          log.Fatalf("GetNowBlock failed: %v", err)
+      }
+
+      fmt.Printf("Block number: %d\n", response.BlockHeader.RawData.Number)
+      fmt.Printf("Transactions: %d\n", len(response.Transactions))
+  }
+  ```
+</CodeGroup>
+
+where YOUR\_X\_TOKEN is your authentication token from the Chainstack console.
+
+For the full list of available gRPC methods, see the official [TRON gRPC documentation](https://developers.tron.network/docs/trons-grpc-calls).
 
 ## TronWeb.js
 
