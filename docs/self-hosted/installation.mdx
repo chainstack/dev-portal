@@ -1,0 +1,206 @@
+---
+title: "Installation"
+description: "Detailed instructions for installing Chainstack Self-Hosted with basic and advanced configuration options"
+---
+
+This guide provides detailed instructions for installing Chainstack Self-Hosted, including advanced configuration options.
+
+## Installation methods
+
+Chainstack Self-Hosted supports two installation modes:
+
+| Mode | Description | Use case |
+|------|-------------|----------|
+| **Basic** | Auto-generates all passwords and deploys with default settings | Quick setup, testing, single-server deployments |
+| **Advanced** | Generates a customizable values template | Custom deployments |
+
+## Prerequisites check
+
+Before installation, verify all prerequisites are met:
+
+```bash
+# Check kubectl
+kubectl version --client
+
+# Check helm (v3+ required)
+helm version
+
+# Check yq (mikefarah/yq v4+ required)
+yq --version
+
+# Check openssl
+openssl version
+
+# Check cluster connectivity
+kubectl cluster-info
+```
+
+## Basic installation
+
+Basic installation automatically generates secure passwords and deploys the complete stack.
+
+<Steps>
+
+<Step title="Run the installer">
+
+```bash
+# replace STORAGE_CLASS_NAME with the actual storage class from k8s
+./cpctl install -v v1.0.0 -s STORAGE_CLASS_NAME
+```
+
+To get the installer, [join our beta program](/docs/self-hosted/support#join-the-beta).
+
+</Step>
+
+<Step title="Confirm auto-generation">
+
+When prompted, confirm that you want to auto-generate passwords:
+
+```text
+No values file provided. Generate passwords automatically? [y/N]: y
+```
+
+</Step>
+
+<Step title="Specify the URL for the backend">
+
+The installer will ask you to specify the URL for the backend. It will be used in the web server config as a `proxy_pass`. Whenever you expose the UI, this UI will forward the backend request to this URL.
+
+If not sure or in case it's a single server k8s, specify the server's public IP, like `http://1.2.3.4`.
+
+</Step>
+
+<Step title="Wait for deployment">
+
+The installer will:
+
+1. Generate all required passwords and RSA keys
+2. Save credentials to `~/.config/cp-suite/values/`
+3. Deploy PostgreSQL database engine
+4. Deploy Temporal workflow engine
+5. Deploy Keycloak identity provider
+6. Deploy Chainstack Self-Hosted Control Panel services
+
+</Step>
+
+</Steps>
+
+### Credentials storage
+
+Generated credentials are saved to:
+
+```text
+~/.config/cp-suite/values/cp-control-panel-<timestamp>.yaml
+```
+
+<Warning>
+This file contains sensitive passwords and keys. Keep it secure and backed up.
+</Warning>
+
+## Installation options reference
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-v, --version` | Self-hosted Control Panel version (required) | — |
+| `-n, --namespace` | Kubernetes namespace | `control-panel` |
+| `-r, --release` | Helm release name | `cp` |
+| `-f, --values` | Custom values file | — |
+| `-s, --storage-class` | Storage class for PostgreSQL | Cluster default |
+| `--set key=value` | Override specific values | — |
+| `--advanced` | Generate values template | `false` |
+| `-o, --output` | Output file for advanced mode | `cp-values.yaml` |
+| `-y, --yes` | Auto-approve prompts | `false` |
+| `--dry-run` | Show commands without executing | `false` |
+
+## Post-installation
+
+### Verify deployment status
+
+```bash
+./cpctl status
+```
+
+Expected output shows all pods in `Running` state:
+
+```text
+==> Pod Status
+
+NAME                                      READY   STATUS    AGE
+cp-cp-auth-*                              1/1     Running   5m
+cp-cp-deployments-api-*                   1/1     Running   5m
+cp-cp-ui-*                                1/1     Running   5m
+cp-cp-workflows-*                         1/1     Running   5m
+cp-keycloak-0                             1/1     Running   5m
+cp-pg-pgpool-*                            1/1     Running   5m
+cp-pg-postgresql-0                        1/1     Running   5m
+cp-temporal-*                             1/1     Running   5m
+```
+
+### Expose the UI service
+
+#### Option 1: LoadBalancer (recommended for production)
+
+```bash
+kubectl expose service cp-cp-ui --type=LoadBalancer --name=cp-ui-external -n control-panel
+```
+
+#### Option 2: NodePort
+
+```bash
+kubectl expose service cp-cp-ui --type=NodePort --name=cp-ui-nodeport -n control-panel
+```
+
+#### Option 3: Ingress
+
+Create an Ingress resource:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cp-ui-ingress
+  namespace: control-panel
+spec:
+  rules:
+  - host: cp.yourdomain.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: cp-cp-ui
+            port:
+              number: 80
+```
+
+#### Option 4: Port forward (testing only)
+
+```bash
+kubectl port-forward svc/cp-cp-ui 8080:80 -n control-panel --address 0.0.0.0
+```
+
+## Uninstallation
+
+To completely remove Chainstack Self-Hosted:
+
+```bash
+./cpctl uninstall
+```
+
+This will:
+
+1. Remove the Helm release
+2. Delete all associated `PersistentVolumeClaims`
+3. **Permanently delete all data**
+
+<Warning>
+Uninstallation is destructive. All data including deployed nodes, configuration, and user data will be lost.
+</Warning>
+
+## Next steps
+
+After installation, continue to:
+
+1. [First login](/docs/self-hosted/first-login) — First login and configuration
+2. [Deploying nodes](/docs/self-hosted/deploying-nodes) — Deploy blockchain nodes
