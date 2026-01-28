@@ -3,9 +3,94 @@
 ## Project context
 
 - This is a documentation project on the Mintlify platform
-- We use MDX files with YAML frontmatter  
+- We use MDX files with YAML frontmatter
 - Navigation is configured in `docs.json`
 - When creating a new article as an *.mdx file, always remember to add the file name to the appropriate section in the navigation file `docs.json`
+- The docs use Mintlify's product switcher with two products:
+  - **Platform** — managed blockchain infrastructure (docs in `docs/`)
+  - **Self-Hosted** — deploy on your own infrastructure (docs in `docs/self-hosted/`)
+
+## Directory structure
+
+```
+dev-portal/
+├── docs/                    # Platform documentation
+│   ├── page-name.mdx
+│   └── self-hosted/         # Self-Hosted documentation
+│       ├── page-name.mdx
+│       └── changelog/       # Self-Hosted release notes
+├── images/                  # Platform images
+│   └── self-hosted/         # Self-Hosted images
+├── changelog/               # Platform release notes
+├── openapi/                 # Platform API specifications
+└── docs.json                # Navigation configuration for both products
+```
+
+## Navigation structure (docs.json)
+
+The navigation uses a product-based hierarchy:
+
+```
+products
+└── product (Platform | Self-Hosted)
+    ├── description
+    ├── icon
+    └── tabs
+        ├── tab: "Guides"
+        │   └── groups
+        │       ├── group: "Group name"
+        │       └── pages: ["docs/page", ...]
+        └── tab: "Release notes"
+            └── pages: ["changelog/entry", ...]
+```
+
+When adding a new page:
+
+1. Create the `.mdx` file in the appropriate directory
+2. Add the page path to the correct product → tab → group in `docs.json`
+
+Example for Platform:
+```json
+{
+  "product": "Platform",
+  "tabs": [{
+    "tab": "Guides",
+    "groups": [{
+      "group": "Platform",
+      "pages": ["docs/new-page"]
+    }]
+  }]
+}
+```
+
+Example for Self-Hosted:
+```json
+{
+  "product": "Self-Hosted",
+  "tabs": [{
+    "tab": "Guides",
+    "groups": [{
+      "group": "Installation",
+      "pages": ["docs/self-hosted/new-page"]
+    }]
+  }]
+}
+```
+
+## Internal linking
+
+Use relative paths with the `/docs/` prefix:
+
+- Platform pages: `/docs/page-name`
+- Self-Hosted pages: `/docs/self-hosted/page-name`
+
+Examples:
+```markdown
+See [System requirements](/docs/self-hosted/requirements) for details.
+Learn more about [Global Nodes](/docs/global-elastic-node).
+```
+
+Cross-product linking is supported—you can link from Self-Hosted docs to Platform docs and vice versa.
 
 ## Required page structure
 
@@ -51,9 +136,14 @@ description: "Concise description for SEO and navigation"
 
 ## Release notes
 
-### Structure
+The documentation has two products with separate release notes:
 
-Release notes require updates to three files:
+- **Platform** — managed blockchain infrastructure (`changelog.mdx` + `changelog/` directory)
+- **Self-Hosted** — deploy on your own infrastructure (`docs/self-hosted/release-notes.mdx` + `docs/self-hosted/changelog/`)
+
+### Platform release notes
+
+#### Structure
 
 ```
 dev-portal/
@@ -65,7 +155,7 @@ dev-portal/
    └── [previous entries...]
 ```
 
-### Process
+#### Process
 
 1. **Update `changelog.mdx`**: Copy the previous entry within `<Update...> </Update>` tags and paste it on top of the previous entry. Edit dates and content appropriately.
 
@@ -92,9 +182,44 @@ Example:
           "changelog/chainstack-updates-may-16-2025",
 ```
 
-## API documentation requirements
+### Self-Hosted release notes
 
-- Document all parameters with `<ParamField>` 
+#### Structure
+
+```
+dev-portal/
+└── docs/self-hosted/
+    ├── release-notes.mdx
+    └── changelog/
+        ├── chainstack-self-hosted-v1-0-0-january-28-2026.mdx
+        └── [version entries...]
+```
+
+#### Process
+
+1. **Update `release-notes.mdx`**: Add a new `<Update>` entry at the top.
+
+Example:
+```
+<Update label="Chainstack Self-Hosted v1.0.0: January 28, 2026" description="">
+
+**Initial beta release**. Deploy Ethereum Mainnet, Sepolia, and Hoodi full nodes on your own Kubernetes infrastructure using Reth execution client and Prysm consensus client.
+
+<Button href="/docs/self-hosted/changelog/chainstack-self-hosted-v1-0-0-january-28-2026">Read more</Button>
+</Update>
+```
+
+2. **Create file in `docs/self-hosted/changelog/` directory**: Use format `chainstack-self-hosted-v1-0-0-month-day-year.mdx`.
+
+The page title should match the label: `"Chainstack Self-Hosted v1.0.0: January 28, 2026"`
+
+3. **Update `docs.json`**: In the Self-Hosted product's `Release notes` tab, add the new changelog page.
+
+## API documentation requirements (Platform only)
+
+These guidelines apply to Platform API documentation. Self-Hosted does not have API reference docs.
+
+- Document all parameters with `<ParamField>`
 - Show response structure with `<ResponseField>`
 - Include both success and error examples
 - Use `<Expandable>` for nested object properties
@@ -130,6 +255,45 @@ If a page is missing the Try it button and logs show "no matching OpenAPI operat
 - Include alt text for all images
 - Ensure proper heading hierarchy (start with h2)
 - Check existing patterns for consistency
+
+## Content patterns
+
+### Single source of truth
+
+Avoid duplicating information across pages. Instead, maintain one authoritative source and link to it:
+
+- System requirements → link to `/docs/self-hosted/requirements`
+- Supported protocols → link to `/docs/self-hosted/supported-clients-and-protocols`
+- Sync times and hardware recommendations → link to requirements page
+- Snapshot timeline → keep in FAQ, link from other pages
+
+Example:
+```markdown
+<!-- Instead of duplicating a table of requirements -->
+See [System requirements](/docs/self-hosted/requirements) for specifications and a community-maintained list of hardware recommendations.
+```
+
+### Troubleshooting page structure
+
+For troubleshooting pages, use this hierarchy:
+
+```markdown
+## Category (e.g., Installation troubleshooting)
+
+### Problem heading (describes the symptom)
+
+Brief description of the problem.
+
+#### Cause or check 1
+
+Diagnostic steps or solution.
+
+#### Cause or check 2
+
+Diagnostic steps or solution.
+```
+
+Avoid numbered lists for independent troubleshooting items—use subheadings instead.
 
 # Chainstack Developer Portal project writing style guide
 
@@ -495,12 +659,26 @@ Full markdown code:
 To invite a member to the project, click **Members** > **Invite member**.
 ```
 
-### UI as a word
+### UI as a word (Platform)
 
 Never use UI as a word when providing instructions for the [Chainstack console](https://console.chainstack.com/). Instead, use Chainstack.
 
 - Correct: On Chainstack, navigate to your node details
 - Incorrect: In the platform UI, navigate to your node details
+
+### UI terminology (Self-Hosted)
+
+For Self-Hosted documentation:
+
+- Use **Control Panel** to refer to the Self-Hosted web interface
+- Use **Chainstack Self-Hosted** for the product name (not just "Chainstack")
+- Never use "Chainstack" alone when referring to Self-Hosted—this causes confusion with the managed Platform product
+
+Examples:
+- Correct: Log in to the Control Panel
+- Correct: Chainstack Self-Hosted supports Ethereum Mainnet
+- Incorrect: Log in to Chainstack (ambiguous—could mean Platform)
+- Incorrect: On the Self-Hosted UI, navigate to... (use "Control Panel" instead)
 
 ## Word usage
 
