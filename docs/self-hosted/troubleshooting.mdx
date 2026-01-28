@@ -1,0 +1,313 @@
+---
+title: "Troubleshooting"
+description: "Diagnose and resolve common issues with Chainstack Self-Hosted"
+---
+
+This guide helps you diagnose and resolve common issues with Chainstack Self-Hosted.
+
+## Installation troubleshooting
+
+### Prerequisites check fails
+
+Installer fails to verify the requirements.
+
+#### kubectl not found
+
+```bash
+# Verify kubectl is installed
+which kubectl
+
+# For k3s, ensure KUBECONFIG is set
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+```
+
+#### Helm version too old
+
+```bash
+# Check version (v3+ required)
+helm version
+
+# Update Helm if needed
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+```
+
+#### yq not found or wrong version
+
+```bash
+# Must be mikefarah/yq v4+
+yq --version
+
+# Install correct version
+wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq
+chmod +x /usr/local/bin/yq
+```
+
+### Installation times out
+
+Helm install hangs or times out after 15 minutes.
+
+```bash
+# Check pod status
+kubectl get pods -n control-panel
+
+# Look for pods stuck in Pending or CrashLoopBackOff
+kubectl describe pod <pod-name> -n control-panel
+```
+
+#### PersistentVolumeClaim pending
+
+```bash
+kubectl get pvc -n control-panel
+kubectl describe pvc <pvc-name> -n control-panel
+```
+
+Ensure storage class exists and is default, and verify sufficient disk space.
+
+#### Image pull errors
+
+```bash
+kubectl describe pod <pod-name> -n control-panel | grep Events
+```
+
+Check network connectivity to container registry and verify no firewall is blocking image pulls.
+
+#### Insufficient resources
+
+```bash
+kubectl describe node | grep -A 10 "Allocated resources"
+```
+
+Ensure node has enough CPU and memory.
+
+### Pods crash looping
+
+Pods repeatedly restart (CrashLoopBackOff status).
+
+```bash
+# Check pod logs
+kubectl logs <pod-name> -n control-panel
+
+# Check previous container logs if crashing
+kubectl logs <pod-name> -n control-panel --previous
+
+# Describe pod for events
+kubectl describe pod <pod-name> -n control-panel
+```
+
+#### Database connection issues
+
+Check PostgreSQL pod is running and verify database credentials match.
+
+```bash
+kubectl logs cp-pg-postgresql-0 -n control-panel
+```
+
+#### Configuration errors
+
+Review the values file for typos and ensure all required environment variables are set.
+
+## Access troubleshooting
+
+### Cannot access web interface
+
+Browser cannot reach the Control Panel.
+
+#### Verify UI service exists
+
+```bash
+kubectl get svc cp-cp-ui -n control-panel
+```
+
+#### Check UI pod is running
+
+```bash
+kubectl get pods -l app.kubernetes.io/name=cp-ui -n control-panel
+```
+
+#### Verify external service
+
+```bash
+kubectl get svc -n control-panel | grep -E "(LoadBalancer|NodePort)"
+```
+
+#### Test with port forward
+
+```bash
+kubectl port-forward svc/cp-cp-ui 8080:80 -n control-panel --address 0.0.0.0
+```
+
+Then access `http://<server-ip>:8080`
+
+#### Check firewall
+
+Ensure the port is open on your server and check cloud provider security groups if applicable.
+
+### Login fails with valid credentials
+
+Correct credentials result in login failure.
+
+#### Check auth service
+
+```bash
+kubectl get pods -l app.kubernetes.io/name=cp-auth -n control-panel
+kubectl logs -l app.kubernetes.io/name=cp-auth -n control-panel
+```
+
+#### Check Keycloak
+
+```bash
+kubectl get pods -l app.kubernetes.io/name=keycloak -n control-panel
+kubectl logs cp-keycloak-0 -n control-panel
+```
+
+#### Verify credentials from values file
+
+```bash
+cat ~/.config/cp-suite/values/cp-*.yaml | grep BOOTSTRAP
+```
+
+## Node deployment troubleshooting
+
+### Node stuck in deploying state
+
+Node deployment does not progress.
+
+#### Check workflows service
+
+```bash
+kubectl logs -l app.kubernetes.io/name=cp-workflows -n control-panel
+```
+
+#### Check Temporal
+
+```bash
+kubectl get pods -n control-panel | grep temporal
+```
+
+#### Verify resource availability
+
+```bash
+kubectl describe nodes | grep -A10 "Allocated resources"
+```
+
+#### Check deployments API logs
+
+```bash
+kubectl logs -l app.kubernetes.io/name=cp-deployments-api -n control-panel
+```
+
+## System health checks
+
+### Check all components
+
+Run this comprehensive health check:
+
+```bash
+#!/bin/bash
+echo "=== Checking Control Panel Health ==="
+
+echo -e "\n--- Pod Status ---"
+kubectl get pods -n control-panel
+
+echo -e "\n--- Services ---"
+kubectl get svc -n control-panel
+
+echo -e "\n--- PVC Status ---"
+kubectl get pvc -n control-panel
+
+echo -e "\n--- Recent Events ---"
+kubectl get events -n control-panel --sort-by='.lastTimestamp' | tail -20
+```
+
+### Check resource usage
+
+```bash
+# Node resources
+kubectl top nodes
+
+# Pod resources (requires metrics-server)
+kubectl top pods -n control-panel
+```
+
+### Check logs for errors
+
+```bash
+# All pods, last hour
+timestamp=\$(date +%s)
+touch debug-\$timestamp.txt
+debug=debug-\$timestamp.txt
+for pod in \$(kubectl get pods -n control-panel -o name); do
+  echo "=== \$pod ===" >> \$debug
+  kubectl logs \$pod -n control-panel --since=1h 2>/dev/null >> \$debug
+done
+```
+
+## Recovery procedures
+
+### Restart all services
+
+```bash
+# Restart all deployments
+kubectl rollout restart deployment -n control-panel
+
+# Watch pods restart
+kubectl get pods -n control-panel -w
+```
+
+### Reset to clean state
+
+<Warning>
+This destroys all data. Only use as last resort.
+</Warning>
+
+```bash
+# Uninstall completely
+./cpctl uninstall
+
+# Reinstall
+./cpctl install -v v1.0.0
+```
+
+### Recover from database issues
+
+If PostgreSQL has issues:
+
+```bash
+# Check PostgreSQL logs
+kubectl logs cp-pg-postgresql-0 -n control-panel
+
+# Check PVC status
+kubectl get pvc -n control-panel | grep postgresql
+```
+
+## Getting help
+
+If you cannot resolve an issue, check the [FAQ](/docs/self-hosted/faq) for known issues.
+
+### Gather diagnostic information
+
+```bash
+./cpctl status > diagnostic.txt
+kubectl get events -n control-panel >> diagnostic.txt
+timestamp=\$(date +%s)
+touch debug-\$timestamp.txt
+debug=debug-\$timestamp.txt
+for pod in \$(kubectl get pods -n control-panel -o name); do
+  echo "=== \$pod ===" >> \$debug
+  kubectl logs \$pod -n control-panel --since=1h 2>/dev/null >> \$debug
+done
+```
+
+### Contact support
+
+- [Chainstack Support Center](https://support.chainstack.com/hc/en-us)
+- [Chainstack Feedback](https://ideas.chainstack.com/en?b=6968ecf76c93cb94db0422c8)
+
+When contacting support, include:
+
+- Version of Chainstack Self-Hosted
+- Kubernetes distribution and version
+- `diagnostic.txt` file
+- `debug-$timestamp.txt` file
+- Other relevant error messages and logs
+- Steps to reproduce the issue

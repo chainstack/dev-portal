@@ -1,0 +1,181 @@
+---
+title: "System requirements"
+description: "Hardware, software, and network requirements for running Chainstack Self-Hosted"
+---
+
+This page outlines the hardware, software, and network requirements for running Chainstack Self-Hosted.
+
+## Overview
+
+Chainstack Self-Hosted consists of two main components with different resource requirements:
+
+1. **Control Panel** — the management platform that handles deployments, authentication, and orchestration
+2. **Blockchain nodes** — the actual blockchain clients that you deploy and manage
+
+## Control Panel requirements
+
+The Control Panel runs inside a Kubernetes cluster and includes the web interface, API services, database, and workflow orchestration.
+
+### Hardware requirements
+
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| CPU | 1 core | 4 cores |
+| RAM | 2 GB | 4 GB |
+| Storage | 8 GB | 15 GB |
+
+<Note>
+These requirements are for the Control Panel only. Blockchain nodes require additional resources as specified below.
+</Note>
+
+### Software requirements
+
+| Component | Requirement | Notes |
+|-----------|-------------|-------|
+| Kubernetes | Any recent version | k3s, k8s, EKS, GKE, AKS supported |
+| Helm | v3.x or later | Required for installation |
+| yq | v4.x or later | mikefarah/yq required |
+| openssl | Any recent version | Required for certificate generation |
+| kubectl | Compatible with cluster | Required for cluster management |
+
+### Operating systems
+
+The Control Panel is distributed as an umbrella Helm chart and runs on any Kubernetes-compatible environment. The underlying host operating system should be a modern Linux distribution capable of running Kubernetes.
+
+Tested configurations:
+
+- Ubuntu 22.04 LTS with k3s
+- Ubuntu 24.04 LTS with k3s
+
+### Kubernetes storage requirements
+
+A storage class with dynamic provisioning is required for persistent volumes. The installer creates PersistentVolumeClaims for the PostgreSQL database.
+
+Tips for storage classes:
+
+- **k3s** — local-path (default) or TopoLVM for multi-disk setups
+- **Cloud providers** — use the default storage class (gp2/gp3 for AWS, standard for GCP, managed-premium for Azure)
+- **On-premises** — any CSI-compatible storage provisioner
+
+## Blockchain node requirements
+
+Resource requirements vary by protocol and node configuration. Below are the requirements for currently supported configurations.
+
+### Ethereum Mainnet full node (Reth + Prysm)
+
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| CPU | 4 cores | 6+ cores |
+| RAM | 16 GB | 32 GB |
+| Storage | 2 TB NVMe SSD | 4 TB NVMe SSD |
+
+### Ethereum Sepolia testnet full node (Reth + Prysm)
+
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| CPU | 4 cores | 6+ cores |
+| RAM | 16 GB | 32 GB |
+| Storage | 1.5 TB NVMe SSD | 2 TB NVMe SSD |
+
+### Ethereum Hoodi testnet full node (Reth + Prysm)
+
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| CPU | 4 cores | 6+ cores |
+| RAM | 16 GB | 32 GB |
+| Storage | 250 GB NVMe SSD | 500 GB NVMe SSD |
+
+### Storage considerations
+
+- **SSD type** — TLC NVMe drives are strongly recommended. Avoid QLC drives due to lower write endurance and performance
+- **Storage growth** — the Ethereum chain grows approximately 1 TB per year. Plan for 4 TB to ensure several years of headroom
+- **IOPS** — high random read/write performance is critical. Target drives with sustained write speeds of 1+ GB/s
+
+For a deep dive on SSD selection for Ethereum nodes, see [yorickdowne's SSD guide](https://gist.github.com/yorickdowne/f3a3e79a573bf35767cd002cc977b038).
+
+### CPU considerations
+
+- Clock speed matters more than core count for blockchain nodes
+- Higher single-thread performance improves block processing
+- AMD Ryzen 7000/9000 series or Intel Core 12th gen+ recommended
+
+### Initial sync time
+
+| Method | Approximate time |
+|--------|------------------|
+| Full sync | 2–5 days |
+
+<Note>
+Snapshot-based deployment for faster initial sync is planned. See the [FAQ](/docs/self-hosted/faq#when-will-snapshot-based-deployment-be-available) for the timeline.
+</Note>
+
+## Network requirements
+
+### Internal communication (within Kubernetes cluster)
+
+All Control Panel services communicate internally within the Kubernetes cluster. The following ports are used for internal service-to-service communication:
+
+| Service | Port | Protocol | Purpose |
+|---------|------|----------|---------|
+| cp-ui | 80 | TCP | Web interface |
+| cp-auth | 8080, 9090 | TCP | Authentication service |
+| cp-deployments-api | 8080, 9090 | TCP | Deployment management API |
+| keycloak | 80, 8080 | TCP | Identity management |
+| PostgreSQL | 5432 | TCP | Database |
+| Temporal | 7233–7246 | TCP | Workflow orchestration |
+
+### External access
+
+To access the Control Panel web interface, you need to expose the `cp-cp-ui` service. Options include:
+
+| Method | Use case |
+|--------|----------|
+| LoadBalancer | Production deployments with external load balancer |
+| NodePort | Direct access via node IP and port |
+| Ingress | Production deployments with ingress controller |
+| Port forward | Development and testing |
+
+### Firewall rules
+
+For the Control Panel, only the UI service port needs to be accessible from outside the cluster. All other services communicate internally.
+
+For blockchain nodes, the required ports depend on the protocol:
+
+### Ethereum nodes
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 8546 | TCP/UDP | Execution client WSS |
+| 8545 | TCP | Execution client HTTP |
+| 5052 | TCP/UDP | Consensus client HTTP |
+
+## Combined infrastructure example
+
+For a complete deployment running the Control Panel plus one Ethereum Mainnet full node:
+
+| Resource | Control Panel | Ethereum Node | Total |
+|----------|---------------|---------------|-------|
+| CPU | 2 cores | 4 cores | 6 cores |
+| RAM | 2 GB | 16 GB | 18 GB |
+| Storage | 10 GB | 2 TB | ~2 TB |
+
+### Example server configurations
+
+#### Budget configuration (single Ethereum Mainnet node)
+
+- **CPU** — AMD Ryzen 5 7600 or Intel Core i5-13400
+- **RAM** — 32 GB DDR5
+- **Storage** — 4 TB NVMe SSD
+
+#### Testnet configuration (2 Ethereum testnet nodes)
+
+- **CPU** — AMD Ryzen 5 7600 or Intel Core i5-13400
+- **RAM** — 32 GB DDR5
+- **Storage** — 3 TB NVMe SSDs
+
+## Next steps
+
+Once you've verified your system meets these requirements:
+
+1. [Quick start guide](/docs/self-hosted/quick-start) — Complete walkthrough from zero to running
+2. [Installation guide](/docs/self-hosted/installation) — Detailed installation instructions

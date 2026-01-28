@@ -1,0 +1,210 @@
+---
+title: "FAQ"
+description: "Frequently asked questions about Chainstack Self-Hosted"
+---
+
+## General
+
+### What is Chainstack Self-Hosted?
+
+Chainstack Self-Hosted brings the power of Chainstack's blockchain infrastructure platform to your own infrastructure. Deploy, manage, and monitor blockchain nodes on your own hardware or cloud environment while maintaining complete control over your data and infrastructure.
+
+### Is Chainstack Self-Hosted ready for production?
+
+Chainstack Self-Hosted is currently in **beta**. We recommend using it for:
+
+- Development and testing environments
+- Proof-of-concept deployments
+- Evaluation purposes
+
+Production readiness is planned for later in 2026.
+
+## Features and roadmap
+
+### When will snapshot-based deployment be available?
+
+**Q1 2026** — A proof of concept for deploying nodes from pre-synced snapshots is planned. This will significantly reduce initial sync times from days to hours.
+
+Follow the [release notes](/docs/self-hosted/release-notes) for updates.
+
+### When will you support more protocols?
+
+We will consistently add more deployment presets throughout 2026. See [Supported clients and protocols](/docs/self-hosted/supported-clients-and-protocols) for the current list.
+
+Planned additions include additional EVM-compatible chains and Layer 2 networks.
+
+**Interested in a specific protocol?** Contact us at [Chainstack Feedback](https://ideas.chainstack.com/en?b=6968ecf76c93cb94db0422c8) with your requirements.
+
+### When will monitoring and observability be available?
+
+**Q1 2026** — Monitoring and observability features will be released, starting with basic metrics and health indicators, followed by more sophisticated dashboards with detailed metrics, alerting, and historical data.
+
+### Do you plan to support archive nodes?
+
+**Q1 2026** — A proof of concept for archive node deployment is planned. Archive nodes require significantly more storage (15+ TB) and different sync strategies.
+
+### Do you plan to support validator nodes?
+
+Validator node support is on the roadmap but is **not expected before late 2026**. Running validators requires additional considerations around uptime guarantees, slashing protection, and key management that we want to address properly.
+
+**Need validator support sooner?** Contact us at [Chainstack Feedback](https://ideas.chainstack.com/en?b=6968ecf76c93cb94db0422c8) to discuss your use case.
+
+### Will you support multiple endpoints per node?
+
+Support for multiple RPC endpoints and load balancing across nodes is planned for future releases. Check the [release notes](/docs/self-hosted/release-notes) for updates.
+
+## Installation and requirements
+
+### What Kubernetes distributions are supported?
+
+Chainstack Self-Hosted works with any recent Kubernetes distribution:
+
+- k3s (tested and documented)
+- Standard Kubernetes (k8s)
+- Amazon EKS
+- Google GKE
+- Azure AKS
+- Other Kubernetes-compatible platforms
+
+### What are the minimum hardware requirements?
+
+**Control Panel only:**
+
+- 2 CPU cores, 2 GB RAM, 4 GB storage
+
+**Control Panel + Ethereum Mainnet node:**
+
+- 6 CPU cores, 18 GB RAM, 2+ TB NVMe SSD
+
+See [System requirements](/docs/self-hosted/requirements) for detailed specifications.
+
+### Can I run multiple blockchain nodes on one server?
+
+Yes, provided you have sufficient resources. Each Ethereum full node requires approximately 4 CPU cores, 16 GB RAM, and 2 TB storage. Plan your infrastructure accordingly.
+
+### Do I need a dedicated server or can I use a VM?
+
+Either works, as long as storage performance is adequate. For blockchain nodes, NVMe SSD storage is strongly recommended due to the high I/O requirements.
+
+<Warning>
+For VMs, ensure the virtual disk is backed by SSD storage, not HDD.
+</Warning>
+
+## Operations
+
+### How long does initial node sync take?
+
+Expect 2–5 days for Ethereum Mainnet, depending on your hardware and network. See [System requirements](/docs/self-hosted/requirements) for specifications and a community-maintained list of hardware recommendations.
+
+[Snapshot-based deployment](#when-will-snapshot-based-deployment-be-available) will reduce this significantly.
+
+### How to find out the status of the initial node sync?
+
+At the moment, the only option is to check the corresponding pod logs. For example, if the Blockchain Node ID on **Chainstack Self-Hosted > Nodes > Node Details** is `6244046a-f344-4453-abd5-5bbbc0377422`, then you can check the logs in the following way:
+
+```bash
+# List all pods and find the pods related to the node ID
+kubectl get pods -n control-panel | grep 6244046a-f344-4453-abd5-5bbbc0377422
+cp-6244046a-f344-4453-abd5-5bbbc0377422-prysm-cb87b4dcc-l9rvp    1/1     Running     2 (4h51m ago)    2d18h
+cp-6244046a-f344-4453-abd5-5bbbc0377422-reth-776c6954fc-p6htz    1/1     Running     107 (127m ago)   2d18h
+
+# Check the log files for the corresponding pod
+kubectl logs -f cp-6244046a-f344-4453-abd5-5bbbc0377422-reth-776c6954fc-p6htz -n control-panel
+```
+
+### What happens if my node crashes?
+
+The Kubernetes deployment will automatically restart failed pods. If the node data is intact on the persistent volume, the node will resume from its last state.
+
+### How do I resize the disk if storage runs out?
+
+As blockchain storage constantly grows, you may need to allocate more disk space to your node. This involves finding the right PVC and using `kubectl patch`.
+
+<Steps>
+<Step title="Find the node ID">
+Go to **Chainstack Self-Hosted > Nodes > Node details** and copy the Node ID, for example `6244046a-f344-4453-abd5-5bbbc0377422`.
+</Step>
+
+<Step title="Find the pods and PVC">
+```bash
+# Find the pods associated with the deployment
+kubectl get pods -n control-panel | grep 6244046a-f344-4453-abd5-5bbbc0377422
+cp-6244046a-f344-4453-abd5-5bbbc0377422-prysm-cb87b4dcc-l9rvp    1/1     Running     2 (26h ago)     3d15h
+cp-6244046a-f344-4453-abd5-5bbbc0377422-reth-776c6954fc-p6htz    1/1     Running     125 (61m ago)   3d15h
+
+# Find the corresponding PVC
+kubectl get pvc -n control-panel | grep 6244046a-f344-4453-abd5-5bbbc0377422
+cp-6244046a-f344-4453-abd5-5bbbc0377422-prysm   Bound    pvc-b27f6710-8b8b-42ec-a559-6def88edc1d0   100Gi      RWO            topolvm-provisioner   3d15h
+cp-6244046a-f344-4453-abd5-5bbbc0377422-reth    Bound    pvc-6c396c66-ad08-48ce-a60c-b9d188f03228   1300Gi     RWO            topolvm-provisioner   3d15h
+```
+</Step>
+
+<Step title="Check current disk usage">
+```bash
+df -h | grep pvc-6c396c66-ad08-48ce-a60c-b9d188f03228
+/dev/dm-4       1.2T  1.2T   58G  96% /var/lib/kubelet/pods/.../mount
+```
+</Step>
+
+<Step title="Increase the storage">
+```bash
+kubectl patch pvc -n control-panel cp-6244046a-f344-4453-abd5-5bbbc0377422-reth \
+  -p '{"spec": {"resources": {"requests": {"storage": "1500Gi"}}}}'
+```
+</Step>
+
+<Step title="Verify the storage extension">
+```bash
+df -h | grep pvc-6c396c66-ad08-48ce-a60c-b9d188f03228
+/dev/dm-4       1.5T  1.2T  300G  80% /var/lib/kubelet/pods/.../mount
+```
+</Step>
+</Steps>
+
+<Note>
+Your storage class must support volume expansion. Most cloud providers and modern storage provisioners support this by default.
+</Note>
+
+## Licensing and beta
+
+### How do I join the beta program?
+
+Fill out the beta signup form: [Join the Chainstack Self-Hosted Beta](https://3b81e.share.hsforms.com/2cWH4wEOeTOySPUNKOVDEEQ)
+
+### What does the beta include?
+
+Beta participants receive:
+
+- Access to current and upcoming releases
+- Direct communication with the product team
+- Opportunity to influence the roadmap
+- Priority support
+
+### Will pricing change after beta?
+
+Pricing and licensing details will be announced as we approach general availability. Beta participants will receive advance notice of any changes.
+
+## Support
+
+### How do I get technical support?
+
+- **Support Center:** [support.chainstack.com](https://support.chainstack.com/hc/en-us)
+- **Documentation issues:** [Chainstack Feedback](https://ideas.chainstack.com/en?b=6968ecf76c93cb94db0422c8)
+
+### How do I provide feedback or request features?
+
+Submit your feedback and feature requests to: [Chainstack Feedback](https://ideas.chainstack.com/en?b=6968ecf76c93cb94db0422c8)
+
+We actively review all feedback and use it to prioritize the roadmap.
+
+### Where can I report bugs?
+
+- For urgent issues: [Chainstack Support Center](https://support.chainstack.com/hc/en-us)
+- For general bugs and feedback: [Chainstack Feedback](https://ideas.chainstack.com/en?b=6968ecf76c93cb94db0422c8)
+
+When reporting bugs, please include:
+
+- Version of Chainstack Self-Hosted
+- Steps to reproduce the issue
+- Relevant logs and error messages
+- Your environment details (K8s distribution, OS, etc.)
