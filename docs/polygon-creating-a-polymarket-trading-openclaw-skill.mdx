@@ -1,0 +1,360 @@
+---
+title: "Polygon: Creating a Polymarket trading OpenClaw skill"
+description: "A Python-based OpenClaw skill that integrates Polymarket prediction markets with Claude Code via split + CLOB execution on Polygon"
+---
+
+<Frame>
+  <iframe width="100%" height="420" src="https://www.youtube.com/embed/s_uP802NVTE" title="PolyClaw - Polymarket Trading Skill for OpenClaw" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+</Frame>
+
+**TLDR**
+
+* This Python-based OpenClaw skill enables Claude Code to browse, trade, and manage Polymarket prediction market positions on Polygon.
+* Trading uses a split + CLOB execution strategy: split USDC.e into YES/NO tokens via the CTF contract, then sell the unwanted side on the CLOB order book.
+* LLM-powered hedge discovery finds covering portfolios via contrapositive logic—pairs of market positions that hedge each other.
+* The skill tracks positions with entry prices, current prices, and profit/loss calculations.
+
+[Polymarket](https://polymarket.com/) is a decentralized prediction market platform built on Polygon that enables trading on the outcomes of real-world events. It has generated significant volume and fees as evidenced by the [Polymarket DefiLlama page](https://defillama.com/protocol/polymarket).
+
+This project creates a trading skill for [OpenClaw](https://openclaw.ai/) (formerly known as Clawdbot and Moltbot)—the skill system for [Claude Code](https://claude.ai/code). Skills extend Claude Code's capabilities with specialized tools and workflows. With this skill installed, Claude Code can browse markets, execute trades, track positions, and discover hedging opportunities through natural language commands.
+
+<Check>
+  ### Run Polygon nodes on Chainstack
+
+  You can run [global](/docs/global-elastic-node) or [regional](/docs/trader-node) Polygon nodes with Chainstack for fast and reliable RPC access.
+
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required. You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+See the full project code in the [GitHub repository](https://github.com/chainstacklabs/polyclaw).
+
+## Overview
+
+The skill interacts with Polymarket's contracts on Polygon mainnet and the CLOB (Central Limit Order Book) API.
+
+The core Polymarket contracts are:
+
+* **USDC.e** — `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174` — the bridged USDC used for trading
+* **CTF (Conditional Tokens)** — `0x4D97DCd97eC945f40cF65F87097ACe5EA0476045` — the conditional token framework that creates outcome tokens
+* **CTF Exchange** — `0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E` — the exchange contract for splitting and merging positions
+
+The trading flow uses a split + sell strategy:
+
+1. **Split** — USDC.e is split into YES + NO tokens via the CTF contract
+2. **Sell unwanted** — the unwanted side is sold on the CLOB order book
+3. **Result** — you hold the wanted position, having recovered partial cost from selling the unwanted side
+
+Example: buying YES at \$0.70:
+
+* Split \$100 USDC.e → 100 YES + 100 NO tokens
+* Sell 100 NO tokens at ~\$0.30 → recover ~\$27 USDC.e
+* Net cost: ~\$73 for 100 YES tokens (entry price: \$0.73)
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/) with a Polygon node deployed
+* Python 3.11+ with [uv](https://github.com/astral-sh/uv) package manager
+* A wallet with USDC.e on Polygon (for trading)
+* OpenRouter API key (for hedge discovery)
+
+## Dependencies
+
+Install dependencies using uv:
+
+```bash
+git clone https://github.com/chainstacklabs/polyclaw
+cd polyclaw
+uv sync
+```
+
+## Environment setup
+
+Set the required environment variables:
+
+```bash
+# Required for trading
+export CHAINSTACK_NODE="https://polygon-mainnet.core.chainstack.com/YOUR_API_KEY"
+export POLYCLAW_PRIVATE_KEY="0x..."  # Your wallet private key
+
+# Required for hedge discovery
+export OPENROUTER_API_KEY="sk-or-..."
+
+# Optional: residential proxy for CLOB (recommended)
+export HTTPS_PROXY="http://user:pass@geo.iproyal.com:12321"
+```
+
+<Warning>
+  **Security:** Keep only small amounts in the trading wallet. The private key in an environment variable is convenient for automation but less secure than encrypted storage. Withdraw profits regularly to a secure wallet.
+</Warning>
+
+## Implementation
+
+The skill consists of five core modules:
+
+* **Markets module** — browse and search Polymarket markets
+* **Wallet module** — manage wallet status and contract approvals
+* **Trading module** — execute buy orders via split + CLOB
+* **Positions module** — track positions with P&L calculations
+* **Hedge module** — discover hedging opportunities via LLM analysis
+
+### First-time setup
+
+Before trading, set Polymarket contract approvals (one-time, costs ~0.01 POL in gas):
+
+```bash
+uv run python scripts/polyclaw.py wallet approve
+```
+
+This submits 6 approval transactions to Polygon. You only need to do this once per wallet.
+
+### Markets module
+
+The markets module fetches data from the Polymarket API:
+
+```bash
+# Trending markets by volume
+uv run python scripts/polyclaw.py markets trending
+
+# Search markets
+uv run python scripts/polyclaw.py markets search "election"
+
+# Market details
+uv run python scripts/polyclaw.py market <market_id>
+```
+
+Output options:
+
+* Default output is a formatted table
+* Use `--full` for full question text without truncation
+* Use `--json` for structured JSON output (useful for agent parsing)
+
+### Wallet module
+
+The wallet module manages wallet status and approvals:
+
+```bash
+# Check wallet status (address, balances)
+uv run python scripts/polyclaw.py wallet status
+
+# Set contract approvals (one-time)
+uv run python scripts/polyclaw.py wallet approve
+```
+
+The wallet is configured via the `POLYCLAW_PRIVATE_KEY` environment variable, supporting hex format with or without the `0x` prefix.
+
+### Trading module
+
+The trading module executes buy orders using the split + CLOB strategy:
+
+```bash
+# Buy YES position for $50
+uv run python scripts/polyclaw.py buy <market_id> YES 50
+
+# Buy NO position for $25
+uv run python scripts/polyclaw.py buy <market_id> NO 25
+```
+
+The trading flow:
+
+1. Fetch market data and validate the position side
+2. Split USDC.e into YES + NO tokens via CTF contract
+3. Sell the unwanted tokens on the CLOB order book
+4. Record the position with entry price
+
+<Note>
+  If the CLOB sell fails (due to liquidity or IP blocking), your split still succeeded. You can sell the unwanted tokens manually on polymarket.com or use the `--skip-sell` flag to keep both sides.
+</Note>
+
+### Positions module
+
+The positions module tracks all positions with profit/loss calculations:
+
+```bash
+# List all positions with P&L
+uv run python scripts/polyclaw.py positions
+```
+
+This displays:
+
+* Market question and position side (YES/NO)
+* Entry price and current price
+* Position size and current value
+* Profit/loss in USD and percentage
+
+### Hedge module
+
+The hedge module uses LLM analysis to find covering portfolios—pairs of market positions that hedge each other via contrapositive logic.
+
+```bash
+# Scan trending markets for hedges
+uv run python scripts/polyclaw.py hedge scan
+
+# Scan markets matching a query
+uv run python scripts/polyclaw.py hedge scan --query "election"
+
+# Analyze specific markets for hedging relationship
+uv run python scripts/polyclaw.py hedge analyze <market_id_1> <market_id_2>
+```
+
+Coverage tiers:
+
+* **Tier 1 (HIGH):** 95%+ coverage — near-arbitrage opportunities
+* **Tier 2 (GOOD):** 90-95% — strong hedges
+* **Tier 3 (MODERATE):** 85-90% — decent but noticeable risk
+* **Tier 4 (LOW):** less than 85% — speculative (filtered by default)
+
+The LLM analyzes market questions for logical implications. For example:
+
+* If "X wins election" implies "Y loses election", then YES on X + NO on Y forms a covering portfolio
+* The contrapositive also holds: NO on X + YES on Y forms another hedge
+
+<Info>
+  The hedge scanner uses `nvidia/nemotron-nano-9b-v2:free` via OpenRouter by default. Model selection matters—some models find spurious correlations while others have output format issues. Override with `--model <model_id>` if needed.
+</Info>
+
+## Example prompts
+
+Once installed, you can use natural language prompts with Claude Code:
+
+### Browse trending markets
+
+```
+What's trending on Polymarket?
+```
+
+Returns market IDs, questions, prices, and volume.
+
+### Get market details
+
+```
+Show me details for market <market_id>
+```
+
+Use the market ID from the Polymarket URL or from the trending markets response.
+
+### Check wallet status
+
+```
+What's my PolyClaw wallet balance?
+```
+
+Shows address, POL balance (for gas), and USDC.e balance.
+
+### Execute a trade
+
+```
+Buy $50 YES on market <market_id>
+```
+
+Executes the split + CLOB flow and records the position.
+
+### Discover hedges
+
+```
+Find me some hedging opportunities on Polymarket
+```
+
+Or more specifically:
+
+```
+Run hedge scan limit 10
+```
+
+<Note>
+  Hedge scanning takes a few minutes. The skill fetches open markets and sends pairs to the LLM for logical implication analysis.
+</Note>
+
+### Check positions
+
+```
+Show my PolyClaw positions
+```
+
+Lists open positions with entry price, current price, and P&L.
+
+### Full trading flow
+
+1. **"What's trending on Polymarket?"** — get market IDs
+2. **"Run hedge scan limit 10"** — wait for LLM analysis
+3. Review hedge opportunities with coverage tiers
+4. **"Buy \$25 YES on market abc123"** — take position on target market
+5. **"Buy \$25 NO on market xyz789"** — take position on covering market
+6. **"Show my PolyClaw positions"** — verify entries and track P&L
+
+## Configuration options
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `CHAINSTACK_NODE` | Yes (trading) | Polygon RPC URL |
+| `POLYCLAW_PRIVATE_KEY` | Yes (trading) | EVM private key (hex, with or without 0x prefix) |
+| `OPENROUTER_API_KEY` | Yes (hedge) | OpenRouter API key for LLM hedge discovery |
+| `HTTPS_PROXY` | Recommended | Rotating residential proxy for CLOB (e.g., IPRoyal) |
+| `CLOB_MAX_RETRIES` | No | Max CLOB retries with IP rotation (default: 5) |
+
+## CLOB Cloudflare blocking
+
+Polymarket's CLOB API uses Cloudflare protection that blocks POST requests from many IPs, including datacenter IPs and some residential ISPs. This affects the "sell unwanted tokens" step.
+
+**Solution: Residential proxy with retry logic**
+
+The recommended setup uses a rotating residential proxy (e.g., IPRoyal, BrightData). The CLOB client automatically retries with new IPs until one works:
+
+```bash
+export HTTPS_PROXY="http://user:pass@geo.iproyal.com:12321"
+export CLOB_MAX_RETRIES=10  # Default is 5
+```
+
+With this setup, CLOB orders typically succeed within 5–10 retries as the proxy rotates through IPs until finding an unblocked one.
+
+**Alternative workarounds:**
+
+1. **Use `--skip-sell`** — keep both YES and NO tokens, sell manually on polymarket.com
+2. **No proxy** — split still works; only CLOB sell is affected
+
+## Troubleshooting
+
+### "No wallet available"
+
+Set the `POLYCLAW_PRIVATE_KEY` environment variable:
+
+```bash
+export POLYCLAW_PRIVATE_KEY="0x..."
+```
+
+### "Insufficient USDC.e"
+
+Check balance with `uv run python scripts/polyclaw.py wallet status`. You need USDC.e (bridged USDC) on Polygon, not native USDC.
+
+### "CLOB order failed"
+
+The CLOB sell may fail due to:
+
+* Insufficient liquidity at the sell price
+* IP blocked by Cloudflare (try residential proxy)
+
+Your split still succeeded—you have the tokens, just couldn't sell the unwanted side automatically.
+
+### "Approvals not set"
+
+First trade requires contract approvals. Run:
+
+```bash
+uv run python scripts/polyclaw.py wallet approve
+```
+
+<CardGroup>
+  <Card title="Ake" img="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg">
+    <Icon icon="code"  iconType="solid"/>Director of Developer Experience @ Chainstack
+
+    <Icon icon="screwdriver-wrench"  iconType="solid"/>  Talk to me all things Web3
+
+    20 years in technology | 8+ years in Web3 full time years experience
+
+    Trusted advisor helping developers navigate the complexities of blockchain infrastructure
+
+    [<Icon icon="github"  iconType="brands"/>](https://github.com/akegaviar/)
+    [<Icon icon="twitter"  iconType="brands"/>](https://twitter.com/akegaviar)
+    [<Icon icon="linkedin"  iconType="brands"/>](https://www.linkedin.com/in/ake/)
+    [<Icon icon="warpcast"  iconType="brands"/>](https://warpcast.com/ake)
+  </Card>
+</CardGroup>
