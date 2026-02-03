@@ -1,0 +1,362 @@
+---
+title: "Migrating from Syndica to Chainstack"
+description: "Migrate from Syndica's Solana RPC and ChainStream APIs to Chainstack. Complete guide covering endpoint migration, streaming alternatives with Yellowstone gRPC, and node type selection."
+---
+
+**TLDR:**
+* Syndica has announced plans to retire their Solana RPC and ChainStream APIs.
+* Migrating RPC endpoints is straightforward—swap the URL.
+* ChainStream users should migrate to [Yellowstone gRPC](/docs/yellowstone-grpc-geyser-plugin) for streaming, which offers lower latency and is the Solana ecosystem standard.
+* Chainstack offers four node types: Global Node, Unlimited Node, Dedicated Node, and Trader Node—choose based on your workload.
+
+## Overview
+
+This guide helps you migrate from Syndica to Chainstack for your Solana infrastructure needs. Whether you're using Syndica's standard RPC or their ChainStream API, we'll show you how to switch with minimal code changes.
+
+## Choosing the right Chainstack node type
+
+Chainstack offers four node types, each optimized for different use cases.
+
+### Syndica to Chainstack tier mapping
+
+| Syndica tier | Recommended Chainstack option | ChainStream replacement | Why |
+|--------------|------------------------------|-------------------------|-----|
+| Standard (free) | Global Node on Developer plan | WebSocket subscriptions | Similar free tier with room to grow |
+| Scale | Global Node on Growth plan | Yellowstone gRPC (add-on) | Flexible scaling with real-time streaming |
+| Scale (high volume) | Global Node with Unlimited add-on | Yellowstone gRPC (add-on) | Flat-fee unlimited requests |
+| HyperScale (custom) | Dedicated Node or Trader Node | Yellowstone gRPC on Dedicated only | Isolated infrastructure or trading-optimized |
+
+<Note>
+Yellowstone gRPC requires Growth plan or higher. Developer plan users can use standard WebSocket subscriptions for real-time data, or upgrade to Growth to access Yellowstone gRPC.
+</Note>
+
+See [Chainstack pricing](https://chainstack.com/pricing/) for current rates.
+
+### Node type comparison
+
+| Node type | Distribution | Billing | Yellowstone gRPC | Best for |
+|-----------|--------------|---------|------------------|----------|
+| **Global Node** | Geo-distributed | Per request (plan quota) | Yes (add-on) | General use, variable load, spikes |
+| **Unlimited Node** | Geo-distributed | Flat monthly fee | Yes (add-on) | Predictable steady usage, cost control |
+| **Dedicated Node** | Geo-specific | Compute hours + storage | Yes (customizable) | Custom solutions, isolation, compliance |
+| **Trader Node** | Geo-specific | Per request (plan quota) | No | Trading bots, snipers |
+
+### Global Node
+
+**What it is:** A load-balanced endpoint that automatically routes requests to the nearest healthy location.
+
+**Key features:**
+- Deploys in seconds
+- Automatic failover if a node underperforms
+- Warp transactions support via bloXroute
+- [Yellowstone gRPC](/docs/yellowstone-grpc-geyser-plugin) available as add-on (mainnet)
+
+**Best for:** General-purpose applications, development, variable workloads.
+
+### Unlimited Node
+
+**What it is:** An add-on that converts any node to flat-fee, unlimited requests at a fixed RPS tier.
+
+**Key features:**
+- RPS tiers: 25, 100, 250, 500, 1000 requests per second
+- Zero plan quota consumption
+- No overage charges—you get rate-limited instead of cut off
+- Predictable monthly cost
+
+**Best for:** Production applications with steady traffic, cost-conscious teams.
+
+### Dedicated Node
+
+**What it is:** Exclusive infrastructure deployed just for you, not shared with other customers.
+
+**Key features:**
+- Fully isolated compute resources
+- Debug and trace APIs enabled
+- Highly customizable configuration
+- Full or Archive modes available
+- [Yellowstone gRPC](/docs/yellowstone-grpc-geyser-plugin) available with custom limits
+
+**Best for:** Enterprise applications, compliance requirements, custom configurations.
+
+**Requires:** Pro, Business, or Enterprise subscription.
+
+### Trader Node
+
+**What it is:** Regional endpoints you deploy in a specific location for lowest latency to your app or bot, and fastest transaction landing.
+
+**Key features:**
+- **Warp transactions** via bloXroute (routes directly to leader on Solana)
+- Geo-specific deployment (US, Europe, Asia)
+- Full, Archive, or Warp modes
+- Dedicated gateways available on Enterprise
+
+**Best for:** Trading bots, snipers, latency-sensitive operations.
+
+## Common migration scenarios
+
+### Simple RPC application
+
+If you're using Syndica for standard RPC calls:
+
+1. Sign up at [console.chainstack.com](https://console.chainstack.com/)
+2. Deploy a Solana Global Node
+3. Replace your Syndica endpoint URL with your Chainstack endpoint
+
+### ChainStream user
+
+If you were using ChainStream for real-time data:
+
+1. Deploy a Solana Global Node
+2. Enable the [Yellowstone gRPC](/docs/yellowstone-grpc-geyser-plugin) add-on
+3. Update your streaming code (see examples below)
+
+For lighter use cases, standard WebSocket subscriptions may be sufficient.
+
+### Trading bot
+
+If you're running a trading bot and need fast transaction landing with real-time data:
+
+1. Deploy a Solana Global Node
+2. Enable [Warp transactions](/docs/warp-transactions) for faster transaction landing
+3. Enable [Yellowstone gRPC](/docs/yellowstone-grpc-geyser-plugin) for real-time data
+
+### High-volume production application
+
+If you have predictable, steady traffic and want cost control:
+
+1. Deploy a Solana Global Node
+2. Add the [Unlimited Node](/docs/unlimited-node) add-on at your required RPS tier
+
+### Regional latency requirements
+
+If you need your node deployed in a specific region for lowest latency to your app:
+
+1. Deploy a [Trader Node](/docs/trader-node) in your preferred region (US, Europe, or Asia)
+2. Enable Warp transactions for fast transaction landing
+
+Note: Yellowstone gRPC is not available on Trader Nodes. If you need both regional deployment and real-time streaming, deploy a Global Node alongside your Trader Node.
+
+### Enterprise or custom configuration
+
+If you need isolated infrastructure, custom limits, or compliance requirements:
+
+1. Deploy a [Dedicated Node](/docs/dedicated-node)
+2. Contact Chainstack for custom configuration options
+
+Dedicated Nodes support Yellowstone gRPC with customizable limits.
+
+## RPC endpoint migration
+
+Migrating your RPC endpoint is the simplest part—it's essentially a URL swap.
+
+<Note>
+Navigate to your node credentials in the [Chainstack console](https://console.chainstack.com/) and copy the full endpoint URL.
+</Note>
+
+### Using solana-py
+
+<CodeGroup>
+```python Python
+from solana.rpc.api import Client
+
+# Before (Syndica)
+# client = Client("https://solana-mainnet.api.syndica.io/api-key/YOUR_SYNDICA_KEY")
+
+# After (Chainstack)
+client = Client("YOUR_CHAINSTACK_ENDPOINT")
+
+# Your existing code works unchanged
+response = client.get_slot()
+print(f"Current slot: {response.value}")
+```
+</CodeGroup>
+
+### Using @solana/web3.js
+
+<CodeGroup>
+```javascript JavaScript
+import { Connection } from "@solana/web3.js";
+
+// Before (Syndica)
+// const connection = new Connection("https://solana-mainnet.api.syndica.io/api-key/YOUR_SYNDICA_KEY");
+
+// After (Chainstack)
+const connection = new Connection("YOUR_CHAINSTACK_ENDPOINT");
+
+// Your existing code works unchanged
+const slot = await connection.getSlot();
+console.log(`Current slot: ${slot}`);
+```
+</CodeGroup>
+
+## ChainStream to Chainstack streaming migration
+
+Syndica's ChainStream was a WebSocket-based streaming service that aggregated data from multiple validators. Chainstack offers two alternatives depending on your needs:
+
+### Option 1: Standard WebSocket subscriptions
+
+For lighter streaming use cases like notifications, alerts, or monitoring specific accounts, standard Solana WebSocket subscriptions work well.
+
+| ChainStream subscription | Chainstack WebSocket equivalent |
+|--------------------------|--------------------------------|
+| `transactionsSubscribe` | [logsSubscribe](/reference/logssubscribe-solana) |
+| `slotUpdatesSubscribe` | [slotSubscribe](/reference/slotsubscribe-solana) |
+| `blockSubscribe` | `blockSubscribe` (use with caution at scale) |
+| Account monitoring | [accountSubscribe](/reference/accountsubscribe-solana) |
+
+<Note>
+`logsSubscribe` returns transaction logs and program mentions, not full transaction data. If you need complete transaction details, fetch them with `getTransaction` after receiving a log, or use Yellowstone gRPC for full transaction streaming.
+</Note>
+
+**ChainStream WebSocket URL:**
+
+```
+wss://solana-mainnet.chainstream.syndica.io/api-key/YOUR_SYNDICA_KEY
+```
+
+**Chainstack WebSocket URL:**
+
+```
+YOUR_CHAINSTACK_WSS_ENDPOINT
+```
+
+where YOUR_CHAINSTACK_WSS_ENDPOINT is your node WSS endpoint. See [node access details](/docs/manage-your-node#view-node-access-and-credentials).
+
+#### Example: Migrating transaction monitoring
+
+<CodeGroup>
+```python Python
+import asyncio
+import websockets
+import json
+
+# Chainstack WebSocket endpoint
+CHAINSTACK_WSS = "YOUR_CHAINSTACK_WSS_ENDPOINT"
+
+async def monitor_logs():
+    async with websockets.connect(CHAINSTACK_WSS) as ws:
+        # Subscribe to logs mentioning a specific program
+        subscribe_msg = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "logsSubscribe",
+            "params": [
+                {"mentions": ["YOUR_PROGRAM_ID"]},
+                {"commitment": "confirmed"}
+            ]
+        }
+        await ws.send(json.dumps(subscribe_msg))
+
+        # Process incoming logs
+        while True:
+            response = await ws.recv()
+            data = json.loads(response)
+            if "params" in data:
+                print(f"Log received: {data['params']['result']}")
+
+if __name__ == "__main__":
+    asyncio.run(monitor_logs())
+```
+
+```javascript JavaScript
+const WebSocket = require("ws");
+
+const CHAINSTACK_WSS = "YOUR_CHAINSTACK_WSS_ENDPOINT";
+
+const ws = new WebSocket(CHAINSTACK_WSS);
+
+ws.on("open", () => {
+  // Subscribe to logs mentioning a specific program
+  const subscribeMsg = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "logsSubscribe",
+    params: [
+      { mentions: ["YOUR_PROGRAM_ID"] },
+      { commitment: "confirmed" }
+    ]
+  };
+  ws.send(JSON.stringify(subscribeMsg));
+});
+
+ws.on("message", (data) => {
+  const response = JSON.parse(data);
+  if (response.params) {
+    console.log("Log received:", response.params.result);
+  }
+});
+```
+</CodeGroup>
+
+### Option 2: Yellowstone gRPC (recommended for high-performance streaming)
+
+For trading bots, indexers, or any application that needs the fastest possible data, [Yellowstone gRPC](/docs/yellowstone-grpc-geyser-plugin) is the better choice. It streams data directly from validator memory via gRPC, offering lower latency than WebSocket-based solutions. Yellowstone gRPC is available on mainnet only.
+
+See [Chainstack pricing](https://chainstack.com/pricing/) for Yellowstone gRPC rates and tier details.
+
+#### Enabling Yellowstone gRPC
+
+Yellowstone gRPC is available as an add-on for Solana Global Nodes on mainnet, starting from the Growth plan.
+
+1. Deploy a Solana Global Node in the [Chainstack console](https://console.chainstack.com/)
+2. Click **Add-ons** > **Yellowstone gRPC Geyser Plugin** > **Install**
+3. Your gRPC endpoint and token will appear in the node credentials. See [node access details](/docs/manage-your-node#view-node-access-and-credentials).
+
+#### Example: Streaming with Yellowstone gRPC
+
+See our detailed guides:
+- [Listening to programs using Geyser and Yellowstone gRPC in Node.js](/docs/solana-listening-to-programs-using-geyser-and-yellowstone-grpc-node-js)
+- [Listening to pump.fun token mints using Geyser](/docs/solana-listening-to-pumpfun-token-mint-using-geyser)
+
+For more Yellowstone gRPC examples, see:
+- [pump.fun and bonk.fun trading bot](https://github.com/chainstacklabs/pumpfun-bonkfun-bot)
+- [gRPC Geyser tutorial](https://github.com/chainstacklabs/grpc-geyser-tutorial)
+- [Video walkthrough](https://www.youtube.com/watch?v=ICBF1wdD-sM)
+
+<CodeGroup>
+```javascript Node.js
+import Client, { CommitmentLevel } from "@triton-one/yellowstone-grpc";
+
+const ENDPOINT = "CHAINSTACK_GEYSER_URL";
+const TOKEN = "CHAINSTACK_GEYSER_TOKEN";
+
+async function main() {
+  const client = new Client(ENDPOINT, TOKEN);
+  await client.connect();
+
+  const stream = await client.subscribe();
+
+  // Handle incoming data
+  stream.on("data", (data) => {
+    if (data.transaction) {
+      console.log("Transaction received:", data.transaction.transaction.signature);
+    }
+  });
+
+  // Subscribe to transactions for a specific program
+  await stream.write({
+    transactions: {
+      mySubscription: {
+        accountInclude: ["YOUR_PROGRAM_ID"],
+        accountExclude: [],
+        accountRequired: [],
+      },
+    },
+    commitment: CommitmentLevel.CONFIRMED,
+  });
+
+  // Keep connection alive
+  setInterval(async () => {
+    await stream.write({ ping: { id: 1 } });
+  }, 10000);
+}
+
+main();
+```
+</CodeGroup>
+
+## Next steps
+
+- [Explore Yellowstone gRPC Geyser plugin](/docs/yellowstone-grpc-geyser-plugin)
+- [Learn about Trader Nodes](/docs/trader-node)
+- [Review throughput guidelines](/docs/limits)
