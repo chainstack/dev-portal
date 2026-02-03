@@ -1,0 +1,578 @@
+---
+title: "Chainbench: Benchmark your blockchain RPC endpoints"
+description: "Learn how to use Chainbench to load test and benchmark your blockchain RPC endpoints. Test EVM and Solana nodes with realistic traffic patterns, discover available methods, and create custom profiles."
+---
+
+**TLDR:**
+* You'll learn how to install and use Chainbench, an open-source blockchain infrastructure benchmarking tool built on Locust.
+* You'll run load tests against your RPC endpoints using built-in profiles for EVM chains and Solana.
+* You'll discover available methods on endpoints and create custom test profiles.
+* You'll understand how to use both web UI and headless modes for interactive and automated testing.
+
+## Main article
+
+In this tutorial, you will:
+
+* Install Chainbench and explore its features.
+* Run load tests against blockchain RPC endpoints using single methods and profiles.
+* Use the discover command to check method availability on your nodes.
+* Create custom profiles for specific testing scenarios.
+* Run tests in both web UI and headless modes.
+
+The tool is open source and available in the [Chainbench GitHub repository](https://github.com/chainstacklabs/chainbench).
+
+## Prerequisites
+
+* [Chainstack account](https://console.chainstack.com/user/login) to deploy blockchain RPC endpoints for testing
+* Python 3.10+ installed on your machine
+* A blockchain RPC endpoint to test (Chainstack provides [elastic and dedicated nodes](https://chainstack.com/pricing/) across 70+ protocols)
+
+## Overview
+
+To get started with Chainbench:
+
+1. Install Chainbench using pip.
+2. Explore available commands and profiles.
+3. Run a single-method load test.
+4. Run a profile-based load test.
+5. Use the discover command to check method availability.
+6. Create a custom profile for your specific use case.
+7. Run tests in headless mode for automation.
+
+## Step-by-step
+
+### Install Chainbench
+
+Install Chainbench using pip:
+
+<CodeGroup>
+  ```shell Shell
+  pip install chainbench
+  ```
+</CodeGroup>
+
+Verify the installation:
+
+<CodeGroup>
+  ```shell Shell
+  chainbench --help
+  ```
+</CodeGroup>
+
+This displays all available commands and options.
+
+### Alternative installation with Poetry
+
+<Info>
+If you prefer to work with the source code or contribute to the project:
+
+<CodeGroup>
+  ```shell Shell
+  git clone https://github.com/chainstacklabs/chainbench.git
+  cd chainbench && poetry install --without dev
+  poetry run chainbench --help
+  ```
+</CodeGroup>
+</Info>
+
+### Explore available resources
+
+Before running tests, explore what's available:
+
+<CodeGroup>
+  ```shell List profiles
+  chainbench list profiles
+  ```
+</CodeGroup>
+
+This shows all built-in profiles including:
+- **EVM chains**: Ethereum, BSC, Polygon, Arbitrum, Optimism, Avalanche, Fantom, Base, Gnosis, Oasis, Ronin
+- **Non-EVM**: Solana, Starknet (partial support)
+- **Generic EVM profiles**: `evm.light`, `evm.heavy`, `evm.get_logs`, `evm.debug_trace`, `evm.all`
+
+<CodeGroup>
+  ```shell List methods
+  chainbench list methods
+  ```
+</CodeGroup>
+
+This shows all RPC methods you can test individually.
+
+<CodeGroup>
+  ```shell List load shapes
+  chainbench list shapes
+  ```
+</CodeGroup>
+
+This lists extra load shapes you can pass with `--shape`:
+
+- **step**: Load increases in discrete steps
+- **spike**: 10% users → spike to 100% → back to 10%
+
+If you do not set `--shape`, Chainbench uses the default ramp-up pattern (users ramp up until the target is reached, then it holds steady for the rest of the test).
+
+### Run a single-method load test
+
+Test a single RPC method against your endpoint:
+
+<Warning>
+Load testing can generate a lot of requests quickly. Start small (for example, `--users 5` and `--test-time 30s`) and scale up gradually to avoid unexpected costs, rate limits, or node instability.
+</Warning>
+
+<CodeGroup>
+  ```shell Shell
+  chainbench start eth_blockNumber \
+    --users 50 \
+    --workers 2 \
+    --test-time 5m \
+    --target YOUR_CHAINSTACK_ENDPOINT \
+    --headless \
+    --autoquit
+  ```
+</CodeGroup>
+
+where:
+* `eth_blockNumber` — the RPC method to test
+* `--users 50` — number of simulated users making concurrent requests
+* `--workers 2` — number of worker processes (Locust workers)
+* `--test-time 5m` — test duration (supports s, m, h suffixes)
+* `--target` — your Chainstack RPC endpoint URL
+* `--headless` — run without the web UI
+* `--autoquit` — exit automatically when the test completes
+
+Replace `YOUR_CHAINSTACK_ENDPOINT` with your actual endpoint. See [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+
+Example output shows requests per second (RPS), response times, and failure rates.
+
+### Run a profile-based load test
+
+Profiles define realistic traffic patterns with multiple methods and weighted distributions. Run a test using the general BSC profile:
+
+<CodeGroup>
+  ```shell Shell
+  chainbench start \
+    --profile bsc.general \
+    --users 100 \
+    --workers 4 \
+    --test-time 10m \
+    --target YOUR_CHAINSTACK_ENDPOINT \
+    --headless \
+    --autoquit
+  ```
+</CodeGroup>
+
+For EVM-compatible chains, use the generic profiles:
+
+<CodeGroup>
+  ```shell Light profile
+  chainbench start \
+    --profile evm.light \
+    --users 50 \
+    --workers 2 \
+    --test-time 5m \
+    --target YOUR_CHAINSTACK_ENDPOINT \
+    --headless \
+    --autoquit
+  ```
+</CodeGroup>
+
+The `evm.light` profile includes common read methods:
+- `eth_blockNumber`
+- `eth_getBalance`
+- `eth_chainId`
+- `eth_getBlockByNumber`
+- `eth_getTransactionByHash`
+- `eth_getTransactionReceipt`
+- `web3_clientVersion`
+
+<CodeGroup>
+  ```shell Heavy profile
+  chainbench start \
+    --profile evm.heavy \
+    --users 50 \
+    --workers 2 \
+    --test-time 5m \
+    --target YOUR_CHAINSTACK_ENDPOINT \
+    --headless \
+    --autoquit \
+    --debug-trace-methods
+  ```
+</CodeGroup>
+
+The `evm.heavy` profile includes resource-intensive methods like `eth_getLogs` and debug/trace methods (enabled with `--debug-trace-methods`).
+
+### Use the discover command
+
+Before running load tests, verify which methods your endpoint supports:
+
+<CodeGroup>
+  ```shell Shell
+  chainbench discover YOUR_CHAINSTACK_ENDPOINT --clients geth,erigon
+  ```
+</CodeGroup>
+
+The output shows:
+- ✓ for working methods
+- ✗ for unsupported methods
+- Error codes for methods that return errors
+
+List available client specifications:
+
+<CodeGroup>
+  ```shell Shell
+  chainbench list clients
+  ```
+</CodeGroup>
+
+This is useful for:
+- Verifying node configuration before delivery
+- Comparing method support across different node providers
+- Quick smoke testing of endpoints
+
+### Run tests in web UI mode
+
+For interactive testing with real-time statistics:
+
+<CodeGroup>
+  ```shell Shell
+  chainbench start \
+    --profile evm.light \
+    --workers 2 \
+    --target YOUR_CHAINSTACK_ENDPOINT
+  ```
+</CodeGroup>
+
+This starts a web server on `http://localhost:8089` where you can:
+- Adjust users, spawn rate, and test duration
+- View real-time charts and statistics
+- Start and stop tests interactively
+- Download test results
+
+### Selecting profiles in the web UI
+
+<Info>
+If you want to pick a profile interactively in the Locust UI, start Chainbench with a profile directory and omit `--profile` and the method argument.
+
+If you cloned the Chainbench repository, run this command from the repo root:
+
+<CodeGroup>
+  ```shell Shell
+  chainbench start --workers 1 --target YOUR_CHAINSTACK_ENDPOINT --profile-dir chainbench/profile/evm
+  ```
+</CodeGroup>
+
+If you installed Chainbench with `pip`, print the built-in EVM profiles directory:
+
+<CodeGroup>
+  ```shell Shell
+  python -c "import pathlib, chainbench; print(pathlib.Path(chainbench.__file__).resolve().parent / 'profile' / 'evm')"
+  ```
+</CodeGroup>
+
+Then pass the printed path to `--profile-dir`.
+</Info>
+
+### Create a custom profile
+
+Create a custom profile for your specific traffic pattern. Save this as `my_profile.py`:
+
+<CodeGroup>
+  ```python my_profile.py
+  from locust import constant_pacing
+  from chainbench.user import EvmUser
+
+
+  class MyCustomProfile(EvmUser):
+      wait_time = constant_pacing(1)  # 1 request per second per user
+
+      rpc_calls = {
+          EvmUser.eth_call: 30,           # 30% weight
+          EvmUser.eth_get_logs: 25,       # 25% weight
+          EvmUser.eth_block_number: 20,   # 20% weight
+          EvmUser.eth_get_balance: 15,    # 15% weight
+          EvmUser.eth_chain_id: 10,       # 10% weight
+      }
+
+      tasks = EvmUser.expand_tasks(rpc_calls)
+  ```
+</CodeGroup>
+
+Run your custom profile:
+
+<CodeGroup>
+  ```shell Shell
+  chainbench start \
+    --profile-path /path/to/my_profile.py \
+    --users 50 \
+    --workers 2 \
+    --test-time 10m \
+    --target YOUR_CHAINSTACK_ENDPOINT \
+    --headless \
+    --autoquit
+  ```
+</CodeGroup>
+
+Or organize profiles in a directory:
+
+<CodeGroup>
+  ```shell Shell
+  chainbench start \
+    --profile-dir /path/to/profiles \
+    --profile my_profile \
+    --users 50 \
+    --workers 2 \
+    --test-time 10m \
+    --target YOUR_CHAINSTACK_ENDPOINT \
+    --headless \
+    --autoquit
+  ```
+</CodeGroup>
+
+### Configure test data options
+
+Chainbench generates realistic test data from the blockchain. Configure data generation:
+
+**Test data size:**
+
+| Size | Blocks sampled |
+|------|----------------|
+| XS   | 10             |
+| S    | 100 (default)  |
+| M    | 1,000          |
+| L    | 10,000         |
+| XL   | 100,000        |
+
+<CodeGroup>
+  ```shell Shell
+  chainbench start \
+    --profile evm.light \
+    --size M \
+    --users 50 \
+    --workers 2 \
+    --test-time 5m \
+    --target YOUR_CHAINSTACK_ENDPOINT \
+    --headless \
+    --autoquit
+  ```
+</CodeGroup>
+
+**Use latest blocks:**
+
+For nodes with limited history (like full nodes without archive data):
+
+<CodeGroup>
+  ```shell Shell
+  chainbench start \
+    --profile evm.light \
+    --use-latest-blocks \
+    --size S \
+    --users 50 \
+    --workers 2 \
+    --test-time 5m \
+    --target YOUR_CHAINSTACK_ENDPOINT \
+    --headless \
+    --autoquit
+  ```
+</CodeGroup>
+
+**Custom block range:**
+
+<CodeGroup>
+  ```shell Shell
+  chainbench start \
+    --profile evm.light \
+    --start-block 18000000 \
+    --end-block 18001000 \
+    --users 50 \
+    --workers 2 \
+    --test-time 5m \
+    --target YOUR_CHAINSTACK_ENDPOINT \
+    --headless \
+    --autoquit
+  ```
+</CodeGroup>
+
+**Reference node for test data:**
+
+Use a different node to generate test data (useful when testing a node that might be slower or have restrictions):
+
+<CodeGroup>
+  ```shell Shell
+  chainbench start \
+    --profile evm.light \
+    --ref-url YOUR_REFERENCE_ENDPOINT \
+    --users 50 \
+    --workers 2 \
+    --test-time 5m \
+    --target YOUR_TEST_ENDPOINT \
+    --headless \
+    --autoquit
+  ```
+</CodeGroup>
+
+### Use load pattern shapes
+
+Control how load is distributed over time:
+
+**Step pattern:**
+
+<CodeGroup>
+  ```shell Shell
+  chainbench start \
+    --profile evm.light \
+    --shape step \
+    --users 100 \
+    --spawn-rate 20 \
+    --workers 2 \
+    --test-time 10m \
+    --target YOUR_CHAINSTACK_ENDPOINT \
+    --headless \
+    --autoquit
+  ```
+</CodeGroup>
+
+This creates 5 steps (100 users ÷ 20 spawn-rate), each running for 2 minutes (10m ÷ 5 steps).
+
+**Spike pattern:**
+
+<CodeGroup>
+  ```shell Shell
+  chainbench start \
+    --profile evm.light \
+    --shape spike \
+    --users 100 \
+    --workers 2 \
+    --test-time 10m \
+    --target YOUR_CHAINSTACK_ENDPOINT \
+    --headless \
+    --autoquit
+  ```
+</CodeGroup>
+
+Runs at 10% users for 40% of time, spikes to 100% for 20%, then back to 10%.
+
+### Monitor sync lag during tests
+
+Track how far behind the node is during load testing:
+
+<CodeGroup>
+  ```shell Shell
+  chainbench start \
+    --profile evm.light \
+    --monitor sync-lag-monitor \
+    --users 50 \
+    --workers 2 \
+    --test-time 5m \
+    --target YOUR_CHAINSTACK_ENDPOINT \
+    --headless \
+    --autoquit
+  ```
+</CodeGroup>
+
+### Run batch requests
+
+Test batch JSON-RPC requests:
+
+<CodeGroup>
+  ```shell Shell
+  chainbench start \
+    --profile evm.light \
+    --batch \
+    --batch-size 10 \
+    --users 50 \
+    --workers 2 \
+    --test-time 5m \
+    --target YOUR_CHAINSTACK_ENDPOINT \
+    --headless \
+    --autoquit
+  ```
+</CodeGroup>
+
+### Run tests on a remote server
+
+For long-running tests on a server:
+
+<CodeGroup>
+  ```shell Shell
+  nohup chainbench start \
+    --profile bsc.general \
+    --workers 4 \
+    --users 100 \
+    --test-time 12h \
+    --target YOUR_CHAINSTACK_ENDPOINT \
+    --headless \
+    --autoquit &
+  ```
+</CodeGroup>
+
+Results are saved in `./results/{profile_name}/{timestamp}/`.
+
+<Info>
+Open `report.html` to review latency percentiles, RPS, and failures. Use the CSV files (for example, `report.csv_stats.csv`) if you want to process results programmatically.
+</Info>
+
+## Available EVM methods
+
+Chainbench supports testing these EVM methods (among others):
+
+| Category | Methods |
+|----------|---------|
+| Block | `eth_blockNumber`, `eth_getBlockByNumber`, `eth_getBlockByHash` |
+| Transaction | `eth_getTransactionByHash`, `eth_getTransactionReceipt`, `eth_getTransactionCount` |
+| Account | `eth_getBalance`, `eth_getCode`, `eth_getStorageAt` |
+| Call | `eth_call`, `eth_estimateGas` |
+| Logs | `eth_getLogs` |
+| Debug | `debug_traceTransaction`, `debug_traceCall`, `debug_traceBlockByNumber` |
+| Trace | `trace_transaction`, `trace_block`, `trace_call` |
+
+<Info>
+### Debug and trace methods
+
+Debug and trace methods are excluded by default. Enable them with `--debug-trace-methods`.
+</Info>
+
+## Solana testing
+
+Test Solana endpoints with the Solana profile:
+
+<CodeGroup>
+  ```shell Shell
+  chainbench start \
+    --profile solana.general \
+    --users 50 \
+    --workers 2 \
+    --test-time 5m \
+    --target YOUR_SOLANA_ENDPOINT \
+    --headless \
+    --autoquit
+  ```
+</CodeGroup>
+
+The Solana profile includes methods like:
+- `getAccountInfo`
+- `getBlock`
+- `getTransaction`
+- `getBalance`
+- `getTokenAccountsByOwner`
+- `getMultipleAccounts`
+- `getSignaturesForAddress`
+
+## Conclusion
+
+Chainbench provides a powerful way to benchmark and load test your blockchain infrastructure. Use it to:
+
+- Validate node performance before production deployment
+- Compare performance across different node providers
+- Test custom traffic patterns matching your application's usage
+- Monitor node behavior under various load conditions
+- Automate performance testing in CI/CD pipelines
+
+For more information, see the [Chainbench documentation](https://github.com/chainstacklabs/chainbench/blob/main/docs/PROFILE.md) on creating custom profiles.
+
+<Info>
+### See also
+
+* [Make your DApp more reliable with Chainstack](/docs/make-your-dapp-more-reliable-with-chainstack)
+* [Using eRPC with Chainstack](/docs/using-erpc-with-chainstack-quickstart)
+* [Tutorial on how to make your DApp reliable and scalable with Kubernetes](/docs/tutorial-on-how-to-make-your-dapp-reliable-and-scalable-with-kubernetes)
+</Info>
