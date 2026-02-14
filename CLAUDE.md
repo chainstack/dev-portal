@@ -215,6 +215,21 @@ The page title should match the label: `"Chainstack Self-Hosted v1.0.0: January 
 
 3. **Update `docs.json`**: In the Self-Hosted product's `Release notes` tab, add the new changelog page.
 
+## Node options master list
+
+`node-options-master-list.json` is the main file for this Developer Portal where all the available node options are kept up to date. If you need a custom table with whatever options you want, you feed the master list to an LLM and generate your own table.
+
+Relevant tables (updated on every master list change):
+
+- `nodes-clouds-regions-and-locations.mdx`
+- `protocols-networks.mdx`
+
+When updating the master list:
+
+1. Edit `node-options-master-list.json`
+2. Regenerate dependent tables
+3. Verify changes display correctly
+
 ## API documentation requirements (Platform only)
 
 These guidelines apply to Platform API documentation. Self-Hosted does not have API reference docs.

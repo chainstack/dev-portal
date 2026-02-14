@@ -9,16 +9,26 @@ This repository contains the Chainstack Developer Portal built with Mintlify. Wh
 * **Do _not_ deploy to production** during agent development sessions.
 * **Run link checks** with `mint broken-links` before submitting PRs.
 
-## 2. Keep Documentation Structure Consistent
+## 2. Two-product architecture
+
+The docs use Mintlify's product switcher with two products:
+
+- **Cloud** — managed blockchain infrastructure (docs in `docs/`)
+- **Self-Hosted** — deploy on your own infrastructure (docs in `docs/self-hosted/`)
+
+Both products share the same `docs.json` for navigation. When adding pages, make sure you add them under the correct product.
+
+## 3. Keep documentation structure consistent
 
 When creating new documentation:
 
 1. Install Mintlify CLI: `npm i -g mintlify`
 2. Run dev server: `mintlify dev`
 3. Check for broken links: `mint broken-links`
-4. Follow existing patterns for consistency
+4. Validate build: `mint validate`
+5. Follow existing patterns for consistency
 
-## 3. MDX File Requirements
+## 4. MDX file requirements
 
 Every MDX file must start with YAML frontmatter:
 
@@ -31,7 +41,7 @@ description: "Concise description for SEO and navigation"
 
 Never forget to add new files to `docs.json` navigation.
 
-## 4. Navigation Management
+## 5. Navigation management
 
 When adding new documentation:
 
@@ -40,11 +50,18 @@ When adding new documentation:
 3. **Update `docs.json`** to include file in navigation (without `.mdx` extension)
 4. **Test navigation** works in local preview
 
-## 5. Release Notes Workflow
+## 6. Release notes workflow
+
+The documentation has two products with separate release notes:
+
+- **Cloud** — managed blockchain infrastructure (`changelog.mdx` + `changelog/` directory)
+- **Self-Hosted** — deploy on your own infrastructure (`docs/self-hosted/release-notes.mdx` + `docs/self-hosted/changelog/`)
+
+### Cloud release notes
 
 Creating release notes requires three steps:
 
-### Step 1: Update `changelog.mdx`
+#### Step 1: Update `changelog.mdx`
 Copy previous entry within `<Update>` tags and paste on top:
 ```mdx
 <Update label="Chainstack updates: December 31, 2025" description=" by Your Name" >
@@ -55,11 +72,11 @@ Copy previous entry within `<Update>` tags and paste on top:
 </Update>
 ```
 
-### Step 2: Create changelog file
+#### Step 2: Create changelog file
 Create `changelog/chainstack-updates-december-31-2025.mdx` with same content (without `<Update>` tags).
 
-### Step 3: Update navigation
-In `docs.json`, add to `Release notes` section:
+#### Step 3: Update navigation
+In `docs.json`, in the Cloud product's `Release notes` tab, add the newly created file name (without `.mdx`) between `changelog` and the previous release notes entries:
 ```json
 "pages": [
   "changelog",
@@ -68,7 +85,26 @@ In `docs.json`, add to `Release notes` section:
 ]
 ```
 
-## 6. Mintlify Components Usage
+### Self-Hosted release notes
+
+#### Step 1: Update `docs/self-hosted/release-notes.mdx`
+Add a new `<Update>` entry at the top:
+```mdx
+<Update label="Chainstack Self-Hosted v1.0.0: January 28, 2026" description="">
+
+**Initial beta release**. Your update content here.
+
+<Button href="/docs/self-hosted/changelog/chainstack-self-hosted-v1-0-0-january-28-2026">Read more</Button>
+</Update>
+```
+
+#### Step 2: Create changelog file
+Create file in `docs/self-hosted/changelog/` using format `chainstack-self-hosted-v1-0-0-month-day-year.mdx`. The page title should match the label.
+
+#### Step 3: Update navigation
+In `docs.json`, in the Self-Hosted product's `Release notes` tab, add the new changelog page.
+
+## 7. Mintlify components usage
 
 Use appropriate components for content:
 
@@ -86,7 +122,7 @@ Use appropriate components for content:
 | `<Card>`, `<CardGroup>` | Highlighting content |
 | `<Frame>` | Wrapping images with alt text |
 
-## 7. Code Examples
+## 8. Code examples
 
 When adding code examples:
 
@@ -96,7 +132,7 @@ When adding code examples:
 * Include realistic data, not placeholders
 * Use `<RequestExample>` and `<ResponseExample>` for API docs
 
-## 8. Writing Style Guidelines
+## 9. Writing style guidelines
 
 Follow the established style guide:
 
@@ -108,7 +144,7 @@ Follow the established style guide:
 * **Bold UI elements** when referencing them
 * Use `>` for UI clickthrough paths
 
-## 9. API Documentation
+## 10. API documentation
 
 For API reference documentation:
 
@@ -118,7 +154,7 @@ For API reference documentation:
 * Use `<Expandable>` for nested object properties
 * Always include authentication examples
 
-## 10. Image Management
+## 11. Image management
 
 When adding images:
 
@@ -128,21 +164,27 @@ When adding images:
 * Always include alt text
 * Optimize for web (compress large images)
 
-## 11. Master Lists Maintenance
+## 12. Node options master list
 
-The `node-options-master-list.json` is the source of truth for node options. When updating:
+`node-options-master-list.json` is the main file for this Developer Portal where all the available node options are kept up to date. If you need a custom table with whatever options you want, you feed the master list to an LLM and generate your own table.
 
-1. Edit the master list JSON
-2. Regenerate dependent tables:
-   - `nodes-clouds-regions-and-locations.mdx`
-   - `protocols-networks.mdx`
+Relevant tables (updated on every master list change):
+
+- `nodes-clouds-regions-and-locations.mdx`
+- `protocols-networks.mdx`
+
+When updating:
+
+1. Edit `node-options-master-list.json`
+2. Regenerate dependent tables
 3. Verify changes display correctly
 
-## 12. Quality Checklist
+## 13. Quality checklist
 
 Before submitting changes:
 
 - [ ] All code examples tested
+- [ ] Build validated with `mint validate`
 - [ ] Links checked with `mint broken-links`
 - [ ] New files added to `docs.json`
 - [ ] Frontmatter includes title and description
@@ -152,7 +194,7 @@ Before submitting changes:
 - [ ] UI elements are bolded
 - [ ] No Title Case used
 
-## 13. Common Tasks
+## 14. Common tasks
 
 ### Add New Tutorial
 1. Create MDX file in `docs/`
@@ -174,15 +216,18 @@ Before submitting changes:
 3. Include working code snippet
 4. Update `docs.json` navigation
 
-## 14. Development Commands
+## 15. Development commands
 
 | Command | Purpose |
 | ------- | ------- |
 | `mintlify dev` | Start local preview server |
+| `mint validate` | Validate documentation build locally (strict mode) |
 | `mint broken-links` | Check for broken links |
+| `mint a11y` | Check accessibility (color contrast, alt text) |
+| `mint openapi-check <file>` | Validate OpenAPI specifications |
 | `mintlify install` | Re-install dependencies if issues |
 
-## 15. MCP Server Integration
+## 16. MCP server integration
 
 The portal provides an MCP server at `https://docs.chainstack.com/mcp`:
 
@@ -190,17 +235,6 @@ The portal provides an MCP server at `https://docs.chainstack.com/mcp`:
 * It's streamable HTTP (not SSE)
 * Agents can search and navigate all documentation
 * Keep this in mind when structuring content
-
-## 16. IDE Integration
-
-The project has rules for different IDEs:
-
-* **Cursor**: `.cursor/rules/` directory
-* **Windsurf**: `.windsurf/rules/` directory
-* **Kiro**: `.kiro/steering/` directory
-* **Claude Code**: `CLAUDE.md` file
-
-These ensure consistent contributions across different tools.
 
 ## 17. Troubleshooting
 
@@ -222,9 +256,9 @@ mintlify install
 - Ensure `.mdx` extension not included in links
 
 **Mintlify schema validation fail**
-- Make sure you update to the latets Mintlify version in your local dev environment
+- Make sure you update to the latest Mintlify version in your local dev environment
 
-## 18. Important Guidelines
+## 18. Important guidelines
 
 * **Never use Title Case** - always sentence case
 * **Never mix abbreviated and non-abbreviated** date formats
