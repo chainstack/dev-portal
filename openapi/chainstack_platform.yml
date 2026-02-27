@@ -6,7 +6,7 @@ info:
     backgroundColor: "#F5F8FC"
     altText: Chainstack
   title: "\U0001F499 CHAINSTACK PLATFORM API"
-  version: v1
+  version: v2
   contact:
     name: API Support
     email: support@chainstack.com
@@ -810,66 +810,6 @@ paths:
           description: No response body
         '404':
           "$ref": "#/components/responses/NotFoundError"
-  "/v1/marketplace/applications/{slug}/token/":
-    parameters:
-    - "$ref": "#/components/parameters/Slug"
-    post:
-      operationId: retrieveToken
-      summary: Retrieve Application Token
-      description: Retrieve a token required to access a third-party application from
-        Chainstack Marketplace.
-      tags:
-      - Marketplace
-      security:
-      - APIKeyAuthentication: []
-      responses:
-        '200':
-          description: ''
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/AccessToken"
-              examples:
-                token:
-                  value:
-                    access_token: eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJSRy04MzctMzgwIiwiaXNzIjoiY2hhaW5zdGFjayIsImV4cCI6MTY3NTQzNjM0OSwibmJmIjoxNjc1NDMyNjg5LCJpYXQiOjE2NzU0MzI3NDl9.udMCKIV7y6XlNwfsvwwGm47R55yDdw9FeOR_Zb_14oVTi5ipPH3NPiJukB4mBR81aHfr1mIA2wtQM3jf7wDSAw
-        '404':
-          "$ref": "#/components/responses/NotFoundError"
-  "/v1/faucet/goerli":
-    post:
-      operationId: faucetGoerli
-      summary: Goerli Faucet
-      description: Request test tokens.
-      tags:
-      - Faucet
-      requestBody:
-        content:
-          application/json:
-            schema:
-              "$ref": "#/components/schemas/FaucetGoerliRequest"
-            examples:
-              value:
-                value:
-                  address: '0x1111111111111111111111111111111111111111'
-        required: true
-      security:
-      - APIKeyAuthentication: []
-      responses:
-        '200':
-          description: ''
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/FaucetGoerliResponse"
-              examples:
-                value:
-                  value:
-                    amountSent: 500000000000000000
-                    transaction: https://goerli.etherscan.io/tx/0x1111111111111111111111111111111111111111111111111111111111111111
-        '400':
-          "$ref": "#/components/responses/ValidationError"
-        '429':
-          "$ref": "#/components/responses/TooManyRequestsError"
   "/v1/faucet/sepolia":
     post:
       operationId: sepoliaGoerli
@@ -905,6 +845,525 @@ paths:
           "$ref": "#/components/responses/ValidationError"
         '429':
           "$ref": "#/components/responses/TooManyRequestsError"
+  "/v2/deployment-options/":
+    get:
+      operationId: listDeploymentOptions
+      summary: List deployment options
+      description: |
+        List all available deployment options for your organization.
+        Returns the deployable nodes matrix filtered to shared node types on global clouds.
+        Each option includes the blockchain ID, cloud ID, protocol, network, and available features.
+      tags:
+      - Deployment Options
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/DeploymentOptionsResponse"
+              examples:
+                list:
+                  value:
+                    options:
+                    - blockchain: BC-000-000-008
+                      cloud: CC-0016
+                      region: us-east-1
+                      provider: aws
+                      protocol: ethereum
+                      network: ethereum-mainnet
+                      features:
+                      - full
+                    - blockchain: BC-000-000-017
+                      cloud: CC-0016
+                      region: us-east-1
+                      provider: aws
+                      protocol: ethereum
+                      network: ethereum-sepolia-testnet
+                      features:
+                      - full
+                    - blockchain: BC-000-000-015
+                      cloud: CC-0016
+                      region: us-east-1
+                      provider: aws
+                      protocol: solana
+                      network: solana-mainnet
+                      features:
+                      - full
+                    - blockchain: BC-000-000-006
+                      cloud: CC-0016
+                      region: us-east-1
+                      provider: aws
+                      protocol: bsc
+                      network: bsc-mainnet
+                      features:
+                      - full
+                    - blockchain: BC-000-000-010
+                      cloud: CC-0016
+                      region: us-east-1
+                      provider: aws
+                      protocol: polygon-pos
+                      network: polygon-pos-mainnet
+                      features:
+                      - full
+          description: ''
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+  "/v2/projects/":
+    get:
+      operationId: listAllProjectsV2
+      summary: List all projects
+      description: List all projects your organization is part of.
+      parameters:
+      - "$ref": "#/components/parameters/ProjectOrdering"
+      - "$ref": "#/components/parameters/Pagination"
+      - "$ref": "#/components/parameters/OrganizationIdFilter"
+      - "$ref": "#/components/parameters/NameFilter"
+      - "$ref": "#/components/parameters/ProjectTypeFilter"
+      tags:
+      - Project V2
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                - "$ref": "#/components/schemas/Pagination"
+                - type: object
+                  properties:
+                    results:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/Project"
+              examples:
+                list:
+                  value:
+                    count: 1
+                    next:
+                    previous:
+                    results:
+                    - id: PR-123-456-789
+                      name: My project
+                      description: My project description
+                      type: public
+                      members: 0
+                      networks: 1
+                      creator:
+                        id: UR-111-111-111
+                        email: user@example.com
+                        first_name: John
+                        last_name: Smith
+                        organization:
+                          id: RG-123-456
+                          name: My organization
+                      created_at: '2023-01-01T00:00:00.000000Z'
+          description: ''
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+    post:
+      operationId: createProjectV2
+      summary: Create project
+      description: Create a project.
+      tags:
+      - Project V2
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ProjectCreate"
+            examples:
+              project:
+                value:
+                  name: My project
+                  description: My project description
+        required: true
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Project"
+              examples:
+                project:
+                  value:
+                    id: PR-123-456-789
+                    name: My project
+                    description: My project description
+                    type: public
+                    members: 0
+                    networks: 0
+                    creator:
+                      id: UR-111-111-111
+                      email: user@example.com
+                      first_name: John
+                      last_name: Smith
+                      organization:
+                        id: RG-123-456
+                        name: My organization
+                    created_at: '2023-01-01T00:00:00.000000Z'
+          description: ''
+        '400':
+          "$ref": "#/components/responses/ValidationError"
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+  "/v2/projects/{id}/":
+    parameters:
+    - "$ref": "#/components/parameters/Id"
+    get:
+      operationId: retrieveProjectV2
+      summary: Retrieve project
+      description: Retrieve the project details.
+      tags:
+      - Project V2
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Project"
+              examples:
+                project:
+                  value:
+                    id: PR-123-456-789
+                    name: My project
+                    description: My project description
+                    type: public
+                    members: 0
+                    networks: 1
+                    creator:
+                      id: UR-111-111-111
+                      email: user@example.com
+                      first_name: John
+                      last_name: Smith
+                      organization:
+                        id: RG-123-456
+                        name: My organization
+                    created_at: '2023-01-01T00:00:00.000000Z'
+          description: ''
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+        '404':
+          "$ref": "#/components/responses/NotFoundError"
+    patch:
+      operationId: updateProjectV2
+      summary: Update project
+      description: Change project name and project description.
+      tags:
+      - Project V2
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ProjectUpdate"
+            examples:
+              project:
+                value:
+                  name: My updated project
+                  description: Updated description
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Project"
+              examples:
+                project:
+                  value:
+                    id: PR-123-456-789
+                    name: My updated project
+                    description: Updated description
+                    type: public
+                    members: 0
+                    networks: 1
+                    creator:
+                      id: UR-111-111-111
+                      email: user@example.com
+                      first_name: John
+                      last_name: Smith
+                      organization:
+                        id: RG-123-456
+                        name: My organization
+                    created_at: '2023-01-01T00:00:00.000000Z'
+          description: ''
+        '400':
+          "$ref": "#/components/responses/ValidationError"
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+        '404':
+          "$ref": "#/components/responses/NotFoundError"
+    delete:
+      operationId: deleteProjectV2
+      summary: Delete project
+      description: Delete the project.
+      tags:
+      - Project V2
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '204':
+          description: No response body
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+        '404':
+          "$ref": "#/components/responses/NotFoundError"
+  "/v2/nodes/":
+    get:
+      operationId: listAllNodesV2
+      summary: List all nodes
+      description: List all nodes in the networks your organization is part of.
+      parameters:
+      - "$ref": "#/components/parameters/NodeOrdering"
+      - "$ref": "#/components/parameters/Pagination"
+      tags:
+      - Node V2
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                - "$ref": "#/components/schemas/Pagination"
+                - type: object
+                  properties:
+                    results:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/NodeV2"
+              examples:
+                list:
+                  value:
+                    count: 1
+                    next:
+                    previous:
+                    results:
+                    - id: ND-123-456-789
+                      name: My Ethereum node
+                      network: mainnet
+                      protocol: ethereum
+                      project: PR-123-456-789
+                      cloud: CC-0001
+                      region: us-east-1
+                      provider: aws
+                      status: running
+                      details:
+                        api_namespaces:
+                        - net
+                        - eth
+                        - web3
+                        - txpool
+                        - debug
+                        https_endpoint: https://nd-123-456-789.p2pify.com
+                        wss_endpoint: wss://ws-nd-123-456-789.p2pify.com
+                        beacon_endpoint: https://beacon-nd-123-456-789.p2pify.com
+                        graphql_endpoint: https://nd-123-456-789.p2pify.com/graphql
+                      blockchain: BC-000-000
+          description: ''
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+    post:
+      operationId: createNodeV2
+      summary: Create node
+      description: Create a new node in the specified project and blockchain.
+      tags:
+      - Node V2
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/NodeCreateV2"
+            examples:
+              node:
+                value:
+                  name: My Ethereum node
+                  project: PR-123-456-789
+                  cloud: CC-0001
+                  blockchain: BC-000-000
+        required: true
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/NodeV2"
+              examples:
+                node:
+                  value:
+                    id: ND-123-456-789
+                    name: My Ethereum node
+                    network: mainnet
+                    protocol: ethereum
+                    project: PR-123-456-789
+                    cloud: CC-0001
+                    region: us-east-1
+                    provider: aws
+                    status: running
+                    details:
+                      api_namespaces:
+                      - net
+                      - eth
+                      - web3
+                      - txpool
+                      - debug
+                      https_endpoint: https://nd-123-456-789.p2pify.com
+                      wss_endpoint: wss://ws-nd-123-456-789.p2pify.com
+                      beacon_endpoint: https://beacon-nd-123-456-789.p2pify.com
+                      graphql_endpoint: https://nd-123-456-789.p2pify.com/graphql
+                    blockchain: BC-000-000
+          description: ''
+        '400':
+          "$ref": "#/components/responses/ValidationError"
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+  "/v2/nodes/{id}/":
+    parameters:
+    - "$ref": "#/components/parameters/Id"
+    get:
+      operationId: retrieveNodeV2
+      summary: Retrieve node
+      description: Retrieve node details.
+      tags:
+      - Node V2
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/NodeV2"
+              examples:
+                node:
+                  value:
+                    id: ND-123-456-789
+                    name: My Ethereum node
+                    network: mainnet
+                    protocol: ethereum
+                    project: PR-123-456-789
+                    cloud: CC-0001
+                    region: us-east-1
+                    provider: aws
+                    status: running
+                    details:
+                      api_namespaces:
+                      - net
+                      - eth
+                      - web3
+                      - txpool
+                      - debug
+                      https_endpoint: https://nd-123-456-789.p2pify.com
+                      wss_endpoint: wss://ws-nd-123-456-789.p2pify.com
+                      beacon_endpoint: https://beacon-nd-123-456-789.p2pify.com
+                      graphql_endpoint: https://nd-123-456-789.p2pify.com/graphql
+                    blockchain: BC-000-000
+          description: ''
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+        '404':
+          "$ref": "#/components/responses/NotFoundError"
+    patch:
+      operationId: updateNodeV2
+      summary: Update node
+      description: Change the node name.
+      tags:
+      - Node V2
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/NodeUpdateV2"
+            examples:
+              node:
+                value:
+                  name: My new node name
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/NodeV2"
+              examples:
+                node:
+                  value:
+                    id: ND-123-456-789
+                    name: My new node name
+                    network: mainnet
+                    protocol: ethereum
+                    project: PR-123-456-789
+                    cloud: CC-0001
+                    region: us-east-1
+                    provider: aws
+                    status: running
+                    details:
+                      api_namespaces:
+                      - net
+                      - eth
+                      - web3
+                      - txpool
+                      - debug
+                      https_endpoint: https://nd-123-456-789.p2pify.com
+                      wss_endpoint: wss://ws-nd-123-456-789.p2pify.com
+                      beacon_endpoint: https://beacon-nd-123-456-789.p2pify.com
+                      graphql_endpoint: https://nd-123-456-789.p2pify.com/graphql
+                    blockchain: BC-000-000
+          description: ''
+        '400':
+          "$ref": "#/components/responses/ValidationError"
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+        '404':
+          "$ref": "#/components/responses/NotFoundError"
+    delete:
+      operationId: deleteNodeV2
+      summary: Delete node
+      description: Delete the node.
+      tags:
+      - Node V2
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '204':
+          description: No response body
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+        '404':
+          "$ref": "#/components/responses/NotFoundError"
 components:
   securitySchemes:
     APIKeyAuthentication:
@@ -2218,30 +2677,6 @@ components:
             readOnly: true
           network:
             readOnly: true
-    AccessToken:
-      type: object
-      description: Token required to access an application from Chainstack Marketplace.
-      readOnly: true
-      properties:
-        access_token:
-          type: string
-          readOnly: true
-          description: Token required to access an application from Chainstack Marketplace.
-    FaucetGoerliRequest:
-      type: object
-      properties:
-        address:
-          type: string
-          description: Address to send tokens to.
-    FaucetGoerliResponse:
-      type: object
-      properties:
-        amountSent:
-          type: number
-          description: Amount sent.
-        transaction:
-          type: string
-          description: Transaction details URL.
     FaucetSepoliaRequest:
       type: object
       properties:
@@ -2257,6 +2692,144 @@ components:
         transaction:
           type: string
           description: Transaction details URL.
+    DeploymentOption:
+      type: object
+      description: A single deployable node option.
+      properties:
+        blockchain:
+          type: string
+          description: The unique identifier of the blockchain configuration.
+          example: BC-000-000-008
+        cloud:
+          type: string
+          description: The unique identifier of the cloud provider.
+          example: CC-0016
+        region:
+          type: string
+          description: Cloud region identifier.
+          example: us-east-1
+        provider:
+          type: string
+          description: Cloud provider name.
+          example: aws
+        protocol:
+          type: string
+          description: The blockchain protocol name.
+          example: ethereum
+        network:
+          type: string
+          description: The network name.
+          example: ethereum-mainnet
+        features:
+          type: array
+          description: List of available features for this deployment option.
+          items:
+            type: string
+          example:
+          - full
+      required:
+      - blockchain
+      - cloud
+      - region
+      - provider
+      - protocol
+      - network
+      - features
+    DeploymentOptionsResponse:
+      type: object
+      description: Response containing the list of available deployment options.
+      properties:
+        options:
+          type: array
+          description: List of available deployment options.
+          items:
+            "$ref": "#/components/schemas/DeploymentOption"
+      required:
+      - options
+    NodeV2:
+      type: object
+      required:
+      - id
+      - name
+      - network
+      - protocol
+      - project
+      - cloud
+      - region
+      - provider
+      - status
+      - details
+      - blockchain
+      properties:
+        id:
+          type: string
+          readOnly: true
+        name:
+          type: string
+          description: Name of the node.
+        network:
+          type: string
+          readOnly: true
+          description: Network name.
+        protocol:
+          type: string
+          readOnly: true
+          description: Protocol name.
+        project:
+          type: string
+          description: ID of the project.
+        cloud:
+          type: string
+          description: ID of the cloud.
+        region:
+          type: string
+          readOnly: true
+          description: Cloud region.
+        provider:
+          type: string
+          readOnly: true
+          description: Cloud provider.
+        status:
+          type: string
+          readOnly: true
+          description: Status of the node.
+        details:
+          type: object
+          readOnly: true
+          description: Protocol-specific attributes.
+        blockchain:
+          type: string
+          description: Blockchain identifier.
+          example: BC-000-000
+    NodeCreateV2:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Name of the node.
+        project:
+          type: string
+          description: ID of the project.
+          example: PR-123-123
+        cloud:
+          type: string
+          description: ID of the cloud.
+          example: CC-0016
+        blockchain:
+          type: string
+          description: Blockchain identifier.
+          example: BC-000-000
+      required:
+      - name
+      - project
+      - cloud
+      - blockchain
+    NodeUpdateV2:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Name of the node.
   responses:
     ValidationError:
       description: Validation error.
@@ -2281,6 +2854,38 @@ components:
                       items:
                         type: string
                     description: Optional. Field-level validation errors.
+    UnauthorizedError:
+      description: Authentication credentials were missing or incorrect.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    description: A string indicating the kind of error.
+                  message:
+                    type: string
+                    description: A human-readable description of the error.
+    ForbiddenError:
+      description: The request is not allowed with the current permissions.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  code:
+                    type: string
+                    description: A string indicating the kind of error.
+                  message:
+                    type: string
+                    description: A human-readable description of the error.
     NotFoundError:
       description: Object does not exist or caller has insufficient permissions to
         access it.
@@ -2507,13 +3112,6 @@ components:
         and Tezos nodes by the archive mode flag.
       schema:
         type: boolean
-    Slug:
-      name: slug
-      in: path
-      required: true
-      description: A unique value identifying the marketplace application.
-      schema:
-        type: string
   examples:
     PublicProjectCreate:
       value:
