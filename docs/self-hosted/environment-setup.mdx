@@ -1,0 +1,165 @@
+---
+title: "Environment setup"
+description: "Set up Kubernetes and required tools for Chainstack Self-Hosted"
+---
+
+This page walks you through preparing a Linux server for Chainstack Self-Hosted. By the end, you will have a running Kubernetes cluster and all required command-line tools installed.
+
+For hardware and software specifications, see [System requirements](/docs/self-hosted/requirements).
+
+## Install Kubernetes (k3s)
+
+k3s is a lightweight Kubernetes distribution suitable for single-server deployments. Other distributions (k8s, EKS, GKE, AKS) are also supported, but k3s is what's tested and documented.
+
+```bash
+# Install k3s
+curl -sfL https://get.k3s.io | sh -
+
+# Configure kubectl to use k3s
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
+# Make the configuration persistent
+echo 'KUBECONFIG=/etc/rancher/k3s/k3s.yaml' >> /etc/environment
+
+# Verify the cluster is running
+kubectl cluster-info
+kubectl get nodes
+```
+
+You should see output indicating the cluster is running and your node is in `Ready` state.
+
+## Install required tools
+
+### Helm
+
+Helm is the package manager used to deploy Chainstack Self-Hosted.
+
+```bash
+# Install prerequisites
+apt update
+apt install curl gpg wget apt-transport-https --yes
+
+# Add the Helm repository and install
+curl -fsSL https://packages.buildkite.com/helm-linux/helm-debian/gpgkey | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
+echo "deb [signed-by=/usr/share/keyrings/helm.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
+apt update
+apt install helm --yes
+
+# Verify
+helm version
+```
+
+### yq
+
+The installer uses yq (mikefarah version) to process YAML configuration files.
+
+```bash
+# Download and install yq
+wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq
+chmod +x /usr/local/bin/yq
+
+# Verify (v4+ required)
+yq --version
+```
+
+### openssl
+
+openssl is used during installation to generate certificates and RSA keys. It is pre-installed on most Linux distributions.
+
+```bash
+# Verify
+openssl version
+```
+
+If openssl is not installed, install it with your package manager:
+
+```bash
+apt install openssl --yes
+```
+
+## Configure storage
+
+### Default storage (single disk)
+
+If your server uses a single disk, the default k3s `local-path` storage class works out of the box. No additional configuration is needed.
+
+```bash
+# Verify the storage class is available
+kubectl get storageclass
+```
+
+### Multi-disk storage with TopoLVM
+
+If you have multiple disks available for blockchain node data, set up LVM and TopoLVM for dynamic storage provisioning.
+
+#### Set up LVM
+
+```bash
+# Install LVM tools
+apt install lvm2 --yes
+
+# Find your disk devices
+lsblk
+
+# Create physical volumes (replace with your actual disk devices)
+pvcreate /dev/sdb /dev/sdc /dev/sdd
+
+# Create volume group
+vgcreate myvg1 /dev/sdb /dev/sdc /dev/sdd
+```
+
+<Note>
+Device paths vary by provider. The paths `/dev/sdb`, `/dev/sdc`, `/dev/sdd` are examples. On DigitalOcean, volumes appear under `/dev/disk/by-id/`. On AWS, they may be `/dev/nvme1n1`, `/dev/nvme2n1`, etc. Always verify your actual device paths with `lsblk` before creating physical volumes.
+</Note>
+
+#### Install TopoLVM
+
+```bash
+# Add the TopoLVM Helm repository
+helm repo add topolvm https://topolvm.github.io/topolvm
+helm repo update
+
+# Create namespace and install cert-manager (required by TopoLVM)
+kubectl create namespace topolvm-system
+CERT_MANAGER_VERSION=v1.17.4
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.crds.yaml
+
+# Install TopoLVM
+helm install --namespace=topolvm-system topolvm topolvm/topolvm --set cert-manager.enabled=true
+
+# Check storage classes
+kubectl get storageclass
+```
+
+#### Set TopoLVM as the default storage class
+
+```bash
+# Remove default from local-path
+kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}'
+
+# Set TopoLVM as default
+kubectl patch storageclass topolvm-provisioner -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+
+# Verify
+kubectl get storageclass
+```
+
+## Verify your environment
+
+Run these commands to confirm everything is in place before proceeding to [Installation](/docs/self-hosted/installation):
+
+```bash
+# Kubernetes cluster
+kubectl cluster-info
+kubectl get nodes
+
+# Required tools
+helm version
+yq --version
+openssl version
+
+# Storage class
+kubectl get storageclass
+```
+
+All commands should complete without errors. Your node should show `Ready` status, and at least one storage class should be listed.
