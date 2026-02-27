@@ -144,7 +144,45 @@ Ensure the port is open on your server and check cloud provider security groups 
 
 ### Login fails with valid credentials
 
-Correct credentials result in login failure.
+The login page loads and accepts credentials, but shows "Login failed".
+
+#### Backend URL points to in-cluster address
+
+This is the most common cause. The UI is configured to reach the deployments API at an in-cluster URL that your browser cannot resolve.
+
+1. Check the configured backend URL:
+
+   ```bash
+   kubectl get configmap cp-cp-ui-config -n control-panel -o jsonpath='{.data.config\.json}'
+   ```
+
+   If the output shows `{"apiBaseUrl":"http://cp-cp-deployments-api"}`, the UI is using the in-cluster URL.
+
+2. Patch the configmap to use your server's external address:
+
+   ```bash
+   kubectl patch configmap cp-cp-ui-config -n control-panel \
+     --type merge \
+     -p '{"data":{"config.json":"{\"apiBaseUrl\":\"http://<SERVER-IP>:8081\"}"}}'
+   ```
+
+3. Restart the UI pod to pick up the change:
+
+   ```bash
+   kubectl rollout restart deployment cp-cp-ui -n control-panel
+   ```
+
+4. Expose the deployments API on port 8081:
+
+   ```bash
+   kubectl port-forward svc/cp-cp-deployments-api 8081:8080 -n control-panel --address 0.0.0.0 &
+   ```
+
+5. Hard-refresh the login page and try again.
+
+<Note>
+This happens when the installer runs with `--yes` or when you press Enter at the backend URL prompt, accepting the in-cluster default. The in-cluster URL works for pod-to-pod communication but is not reachable from a browser outside the cluster.
+</Note>
 
 #### Check auth service
 
@@ -163,7 +201,7 @@ kubectl logs cp-keycloak-0 -n control-panel
 #### Verify credentials from values file
 
 ```bash
-cat ~/.config/cp-suite/values/cp-*.yaml | grep BOOTSTRAP
+grep BOOTSTRAP ~/.config/cp-suite/values/cp-*.yaml
 ```
 
 ## Node deployment troubleshooting
@@ -262,10 +300,10 @@ This destroys all data. Only use as last resort.
 
 ```bash
 # Uninstall completely
-./cpctl uninstall
+cpctl uninstall
 
 # Reinstall
-./cpctl install -v v1.0.0
+cpctl install -v v1.0.0
 ```
 
 ### Recover from database issues
@@ -287,7 +325,7 @@ If you cannot resolve an issue, check the [FAQ](/docs/self-hosted/faq) for known
 ### Gather diagnostic information
 
 ```bash
-./cpctl status > diagnostic.txt
+cpctl status > diagnostic.txt
 kubectl get events -n control-panel >> diagnostic.txt
 timestamp=\$(date +%s)
 touch debug-\$timestamp.txt

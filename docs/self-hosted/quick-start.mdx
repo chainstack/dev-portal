@@ -29,7 +29,7 @@ This example uses a dedicated server from Contabo running Ubuntu 22.04, but the 
 
 <Step title="Install required tools">
 
-Connect to your server via SSH and install the required dependencies:
+Connect to your server via SSH and install the required dependencies. For detailed instructions, see [Environment setup](/docs/self-hosted/environment-setup).
 
 ```bash
 # Update package lists
@@ -42,7 +42,7 @@ apt install curl gpg wget apt-transport-https --yes
 curl -fsSL https://packages.buildkite.com/helm-linux/helm-debian/gpgkey | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
 echo "deb [signed-by=/usr/share/keyrings/helm.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main" | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
 apt update
-apt install helm
+apt install helm --yes
 
 # Install yq (mikefarah version)
 wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq
@@ -57,7 +57,7 @@ yq --version
 
 <Step title="Install Kubernetes (k3s)">
 
-k3s is a lightweight Kubernetes distribution that's easy to install and suitable for single-server deployments:
+k3s is a lightweight Kubernetes distribution that's easy to install and suitable for single-server deployments. For detailed instructions, see [Environment setup](/docs/self-hosted/environment-setup).
 
 ```bash
 # Install k3s
@@ -80,7 +80,7 @@ You should see output indicating the cluster is running and your node is in Read
 
 <Step title="Configure storage (optional but recommended)">
 
-If you have multiple disks available for blockchain node data, set up LVM and TopoLVM for dynamic storage provisioning:
+If you have multiple disks available for blockchain node data, set up LVM and TopoLVM for dynamic storage provisioning. For detailed instructions, see [Environment setup](/docs/self-hosted/environment-setup).
 
 ```bash
 # Install LVM tools
@@ -88,7 +88,6 @@ apt install lvm2
 
 # Find your disk devices (paths vary by provider)
 lsblk
-ls -la /dev/disk/by-id/
 
 # Create physical volumes (replace with your actual disk devices)
 pvcreate /dev/sdb /dev/sdc /dev/sdd
@@ -156,63 +155,57 @@ The installer will:
 1. Check prerequisites (kubectl, helm, yq, openssl, cluster access)
 2. Generate secure passwords for all services
 3. Save the credentials to `~/.config/cp-suite/values/`
-4. Deploy the full stack (PostgreSQL, Temporal, Keycloak, Control Panel services)
-5. Prompt for the backend API URL. Use the default (`http://cp-cp-deployments-api`) for in-cluster access, or specify an external URL (e.g., `http://<SERVER-PUBLIC-IP>:8081`) if accessing from outside the cluster.
+4. Prompt for the backend API URL. Use the default (`http://cp-cp-deployments-api`) for in-cluster access, or specify an external URL (e.g., `http://<SERVER-PUBLIC-IP>:8081`) if accessing from outside the cluster.
+5. Show a summary and ask you to confirm before deploying
 
 The installation typically takes 5–10 minutes. You'll see output similar to:
 
 ```text
-==> Checking prerequisites...
-[OK] Helm v3 found
-[OK] yq v4+ found
-[OK] Cluster access verified
-[OK] All prerequisites met
+→ Validating prerequisites...
+✓ Checking kubectl installation
+✓ Checking helm installation
+✓ Checking helm version (v3+ required)
+✓ Checking Kubernetes cluster connectivity
+✓ All prerequisites validated successfully
 
-[INFO] Generating secure passwords...
-[INFO] Generating RSA keys for JWT authentication...
-[OK] Generated password values and RSA keys
-[OK] Values saved to: /root/.config/cp-suite/values/cp-control-panel-20260108-113656.yaml
-[WARN] Keep this file secure - it contains passwords
+==> Generating credentials for basic installation
+→ Generating secure passwords...
+→ Generating RSA keys for JWT authentication...
+→ Saving credentials to config directory...
+✓ Credentials saved: /root/.config/cp-suite/values/cp-control-panel-<timestamp>.yaml
+✓ Storage class "local-path" validated
 
-==> Installing Control Panel
-[INFO] Chart: oci://asia-southeast1-docker.pkg.dev/prod-chainstack/public-cp-helm-charts/cp-distributed
-[INFO] Version: v1.0.0
-[INFO] Release: cp
-[INFO] Namespace: control-panel
-...
-[OK] Control Panel installed successfully!
-[INFO] Run 'cp-install.sh status' to check deployment status
+==> About to install Control Panel
+  Version: v1.1.3
+  Namespace: control-panel
+  Release: cp
+  Timeout: 15m0s
+
+Do you want to proceed? [y/N]: y
 ```
 
 </Step>
 
 <Step title="Verify the installation">
 
-Check that all pods are running:
-
-```bash
-./cpctl status
-```
-
-All pods should show `Running` or `Completed` status:
+The installer shows a live progress table during deployment. Once complete, you should see:
 
 ```text
-==> Pod Status
+✓ Installation completed successfully in 6m5s
+✓ Installation completed successfully
+```
 
-NAME                                      READY   STATUS      RESTARTS   AGE
-cp-cp-auth-78954d5689-879xg               1/1     Running     0          5m
-cp-cp-deployments-api-7f9f79d6d9-97v49    1/1     Running     0          5m
-cp-cp-ui-77d857d877-rx55q                 1/1     Running     0          5m
-cp-cp-workflows-8c9c94966-pvnnd           1/1     Running     0          5m
-cp-keycloak-0                             1/1     Running     0          5m
-cp-pg-pgpool-7df85c9c48-qkqwx             1/1     Running     0          5m
-cp-pg-postgresql-0                        1/1     Running     0          5m
-cp-temporal-admintools-7b47497b94-z47rz   1/1     Running     0          5m
-cp-temporal-frontend-845cfd4764-t9q8p     1/1     Running     0          5m
-cp-temporal-history-69858cdd5d-kv6hl      1/1     Running     0          5m
-cp-temporal-matching-5c486486f5-7zrbw     1/1     Running     0          5m
-cp-temporal-web-67b7976d8f-c4sgk          1/1     Running     0          5m
-cp-temporal-worker-695f948b96-t5p5x       1/1     Running     0          5m
+You can also check the status at any time:
+
+```bash
+cpctl status
+```
+
+Look for the healthy status at the bottom of the output:
+
+```text
+Overall Status: ✓ Healthy
+Reason: All components ready
 ```
 
 </Step>
@@ -254,20 +247,22 @@ You should see the Chainstack Self-Hosted login page.
 
 <Step title="Find your login credentials">
 
-Your initial login credentials were generated during installation and saved to the values file:
+The installer displays the username and a command to retrieve the password at the end of the installation:
 
-```bash
-# Find the saved values file
-ls ~/.config/cp-suite/values/
+```text
+==> Retrieving Bootstrap Admin Credentials
 
-# View the bootstrap password
-cat ~/.config/cp-suite/values/cp-control-panel-*.yaml | grep CP_AUTH_BOOTSTRAP_PASSWORD
+→ Username: admin
+→ To retrieve the bootstrap password, run:
+
+  yq '.cp-auth.env.CP_AUTH_BOOTSTRAP_PASSWORD' "/root/.config/cp-suite/values/cp-control-panel-<timestamp>.yaml"
 ```
 
-Look for these values:
+Run the `yq` command from the output to get your password:
 
-- **Username:** `admin` (default)
-- **Password:** Value of `CP_AUTH_BOOTSTRAP_PASSWORD`
+```bash
+yq '.cp-auth.env.CP_AUTH_BOOTSTRAP_PASSWORD' /root/.config/cp-suite/values/cp-control-panel-*.yaml
+```
 
 </Step>
 
