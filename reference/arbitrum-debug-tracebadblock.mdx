@@ -1,0 +1,73 @@
+---
+title: debug_traceBadBlock | Arbitrum
+openapi: /openapi/arbitrum_node_api/debug_and_trace/debug_traceBadBlock.json POST /66f812de2a6724a75a51f60dd6f2a154
+---
+
+Arbitrum API method that traces all transactions in a block that has been marked as "bad" by the node. Bad blocks are blocks that failed validation during import. This method works similarly to `debug_traceBlockByHash` but looks up the block from the bad blocks cache instead of the canonical chain. It is primarily used for diagnosing why a block was rejected.
+
+<Note>
+Learn how to [deploy a node](/docs/debug-and-trace-apis#arbitrum) with the debug and trace API methods enabled.
+</Note>
+
+<Warning>
+This method is available for post-Nitro blocks only (block 22,207,815 and later). For pre-Nitro blocks, use the `arbtrace_*` methods instead.
+</Warning>
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `hash` — the hash of the bad block to trace.
+* `object` — (optional) an object identifying the type of tracer and its configuration:
+  + `tracer` — the name of the tracer to use (`callTracer`, `prestateTracer`, `4byteTracer`, or a custom JS tracer).
+  + `timeout` — the timeout for the tracing operation. Defaults to `5s`.
+  + `reexec` — the number of blocks to re-execute to reconstruct historical state. Defaults to 128.
+
+## Response
+
+* `result` — an array of trace results, one per transaction in the block:
+  + `txHash` — the hash of the transaction.
+  + `result` — the trace output for the transaction (format depends on the tracer used).
+  + `error` — an error message if the transaction trace failed.
+
+## `debug_traceBadBlock` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "YOUR_CHAINSTACK_ENDPOINT";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const debugTraceBadBlock = async (blockHash) => {
+  const result = await provider.send("debug_traceBadBlock", [
+    blockHash,
+    { tracer: "callTracer" }
+  ]);
+  console.log(result);
+};
+
+debugTraceBadBlock("0x0000000000000000000000000000000000000000000000000000000000000000");
+```
+
+```python web3.py
+from web3 import Web3
+node_url = "YOUR_CHAINSTACK_ENDPOINT"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+block_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+result = web3.provider.make_request('debug_traceBadBlock', [block_hash, {"tracer": "callTracer"}])
+print(result)
+```
+</CodeGroup>
+
+
+## Use case
+
+The `debug_traceBadBlock` method is essential for diagnosing block validation failures. When a node rejects a block, this method allows developers and node operators to re-execute and trace the transactions in the rejected block to identify the specific transaction or state transition that caused the validation failure. This is particularly useful for debugging consensus issues and understanding chain reorganization events.
