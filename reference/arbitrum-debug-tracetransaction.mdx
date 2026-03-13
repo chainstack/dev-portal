@@ -1,0 +1,119 @@
+---
+title: debug_traceTransaction | Arbitrum
+openapi: /openapi/arbitrum_node_api/debug_and_trace/debug_traceTransaction.json POST /66f812de2a6724a75a51f60dd6f2a154
+---
+
+Arbitrum API method that returns a transaction's traces by replaying it. This method provides a detailed breakdown of every step in the execution of a transaction, including gas usage and opcode output. It accurately simulates the transaction's execution path by replaying any prior transactions, making it a powerful tool for developers to identify and diagnose issues.
+
+<Note>
+Learn how to [deploy a node](/docs/debug-and-trace-apis#arbitrum) with the debug and trace API methods enabled.
+</Note>
+
+<Warning>
+This method is available for post-Nitro blocks only (block 22,207,815 and later). For pre-Nitro transactions, use [`arbtrace_transaction`](/reference/arbitrum-arbtrace-transaction) instead.
+
+Arbitrum does not support the `trace_*` namespace (e.g., `trace_transaction`). Use `debug_traceTransaction` for post-Nitro blocks or `arbtrace_transaction` for pre-Nitro blocks.
+</Warning>
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `hash` — the hash identifying a transaction.
+* `object` — (optional) an object identifying the type of tracer and its configuration:
+  + `4byteTracer` — tracer that captures the function signatures and call data sizes for all functions executed during a transaction, creating a map that links each selector and size combination to the number of times it occurred.
+  + `callTracer` — tracer that captures information on all call frames executed during a transaction. The resulting nested list of call frames is organized into a tree structure that reflects the way the EVM works and can be used for debugging and analysis purposes.
+  + `prestateTracer` — tracer with two modes: `prestate` and `diff`, where the former returns the accounts needed to execute a transaction, and the latter returns the differences between the pre and post-states of the transaction.
+
+<Note>
+Find a complete [list of available built-in tracers](/reference/arbitrum-debug-and-trace-rpc-methods#pre-built-tracers) in the debug and trace overview.
+</Note>
+
+
+You can also use additional configuration parameters:
+
+* `disableStorage` — when enabled, prevents tracing of storage changes made by the transaction.
+* `disableStack` — when enabled, skips tracing of stack changes.
+* `enableMemory` — when `false`, prevents tracing of memory changes.
+* `enableReturnData` — when `false`, prevents tracing of return data.
+* `timeout` — timeout period for JavaScript-based tracing calls. Default is `5s`. See [Go time format](https://pkg.go.dev/time#ParseDuration) for accepted values.
+
+<Note>
+When using one of the built-in tracers, the `enableMemory`, `disableStorage`, `disableStack`, and `enableReturnData` settings will not have any effect.
+
+When no built-in tracer is selected, the response defaults to the Struct/opcode logger.
+</Note>
+
+
+## Response types
+
+### `callTracer` response
+
+* `object` — the `callTracer` traces object:
+  + `from` — the address of the sender who initiated the transaction.
+  + `gas` — the units of gas included in the transaction by the sender.
+  + `gasUsed` — the total used gas by the call, encoded as hexadecimal.
+  + `to` — the address of the recipient of the transaction if it was a transaction to an address. For contract creation transactions, this field is `null`.
+  + `input` — the optional input data sent with the transaction.
+  + `output` — the return value of the call, encoded as a hexadecimal string.
+  + `error` — an error message in case the execution failed.
+  + `revertReason` — the reason why the transaction was reverted, returned by the smart contract if any.
+  + `calls` — a list of sub-calls made by the contract during the call, each represented as a nested call frame object.
+
+### `4byteTracer` response
+
+* `object` — the `4byteTracer` traces object:
+  + `result` — a map of the function signature, the call data size, and how many times the function was called.
+
+### `prestateTracer` response
+
+* `object` — the `prestateTracer` traces object:
+  + `smart contract address` — the address of the smart contract associated with the result.
+    - `balance` — the balance of the contract, expressed in Wei and encoded as a hexadecimal string.
+    - `code` — the bytecode of the contract, encoded as a hexadecimal string.
+    - `nonce` — the nonce of the account associated with the contract, represented as an unsigned integer.
+    - `storage` — a map of key-value pairs representing the storage slots of the contract.
+
+## `debug_traceTransaction` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "YOUR_CHAINSTACK_ENDPOINT";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const traceTransaction = async (txHash) => {
+  // Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer
+  const tracer = { tracer: "callTracer" };
+  const traces = await provider.send("debug_traceTransaction", [txHash, tracer]);
+  console.log(traces);
+};
+
+traceTransaction("0x2cb57e963111cf4d231ec8f66f0eb7a964f10625c2749bf8571d35332fd326c0");
+```
+
+```python web3.py
+from web3 import Web3
+node_url = "YOUR_CHAINSTACK_ENDPOINT"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+tx_hash = "0x2cb57e963111cf4d231ec8f66f0eb7a964f10625c2749bf8571d35332fd326c0"
+
+# Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer
+tracer = {"tracer": "callTracer"}
+tx_traces = web3.provider.make_request('debug_traceTransaction', [tx_hash, tracer])
+print(tx_traces)
+```
+</CodeGroup>
+
+
+## Use case
+
+A practical use case for the `debug_traceTransaction` method is to inspect failed transactions on the Arbitrum blockchain by using the built-in `callTracer` to extract the error and revert reason. By tracing a failed transaction, developers can identify exactly where and why the execution reverted, which is essential for debugging smart contract interactions.
