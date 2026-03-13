@@ -1,0 +1,91 @@
+---
+title: debug_accountRange | Arbitrum
+openapi: /openapi/arbitrum_node_api/debug_and_trace/debug_accountRange.json POST /66f812de2a6724a75a51f60dd6f2a154
+---
+
+Arbitrum API method that enumerates all accounts at a given block with paging capability. This method returns a range of accounts stored in the state trie, providing account details such as balance, nonce, code hash, and storage. It is useful for state inspection and debugging purposes.
+
+<Note>
+Learn how to [deploy a node](/docs/debug-and-trace-apis#arbitrum) with the debug and trace API methods enabled.
+</Note>
+
+<Warning>
+This method is available for post-Nitro blocks only (block 22,207,815 and later). For pre-Nitro blocks, use the `arbtrace_*` methods instead.
+</Warning>
+
+<Check>
+**Get you own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+* `blockNrOrHash` — the block number in hex format or block tag (`latest`, `earliest`, `pending`, `safe`, `finalized`), or block hash.
+* `start` — the start key hash for pagination, encoded as hex bytes. Use `0x0000000000000000000000000000000000000000000000000000000000000000` to start from the beginning.
+* `maxResults` — the maximum number of accounts to return. Capped at 256.
+* `nocode` — if `true`, excludes contract bytecode from the result.
+* `nostorage` — if `true`, excludes storage data from the result.
+* `incompletes` — if `true`, includes accounts without known addresses.
+
+## Response
+
+* `result` — an object containing the state dump:
+  + `root` — the state root hash of the block.
+  + `accounts` — a map of account addresses to account data:
+    - `balance` — the account balance in Wei.
+    - `nonce` — the account nonce.
+    - `root` — the storage root hash.
+    - `codeHash` — the hash of the account's contract code.
+    - `code` — the contract bytecode (omitted if `nocode` is `true`).
+    - `storage` — the account's storage slots (omitted if `nostorage` is `true`).
+    - `address` — the account address.
+  + `next` — the next key hash for pagination. Use this value as the `start` parameter in the next call to continue iterating.
+
+## `debug_accountRange` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "YOUR_CHAINSTACK_ENDPOINT";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const debugAccountRange = async () => {
+  const result = await provider.send("debug_accountRange", [
+    "latest",
+    "0x0000000000000000000000000000000000000000000000000000000000000000",
+    10,
+    true,
+    true,
+    false
+  ]);
+  console.log(result);
+};
+
+debugAccountRange();
+```
+
+```python web3.py
+from web3 import Web3
+node_url = "YOUR_CHAINSTACK_ENDPOINT"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+result = web3.provider.make_request('debug_accountRange', [
+    "latest",
+    "0x0000000000000000000000000000000000000000000000000000000000000000",
+    10,
+    True,
+    True,
+    False
+])
+print(result)
+```
+</CodeGroup>
+
+
+## Use case
+
+The `debug_accountRange` method is useful for building state explorers and performing state audits. By paginating through all accounts at a specific block, developers can analyze the distribution of balances, identify contracts, and inspect the state trie structure. The pagination support via the `start` and `next` parameters allows iterating over the full account set without loading the entire state into memory.
