@@ -53,7 +53,11 @@ The method's response is structured as an array of objects, with each object she
 
 Below is a practical demonstration of a simple `getRecentPrioritizationFees` request using cURL.
 
-This example uses the Jupiter aggregator as a reference point, meaning the fees reflect those pertinent to that specific DApp.
+This example queries the Orca Whirlpool SOL-USDC pool state account — a writable state account that competing swap transactions lock. Pass writable state accounts (pool state, reserves, user token accounts) for meaningful results.
+
+<Warning>
+Do not pass program IDs (Jupiter, Raydium, pump.fun, etc.) to this method. Programs are executable and read-only in user transactions, so they are not present in the per-account writable fee map. Passing a program ID returns near-empty data and gives a misleading picture of recent fees.
+</Warning>
 
 <CodeGroup>
   ```solidity solidity
@@ -68,7 +72,7 @@ This example uses the Jupiter aggregator as a reference point, meaning the fees 
     "method": "getRecentPrioritizationFees",
     "params": [
       [
-        "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
+        "HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ"
       ]
     ]
   }
@@ -89,6 +93,10 @@ This project will provide various priority fee measurements based on the `getRec
 * Average Prioritization Fee, including slots with zero fees.
 * Average Prioritization Fee excluding slots with zero fees.
 * Median Prioritization Fee excluding slots with zero fees.
+
+<Warning>
+Each value returned by `getRecentPrioritizationFees` is the floor for that slot — the cheapest fee paid by any transaction writing to your supplied accounts. Computing the average or median therefore gives you the average or median *floor*, not the average or median fee actually paid. To produce a competitive bid, take the maximum of non-zero values (or a high percentile like p95) over the 150-slot window and multiply by an urgency factor — typically 1.5x for normal load, 3x or higher when racing against other transactions for the same accounts.
+</Warning>
 
 ### Environment setup
 
@@ -269,7 +277,7 @@ Now that we have set up the project, installed the required packages, and config
           const SOLANA_RPC = getEnvVariable('SOLANA_RPC');
           const connection = new Connection(SOLANA_RPC);
 
-          const publicKey = new PublicKey('JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4');
+          const publicKey = new PublicKey('HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ');
 
           const config: Config = {
               lockedWritableAccounts: [publicKey]
@@ -380,7 +388,7 @@ Now that we have the code and understand how it works, it’s time to run it. Yo
 
 <CodeGroup>
   ```typescript TypeScript
-  const publicKey = new PublicKey('JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4');
+  const publicKey = new PublicKey('HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ');
 
   const config: Config = {
       lockedWritableAccounts: [publicKey]

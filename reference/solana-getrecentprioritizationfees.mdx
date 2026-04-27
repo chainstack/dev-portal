@@ -31,12 +31,27 @@ You can sign up with your GitHub, Twitter, Google, or Microsoft account.
 The response is an array of objects, where each object represents a prioritization fee observed in a recent slot (block). Each object has the following properties:
 
 * `slot` (u64) — the slot where the transactions associated with the prioritization fees were processed.
-* `prioritizationFee` (u64) — the fee in micro-lamports **per compute unit** paid by at least one transaction within the specified slot to achieve prioritized processing.
+* `prioritizationFee` (u64) — the per-compute-unit fee in micro-lamports. With no `params`, this is the minimum prioritization fee observed across all transactions in the slot. With `params`, this is the maximum across the supplied accounts of each account's minimum writable-account fee for that slot — that is, the floor fee for the most expensive of your accounts in that slot.
 
 The node's prioritization-fee cache stores data from the most recent 150 blocks.
 
-When account addresses are provided, the response reflects fees observed for transactions that locked **all** of the supplied accounts as writable simultaneously — not just any of them. If you omit the `params` array entirely, the response returns unfiltered samples across all transactions.
+### How the account filter works
+
+For each slot in the cache, the node:
+
+1. Looks up the minimum fee paid by any transaction that wrote to each supplied account that slot.
+2. Returns the maximum of those per-account minimums.
+
+The returned value is a floor — the cheapest fee that landed while writing to the most expensive of your accounts that slot — not a typical or competitive fee.
+
+If you omit the `params` array entirely, the response returns the minimum prioritization fee per slot across all transactions. Because every slot contains 0-priority-fee vote transactions, this floor is effectively 0 in every slot and is not useful for fee estimation.
+
+<Warning>
+Pass writable state accounts (pool state accounts, reserves, user token accounts) — not program IDs. Programs are typically executable and read-only, so they are not present in the per-account writable fee map. Passing a program ID like a Jupiter or Raydium program returns near-empty data and gives a misleading picture of recent fees.
+</Warning>
 
 ## Use case
 
-A practical use case for `getRecentPrioritizationFees` is to determine an appropriate priority fee for your transactions. By querying recent fees for the specific accounts your transaction will lock, you get a realistic picture of what competing transactions are paying. See also [Estimate priority fees with getRecentPrioritizationFees](/docs/solana-estimate-priority-fees-getrecentprioritizationfees) for a practical implementation guide.
+A practical use case for `getRecentPrioritizationFees` is to set a floor for your priority fee. By querying recent fees for the specific writable accounts your transaction locks, you see the cheapest competing transactions that landed touching those accounts. To produce a competitive bid, take a high percentile (p95) or the maximum of non-zero values over the 150-slot window and multiply by an urgency factor.
+
+See also [Estimate priority fees with getRecentPrioritizationFees](/docs/solana-estimate-priority-fees-getrecentprioritizationfees) for a practical implementation guide.
