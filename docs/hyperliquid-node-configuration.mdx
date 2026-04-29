@@ -1,40 +1,65 @@
 ---
 title: "Hyperliquid node configuration and system transactions"
-description: "Understand Hyperliquid system addresses, how the hl-node-compliant flag affects transaction visibility, and availability on Chainstack."
+description: "Chainstack exposes two HyperEVM JSON-RPC paths on every Hyperliquid node: a default path that strips system transactions, and /nanoreth which includes them."
 ---
 
-<Note>
-System transactions are only available on [Dedicated Nodes](/docs/dedicated-node) with custom configuration.
-</Note>
+Every Chainstack Hyperliquid node exposes two HyperEVM JSON-RPC paths on the same endpoint:
 
-## System addresses and transactions
+| Console label | Path | What it returns |
+| --- | --- | --- |
+| **JSON-RPC API (default)** | `/evm` | hl-node-compliant output; system transactions stripped from block-shaped responses |
+| **JSON-RPC API (with system tx)** | `/nanoreth` | Full nanoreth output; system transactions included in blocks and receipts |
 
-System addresses in Hyperliquid facilitate token bridging between HyperCore and HyperEVM. They follow a specific format:
-- First byte: `0x20`
-- Remaining bytes: zeros with token index in big-endian format
-- HYPE token: `0x2222222222222222222222222222222222222222`
+You don't pick one at deploy time — both are always available. Append the path you need to your endpoint URL.
 
-Example for token index 200:
+## What system transactions are
+
+System transactions are protocol-generated pseudo-transactions that record HyperCore state changes on the HyperEVM ledger. They have no signing key — the protocol creates them to bridge state between HyperCore and HyperEVM (HYPE deposits and withdrawals, spot token transfers, and similar). They always carry `gasPrice: 0x0` and originate from system addresses:
+
+- `0x2222222222222222222222222222222222222222` — HYPE native token bridge
+- `0x20000000000000000000000000000000000000XX` — per-token bridge contract, where `XX` is the big-endian token index (token 200 → `…00c8`)
+
+For background, see Hyperliquid docs: [HyperCore ↔ HyperEVM transfers](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/hypercore-less-than-greater-than-hyperevm-transfers) and the [nanoreth README](https://github.com/hl-archive-node/nanoreth).
+
+## How `/evm` and `/nanoreth` differ in practice
+
+Behavior verified against block `0x202e371` (one HYPE bridge system tx). All methods are present on both paths; the difference is whether system transactions appear in the response:
+
+| Method | `/evm` | `/nanoreth` |
+| --- | --- | --- |
+| `eth_getBlockByNumber` / `eth_getBlockByHash` | transactions array excludes system tx | transactions array includes system tx |
+| `eth_getBlockTransactionCountByNumber` / `ByHash` | count excludes system tx | count includes system tx |
+| `eth_getBlockReceipts` | receipts array excludes system tx receipt | receipts array includes system tx receipt |
+| `eth_getTransactionReceipt` for a system tx hash | returns `null` | returns the receipt |
+| `eth_getTransactionByHash` for a system tx hash | returns the transaction | returns the transaction |
+| `eth_getSystemTxsByBlockNumber` / `ByHash` | returns system txs | returns system txs |
+| `debug_*` / `trace_*` / `ots_*` methods | unchanged | unchanged |
+| All non-system-tx methods (regular blocks, txs, receipts, traces) | unchanged | unchanged |
+
+In short: `/evm` only hides system transactions inside **block-shaped responses** — the transactions array, the transaction count, the receipts array, and `eth_getTransactionReceipt` keyed by a system tx hash. Everything else, including direct system tx lookup by hash via `eth_getTransactionByHash` and the dedicated `eth_getSystemTxsBy*` methods, behaves identically on both paths.
+
+## Endpoint format
+
+```text
+# JSON-RPC API (default), hl-node-compliant
+https://hyperliquid-mainnet.core.chainstack.com/<auth>/evm
+
+# JSON-RPC API (with system tx), nanoreth full output
+https://hyperliquid-mainnet.core.chainstack.com/<auth>/nanoreth
+
+# WebSocket (HyperEVM)
+wss://hyperliquid-mainnet.core.chainstack.com/<auth>/evm
+
+# Info HTTP API (HyperCore)
+https://hyperliquid-mainnet.core.chainstack.com/<auth>/info
 ```
-0x20000000000000000000000000000000000000c8
-```
 
-On HyperEVM, these system transactions are recorded as pseudo-transactions to simplify the implementation of tools that need to track these, like block explorers.
+Find both paths in the [console](https://console.chainstack.com/) under **Access and credentials** on any Hyperliquid node. Username/password access is provided alongside.
 
-See Hyperliquid docs: [HyperCore ↔ HyperEVM transfers](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/hypercore-less-than-greater-than-hyperevm-transfers) and [nanoreth README](https://github.com/hl-archive-node/nanoreth).
+## Related resources
 
-## Node configuration
-
-### Default nodes (hl-node compliant)
-
-Chainstack Hyperliquid nodes run with the nanoreth `--hl-node-compliant` flag by default:
-- System transactions are **excluded** from output
-- Provides cleaner transaction data similar to the default (non-nanoreth) Hyperliquid node operation.
-
-### Dedicated nodes (system transaction support)
-
-For applications requiring cross-layer transfer tracking, request a dedicated node without the `--hl-node-compliant` flag.
-
-## Requesting system transaction support
-
-Request a Hyperliquid [Dedicated Node](/docs/dedicated-node) deployment or connect to a [reliable Hyperliquid RPC endpoint](https://chainstack.com/build-better-with-hyperliquid/) for standard operations.
+- [Hyperliquid methods](/docs/hyperliquid-methods) — full method-by-method availability and which path each runs on
+- [Hyperliquid infrastructure FAQ](/docs/hyperliquid-infrastructure-faq) — node types, rate limits, and the dual-layer architecture
+- [`eth_getSystemTxsByBlockNumber`](/reference/hyperliquid-evm-eth-get-system-txs-by-block-number) — dedicated method for system transactions
+- [`eth_getSystemTxsByBlockHash`](/reference/hyperliquid-evm-eth-get-system-txs-by-block-hash) — same, keyed by block hash
+- [Build better with Hyperliquid](https://chainstack.com/build-better-with-hyperliquid/) — Chainstack's Hyperliquid RPC overview
