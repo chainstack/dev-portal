@@ -1,0 +1,105 @@
+---
+title: eth_sendRawTransactionSync | Ethereum
+openapi: /openapi/ethereum_node_api/execute_transactions/eth_sendRawTransactionSync.json
+  POST /cbe98cb5b5f53987d76c16d4ad716b2f
+---
+
+Ethereum API method that submits a signed transaction and blocks until the transaction receipt is returned or the timeout expires. This is a synchronous version of [`eth_sendRawTransaction`](/reference/ethereum-sendrawtransaction) — instead of returning just the transaction hash, it waits for the transaction to be included in a block and returns the full receipt.
+
+This method is defined by [EIP-7966](https://eips.ethereum.org/EIPS/eip-7966) and is available on Erigon (>= v3.4.0) and go-ethereum (>= v1.16.6).
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+<Info>
+Because Ethereum mainnet has a ~12-second block time, sync calls often exceed short timeouts. Pick a `timeout` that fits your application — the request returns once a receipt is available or once the timeout expires, whichever comes first.
+</Info>
+
+## Parameters
+
+* `signedTransactionData` — the signed transaction data in hexadecimal format. Includes nonce, gas price, gas limit, recipient address, value, data, and signature.
+* `timeout` (optional) — maximum wait time in milliseconds, passed as a **decimal integer** per EIP-7966 (e.g., `5000`). If omitted, the node uses its configured default. Note that other Chainstack chains may use different timeout encodings — see the [Polygon equivalent](/reference/polygon-sendrawtransactionsync), where Bor expects a hex-encoded timeout.
+
+## Response
+
+* `result` — the full transaction receipt object once the transaction is included in a block, with the same fields as [`eth_getTransactionReceipt`](/reference/ethereum-gettransactionreceipt). If the timeout expires before inclusion, the node returns an error indicating the transaction was added to the pool but not yet processed.
+
+## `eth_sendRawTransactionSync` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const sendTransactionSync = async () => {
+  const wallet = new ethers.Wallet("YOUR_PRIVATE_KEY", provider);
+
+  const tx = {
+    to: "0xRecipientAddress",
+    value: ethers.parseEther("0"),
+    chainId: 1,
+  };
+
+  // Sign the transaction
+  const signedTx = await wallet.signTransaction(tx);
+
+  // Send synchronously — blocks until receipt is returned or timeout expires
+  const receipt = await provider.send(
+    "eth_sendRawTransactionSync",
+    [signedTx, 5000]
+  );
+  console.log(`Confirmed in block: ${receipt.blockNumber}`);
+  console.log(`Status: ${receipt.status}`);
+};
+
+sendTransactionSync();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+account = web3.eth.account.from_key("YOUR_PRIVATE_KEY")
+tx = {
+    'nonce': web3.eth.get_transaction_count(account.address),
+    'to': "0xRecipientAddress",
+    'value': 0,
+    'gas': 21000,
+    'gasPrice': web3.eth.gas_price,
+    'chainId': 1,  # Ethereum mainnet
+}
+
+signed = account.sign_transaction(tx)
+
+# Send synchronously with a 5-second timeout (decimal integer per EIP-7966)
+receipt = web3.provider.make_request(
+    "eth_sendRawTransactionSync",
+    [signed.raw_transaction.hex(), 5000]
+)
+print(f"Receipt: {receipt['result']}")
+```
+
+```bash cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "eth_sendRawTransactionSync", "params": ["SIGNED_TX_DATA", 5000], "id": 1}'
+```
+</CodeGroup>
+
+## When to use
+
+Use `eth_sendRawTransactionSync` instead of `eth_sendRawTransaction` when:
+
+* You need the receipt immediately and want to avoid polling with `eth_getTransactionReceipt`.
+* You are building synchronous request/response flows (payments, bots, simulations).
+* You want to simplify transaction submission logic by getting the result in a single call.
+
+For fire-and-forget scenarios or when submitting many transactions in parallel, use [`eth_sendRawTransaction`](/reference/ethereum-sendrawtransaction).
