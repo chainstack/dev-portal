@@ -144,21 +144,24 @@ If you're using the default k3s local-path storage class (single disk), you can 
 
 <Step title="Run the installation">
 
-Run the installer with your desired version and storage class:
+Run the installer with your storage class and your server's public IP. Replace `<SERVER-IP>` with the actual IP:
 
 ```bash
-cpctl install -v v1.4.6 -s topolvm-provisioner
+cpctl install -s topolvm-provisioner --backend-url http://<SERVER-IP>:8081
 ```
+
+<Note>
+The `--backend-url` is the URL the browser will use to reach the deployments API. We expose the deployments API on port 8081 in the next steps. By default, the installer uses the latest version — to pin one, add `-v vX.Y.Z` (see [Release notes](/docs/self-hosted/release-notes) for available versions).
+</Note>
 
 The installer will:
 
 1. Check prerequisites (kubectl, helm, yq, openssl, cluster access)
 2. Generate secure passwords for all services
 3. Save the credentials to `~/.config/cp-suite/values/`
-4. Prompt for the backend API URL. Use the default (`http://cp-cp-deployments-api`) for in-cluster access, or specify an external URL (e.g., `http://<SERVER-PUBLIC-IP>`) if accessing from outside the cluster.
-5. Prompt for the workload namespace where blockchain node pods will run (default: `control-panel-deployments`).
-6. Prompt to configure the monitoring stack — install fresh, reuse an existing VictoriaMetrics operator, or skip.
-7. Show a summary and ask you to confirm before deploying.
+4. Prompt for the workload namespace where blockchain node pods will run (default: `control-panel-deployments`).
+5. Prompt to configure the monitoring stack — install fresh, reuse an existing VictoriaMetrics operator, or skip.
+6. Show a summary and ask you to confirm before deploying.
 
 The installation typically takes 5–10 minutes. You'll see output similar to:
 
@@ -178,7 +181,7 @@ The installation typically takes 5–10 minutes. You'll see output similar to:
 ✓ Storage class "topolvm-provisioner" validated
 
 ==> About to install Control Panel
-  Version: v1.4.6
+  Version: v1.8.0
   Namespace: control-panel
   Workload Namespace: control-panel-deployments
   Release: cp
@@ -213,9 +216,11 @@ Reason: All components ready
 
 </Step>
 
-<Step title="Expose the web interface">
+<Step title="Expose the web interface and deployments API">
 
-Apply an Ingress to expose both the Control Panel and Grafana under the same IP. The example below uses Traefik, which k3s ships with by default:
+Browser access requires exposing both the UI and the deployments API. The Ingress below puts the UI and Grafana on port 80; the deployments API is exposed separately on port 8081 to match the `--backend-url` you set during installation.
+
+Apply the Ingress for the UI and Grafana. The example uses Traefik, which k3s ships with by default:
 
 ```bash
 kubectl apply -f - <<EOF
@@ -247,12 +252,23 @@ spec:
 EOF
 ```
 
-For testing without an ingress controller, use port forwarding:
+Expose the deployments API on port 8081:
+
+```bash
+kubectl port-forward svc/cp-cp-deployments-api 8081:8080 -n control-panel --address 0.0.0.0 &
+```
+
+For testing without an ingress controller, use port forwarding for everything:
 
 ```bash
 kubectl port-forward svc/cp-cp-ui 8080:80 -n control-panel --address 0.0.0.0 &
 kubectl port-forward svc/cp-grafana 3000:80 -n control-panel --address 0.0.0.0 &
+kubectl port-forward svc/cp-cp-deployments-api 8081:8080 -n control-panel --address 0.0.0.0 &
 ```
+
+<Note>
+The `kubectl port-forward` process must keep running for the deployments API to remain reachable. For production deployments, expose `cp-cp-deployments-api` via a LoadBalancer or NodePort instead — see [Expose the UI and deployments API](/docs/self-hosted/installation#expose-the-ui-and-deployments-api).
+</Note>
 
 </Step>
 
