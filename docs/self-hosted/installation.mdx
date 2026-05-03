@@ -27,17 +27,21 @@ Common storage classes:
 - `topolvm-provisioner` — TopoLVM (multi-disk setups)
 - Cloud providers use their own defaults (`gp2`/`gp3` on AWS, `standard` on GCP, `managed-premium` on Azure)
 
-Run the installer with your version and storage class:
+Run the installer with your storage class:
 
 ```bash
-cpctl install -v VERSION -s STORAGE_CLASS_NAME
+cpctl install -s STORAGE_CLASS_NAME
 ```
 
 For example:
 
 ```bash
-cpctl install -v v1.4.6 -s topolvm-provisioner
+cpctl install -s topolvm-provisioner
 ```
+
+<Note>
+By default, the installer uses the latest version. To pin a specific version, add `-v vX.Y.Z` — see [Release notes](/docs/self-hosted/release-notes) for available versions.
+</Note>
 
 To get the installer, see [Download Chainstack Self-Hosted](/docs/self-hosted/download-installer).
 
@@ -55,14 +59,18 @@ No values file provided. Generate passwords automatically? [y/N]: y
 
 <Step title="Specify the URL for the backend">
 
-The installer will ask for the backend API URL. The Control Panel UI uses this URL to reach the deployments API.
+The installer will ask for the backend API URL. This is the URL the Control Panel UI uses to reach the deployments API. **The browser must be able to resolve and reach this URL** — an in-cluster hostname will not work for browser access.
 
 ```text
 Enter CP UI backend API URL [http://cp-cp-deployments-api]:
 ```
 
-- **Single server, accessing the UI from a browser** — enter your server's public IP: `http://<SERVER-PUBLIC-IP>`. You will need to expose the UI service on port 80 later (see [Post-installation](#expose-the-ui-service)).
-- **Default** — press Enter to keep `http://cp-cp-deployments-api`. This uses in-cluster DNS and only works if the UI is also accessed from inside the cluster.
+- **Single server, browser access (recommended)** — enter `http://<SERVER-IP>:8081`. You will expose the deployments API on port 8081 in [Post-installation](#expose-the-ui-and-deployments-api). Use port 80 (or another free port) instead of 8081 if it suits your environment, but match it during exposure.
+- **In-cluster only (rare)** — press Enter to keep `http://cp-cp-deployments-api`. This is reachable only from inside the cluster, so the UI will fail to log in from a browser outside.
+
+<Tip>
+You can skip this prompt by passing `--backend-url http://<SERVER-IP>:8081` to `cpctl install`.
+</Tip>
 
 </Step>
 
@@ -103,7 +111,7 @@ The installer will show a summary and ask you to confirm:
 
 ```text
 ==> About to install Control Panel
-  Version: v1.4.6
+  Version: v1.8.0
   Namespace: control-panel
   Workload Namespace: control-panel-deployments
   Release: cp
@@ -134,7 +142,7 @@ This file contains sensitive passwords and keys. Keep it secure and backed up.
 
 ### Monitoring stack
 
-v1.4.6+ includes an optional integrated observability stack (Grafana, VictoriaMetrics, and the Chainstack blockchain-node-exporter). During installation, you are prompted to install it, reuse an existing VictoriaMetrics operator, or skip it. See [Monitoring](/docs/self-hosted/monitoring) for access instructions and available dashboards.
+The Control Panel includes an optional integrated observability stack (Grafana, VictoriaMetrics, and the Chainstack blockchain-node-exporter). During installation, you are prompted to install it, reuse an existing VictoriaMetrics operator, or skip it. See [Monitoring](/docs/self-hosted/monitoring) for access instructions and available dashboards.
 
 ### Verify deployment status
 
@@ -160,23 +168,27 @@ Useful flags:
 | `-o json` / `-o yaml` | Machine-readable output for automation |
 | `--log-file <path>` | Write the status output to a file |
 
-### Expose the UI service
+### Expose the UI and deployments API
+
+For browser access to work, you need to expose **two** services to the network: the UI (`cp-cp-ui`) and the deployments API (`cp-cp-deployments-api`). The UI page is served by the first; the JavaScript in the page calls the URL you set in the [backend URL step](#specify-the-url-for-the-backend) — by default, that's `http://<SERVER-IP>:8081`, which routes to the deployments API.
 
 #### Option 1: LoadBalancer (recommended for production)
 
 ```bash
 kubectl expose service cp-cp-ui --type=LoadBalancer --name=cp-ui-external -n control-panel
+kubectl expose service cp-cp-deployments-api --type=LoadBalancer --name=cp-deployments-api-external -n control-panel --port=8081 --target-port=8080
 ```
 
 #### Option 2: NodePort
 
 ```bash
 kubectl expose service cp-cp-ui --type=NodePort --name=cp-ui-nodeport -n control-panel
+kubectl expose service cp-cp-deployments-api --type=NodePort --name=cp-deployments-api-nodeport -n control-panel --port=8081 --target-port=8080
 ```
 
 #### Option 3: Ingress
 
-Create an Ingress resource:
+Create an Ingress that exposes the UI on port 80. The deployments API is exposed separately on port 8081 via a LoadBalancer or port-forward (see Options 1 or 4):
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -201,7 +213,8 @@ spec:
 #### Option 4: Port forward (testing only)
 
 ```bash
-kubectl port-forward svc/cp-cp-ui 8080:80 -n control-panel --address 0.0.0.0
+kubectl port-forward svc/cp-cp-ui 8080:80 -n control-panel --address 0.0.0.0 &
+kubectl port-forward svc/cp-cp-deployments-api 8081:8080 -n control-panel --address 0.0.0.0 &
 ```
 
 ## Next steps
