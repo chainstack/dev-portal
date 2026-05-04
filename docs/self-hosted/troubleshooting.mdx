@@ -260,6 +260,23 @@ kubectl logs <pod-name> -n control-panel-deployments --previous
 kubectl get pvc -n control-panel-deployments | grep <node-id>
 ```
 
+### Transient `PopulatorDataSourceNotFound` warning
+
+During the first ~10 seconds of a node deployment, `kubectl get events` may show a warning on the reth PVC:
+
+```text
+Warning  PopulatorDataSourceNotFound  ...  Data source control-panel-deployments/cp-<node-id>-reth-snapshot not found
+```
+
+This is a brief race condition between PVC creation and the snapshot data source being created by the Control Panel workflows. It resolves automatically once `cp-workflows` finishes the post-apply hook (typically within 10–15 seconds). No action is required.
+
+If the warning persists for more than a minute, check `cp-workflows` and `cp-bolt` logs:
+
+```bash
+kubectl logs -n control-panel -l app.kubernetes.io/name=cp-workflows --tail=50
+kubectl logs -n control-panel -l app.kubernetes.io/name=cp-bolt --tail=50
+```
+
 ## System health checks
 
 ### Check all components
