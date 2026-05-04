@@ -1,0 +1,77 @@
+---
+title: outcomeMeta | Hyperliquid info
+openapi: /openapi/hyperliquid_node_api/info_outcomemeta.json post /info
+---
+
+<Info>
+You can only use this endpoint on the official Hyperliquid public API. It is not available through Chainstack, as the open-source node implementation does not support it yet. See [Hyperliquid methods](/docs/hyperliquid-methods) for the full availability breakdown.
+</Info>
+
+The `info` endpoint with `type: "outcomeMeta"` retrieves the live HIP-4 outcome markets and any categorical questions on the Hyperliquid exchange. Outcome markets are fully collateralized binary contracts that settle within a fixed range — the primitive that powers prediction markets and bounded options-like instruments on Hyperliquid.
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Parameters
+
+* `type` (string, required) — Must be `"outcomeMeta"`
+
+## Returns
+
+Returns an object with two arrays:
+
+### Outcomes
+
+An array of live outcome markets. Each entry contains:
+
+* `outcome` (integer) — Outcome id. Used together with the side index to derive the asset encoding.
+* `name` (string) — Human-readable market name (for example, `"Recurring"` for the recurring BTC daily binary, or a custom name for one-off markets).
+* `description` (string) — For recurring binary markets, a pipe-separated `key:value` string with `class`, `underlying`, `expiry`, `targetPrice`, `period` (for example, `"class:priceBinary|underlying:BTC|expiry:20260504-0600|targetPrice:78213|period:1d"`). For other market types, free-form text.
+* `sideSpecs` (array) — Two-element array describing the YES (index 0) and NO (index 1) sides. Each element has a `name` field.
+
+### Questions
+
+An array of categorical multi-outcome questions (testnet only at the time of writing — mainnet returns an empty array). Each entry contains:
+
+* `question` (integer) — Question id.
+* `name` (string) — Question text.
+* `description` (string) — Free-form description.
+* `fallbackOutcome` (integer) — Outcome id used if none of the named outcomes matches.
+* `namedOutcomes` (array of integers) — Outcome ids for the named legs.
+* `settledNamedOutcomes` (array of integers) — Outcome ids that have already settled.
+
+## Asset encoding
+
+`outcomeMeta` does not return per-side coin strings or asset ids. Compute them client-side from `outcome` and `side` (`0` for YES, `1` for NO):
+
+```
+encoding   = 10 * outcome + side
+trade coin = "#<encoding>"        # for /info l2Book and Exchange.order(...)
+balance coin = "+<encoding>"      # for spotClearinghouseState
+asset id   = 100_000_000 + encoding
+```
+
+For the mainnet BTC daily YES (outcome `1`, side `0`), the encoding is `10`, the trade coin is `#10`, the balance coin is `+10`, and the asset id is `100_000_010`.
+
+See the full guide at [Trading HIP-4 outcome markets on Hyperliquid](/docs/hyperliquid-hip4-outcome-markets-trading) for the rest of the trading flow.
+
+## Example request
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"type": "outcomeMeta"}' \
+  https://api.hyperliquid.xyz/info
+```
+
+## Use cases
+
+* **Market discovery** — enumerate every live outcome market and its side names before placing orders.
+* **Settlement parser** — read `description` to extract the `expiry` and `targetPrice` for binary price-based markets.
+* **Categorical markets** — list named legs of a `question` and their settled status (testnet).
+* **Inventory reconciliation** — track which `outcome` ids are still live so you can mark settled positions out of your book.
