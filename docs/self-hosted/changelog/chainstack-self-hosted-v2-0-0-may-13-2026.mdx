@@ -1,0 +1,38 @@
+---
+title: "Chainstack Self-Hosted v2.0.0: May 13, 2026"
+description: "Helm is retired in favor of a typed in-process provisioning pipeline, and bootstrap polling is bounded by an explicit presence state machine to prevent worker hangs."
+---
+
+This release retires Helm from the deployment path, replacing it with a typed in-process provisioning pipeline, and hardens the bootstrap loop against a class of hangs that could stall the worker.
+
+<Warning>
+**Breaking change for existing deployments**. The provisioning pipeline switch from Helm to typed Server-Side Apply changes how resources are owned and reconciled. Nodes deployed on v1.9.0 or earlier may misbehave after the upgrade because their resources were created under Helm release ownership and are not tracked by the new label-scoped reconciler.
+
+Before upgrading to v2.0.0, remove existing node deployments from the Control Panel. After the upgrade completes, redeploy the nodes so they are created under the new pipeline.
+</Warning>
+
+## A new provisioning pipeline
+
+Node deployments no longer flow through Helm. The control plane now assembles each deployment from typed components, composes them into a typed Blueprint, and applies the result directly to Kubernetes as typed objects through Server-Side Apply. Manifests are checked at build time rather than at render time, reconciliation is per-resource with label-scoped pruning instead of release-level, and the provisioner now sits behind an environment-agnostic seam — a prerequisite for running the same deployment definitions outside Kubernetes in future releases.
+
+## Bounded bootstrap polling
+
+Deployments that lost their storage volumes mid-bootstrap could previously leave the workflow polling indefinitely, and three hung workflows were enough to stop the worker from accepting new tasks. Bootstrap polling is now bounded by an explicit presence state machine: if the expected volumes never appear, or appear and then disappear, the workflow fails fast and frees the worker slot. Two new environment variables let operators tune the bounds for slower clusters:
+
+- `BOLT_INITIAL_PRESENCE_TIMEOUT` — how long the workflow waits for the expected volumes to first appear. Default `5m`.
+- `BOLT_DISAPPEARANCE_TIMEOUT` — how long the workflow tolerates volumes disappearing after they were observed. Default `1m`.
+
+## Sharper reconciliation behavior
+
+Because Server-Side Apply now runs on typed configurations instead of rendered YAML, ownership and pruning are tracked per field and per resource rather than per Helm release. Drift between the desired Blueprint and the live cluster is corrected resource-by-resource, and resources that fall out of a Blueprint are pruned by label scope rather than by chart membership. In practice this means fewer surprising phantom objects left behind after a node spec changes, and clearer attribution of which controller owns which field on a shared object.
+
+## Component versions
+
+| Component | Version |
+|---|---|
+| cp-ui | v3.0.0 |
+| cp-deployments-api | v0.34.2 |
+| cp-workflows | v2.0.0 |
+| cp-auth | v0.4.2 |
+| cp-bolt | v1.9.0 |
+| cp-tracer | v0.1.1 |
