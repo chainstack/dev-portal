@@ -1,0 +1,141 @@
+---
+title: "Flashblocks on Optimism: 250ms preconfirmations"
+description: Enable Flashblocks on Optimism through Chainstack for 250ms transaction preconfirmations via standard JSON-RPC calls with the pending tag.
+---
+
+Get started with a [reliable Optimism RPC endpoint](https://chainstack.com/build-better-with-optimism/) to use Flashblocks.
+
+Flashblocks is a block builder sidecar for OP Stack chains. The sidecar is called Rollup-Boost, designed and built by [Flashbots](https://www.flashbots.net/) and co-designed with Uniswap Labs and OP Labs.
+
+As Optimism Mainnet is the canonical OP Stack chain, the Optimism team has implemented Flashblocks on Optimism. Flashblocks went live on the Optimism Mainnet sequencer in 2026.
+
+The Flashblocks implementation on Optimism is two-part:
+
+* Sequencer side — the Rollup-Boost sidecar and the `op-rbuilder` Reth-based builder run next to the OP Stack sequencer.
+* Node side — the Flashblocks module is implemented on the Reth-based execution client running on Chainstack.
+
+This two-side architecture implements the following flow:
+
+* The Optimism sequencer creates regular 2-second blocks and additionally creates sub-blocks called Flashblocks every 250ms.
+* The sequencer streams these Flashblocks every 250ms over WebSocket to the Reth nodes that have the Flashblocks module enabled.
+* The sequencer-streamed Flashblocks and the preconfirmation state can then be retrieved by apps over the standard Optimism RPC endpoints and methods with the `pending` block tag:
+  * [`eth_getBlockByNumber`](/reference/optimism-getblockbynumber) with the `pending` tag
+  * [`eth_call`](/reference/optimism-call) with the `pending` tag
+  * [`eth_getBalance`](/reference/optimism-getbalance) with the `pending` tag
+  * [`eth_getTransactionCount`](/reference/optimism-gettransactioncount) with the `pending` tag
+  * [`eth_getCode`](/reference/optimism-getcode) with the `pending` tag — per the Optimism Flashblocks specification
+  * [`eth_getStorageAt`](/reference/optimism-getstorageat) with the `pending` tag — per the Optimism Flashblocks specification
+  * [`eth_estimateGas`](/reference/optimism-estimategas) with the `pending` tag
+  * [`eth_getTransactionReceipt`](/reference/optimism-gettransactionreceipt) — returns the preconfirmed receipt as soon as the transaction is included in a Flashblock
+  * [`eth_getTransactionByHash`](/reference/optimism-gettransactionbyhash) — returns the preconfirmed transaction as soon as it is included in a Flashblock
+  * `eth_sendRawTransactionSync` — submit a signed transaction and receive the preconfirmed receipt in the same response
+
+* The transaction ordering is done at the Flashblock level instead of the block level.
+
+Each 2-second block on Optimism is formed after approximately 8 Flashblocks have been processed, each with its own transaction ordering.
+
+<Note>
+Unlike Base, Optimism does not expose Flashblocks as dedicated WebSocket subscriptions like `eth_subscribe newFlashblocks`. The customer-facing Flashblocks interface on Optimism is the standard JSON-RPC interface with the `pending` block tag, as defined in the [Optimism Flashblocks specification](https://specs.optimism.io/protocol/flashblocks.html).
+</Note>
+
+## Quick Flashblock vs. full block data comparison
+
+Call [eth_getBlockByNumber](/reference/optimism-getblockbynumber) with the `pending` tag on a Flashblocks-enabled Optimism endpoint while a 2-second canonical block is forming. The response evolves every 250ms as new Flashblocks arrive — the same block number, but the transaction list grows append-only and the block hash changes with each Flashblock.
+
+A quick view of the same canonical block number sampled 500ms apart while the block was being assembled on Chainstack:
+
+<Tabs>
+  <Tab title="Preconfirmed 250ms Flashblock (early)">
+    ```json
+    "number": "0x90b665c",
+    "hash": "0x0469f8a27172dbd4...",
+    "transactions": [ /* 15 transactions */ ]
+    ```
+  </Tab>
+  <Tab title="Preconfirmed 250ms Flashblock (later)">
+    ```json
+    "number": "0x90b665c",
+    "hash": "0x4279d35247120a58...",
+    "transactions": [ /* 46 transactions */ ]
+    ```
+  </Tab>
+  <Tab title="Confirmed regular 2s block">
+    ```json
+    "number": "0x90b665c",
+    "hash": "0x...",
+    "transactions": [ /* full transaction list, finalized stateRoot */ ]
+    ```
+  </Tab>
+</Tabs>
+
+The block number stays the same across all three samples — only the contents grow and the preconfirmation hash updates. Once the 2-second canonical block is sealed, the final block hash is computed and the transactions are attributed to it.
+
+## Verify Flashblocks behavior
+
+You can verify Flashblocks behavior on your Optimism endpoint by polling `eth_getBlockByNumber` with the `pending` tag and watching the response evolve within a single block number. Replace `YOUR_OPTIMISM_ENDPOINT` with your Chainstack Optimism node HTTPS endpoint:
+
+```bash
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  curl -s "YOUR_OPTIMISM_ENDPOINT" \
+    -H "Content-Type: application/json" \
+    -d '{"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["pending",false]}' \
+    | python3 -c "import sys,json; b=json.load(sys.stdin)['result']; print(int(b['number'],16), b['hash'][:18], len(b['transactions']))"
+  sleep 0.25
+done
+```
+
+On a Flashblocks-enabled endpoint, you will see multiple distinct hashes and growing transaction counts for the same block number within a 2-second window. On a non-Flashblocks endpoint, you will see at most one or two distinct pending blocks per canonical block.
+
+## Performance expectations
+
+Flashblocks on Optimism are produced at 250ms intervals, but actual end-to-end latency will be higher due to network travel time:
+
+* Standard Optimism endpoint — ~2000ms (2-second block time).
+* Flashblocks-enabled Optimism endpoint — ~350-550ms (250ms Flashblock interval + network travel time).
+
+The actual confirmation time depends on:
+
+* Network latency to and from the Optimism node.
+* Transaction processing time at the sequencer.
+* Time until the next Flashblock (up to 250ms).
+* Network travel time for the confirmation response.
+
+<Warning>
+Flashblock preconfirmations are not final. A preconfirmed receipt from `eth_getTransactionReceipt`, `eth_sendRawTransactionSync`, or a pending-tag call can be revoked if the Optimism sequencer drops or reorders the transaction before the canonical 2-second block is sealed. Do not treat preconfirmed receipts as settlement guarantees. Wait for the transaction to be included in a finalized canonical block before releasing funds or considering a payment settled.
+</Warning>
+
+## Optimism vs. Base Flashblocks at a glance
+
+| Aspect                       | Optimism                              | Base                                  |
+| ---------------------------- | ------------------------------------- | ------------------------------------- |
+| Flashblock interval          | 250ms                                 | 200ms                                 |
+| Canonical block time         | 2s                                    | 2s                                    |
+| Flashblocks per block        | ~8                                    | ~10                                   |
+| Customer-facing interface    | JSON-RPC with `pending` tag           | JSON-RPC with `pending` tag and dedicated WebSocket subscriptions |
+| `eth_subscribe newFlashblocks` etc. | Not exposed                    | [Exposed](/docs/flashblocks-on-base)  |
+
+## Additional resources
+
+* [Flashblocks on Base](/docs/flashblocks-on-base) — the Base implementation, including dedicated WebSocket subscription methods
+* Optimism documentation: [Flashblocks overview](https://docs.optimism.io/op-stack/features/flashblocks)
+* Optimism specification: [Flashblocks JSON-RPC APIs](https://specs.optimism.io/protocol/flashblocks.html)
+* Flashbots blog: [Introducing Rollup-Boost](https://writings.flashbots.net/introducing-rollup-boost)
+* Original spec for Rollup-Boost: [External Block Production](https://github.com/ethereum-optimism/design-docs/blob/main/protocol/external-block-production.md)
+
+### About the author
+
+<CardGroup>
+  <Card title="Ake">
+    <img src="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg" alt="Ake" style={{width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', display: 'block', margin: '0 auto'}} noZoom />
+
+    <Icon icon="code" iconType="solid" /> Director of Developer Experience @ Chainstack
+    <br /><Icon icon="screwdriver-wrench" iconType="solid" /> Talk to me all things Web3
+    <br />20 years in technology | 8+ years in Web3 full time years experience
+
+    <div style={{display: "flex", justifyContent: "center", gap: "12px"}}>
+      <a href="https://github.com/akegaviar/" style={{textDecoration: "none", borderBottom: "none"}}><Icon icon="github" iconType="brands" /></a>
+      <a href="https://twitter.com/akegaviar" style={{textDecoration: "none", borderBottom: "none"}}><Icon icon="twitter" iconType="brands" /></a>
+      <a href="https://www.linkedin.com/in/ake/" style={{textDecoration: "none", borderBottom: "none"}}><Icon icon="linkedin" iconType="brands" /></a>
+    </div>
+  </Card>
+</CardGroup>
