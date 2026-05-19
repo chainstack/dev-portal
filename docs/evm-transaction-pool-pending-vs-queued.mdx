@@ -1,0 +1,165 @@
+---
+title: "EVM transaction pool: pending vs queued"
+description: "Understand pending vs queued transactions in an EVM node's local pool. Inspect the pool with txpool_status, subscribe to new pending transactions, and fix nonce-gap queued transactions."
+---
+
+**TLDR:**
+* **Pending** transactions are in the pool ready to be included in a block.
+* **Queued** transactions are sitting locally because their account nonce is out of sequence; they don't propagate until the gap is filled.
+* Inspect the pool with `txpool_status` / `txpool_content`; subscribe to new pending transactions with `eth_subscribe`; fix a queued transaction by filling the nonce gap.
+
+## Pending vs queued
+
+A transaction submitted through an EVM node has one of two states before it lands in a block:
+
+- **Pending** — in the node's transaction pool and ready to be included in the next block.
+- **Queued** — held in the local pool because the account nonce is out of sequence.
+
+Each transaction has an **account nonce** (not the block nonce). The account nonce starts at `0` and must increase by one per transaction from that address. A transaction whose nonce is in sequence goes straight to **pending**. A transaction with a nonce gap waits in **queued** until the missing nonces are filled.
+
+### Example
+
+| Step | From | Nonce | State |
+|---|---|---|---|
+| 1 | `0x123...` | 0 | Pending → mined |
+| 2 | `0x123...` | 1 | Pending → mined |
+| 3 | `0x123...` | 3 | **Queued** (nonce 2 is missing) |
+| 4 | `0x123...` | 2 | Pending → mined. Nonce 3 now moves to Pending and is mined too. |
+
+## Inspect the local pool
+
+Use the [`txpool`](https://geth.ethereum.org/docs/interacting-with-geth/rpc/ns-txpool) JSON-RPC namespace to inspect the mempool of a node you have access to. On Chainstack, mempool access requires an [Archive](/docs/protocols-modes-and-types) node with [Debug and trace APIs](/docs/debug-and-trace-apis) enabled — see [Mempool configurations](/docs/mempool-configuration) for protocol-by-protocol availability.
+
+<CodeGroup>
+  ```bash txpool_status
+  curl YOUR_CHAINSTACK_ENDPOINT \
+    -H 'content-type: application/json' \
+    -d '{"jsonrpc":"2.0","method":"txpool_status","params":[],"id":1}'
+  # {"jsonrpc":"2.0","id":1,"result":{"pending":"0x4a","queued":"0x3"}}
+  ```
+
+  ```bash txpool_inspect
+  curl YOUR_CHAINSTACK_ENDPOINT \
+    -H 'content-type: application/json' \
+    -d '{"jsonrpc":"2.0","method":"txpool_inspect","params":[],"id":1}'
+  ```
+
+  ```bash txpool_content
+  curl YOUR_CHAINSTACK_ENDPOINT \
+    -H 'content-type: application/json' \
+    -d '{"jsonrpc":"2.0","method":"txpool_content","params":[],"id":1}'
+  ```
+</CodeGroup>
+
+To check the current confirmed nonce for an address:
+
+<CodeGroup>
+  ```bash cURL
+  curl YOUR_CHAINSTACK_ENDPOINT \
+    -H 'content-type: application/json' \
+    -d '{"jsonrpc":"2.0","method":"eth_getTransactionCount","params":["0xYourAddress","latest"],"id":1}'
+  ```
+</CodeGroup>
+
+## Subscribe to new pending transactions
+
+For real-time delivery of new pending transactions, subscribe over WebSocket:
+
+<CodeGroup>
+  ```python web3.py (WebSocket)
+  import asyncio
+  from web3 import AsyncWeb3, WebSocketProvider
+
+  WSS = "wss://ethereum-mainnet.core.chainstack.com/AUTH_KEY"
+
+  async def main():
+      async with AsyncWeb3(WebSocketProvider(WSS)) as w3:
+          subscription_id = await w3.eth.subscribe("newPendingTransactions")
+          async for payload in w3.socket.process_subscriptions():
+              print(payload["result"])  # transaction hash
+
+  asyncio.run(main())
+  ```
+
+  ```bash cURL (raw subscription)
+  wscat -c wss://ethereum-mainnet.core.chainstack.com/AUTH_KEY
+  > {"jsonrpc":"2.0","method":"eth_subscribe","params":["newPendingTransactions"],"id":1}
+  ```
+</CodeGroup>
+
+<Note>
+Each push notification over WebSocket counts as one [request unit](/docs/request-units). For sustained high-volume pending-transaction subscriptions, consider an [Unlimited Node](/docs/unlimited-node) which uses RPS-tiered flat-fee pricing instead of per-request billing.
+</Note>
+
+### HTTP-polling alternative
+
+If you can't use WebSocket, poll an HTTP filter with [`eth_newPendingTransactionFilter`](/reference/ethereum-newpendingtransactionfilter) and [`eth_getFilterChanges`](/reference/ethereum-getfilterchanges):
+
+<CodeGroup>
+  ```bash Create filter
+  curl YOUR_CHAINSTACK_ENDPOINT \
+    -H 'content-type: application/json' \
+    -d '{"jsonrpc":"2.0","method":"eth_newPendingTransactionFilter","params":[],"id":0}'
+  # {"jsonrpc":"2.0","id":0,"result":"0xb05a471a87c111bccadc9671f5b23b6a"}
+  ```
+
+  ```bash Poll for new entries
+  curl YOUR_CHAINSTACK_ENDPOINT \
+    -H 'content-type: application/json' \
+    -d '{"jsonrpc":"2.0","method":"eth_getFilterChanges","params":["0xb05a471a87c111bccadc9671f5b23b6a"],"id":1}'
+  ```
+</CodeGroup>
+
+Filters expire after about five minutes of inactivity — see [Fix Ethereum's filter not found error](/docs/understanding-ethereums-filter-not-found-error-and-how-to-fix-it).
+
+## Fix a queued transaction
+
+If you have a queued transaction stuck behind a nonce gap, fill the gap by sending the missing nonces. The simplest path is to send no-op self-transfers at the missing nonces until the queued nonce becomes the next pending one.
+
+### Diagnose the gap
+
+1. Get the confirmed nonce: `eth_getTransactionCount("0xYourAddress","latest")`.
+2. Get the queued transaction's nonce from `txpool_content` or from the transaction object: `eth_getTransactionByHash`.
+3. The gap is everything between them.
+
+### Fill the gap
+
+Send a transaction at each missing nonce. A 0-value self-transfer with explicit `nonce` is enough:
+
+<CodeGroup>
+  ```python web3.py
+  from web3 import Web3
+
+  w3 = Web3(Web3.HTTPProvider("YOUR_CHAINSTACK_ENDPOINT"))
+  account = w3.eth.account.from_key("0xYOUR_PRIVATE_KEY")
+  confirmed = w3.eth.get_transaction_count(account.address, "latest")
+  stuck_nonce = 12  # nonce of your queued transaction
+
+  for nonce in range(confirmed, stuck_nonce):
+      tx = {
+          "from": account.address,
+          "to":   account.address,
+          "value": 0,
+          "nonce": nonce,
+          "gas":   21000,
+          "maxFeePerGas":         w3.to_wei(50, "gwei"),
+          "maxPriorityFeePerGas": w3.to_wei(2,  "gwei"),
+          "chainId": w3.eth.chain_id,
+      }
+      signed = account.sign_transaction(tx)
+      w3.eth.send_raw_transaction(signed.raw_transaction)
+  ```
+</CodeGroup>
+
+Once the missing nonces confirm, the previously queued transaction moves to **pending** and is mined.
+
+### Alternative: cancel by replacement
+
+If you'd rather drop the queued transaction altogether, send a replacement at the same nonce with a higher gas price — most clients require the new gas price to be at least 10% higher (`txpool.pricebump`).
+
+## See also
+
+* [Mempool configurations](/docs/mempool-configuration) — Chainstack support per protocol
+* [Debug and trace APIs](/docs/debug-and-trace-apis)
+* [Request units](/docs/request-units)
+* [Fix Ethereum's filter not found error](/docs/understanding-ethereums-filter-not-found-error-and-how-to-fix-it)

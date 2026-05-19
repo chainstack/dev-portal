@@ -1,0 +1,121 @@
+---
+title: "Checking node latency"
+description: "Measure latency from your machine to a Chainstack node. Use Chainstack Compare for benchmarking, or run nmap / time curl / a Python latency logger for ad-hoc checks."
+---
+
+**TLDR:**
+* For benchmarking node performance across regions and providers, use the [Chainstack Compare](https://compare.chainstack.com/).
+* For ad-hoc latency checks, `nmap -p 443 <host>` measures the TCP-connect time, and `time curl ...` measures full JSON-RPC round-trip.
+* `ping` and `traceroute` won't work — ICMP is disabled on Chainstack nodes.
+* For sustained measurement and logging, use the Python recipe below.
+
+## Use Chainstack Compare
+
+[Chainstack Compare](https://compare.chainstack.com/) benchmarks RPC nodes across providers, protocols, and regions on metrics like latency, requests-per-second, and data-fetching throughput. Start there before reaching for ad-hoc tools — it covers what you usually want to know.
+
+## Why `ping` and `traceroute` don't work
+
+ICMP is disabled by default on the instances running Chainstack nodes for security reasons. Running `ping`, `traceroute`, or `tracert` against your node hostname will time out or show lost packets — that's expected behavior, not an outage. Use the TCP/HTTP methods below instead.
+
+## `nmap` — TCP-connect latency
+
+[`nmap`](https://nmap.org/) measures the latency of a TCP handshake against the node, which is a good proxy for raw network round-trip time. Chainstack endpoints serve HTTPS on port `443`:
+
+<CodeGroup>
+  ```bash Bash
+  nmap -p 443 ethereum-mainnet.core.chainstack.com
+  ```
+</CodeGroup>
+
+Sample output:
+
+```
+PORT    STATE SERVICE
+443/tcp open  https
+Nmap done: 1 IP address (1 host up) scanned in 0.18 seconds
+```
+
+For a more precise number, add `--reason --packet-trace` or use [`tcptraceroute`](https://github.com/mct/tcptraceroute).
+
+## `time curl` — full JSON-RPC round-trip
+
+This measures the full HTTPS round-trip including TLS handshake plus the node's processing time for a real RPC call:
+
+<CodeGroup>
+  ```bash Bash
+  time curl -sS 'https://ethereum-mainnet.core.chainstack.com/AUTH_KEY' \
+    -H 'Content-Type: application/json' \
+    -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+    -o /dev/null
+  ```
+</CodeGroup>
+
+Use a fast method like `eth_blockNumber` or `eth_chainId` to isolate transport latency from node-side processing.
+
+For finer breakdown, use `curl`'s built-in `-w` timing variables:
+
+<CodeGroup>
+  ```bash Bash
+  curl -sS 'https://ethereum-mainnet.core.chainstack.com/AUTH_KEY' \
+    -H 'Content-Type: application/json' \
+    -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+    -o /dev/null \
+    -w 'dns: %{time_namelookup}s  connect: %{time_connect}s  tls: %{time_appconnect}s  ttfb: %{time_starttransfer}s  total: %{time_total}s\n'
+  ```
+</CodeGroup>
+
+## Python — sustained measurement with CSV logging
+
+For a longer recording session — for example, watching latency over an hour to characterize jitter — use this script:
+
+<CodeGroup>
+  ```python Python
+  import csv
+  import time
+  from datetime import datetime, timezone
+  from pathlib import Path
+  import requests
+
+  NODE_URL = "https://ethereum-mainnet.core.chainstack.com/AUTH_KEY"
+  METHOD   = "eth_blockNumber"
+  CSV_PATH = Path("latency.csv")
+  INTERVAL = 5  # seconds
+
+  payload = {"jsonrpc": "2.0", "method": METHOD, "params": [], "id": 1}
+
+  if not CSV_PATH.exists():
+      with CSV_PATH.open("w", newline="") as f:
+          csv.writer(f).writerow(["timestamp_utc", "method", "latency_ms", "status"])
+
+  while True:
+      t0 = time.perf_counter()
+      try:
+          r = requests.post(NODE_URL, json=payload, timeout=10)
+          status = r.status_code
+      except requests.RequestException as e:
+          status = f"error: {e.__class__.__name__}"
+      ms = (time.perf_counter() - t0) * 1000
+      with CSV_PATH.open("a", newline="") as f:
+          csv.writer(f).writerow([
+              datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+              METHOD,
+              f"{ms:.2f}",
+              status,
+          ])
+      time.sleep(INTERVAL)
+  ```
+</CodeGroup>
+
+The resulting `latency.csv` is ready for `pandas`, DuckDB, or a quick plot:
+
+<CodeGroup>
+  ```bash Bash
+  duckdb -c "SELECT quantile(latency_ms, [0.5, 0.9, 0.99]) FROM read_csv_auto('latency.csv')"
+  ```
+</CodeGroup>
+
+## See also
+
+* [Chainstack Compare](https://compare.chainstack.com/)
+* [Nodes, clouds, regions, and locations](/docs/nodes-clouds-regions-and-locations)
+* [Best practices for error handling in API requests](/docs/best-practices-for-error-handling-in-api-requests)

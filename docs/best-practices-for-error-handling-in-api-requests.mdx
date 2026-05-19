@@ -181,6 +181,73 @@ By using both of these pieces of information, we can make our retry logic more i
 
 In addition, by logging the error messages, we can keep a record of the errors that occurred, which can be useful for debugging and improving our application.
 
+## Handling 429 Too Many Requests
+
+`HTTP 429 Too Many Requests` means your client exceeded the rate limit for the endpoint. The fix is to slow your request rate down — preferably proactively, so the limit never trips.
+
+### Where the limit comes from
+
+The exact per-second limit depends on your plan and the node type. See [Requests per second (RPS) plan limits](/docs/rps-plan-limits) and [Throughput guidelines](/docs/limits) — including [Solana method-specific limits](/docs/limits#solana-method-limits) and [EVM range limits](/docs/limits#evm-range-limits).
+
+### Confirm the 429 is real
+
+Before changing your code, check your node's metrics in the Chainstack console (**Projects → Node → Metrics**). If you see 429s in your debug logs but **not** on the Metrics page, the limit isn't being hit on the Chainstack side — something between your client and the endpoint is generating the 429s. A known case: older versions of the Solana Python SDK return 429-shaped errors that don't correspond to real rate-limit hits.
+
+### Respect Retry-After
+
+If a 429 response includes the standard [`Retry-After`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Retry-After) header, wait at least that long before retrying. Pair it with the exponential backoff pattern from the previous section as the fallback.
+
+<CodeGroup>
+  ```javascript JavaScript
+  async function callWith429Backoff(url, body, maxRetries = 5) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.status !== 429) return res;
+      const retryAfter = parseFloat(res.headers.get("retry-after")) || (2 ** attempt);
+      await new Promise(r => setTimeout(r, retryAfter * 1000));
+    }
+    throw new Error("Rate-limited after retries");
+  }
+  ```
+
+  ```python Python
+  import time, requests
+
+  def call_with_429_backoff(url, payload, max_retries=5):
+      for attempt in range(max_retries + 1):
+          r = requests.post(url, json=payload)
+          if r.status_code != 429:
+              return r
+          delay = float(r.headers.get("Retry-After", 2 ** attempt))
+          time.sleep(delay)
+      raise RuntimeError("Rate-limited after retries")
+  ```
+</CodeGroup>
+
+### Throttle proactively
+
+Rather than retrying after the fact, cap your client's request rate so the limit is never hit. Battle-tested options:
+
+* **Python** — [`ratelimit`](https://pypi.org/project/ratelimit/) decorator, or `asyncio.Semaphore` with `asyncio.sleep`.
+* **Node.js** — [`axios-rate-limit`](https://www.npmjs.com/package/axios-rate-limit), [`bottleneck`](https://www.npmjs.com/package/bottleneck), or [`p-throttle`](https://www.npmjs.com/package/p-throttle).
+* **Go** — [`uber-go/ratelimit`](https://github.com/uber-go/ratelimit) (leaky-bucket) or `golang.org/x/time/rate` (token bucket).
+
+Pair the throttle with a small concurrency cap and the exponential-backoff retry above. That combination handles both routine bursts and the occasional spike.
+
+### Reduce the request volume itself
+
+When throttling alone isn't enough, the call pattern is usually the lever:
+
+* **Batch JSON-RPC requests** — combine multiple calls into one HTTP request when the protocol supports batch arrays.
+* **Use `eth_getLogs` over filters** for catch-up reads, not `eth_getBlockByNumber` in a loop.
+* **Switch to subscriptions** for streaming data (`eth_subscribe` over WebSocket) instead of polling on every block.
+* **Use a [Trader Node](/docs/trader-node)** or move to an [Unlimited Node](/docs/unlimited-node) tier if your sustained throughput is consistently above your plan's RPS cap — an Unlimited Node converts per-request billing into a flat RPS-tier fee.
+* **Enterprise custom RPS.** Enterprise customers can request a custom RPS limit (including for method-specific caps like Solana `getProgramAccounts`) by [contacting support](https://chainstack.com/contact/).
+
 ## Common problems and gotchas
 
 While handling HTTP status codes and implementing retry logic can significantly improve the reliability of your application, there are a few common problems and gotchas that you should be aware of.

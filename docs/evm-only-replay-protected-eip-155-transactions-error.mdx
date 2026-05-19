@@ -1,0 +1,94 @@
+---
+title: "Only replay-protected (EIP-155) transactions allowed over RPC"
+description: "Fix the EVM node 'only replay-protected (EIP-155) transactions allowed over RPC' error by adding chainId to your signed transaction. Includes examples in ethers.js, viem, and web3.py."
+---
+
+**TLDR:**
+* EVM nodes refuse to broadcast legacy (pre-EIP-155) transactions because they could be replayed on other EVM chains.
+* The fix: include `chainId` in the transaction object before signing.
+* All modern signing libraries do this automatically when you pass `chainId` (ethers.js, viem) or set the network/wallet to a specific chain (web3.py with a chain-aware wallet).
+
+## The error
+
+You try to send a raw transaction through an EVM node and get:
+
+```
+only replay-protected (EIP-155) transactions allowed over RPC
+```
+
+## Cause
+
+[EIP-155](https://eips.ethereum.org/EIPS/eip-155) made the chain ID part of the signed transaction so a signature for Ethereum mainnet can't be replayed as-is on, say, BNB Smart Chain. Most modern EVM clients refuse to accept non-EIP-155 transactions over public RPC. If your signing code doesn't include `chainId`, the resulting transaction is "legacy" pre-EIP-155 and the node rejects it.
+
+## Solution
+
+Include `chainId` in the transaction object before signing. The value is the numeric chain ID of the target network — look it up on [chainlist.org](https://chainlist.org/).
+
+<CodeGroup>
+  ```typescript ethers.js
+  import { Wallet, JsonRpcProvider, parseEther, parseUnits } from "ethers";
+
+  const provider = new JsonRpcProvider("https://ethereum-mainnet.core.chainstack.com/AUTH_KEY");
+  const wallet = new Wallet(process.env.PRIVATE_KEY!, provider);
+
+  // ethers picks up chainId automatically from the provider.
+  // For manual construction, include it explicitly:
+  const tx = await wallet.sendTransaction({
+    to: "0xRecipientAddress",
+    value: parseEther("0.1"),
+    gasLimit: 21000,
+    maxFeePerGas: parseUnits("50", "gwei"),
+    maxPriorityFeePerGas: parseUnits("2", "gwei"),
+    chainId: 1, // Ethereum mainnet
+  });
+  ```
+
+  ```typescript viem
+  import { createWalletClient, http, parseEther, parseGwei } from "viem";
+  import { mainnet } from "viem/chains";
+  import { privateKeyToAccount } from "viem/accounts";
+
+  const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
+  const client = createWalletClient({
+    account,
+    chain: mainnet, // chain object carries the chain ID
+    transport: http("https://ethereum-mainnet.core.chainstack.com/AUTH_KEY"),
+  });
+
+  const hash = await client.sendTransaction({
+    to: "0xRecipientAddress",
+    value: parseEther("0.1"),
+    maxFeePerGas: parseGwei("50"),
+    maxPriorityFeePerGas: parseGwei("2"),
+  });
+  ```
+
+  ```python web3.py
+  from web3 import Web3
+
+  w3 = Web3(Web3.HTTPProvider("https://ethereum-mainnet.core.chainstack.com/AUTH_KEY"))
+  account = w3.eth.account.from_key(PRIVATE_KEY)
+
+  tx = {
+      "to": "0xRecipientAddress",
+      "value": w3.to_wei(0.1, "ether"),
+      "gas": 21000,
+      "maxFeePerGas":         w3.to_wei(50, "gwei"),
+      "maxPriorityFeePerGas": w3.to_wei(2,  "gwei"),
+      "nonce":   w3.eth.get_transaction_count(account.address, "latest"),
+      "chainId": w3.eth.chain_id,  # fetched once and reused
+  }
+  signed = account.sign_transaction(tx)
+  tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+  ```
+</CodeGroup>
+
+<Note>
+In ethers.js and viem, `chainId` is taken from the provider/chain object — you usually don't have to set it manually. The error typically shows up when you're hand-crafting a transaction or using a low-level signer that doesn't have a chain context bound.
+</Note>
+
+## See also
+
+* [EIP-155: Simple replay attack protection](https://eips.ethereum.org/EIPS/eip-155)
+* [chainlist.org](https://chainlist.org/) — registry of EVM chain IDs
+* [Error reference](/docs/error-reference)

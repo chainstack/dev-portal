@@ -20,6 +20,34 @@ See current service pricing on the [pricing page](https://chainstack.com/pricing
 
 These rules apply consistently unless noted below for specific protocols.
 
+## HTTP requests vs WebSocket subscriptions
+
+A "request" is anything the node returns to you over the wire. The transport changes how those individual returns are counted.
+
+### HTTP
+
+Each JSON-RPC call counts as **one** request, regardless of how much data the response contains.
+
+- `eth_blockNumber` → 1 request.
+- `eth_getLogs` across 2,000 blocks returning 5,000 events → still 1 request.
+- `eth_call` simulating a complex contract → 1 request.
+
+The RU multiplier (1 RU for full, 2 RU for archive) is applied on top.
+
+### WebSocket subscriptions
+
+Subscriptions over WebSocket flip the counting model. Setting up the subscription counts as one request — and then **each push notification the node sends to you counts as one more request.**
+
+- `eth_subscribe newHeads` on Ethereum mainnet (≈one new block every 12 s) → ~7,200 requests/day.
+- `eth_subscribe logs` filtered to one contract emitting 5 events per block → ~36,000 requests/day.
+- `eth_subscribe newPendingTransactions` on a high-throughput chain → easily millions of requests/day.
+
+<Note>
+If you're running sustained subscriptions, consider an [Unlimited Node](/docs/unlimited-node) — it uses RPS-tiered flat-fee pricing instead of per-request billing, so subscription throughput stops mapping to RU cost.
+</Note>
+
+The same rule applies to legacy HTTP filter polling (`eth_newPendingTransactionFilter` + `eth_getFilterChanges`): each poll that returns events is one request per call, not per event — but the call cadence is yours to control, unlike a WebSocket push.
+
 ## EVM protocols
 
 - Full node calls against the latest state: 1 RU.

@@ -1,0 +1,62 @@
+---
+title: "Error reference"
+description: "Reference of HTTP, WebSocket, and JSON-RPC error codes returned by Chainstack nodes — what each code means and how to fix it."
+---
+
+**TLDR:**
+* HTTP `4xx` = a problem with your request (auth, payload size, rate limit). HTTP `5xx` = a problem on the server side; the same client request might succeed on retry.
+* WebSocket close code `1006` is a transport-level disconnect — your code must reconnect.
+* JSON-RPC error codes follow the [JSON-RPC 2.0 spec](https://www.jsonrpc.org/specification#error_object); `-32000` is a node-implementation error and the message tells you what's wrong.
+
+## HTTP status codes
+
+| Code | Message | Cause and fix |
+|---|---|---|
+| `400` | Bad Request | Your request body is malformed. Validate the JSON and the JSON-RPC envelope. |
+| `401` | Authorization Required | Wrong endpoint key or password. See [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials). |
+| `404` | Not Found | The endpoint path doesn't exist on this node. Verify the URL. If the URL is correct, [contact support](https://chainstack.com/contact/) — the gateway may be unhealthy. |
+| `404` | `DEPTH_ZERO_SELF_SIGNED_CERT` | TLS cert chain issue on the gateway. [Contact support](https://chainstack.com/contact/). |
+| `413` | Request Entity Too Large | Default request body cap is **1 MB**. Split the payload (e.g., paginate `eth_getLogs` ranges) or batch fewer JSON-RPC calls per request. |
+| `429` | Too Many Requests | You hit an RPS or connection limit. See [Throughput guidelines](/docs/limits) and [Requests per second (RPS) plan limits](/docs/rps-plan-limits). Consider [Unlimited Node](/docs/unlimited-node) for sustained high-throughput workloads. |
+| `499` | Client Closed Request | Your client closed the connection before the node responded — usually a too-short client-side timeout. Increase the timeout. |
+| `500` | Internal Server Error | Gateway or node-side fault. Retry with backoff. If it persists, [contact support](https://chainstack.com/contact/). |
+| `500` | `ECONNREFUSED` | Same — gateway or node refused the connection. [Contact support](https://chainstack.com/contact/). |
+| `502` | Bad Gateway | Node or upstream is unreachable from the gateway. Often resolves on retry; if not, [contact support](https://chainstack.com/contact/). |
+| `503` | Service Temporarily Unavailable | Node is under resource pressure. Retry with backoff. If sustained, [contact support](https://chainstack.com/contact/). |
+| `504` | Gateway Timeout | Node didn't respond within the gateway timeout. Heavy methods (traces, wide-range `eth_getLogs`) are common causes — paginate or move to a [dedicated node](/docs/dedicated-node). |
+
+## WebSocket close codes
+
+| Code | Message | Cause and fix |
+|---|---|---|
+| `1006` | Abnormal closure (often `ECONNRESET`) | The shared gateway dropped the connection (NGINX reload, idle timeout). Implement automatic reconnect in your client. See [Handle real-time data with WebSockets](/docs/handle-real-time-data-using-websockets-with-javascript-and-python) for a reconnect pattern. |
+
+## JSON-RPC error codes
+
+These follow the [JSON-RPC 2.0 specification](https://www.jsonrpc.org/specification#error_object). The node returns them inside the response body even when the HTTP status is `200`.
+
+| Code | Message | Cause and fix |
+|---|---|---|
+| `-32700` | Parse error | The server couldn't parse your JSON. Validate the request body. |
+| `-32600` | Invalid Request | The JSON is valid but the JSON-RPC envelope is malformed (missing `jsonrpc`, `method`, or `id`). |
+| `-32601` | Method not found | The method isn't enabled on this node or isn't supported on this protocol. Check the protocol's [methods reference](/docs/protocols-tooling-introduction) and confirm the [debug/trace APIs](/docs/debug-and-trace-apis) are enabled if you need them. |
+| `-32602` | Invalid params | Parameter type, count, or value is wrong. Check the per-method reference in [API reference](/reference). |
+| `-32603` | Internal error | Server-side JSON-RPC error. Usually wraps a more specific `-32000` error below. |
+| `-32000` | Server error | Implementation-defined error from the node client. The `message` field has the details — for example `missing trie node`, `nonce too low`, `execution reverted`. See [EIP-1474](https://eips.ethereum.org/EIPS/eip-1474) for common Ethereum-side codes. |
+
+### Common `-32000` messages
+
+| Message contains | What it means | Where to look |
+|---|---|---|
+| `missing trie node` | You queried historical state on a full node. | [EVM node returns "Missing trie node"](/docs/evm-node-returns-missing-trie-node) |
+| `nonce too low` | Transaction's nonce has already been mined. | Use the latest confirmed nonce from `eth_getTransactionCount(... "latest")`. |
+| `replacement transaction underpriced` | You tried to replace a pending tx without raising the gas price enough. | Bump the gas price by at least the `pricebump` threshold (default 10%). |
+| `execution reverted` | Smart contract reverted. | Decode the revert reason; check input parameters and contract preconditions. |
+| `Only replay-protected (EIP-155) transactions allowed over RPC` | Transaction was signed without a `chainId`. | Add the `chainId` field when signing. See [EIP-155](https://eips.ethereum.org/EIPS/eip-155). |
+
+## See also
+
+* [Throughput guidelines](/docs/limits)
+* [Best practices for error handling in API requests](/docs/best-practices-for-error-handling-in-api-requests)
+* [EVM node returns "Missing trie node"](/docs/evm-node-returns-missing-trie-node)
+* [Fix Ethereum's filter not found error](/docs/understanding-ethereums-filter-not-found-error-and-how-to-fix-it)

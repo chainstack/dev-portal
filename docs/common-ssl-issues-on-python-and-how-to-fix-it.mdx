@@ -1,0 +1,99 @@
+---
+title: "Common SSL issues on Python and how to fix it"
+description: "Fix Python CERTIFICATE_VERIFY_FAILED errors when connecting to Chainstack nodes. Update certifi, install macOS certificates, or use a certifi-aware SSL context."
+---
+
+**TLDR:**
+* Python's `CERTIFICATE_VERIFY_FAILED` errors happen when your system can't chain the server's certificate back to a trusted root.
+* The safe fix is to update your system's CA certificates — install [`certifi`](https://pypi.org/project/certifi/), or run `Install Certificates.command` on macOS.
+* Disabling SSL verification works as a development-only workaround but should never ship to production.
+
+## The error
+
+When a Python HTTP client connects to your Chainstack endpoint over HTTPS, it validates the server's TLS certificate by chaining it back to a trusted root certificate authority. If your system's CA bundle is outdated or missing, you'll see errors like:
+
+```
+[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate
+```
+
+## Recommended fix: refresh your CA bundle
+
+### Update `certifi` (all OSes)
+
+The [`certifi`](https://pypi.org/project/certifi/) package ships Mozilla's CA bundle for Python. Updating it covers most cases:
+
+<CodeGroup>
+  ```bash Bash
+  pip install --upgrade certifi
+  ```
+</CodeGroup>
+
+If you use `requests`, `urllib`, `aiohttp`, or `httpx`, they pick up the updated bundle automatically the next time they construct a default SSL context.
+
+### Install Certificates (macOS only)
+
+Python installers on macOS don't always install the system certificates. Run the bundled installer:
+
+1. Open Spotlight (`Cmd + Space`).
+2. Type `Install Certificates.command` and run it.
+
+This installs `certifi`'s CA bundle into the Python you launched.
+
+## Explicit certifi-aware context
+
+If updating `certifi` alone doesn't take effect, build the SSL context explicitly:
+
+<CodeGroup>
+  ```python Python
+  import ssl
+  import certifi
+  from urllib.request import urlopen
+
+  url = "https://ethereum-mainnet.core.chainstack.com/AUTH_KEY"
+  context = ssl.create_default_context(cafile=certifi.where())
+  response = urlopen(url, context=context)
+  ```
+</CodeGroup>
+
+## Development-only workarounds
+
+<Warning>
+These workarounds disable certificate validation. Use only for local debugging — never in production. Skipping verification makes your connection vulnerable to man-in-the-middle attacks.
+</Warning>
+
+### Unverified `ssl` context
+
+<CodeGroup>
+  ```python Python
+  import ssl
+  import urllib.request
+
+  context = ssl._create_unverified_context()
+  urllib.request.urlopen(url, context=context)
+  ```
+</CodeGroup>
+
+### Override the default HTTPS context
+
+<CodeGroup>
+  ```python Python
+  import ssl
+
+  ssl._create_default_https_context = ssl._create_unverified_context
+  ```
+</CodeGroup>
+
+### `requests` with `verify=False`
+
+<CodeGroup>
+  ```python Python
+  import requests
+
+  requests.get(url, verify=False)
+  ```
+</CodeGroup>
+
+## See also
+
+* [Best practices for error handling in API requests](/docs/best-practices-for-error-handling-in-api-requests)
+* [Stack Overflow: CERTIFICATE_VERIFY_FAILED — unable to get local issuer certificate](https://stackoverflow.com/questions/52805115/certificate-verify-failed-unable-to-get-local-issuer-certificate)
