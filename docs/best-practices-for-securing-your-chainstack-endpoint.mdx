@@ -1,0 +1,81 @@
+---
+title: "Best practices for securing your Chainstack endpoint"
+description: "Security checklist for your Chainstack RPC node: enable 2FA, use HTTPS/WSS, rotate API keys, restrict access with allowlists, and keep dependencies up to date."
+---
+
+**TLDR:**
+* Lock down your **account** first: 2FA, scoped roles, key rotation.
+* Lock down your **endpoint** second: HTTPS/WSS only, access rules (IP and Origin allowlists), basic-auth or key-auth — never both leaked.
+* Lock down your **code** third: secrets via env vars or a secret manager, never on the frontend, keep dependencies patched.
+
+This is a checklist. Each item links into the deeper page that walks through the implementation.
+
+## 1. Enable 2FA on your Chainstack account
+
+If your account password leaks, 2FA is what stops an attacker from logging in. Turn it on before anything else.
+
+- In the [Chainstack console](https://console.chainstack.com/), go to **Settings → Security → Enable 2FA**.
+- Use an authenticator app (Authy, 1Password, etc.) — SMS is the weaker option.
+
+## 2. Use scoped roles for team members
+
+Don't share the owner account. Invite teammates with the least-privilege role they need.
+
+- See [Manage your organization](/docs/manage-your-organization) for roles (Admin, Editor, Viewer) and how to invite members.
+- Audit the member list when people change teams or leave.
+
+## 3. Always connect over HTTPS / WSS
+
+Plain HTTP exposes endpoint URLs and request bodies on the wire. Every Chainstack endpoint supports TLS — use the HTTPS / WSS URLs only.
+
+If your client throws `CERTIFICATE_VERIFY_FAILED`, fix the CA bundle, don't disable verification in production. See [Common SSL issues on Python and how to fix it](/docs/common-ssl-issues-on-python-and-how-to-fix-it).
+
+## 4. Pick the right auth method and protect it
+
+Chainstack endpoints support two authentication styles:
+
+- **Key authentication** — the API key is part of the endpoint URL (`https://<network>.core.chainstack.com/<KEY>`). Convenient, but anyone who sees the URL has access.
+- **Basic authentication** — a username and password sent in the `Authorization` header.
+
+See [Authentication methods for different scenarios](/docs/authentication-methods-for-different-scenarios) for the full comparison and when to pick which.
+
+Whichever you pick:
+
+- Treat keys, usernames, and passwords as secrets — never commit them to git, never paste them in screenshots or tickets.
+- Rotate them on a schedule and immediately after any suspected leak. See [Manage your node](/docs/manage-your-node) for rotation.
+
+## 5. Restrict who can reach your endpoint
+
+Access rules add a second perimeter on top of authentication.
+
+- **IP allowlist** — only specific source IPs can call the endpoint. Use it for backend services with stable egress IPs.
+- **Origin allowlist** — only specific `Origin` headers (your dapp's domain) are accepted from browser-side code.
+- **HTTP referrer rules** — for browser fetches from particular pages.
+
+See [Access rules](/docs/access-rules) for the full setup. Available on [Global Nodes](/docs/global-elastic-node).
+
+## 6. Never expose secrets on the frontend
+
+A wallet, dapp, or browser extension that calls an RPC endpoint directly leaks that endpoint to every visitor. The standard fix is to proxy through your backend:
+
+- Frontend calls your backend.
+- Backend calls Chainstack with the real key.
+- Backend can additionally rate-limit and validate before forwarding.
+
+For environment-variable handling, dotenv vaults, and enterprise secret managers, see [How to store your Web3 DApp secrets](/docs/how-to-store-your-web3-dapp-secrets-guide-to-environment-variables).
+
+## 7. Keep dependencies patched
+
+Third-party libraries are a common breach vector. Track CVEs for your wallet/RPC/web3 dependencies and update on a regular cadence. Avoid pinning to abandoned forks.
+
+## 8. Be cautious with third-party tools
+
+Browser extensions, RPC proxies, and "free" dashboards that ask for your endpoint URL or wallet are a common phishing surface. Only use tools you've vetted; never paste production endpoint URLs or seed phrases into them.
+
+## See also
+
+* [Manage your organization](/docs/manage-your-organization) — 2FA, roles, SSO
+* [Access rules](/docs/access-rules) — IP / Origin / referrer allowlists
+* [Authentication methods for different scenarios](/docs/authentication-methods-for-different-scenarios)
+* [How to store your Web3 DApp secrets](/docs/how-to-store-your-web3-dapp-secrets-guide-to-environment-variables)
+* [Common SSL issues on Python and how to fix it](/docs/common-ssl-issues-on-python-and-how-to-fix-it)

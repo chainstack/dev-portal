@@ -1,0 +1,75 @@
+---
+title: "EVM node returns \"Missing trie node\""
+description: "Resolve the 'missing trie node' error on EVM nodes by querying historical state with an archive node instead of a full node, which retains only the last 128 blocks."
+---
+
+**TLDR:**
+* The `missing trie node` error means you're requesting historical state from a node that doesn't have it.
+* Full nodes on EVM chains retain only the most recent ~128 blocks of state; everything older needs an [archive node](/docs/protocols-modes-and-types).
+* The fix: query through an archive endpoint, or fall back to the latest state with a block tag like `"latest"`.
+
+## The error
+
+You query an EVM node for state at a specific historical block and get back:
+
+```
+missing trie node
+```
+
+For example, getting an account balance at a past block in the Geth console:
+
+<CodeGroup>
+  ```javascript Geth console
+  > eth.getBalance("0xc94770007dda54cF92009BFF0dE90c06F603a09f", 8228625)
+  Missing trie node
+  ```
+</CodeGroup>
+
+The same error surfaces through JSON-RPC clients:
+
+<CodeGroup>
+  ```bash cURL
+  curl YOUR_CHAINSTACK_ENDPOINT \
+    -H 'content-type: application/json' \
+    -d '{"jsonrpc":"2.0","method":"eth_getBalance","params":["0xc94770007dda54cF92009BFF0dE90c06F603a09f","0x7d8e91"],"id":1}'
+  # {"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"missing trie node ..."}}
+  ```
+</CodeGroup>
+
+## Cause
+
+Most EVM full nodes retain state only for a sliding window of the most recent blocks — Geth's default `gcmode=full` window is roughly 128 blocks. The exact window varies by client (Geth, Reth, Nethermind, Besu) and chain. State queries — `eth_getBalance`, `eth_getStorageAt`, `eth_call`, `eth_getCode`, traces — against any block older than this window return `missing trie node`.
+
+Erigon is the main exception: its staged-sync architecture stores all historical state by default, so an Erigon-based "full" node can answer historical queries that a Geth full node can't.
+
+Archive nodes keep the full state trie from genesis on all clients, so they answer historical queries at any block.
+
+This also affects [`eth_simulateV1`](/reference/ethereum-simulatev1) on EVM full nodes — it can only simulate against the most recent ~128 blocks; older targets return `missing trie node`.
+
+## Solutions
+
+### Use an archive endpoint
+
+Deploy a node in archive mode and switch your endpoint to it. On Chainstack, archive mode is available across all node types — [Global Nodes](/docs/global-elastic-node), [Trader Nodes](/docs/trader-node), [Dedicated Nodes](/docs/dedicated-node), and [Unlimited Nodes](/docs/unlimited-node) — on [paid plans](https://chainstack.com/pricing/) for supported protocols. See [Protocols, modes, and types](/docs/protocols-modes-and-types).
+
+### Query the latest state
+
+If you don't actually need historical state, use the `"latest"` block tag (or omit the block parameter):
+
+<CodeGroup>
+  ```bash cURL
+  curl YOUR_CHAINSTACK_ENDPOINT \
+    -H 'content-type: application/json' \
+    -d '{"jsonrpc":"2.0","method":"eth_getBalance","params":["0xc94770007dda54cF92009BFF0dE90c06F603a09f","latest"],"id":1}'
+  ```
+</CodeGroup>
+
+### Use logs or receipts instead
+
+For event-driven workloads, [`eth_getLogs`](/reference/ethereum-getlogs) and `eth_getTransactionReceipt` work on full nodes regardless of block age and don't touch the state trie. See [Understanding `eth_getLogs` limitations](/docs/understanding-eth-getlogs-limitations).
+
+## See also
+
+* [Protocols, modes, and types](/docs/protocols-modes-and-types) — full vs archive
+* [Throughput guidelines](/docs/limits) — related EVM range limits
+* [Debug & Trace APIs](/docs/debug-and-trace-apis)

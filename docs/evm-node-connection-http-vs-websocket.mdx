@@ -1,0 +1,65 @@
+---
+title: "EVM node connection: HTTP vs WebSocket"
+description: "Choose between HTTP and WebSocket when connecting to a Chainstack EVM node. Compare timeouts, connection reuse, and use cases for eth_call, eth_getLogs, and subscriptions."
+---
+
+**TLDR:**
+* **HTTP** is unidirectional and stateless — each request opens a new connection. Best for short-lived calls.
+* **WebSocket** is bidirectional and persistent — one connection is reused for many requests and supports subscriptions. Best for long-running or real-time workloads.
+* Default to WebSocket for any workload with subscriptions, long-running queries, or sustained traffic from the same client.
+
+## How the protocols differ
+
+| | HTTP | WebSocket |
+|---|---|---|
+| Direction | Unidirectional (request → response) | Bidirectional |
+| Connection lifecycle | New connection per request, closed on response | Single persistent connection, reused |
+| Server push | No | Yes (subscriptions) |
+| Typical use | One-shot reads and writes (`eth_call`, `eth_sendRawTransaction`, `eth_getLogs`) | Subscriptions (`eth_subscribe`), sustained polling |
+
+In client-server communication, each HTTP request from the client establishes a new TCP/TLS connection and the connection closes after the response. A WebSocket connection is made once and reused until either the server or the client terminates it — the same socket can carry many JSON-RPC requests and push notifications.
+
+## When to use HTTP
+
+- All one-shot reads and writes — `eth_call`, `eth_sendRawTransaction`, `eth_getBalance`, `eth_blockNumber`, `eth_getLogs`, traces.
+- Stateless batch jobs and serverless functions where each invocation makes a few requests and then exits.
+- HTTP/2 keep-alive in modern clients amortises the per-request connection cost.
+- For wide-range `eth_getLogs` queries, paginate the block range rather than reaching for WebSocket — the call is request/response and doesn't benefit from a persistent socket.
+
+## When to use WebSocket
+
+- Subscriptions via [`eth_subscribe`](/reference/ethereum-subscribe) — `newHeads`, `logs`, `newPendingTransactions`. These require server push, which HTTP can't do.
+- Sustained traffic from the same client where connection reuse and keep-alive eliminate per-request handshake overhead.
+- Real-time event listening — see [Handle real-time data with WebSockets in JS & Python](/docs/handle-real-time-data-using-websockets-with-javascript-and-python).
+
+<Note>
+WebSocket subscription notifications are billable: each push your server sends counts as one [request unit](/docs/request-units), just like a regular RPC response. For sustained high-volume subscriptions, consider an [Unlimited Node](/docs/unlimited-node) which uses RPS-tiered flat-fee pricing instead of per-request billing.
+</Note>
+
+## Connection reuse with WebSocket
+
+When using WebSocket from a client library, open the connection once and reuse it for every request. Re-opening per request is a common mistake that defeats the protocol's advantage and quickly exhausts the connection pool.
+
+<CodeGroup>
+  ```python web3.py — incorrect
+  # Anti-pattern: opens a new WebSocket per call
+  def get_latest_block():
+      w3 = Web3(Web3.LegacyWebSocketProvider("wss://ethereum-mainnet.core.chainstack.com/AUTH_KEY"))
+      return w3.eth.block_number
+  ```
+
+  ```python web3.py — correct
+  # Open once, reuse
+  w3 = Web3(Web3.LegacyWebSocketProvider("wss://ethereum-mainnet.core.chainstack.com/AUTH_KEY"))
+
+  def get_latest_block():
+      return w3.eth.block_number
+  ```
+</CodeGroup>
+
+## See also
+
+* [Handle real-time data with WebSockets in JS & Python](/docs/handle-real-time-data-using-websockets-with-javascript-and-python)
+* [Request units](/docs/request-units)
+* [Throughput guidelines](/docs/limits)
+* [Best practices for error handling in API requests](/docs/best-practices-for-error-handling-in-api-requests)

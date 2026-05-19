@@ -228,6 +228,80 @@ We create a `filterOptions` object, which contains the necessary filter paramete
 
 Upon successful retrieval of the logs, the function iterates through each log entry, decoding the log data using the `Transfer` event ABI. The decoded log information is then printed to the console, showing the sender, recipient, and value of each USDC transfer.
 
+### Using raw JSON-RPC
+
+If you're not using a high-level library, you can call the JSON-RPC methods directly. Three methods cover the common cases: `eth_getLogs` for one-shot reads, `eth_newFilter` + `eth_getFilterLogs` for filter-based reads.
+
+#### eth_getLogs
+
+Retrieve logs matching a filter in a single call:
+
+<CodeGroup>
+  ```bash cURL
+  curl -X POST 'https://ethereum-mainnet.core.chainstack.com/AUTH_KEY' \
+    -H 'Content-Type: application/json' \
+    -d '{
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "eth_getLogs",
+      "params": [{
+        "fromBlock": "0xCD0E64",
+        "toBlock": "latest",
+        "address": "0x514910771af9ca656af840dff83e8264ecf986ca",
+        "topics": [
+          "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+        ]
+      }]
+    }'
+  ```
+</CodeGroup>
+
+This example reads all ERC-20 `Transfer` events for the [Chainlink (LINK) token contract](https://etherscan.io/token/0x514910771af9ca656af840dff83e8264ecf986ca) starting at [block 13,438,564](https://etherscan.io/block/13438564) (`0xCD0E64` in hex). The topic hash `0xddf2…3b3ef` is the Keccak-256 of `Transfer(address,address,uint256)`.
+
+Block numbers must be hex with a `0x` prefix, or the tags `latest`, `earliest`, `pending`, `safe`, `finalized`.
+
+#### eth_newFilter + eth_getFilterLogs
+
+When you want to register a filter once and read it back later (or repeatedly with `eth_getFilterChanges`), create the filter first:
+
+<CodeGroup>
+  ```bash Create the filter
+  curl -X POST 'https://ethereum-mainnet.core.chainstack.com/AUTH_KEY' \
+    -H 'Content-Type: application/json' \
+    -d '{
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "eth_newFilter",
+      "params": [{
+        "fromBlock": "0xCD0E64",
+        "toBlock": "latest",
+        "address": "0x514910771af9ca656af840dff83e8264ecf986ca",
+        "topics": [
+          "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+        ]
+      }]
+    }'
+  # → {"jsonrpc":"2.0","id":1,"result":"0xb85dcf61893301a80392d3551aebbfa6"}
+  ```
+</CodeGroup>
+
+The response `result` is your filter ID. Use it with `eth_getFilterLogs` to get all matching logs in one shot:
+
+<CodeGroup>
+  ```bash Read filter logs
+  curl -X POST 'https://ethereum-mainnet.core.chainstack.com/AUTH_KEY' \
+    -H 'Content-Type: application/json' \
+    -d '{
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "eth_getFilterLogs",
+      "params": ["0xb85dcf61893301a80392d3551aebbfa6"]
+    }'
+  ```
+</CodeGroup>
+
+Filters expire after ~5 minutes of inactivity — see [Fix Ethereum's filter not found error](/docs/understanding-ethereums-filter-not-found-error-and-how-to-fix-it) for the recovery pattern.
+
 ## Subscribing to logs
 
 In the above-given code, we use the `web3.eth.getPastLogs()` to perform a one-time query to the Ethereum node to retrieve logs matching the given filters. The result is a collection of logs from the specified block range that match the filter criteria. This approach is useful for obtaining historical event data or performing a one-time analysis of contract events.

@@ -1,0 +1,195 @@
+---
+title: "Forking EVM-compatible mainnet with Hardhat"
+description: "Fork an EVM mainnet locally with Hardhat using a Chainstack archive node. Configure a forked network in hardhat.config, pin to a specific block, and connect MetaMask to the fork."
+---
+
+**TLDR:**
+* Hardhat can spin up a local EVM node that mirrors a live mainnet's state — perfect for testing DeFi interactions against real contracts without spending real funds.
+* You need an [archive node](/docs/protocols-modes-and-types) endpoint for the fork; full nodes don't retain enough history.
+* In Hardhat 3, declare the fork in `hardhat.config.ts` under a network of type `edr-simulated` and run `npx hardhat node`.
+* Point MetaMask at `http://127.0.0.1:8545` with chain ID `31337` to interact with the fork in a browser wallet.
+
+## Why fork mainnet?
+
+A mainnet fork gives you a local EVM that starts from the real mainnet state — same contracts, same balances, same storage slots — and from that point onward runs only on your machine. It's the standard way to:
+
+- Test DeFi interactions against deployed contracts (Uniswap, Aave, Curve, etc.) without paying gas.
+- Reproduce a specific on-chain bug at the exact block where it happened.
+- Simulate upgrades or whale movements before deploying changes.
+
+This article applies to any EVM-compatible network — Ethereum, Polygon, BNB Smart Chain, Base, Arbitrum, Optimism, and others.
+
+## Before you start
+
+You need:
+
+- An archive node endpoint on the network you want to fork. Deploy an [archive-mode node](/docs/protocols-modes-and-types) on Chainstack and copy the HTTPS endpoint. See [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+- Node.js installed locally.
+- A Hardhat project. If you don't have one yet:
+
+  <CodeGroup>
+    ```bash Bash
+    mkdir hardhat-fork && cd hardhat-fork
+    npm init -y
+    npm install --save-dev hardhat
+    npx hardhat --init
+    ```
+  </CodeGroup>
+
+This guide uses Hardhat 3 (current). If you're on Hardhat 2, jump to [Hardhat 2 syntax](#hardhat-2-syntax-legacy) below.
+
+## Configure the fork
+
+In Hardhat 3, forking is declared as a network of type `edr-simulated` in your config file:
+
+<CodeGroup>
+  ```typescript hardhat.config.ts
+  import hardhatToolboxViemPlugin from "@nomicfoundation/hardhat-toolbox-viem";
+  import { defineConfig } from "hardhat/config";
+
+  export default defineConfig({
+    plugins: [hardhatToolboxViemPlugin],
+    solidity: "0.8.28",
+    networks: {
+      mainnetFork: {
+        type: "edr-simulated",
+        forking: {
+          url: "https://ethereum-mainnet.core.chainstack.com/AUTH_KEY",
+          // blockNumber: 18000000, // optional pin
+        },
+      },
+    },
+  });
+  ```
+</CodeGroup>
+
+## Run the fork as a standalone node
+
+Start a local JSON-RPC node that wallets and external scripts can connect to:
+
+<CodeGroup>
+  ```bash Bash
+  npx hardhat node --network mainnetFork
+  ```
+</CodeGroup>
+
+Output:
+
+```
+Started HTTP and WebSocket JSON-RPC server at http://127.0.0.1:8545/
+```
+
+The local fork is now running on port `8545`. Any transaction you send updates only the local state; the live mainnet sees nothing.
+
+## Fork at a specific block
+
+To reproduce historical state — for example, debugging an exploit at a known block — pin the fork by setting `blockNumber` in the `forking` config:
+
+<CodeGroup>
+  ```typescript hardhat.config.ts
+  networks: {
+    mainnetFork: {
+      type: "edr-simulated",
+      forking: {
+        url: "https://ethereum-mainnet.core.chainstack.com/AUTH_KEY",
+        blockNumber: 18000000,
+      },
+    },
+  },
+  ```
+</CodeGroup>
+
+Pinning to a block is also faster than forking at HEAD because Hardhat doesn't have to keep up with new blocks.
+
+## Run tests against the fork
+
+To run your tests against the forked network, pass it with `--network`:
+
+<CodeGroup>
+  ```bash Bash
+  npx hardhat test nodejs --network mainnetFork
+  ```
+</CodeGroup>
+
+Or connect to the forked network only inside specific tests:
+
+<CodeGroup>
+  ```typescript test/Example.ts
+  import { describe, it } from "node:test";
+  import { network } from "hardhat";
+
+  describe("Fork test", function () {
+    it("uses the forked mainnet state", async function () {
+      const { viem } = await network.create("mainnetFork");
+      // ...
+    });
+  });
+  ```
+</CodeGroup>
+
+See the [Hardhat 3 forking guide](https://hardhat.org/docs/guides/forking) for the full set of options including [Solidity forking](https://hardhat.org/docs/guides/forking#forking-in-solidity-tests) via cheatcodes.
+
+## Connect MetaMask to the fork
+
+Once the Hardhat node is running, point MetaMask at it:
+
+1. Open MetaMask, click the network selector, and choose **Add a network** → **Add a network manually**.
+2. Fill in:
+
+   | Field | Value |
+   |---|---|
+   | Network name | `Hardhat fork` |
+   | New RPC URL | `http://127.0.0.1:8545` |
+   | Chain ID | `31337` |
+   | Currency symbol | `ETH` |
+
+3. Click **Save**, then switch MetaMask to the Hardhat fork network.
+
+MetaMask now talks to your local fork. Hardhat ships with pre-funded test accounts — import one with its private key (printed in the Hardhat node output) to send transactions from MetaMask.
+
+See [Adding a custom network to MetaMask](/docs/adding-a-custom-network-to-metamask) for more on the network-add flow.
+
+## Hardhat 2 syntax (legacy)
+
+If your project is still on Hardhat 2, forking uses a CLI flag instead of the config-driven `edr-simulated` network type:
+
+<CodeGroup>
+  ```bash Bash
+  npx hardhat node \
+    --fork https://ethereum-mainnet.core.chainstack.com/AUTH_KEY \
+    --fork-block-number 18000000
+  ```
+</CodeGroup>
+
+The Hardhat 2 config-file equivalent:
+
+<CodeGroup>
+  ```javascript hardhat.config.js
+  module.exports = {
+    solidity: "0.8.24",
+    networks: {
+      hardhat: {
+        forking: {
+          url: "https://ethereum-mainnet.core.chainstack.com/AUTH_KEY",
+          blockNumber: 18000000,
+        },
+      },
+    },
+  };
+  ```
+</CodeGroup>
+
+The MetaMask connection step is identical (`http://127.0.0.1:8545`, chain ID `31337`).
+
+## Common gotchas
+
+- **`Error: missing trie node`** — your endpoint isn't an archive node, or it doesn't retain state at the block you're forking from. Switch to an archive endpoint. See [EVM node returns "Missing trie node"](/docs/evm-node-returns-missing-trie-node).
+- **Slow fork startup.** Hardhat fetches state on demand. Forking at HEAD means every test run racks up RPC calls. Pin to a fixed block whenever possible.
+- **Nonce errors after restart.** Hardhat resets state when you stop the node — but MetaMask remembers nonces per-account. Reset the MetaMask activity (Settings → Advanced → Clear activity tab data) after each fork restart.
+
+## See also
+
+* [Adding a custom network to MetaMask](/docs/adding-a-custom-network-to-metamask)
+* [EVM node returns "Missing trie node"](/docs/evm-node-returns-missing-trie-node)
+* [Protocols, modes, and types](/docs/protocols-modes-and-types)
+* [Hardhat 3 forking guide](https://hardhat.org/docs/guides/forking)
