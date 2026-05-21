@@ -1,0 +1,64 @@
+---
+title: "Common errors with @solana/web3.js"
+description: "Fix the @solana/web3.js v1 WSS-derivation bug that causes 404 or 503 on subscriptions to Chainstack Solana endpoints. Pass wsEndpoint explicitly."
+---
+
+**TLDR:**
+* `@solana/web3.js` v1 derives the WebSocket URL from the HTTP URL by string substitution. The derived URL does not match a Chainstack WSS endpoint, and any subscription call fails with `Unexpected server response: 404` or `503`.
+* Fix it by passing `wsEndpoint` explicitly to `Connection`.
+* New projects should target [`@solana/kit`](/docs/solana-tooling#javascript-and-typescript-solana-kit) — the v1 successor — which takes RPC and subscription transports separately and has no derivation bug.
+
+## The WSS-derivation bug
+
+The v1 `Connection` constructor optimistically builds a WebSocket URL from the HTTP URL when `wsEndpoint` is not provided. It rewrites the scheme (`https://` → `wss://`) and trims path segments. The derived URL does not match a Chainstack node's WSS endpoint — your auth key is part of the HTTP path and is not preserved in the rewrite — so the first subscription call fails:
+
+```
+ws error: Unexpected server response: 404
+```
+
+You can also see `503` if the rewritten host resolves but the request hits a different upstream that returns 503 for the unknown path.
+
+This bites only the v1 line. `@solana/web3.js` v1 is on the [maintenance branch](https://github.com/solana-foundation/solana-web3.js/tree/maintenance/v1.x) — security fixes only, no new features. The same library, renamed and rewritten, is now [`@solana/kit`](/docs/solana-tooling#javascript-and-typescript-solana-kit).
+
+## Fix: pass `wsEndpoint` explicitly
+
+Find the HTTPS and WSS endpoints in your node access details ([Manage your node](/docs/manage-your-node#view-node-access-and-credentials)) and pass both to `Connection`:
+
+<CodeGroup>
+  ```javascript Node.js
+  const { Connection } = require("@solana/web3.js");
+
+  const rpcEndpoint = "https://solana-mainnet.core.chainstack.com/AUTH_KEY";
+  const wsEndpoint  = "wss://solana-mainnet.core.chainstack.com/AUTH_KEY";
+
+  const connection = new Connection(rpcEndpoint, { wsEndpoint });
+  ```
+</CodeGroup>
+
+<Tip>
+The HTTPS and WSS endpoints share the same host on Chainstack — there is no `ws-` subdomain. Only the scheme changes.
+</Tip>
+
+## Better: migrate to `@solana/kit`
+
+For new code, prefer [`@solana/kit`](https://github.com/anza-xyz/kit). Kit takes its RPC and subscription transports as separate inputs, so there is no derivation step that can go wrong:
+
+<CodeGroup>
+  ```typescript TypeScript
+  import {
+    createSolanaRpc,
+    createSolanaRpcSubscriptions,
+  } from "@solana/kit";
+
+  const rpc = createSolanaRpc("https://solana-mainnet.core.chainstack.com/AUTH_KEY");
+  const rpcSubscriptions = createSolanaRpcSubscriptions("wss://solana-mainnet.core.chainstack.com/AUTH_KEY");
+  ```
+</CodeGroup>
+
+If you are mid-migration, the [`@solana/web3-compat`](https://solana.com/docs/frontend/web3-compat) bridge lets your existing v1 imports keep working while you adopt Kit primitives incrementally.
+
+## See also
+
+* [Solana tooling](/docs/solana-tooling) — modern Solana stack (Kit, Anchor 1.0, Codama, LiteSVM, Surfpool)
+* [Solana blockSubscribe 1009 error on WebSocket](/docs/solana-blocksubscribe-1009-error-on-websocket) — fix `1009` (`MESSAGE_TOO_BIG`) on large block pushes
+* [Handle real-time data using WebSockets with JavaScript and Python](/docs/handle-real-time-data-using-websockets-with-javascript-and-python)
