@@ -1,0 +1,64 @@
+---
+title: "Common errors with @solana/web3.js"
+description: "Fix the @solana/web3.js v1 WSS-derivation bug that causes 404 or 503 on subscriptions to Chainstack Solana endpoints. Pass wsEndpoint explicitly."
+---
+
+**TLDR:**
+* `@solana/web3.js` v1 derives the WSS URL from the HTTP URL via its internal `makeWebsocketUrl` helper. The derived URL does not match a Chainstack WSS endpoint, and any subscription call fails with `Unexpected server response: 404` or `503`.
+* Fix v1 by passing `wsEndpoint` explicitly to `Connection`.
+* v1 is now [legacy](https://solana.com/docs/clients/official/javascript). [`@solana/kit`](/docs/solana-tooling#javascript-and-typescript-solana-kit) is the recommended SDK — it has no derivation bug because it takes RPC and subscription transports as separate inputs.
+
+## The WSS-derivation bug
+
+When you call `new Connection(httpEndpoint)` without a `wsEndpoint`, v1 routes the URL through `makeWebsocketUrl` — a helper that rewrites the scheme (`https://` → `wss://`) and reshapes the host. The result does not match a Chainstack node's WSS endpoint, so the first subscription call fails:
+
+```
+ws error: Unexpected server response: 404
+```
+
+You can also see `503` if the rewritten host resolves but the request hits a different upstream that returns 503 for the unknown path.
+
+This bites only the v1 line, which is now on the [maintenance branch](https://github.com/solana-foundation/solana-web3.js/tree/maintenance/v1.x) — security fixes only, no new features. The same project, renamed and restructured, ships today as [`@solana/kit`](/docs/solana-tooling#javascript-and-typescript-solana-kit).
+
+## Fix: pass `wsEndpoint` explicitly
+
+Find the HTTPS and WSS endpoints in your node access details ([Manage your node](/docs/manage-your-node#view-node-access-and-credentials)) and pass both to `Connection`:
+
+<CodeGroup>
+  ```javascript Node.js
+  const { Connection } = require("@solana/web3.js");
+
+  const rpcEndpoint = "https://solana-mainnet.core.chainstack.com/AUTH_KEY";
+  const wsEndpoint  = "wss://solana-mainnet.core.chainstack.com/AUTH_KEY";
+
+  const connection = new Connection(rpcEndpoint, { wsEndpoint });
+  ```
+</CodeGroup>
+
+<Tip>
+The HTTPS and WSS endpoints share the same host on Chainstack — there is no `ws-` subdomain. Only the scheme changes.
+</Tip>
+
+## Better: migrate to `@solana/kit`
+
+Per the [official Solana docs](https://solana.com/docs/clients/official/javascript), `@solana/kit` is now the recommended TypeScript SDK and `@solana/web3.js` is the legacy line. Kit takes RPC and subscription transports as separate inputs, so the derivation step that breaks v1 is gone:
+
+<CodeGroup>
+  ```typescript TypeScript
+  import {
+    createSolanaRpc,
+    createSolanaRpcSubscriptions,
+  } from "@solana/kit";
+
+  const rpc = createSolanaRpc("https://solana-mainnet.core.chainstack.com/AUTH_KEY");
+  const rpcSubscriptions = createSolanaRpcSubscriptions("wss://solana-mainnet.core.chainstack.com/AUTH_KEY");
+  ```
+</CodeGroup>
+
+If a full rewrite is not on the table, the [`@solana/web3-compat`](https://solana.com/docs/frontend/web3-compat) bridge lets you swap your `@solana/web3.js` import for `@solana/web3-compat` and migrate file by file onto Kit primitives. It is a Phase 0 release — supported surface is currently `Connection` methods, `Keypair`, `Transaction`/`VersionedTransaction`, and `sendAndConfirmTransaction`; anything else falls back to legacy v1. Keep the v1 dependency in your `package.json` until your usage fits inside the supported surface.
+
+## See also
+
+* [Solana tooling](/docs/solana-tooling) — modern Solana stack (Kit, Anchor 1.0, Codama, LiteSVM, Surfpool)
+* [Solana blockSubscribe 1009 error on WebSocket](/docs/solana-blocksubscribe-1009-error-on-websocket) — fix `1009` (`MESSAGE_TOO_BIG`) on large block pushes
+* [Handle real-time data using WebSockets with JavaScript and Python](/docs/handle-real-time-data-using-websockets-with-javascript-and-python)

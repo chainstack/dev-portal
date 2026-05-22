@@ -1,0 +1,137 @@
+---
+title: "Solana blockSubscribe 1009 error on WebSocket"
+description: "Fix WebSocket close code 1009 (message too big) when subscribing to large Solana blocks. Raise max_size in Python websockets and maxPayload in Node ws."
+---
+
+**TLDR:**
+* WebSocket close code `1009` (`MESSAGE_TOO_BIG`) fires when the inbound frame exceeds the client's payload cap — common on Solana `blockSubscribe` because mainnet blocks can be tens of MiB.
+* Python `websockets` defaults to a 1 MiB cap (`max_size=2**20`). Raise or disable it on the `connect()` call.
+* Node `ws` defaults to a 100 MiB cap (`maxPayload`). Usually fine, but disable it (`Infinity`) for full blocks.
+* Raising the cap stops `1009`, but `blockSubscribe` itself is [unstable upstream](https://solana.com/docs/rpc/websocket/blocksubscribe). For production, use [Yellowstone gRPC Geyser](/docs/yellowstone-grpc-geyser-plugin).
+
+<Warning>
+**`blockSubscribe` is marked [unstable by the Solana team](https://solana.com/docs/rpc/websocket/blocksubscribe).** The fixes below address client-side `1009` only — for production, use [Yellowstone gRPC Geyser](/docs/yellowstone-grpc-geyser-plugin) instead.
+</Warning>
+
+## What close code 1009 means
+
+Per [RFC 6455 §7.4.1](https://www.rfc-editor.org/rfc/rfc6455#section-7.4.1), close code `1009` (`MESSAGE_TOO_BIG`) signals that an endpoint received a frame or message larger than it is willing or able to process. It is a defensive cap meant to protect the client from resource exhaustion or a hostile server flooding it with oversized frames.
+
+On Solana, [`blockSubscribe`](https://solana.com/docs/rpc/websocket/blocksubscribe) pushes the full block payload — transactions, inner instructions, log messages, balance deltas. On Mainnet this is routinely well above 1 MiB and can climb past 10 MiB during heavy activity. A library default of 1 MiB will drop the connection on the first large block.
+
+The symptom differs by library:
+
+- **Python `websockets`** raises `PayloadTooBig`, then closes with code `1009`.
+- **Node `ws`** emits a `close` event with `code === 1009`.
+
+Code `1006` ("abnormal closure") often shows up on the same workload after the `1009` fix — that one is the upstream instability, not a payload-size issue. Raising the client cap will not fix `1006`; switching to Geyser will.
+
+## Python: `websockets` default limit
+
+The [`websockets`](https://websockets.readthedocs.io/) library sets `max_size = 2**20` bytes (1 MiB) per message and `max_queue = 32` buffered messages. Any inbound frame larger than `max_size` triggers:
+
+```
+websockets.exceptions.PayloadTooBig: over size limit (length > max_size)
+ConnectionClosedError: sent 1009 (message too big)
+```
+
+### Fix
+
+Pass `max_size` to `connect()` — raise it, or set `None` to disable the cap:
+
+<CodeGroup>
+  ```python Python
+  import asyncio
+  import json
+  import websockets
+
+  WS_URL = "wss://solana-mainnet.core.chainstack.com/AUTH_KEY"
+
+  async def main():
+      async with websockets.connect(WS_URL, max_size=None) as ws:
+          await ws.send(json.dumps({
+              "jsonrpc": "2.0",
+              "id": 1,
+              "method": "blockSubscribe",
+              "params": ["all", {"encoding": "json", "transactionDetails": "full", "showRewards": False, "maxSupportedTransactionVersion": 0}],
+          }))
+          async for msg in ws:
+              print(msg)
+
+  asyncio.run(main())
+  ```
+</CodeGroup>
+
+Guidance:
+
+- `max_size=None` — disable the cap entirely.
+- `max_size=10 * 1024 * 1024` — 10 MiB ceiling, a reasonable headroom for `blockSubscribe`.
+
+Keep `max_queue` at its default unless you have a slow consumer; raising it just hides backpressure.
+
+## Node.js: `ws` default limit
+
+The [`ws`](https://github.com/websockets/ws) library defaults to `maxPayload = 100 * 1024 * 1024` (100 MiB), which usually covers Solana blocks. If you ever see code `1009`, raise the cap or disable it:
+
+<CodeGroup>
+  ```javascript Node.js
+  const WebSocket = require("ws");
+
+  const WS_URL = "wss://solana-mainnet.core.chainstack.com/AUTH_KEY";
+
+  const ws = new WebSocket(WS_URL, {
+    maxPayload: Infinity, // disable cap
+    // or: maxPayload: 10 * 1024 * 1024 // 10 MiB
+  });
+
+  ws.on("open", () => {
+    ws.send(JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "blockSubscribe",
+      params: ["all", { encoding: "json", transactionDetails: "full", showRewards: false, maxSupportedTransactionVersion: 0 }],
+    }));
+  });
+
+  ws.on("message", (data) => console.log(data.toString()));
+  ws.on("close", (code, reason) => console.error("closed", code, reason.toString()));
+  ```
+</CodeGroup>
+
+Guidance:
+
+- `maxPayload: 0` or `Infinity` — no cap.
+- `maxPayload: <bytes>` — custom cap. Set it to your worst-case block size with headroom.
+
+## Trimming the payload instead
+
+If you can live with less detail, narrow what `blockSubscribe` returns. This also makes the stream noticeably more stable — our internal load testing showed `transactionDetails: "signatures"` survives 1,000+ concurrent clients while `"full"` started disconnecting after ~40 seconds at a single client.
+
+- `transactionDetails: "signatures"` — drop full transaction bodies, keep signatures only. **Most reliable option if you don't need the full body.**
+- `transactionDetails: "none"` — block metadata only, no transactions.
+- `showRewards: false` — skip the rewards array.
+- Filter to a single program via `{"mentionsAccountOrProgram": "<pubkey>"}` in `params[0]` — only blocks containing that program's transactions are pushed.
+
+See the [`blockSubscribe` reference](https://solana.com/docs/rpc/websocket/blocksubscribe) for the full parameter list.
+
+## Production path: Yellowstone gRPC Geyser
+
+Even after raising the client cap, `blockSubscribe` itself is upstream-flagged as [unstable on busy programs](https://solana.com/docs/rpc/websocket/blocksubscribe). Our load tests show connections drop within ~40 seconds even at 1 concurrent client when `transactionDetails: "full"` is used. Symptoms include `1006` (abnormal closure) closes and silently dropped notifications — not just the `1009` case the fixes above address.
+
+The recommended production path is [Yellowstone gRPC Geyser](/docs/yellowstone-grpc-geyser-plugin) — a Chainstack add-on that delivers the same data (blocks, transactions, account updates, slots) over a gRPC stream, with no RFC-6455 payload caps and without the upstream `blockSubscribe` instability. Existing `blockSubscribe` consumers migrate to a gRPC `subscribe` call against the Geyser endpoint.
+
+See:
+- [Yellowstone gRPC Geyser plugin](/docs/yellowstone-grpc-geyser-plugin)
+- [Solana: listening to programs using Geyser and Yellowstone gRPC (Node.js)](/docs/solana-listening-to-programs-using-geyser-and-yellowstone-grpc-node-js)
+- [Solana: listening to pump.fun token mint using Geyser](/docs/solana-listening-to-pumpfun-token-mint-using-geyser)
+
+## Billing note
+
+Each `blockSubscribe` push counts as 1 [request unit](/docs/request-units#http-requests-vs-websocket-subscriptions). On Mainnet that is one RU per slot — roughly two per second when the network is healthy. Factor the subscription cost into your plan before pointing a long-running consumer at `blockSubscribe`.
+
+## See also
+
+* [Solana tooling](/docs/solana-tooling)
+* [Handle real-time data using WebSockets with JavaScript and Python](/docs/handle-real-time-data-using-websockets-with-javascript-and-python)
+* [Request units](/docs/request-units#http-requests-vs-websocket-subscriptions)
+* [EVM node connection: HTTP vs WebSocket](/docs/evm-node-connection-http-vs-websocket)
