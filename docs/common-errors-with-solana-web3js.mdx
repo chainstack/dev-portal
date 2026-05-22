@@ -4,13 +4,13 @@ description: "Fix the @solana/web3.js v1 WSS-derivation bug that causes 404 or 5
 ---
 
 **TLDR:**
-* `@solana/web3.js` v1 derives the WebSocket URL from the HTTP URL by string substitution. The derived URL does not match a Chainstack WSS endpoint, and any subscription call fails with `Unexpected server response: 404` or `503`.
-* Fix it by passing `wsEndpoint` explicitly to `Connection`.
-* New projects should target [`@solana/kit`](/docs/solana-tooling#javascript-and-typescript-solana-kit) — the v1 successor — which takes RPC and subscription transports separately and has no derivation bug.
+* `@solana/web3.js` v1 derives the WSS URL from the HTTP URL via its internal `makeWebsocketUrl` helper. The derived URL does not match a Chainstack WSS endpoint, and any subscription call fails with `Unexpected server response: 404` or `503`.
+* Fix v1 by passing `wsEndpoint` explicitly to `Connection`.
+* v1 is now [legacy](https://solana.com/docs/clients/official/javascript). [`@solana/kit`](/docs/solana-tooling#javascript-and-typescript-solana-kit) is the recommended SDK — it has no derivation bug because it takes RPC and subscription transports as separate inputs.
 
 ## The WSS-derivation bug
 
-The v1 `Connection` constructor optimistically builds a WebSocket URL from the HTTP URL when `wsEndpoint` is not provided. It rewrites the scheme (`https://` → `wss://`) and trims path segments. The derived URL does not match a Chainstack node's WSS endpoint — your auth key is part of the HTTP path and is not preserved in the rewrite — so the first subscription call fails:
+When you call `new Connection(httpEndpoint)` without a `wsEndpoint`, v1 routes the URL through `makeWebsocketUrl` — a helper that rewrites the scheme (`https://` → `wss://`) and reshapes the host. The result does not match a Chainstack node's WSS endpoint, so the first subscription call fails:
 
 ```
 ws error: Unexpected server response: 404
@@ -18,7 +18,7 @@ ws error: Unexpected server response: 404
 
 You can also see `503` if the rewritten host resolves but the request hits a different upstream that returns 503 for the unknown path.
 
-This bites only the v1 line. `@solana/web3.js` v1 is on the [maintenance branch](https://github.com/solana-foundation/solana-web3.js/tree/maintenance/v1.x) — security fixes only, no new features. The same library, renamed and rewritten, is now [`@solana/kit`](/docs/solana-tooling#javascript-and-typescript-solana-kit).
+This bites only the v1 line, which is now on the [maintenance branch](https://github.com/solana-foundation/solana-web3.js/tree/maintenance/v1.x) — security fixes only, no new features. The same project, renamed and restructured, ships today as [`@solana/kit`](/docs/solana-tooling#javascript-and-typescript-solana-kit).
 
 ## Fix: pass `wsEndpoint` explicitly
 
@@ -41,7 +41,7 @@ The HTTPS and WSS endpoints share the same host on Chainstack — there is no `w
 
 ## Better: migrate to `@solana/kit`
 
-For new code, prefer [`@solana/kit`](https://github.com/anza-xyz/kit). Kit takes its RPC and subscription transports as separate inputs, so there is no derivation step that can go wrong:
+Per the [official Solana docs](https://solana.com/docs/clients/official/javascript), `@solana/kit` is now the recommended TypeScript SDK and `@solana/web3.js` is the legacy line. Kit takes RPC and subscription transports as separate inputs, so the derivation step that breaks v1 is gone:
 
 <CodeGroup>
   ```typescript TypeScript
@@ -55,7 +55,7 @@ For new code, prefer [`@solana/kit`](https://github.com/anza-xyz/kit). Kit takes
   ```
 </CodeGroup>
 
-If you are mid-migration, the [`@solana/web3-compat`](https://solana.com/docs/frontend/web3-compat) bridge lets your existing v1 imports keep working while you adopt Kit primitives incrementally.
+If a full rewrite is not on the table, the [`@solana/web3-compat`](https://solana.com/docs/frontend/web3-compat) bridge lets you swap your `@solana/web3.js` import for `@solana/web3-compat` and migrate file by file onto Kit primitives. It is a Phase 0 release — supported surface is currently `Connection` methods, `Keypair`, `Transaction`/`VersionedTransaction`, and `sendAndConfirmTransaction`; anything else falls back to legacy v1. Keep the v1 dependency in your `package.json` until your usage fits inside the supported surface.
 
 ## See also
 
