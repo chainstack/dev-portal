@@ -1,62 +1,42 @@
 ---
 title: "Request units (RUs)"
-description: Understand how Chainstack measures and consumes request units across EVM, Solana, TON, and other protocols for accurate usage tracking and billing.
+description: How Chainstack bills full and archive requests across all supported protocols, with exact thresholds and method rules.
 ---
 
-## What are request units?
+## What an RU is
 
-Request unit (RU) is a metric that measures the size and complexity of request processing for Chainstack request‑based services.
-
-## Why request units are used for pricing?
-
-In the Web3 ecosystem, certain requests can require more extensive data processing or involve complex computations and higher spending of resources. Such requests consume more RUs. This aligns pricing with actual resource consumption.
+A request unit (RU) is the metric Chainstack uses to measure each request against our request-based services. Different requests consume different resources, so pricing is tied to RUs rather than raw call counts.
 
 See current service pricing on the [pricing page](https://chainstack.com/pricing/).
 
-## Base rules
+## Cost per request
 
-- Full node request: 1 RU
-- Archive node request: 2 RUs
+| Request | Cost |
+| --- | --- |
+| Full | 1 RU |
+| Archive | 2 RUs |
 
-These rules apply consistently unless noted below for specific protocols.
+## Full vs archive by protocol
 
-## HTTP requests vs WebSocket subscriptions
+For each protocol, here's what counts as a **full request (1 RU)** and what counts as an **archive request (2 RUs)**:
 
-A "request" is anything the node returns to you over the wire. The transport changes how those individual returns are counted.
+| Protocols | Classification |
+| --- | --- |
+| Ethereum, Polygon, BNB Smart Chain, Arbitrum, Base, Optimism, Avalanche, Linea, Mantle, Berachain, Scroll, Zora, Sonic, Unichain, Monad, Hyperliquid (HyperEVM), Plasma, Kaia, Cronos, Gnosis Chain, Celo, Moonbeam, MegaETH, Ronin, Fantom, zkSync Era, Polygon zkEVM, Blast, Tempo | Less than 127 blocks behind the tip is **full**; 127 or more blocks behind is **archive** |
+| Solana | **Archive** billing applies to specific methods when fetching historical data beyond the full-node retention. See [Solana method scope](#solana-method-scope) below. |
+| Bitcoin, TON, Sui, Aptos, Starknet, Polkadot, TRON, opBNB, Harmony | No archive split — every request is billed as full |
 
-### HTTP
+## Method rules
 
-Each JSON-RPC call counts as **one** request, regardless of how much data the response contains.
+### Always 2 RUs
 
-- `eth_blockNumber` → 1 request.
-- `eth_getLogs` across 2,000 blocks returning 5,000 events → still 1 request.
-- `eth_call` simulating a complex contract → 1 request.
+All `debug_*` and `trace_*` methods — including `debug_traceTransaction`, `debug_traceBlockByNumber`, and `trace_block` — are billed at 2 RUs regardless of block age, as they require archive state.
 
-The RU multiplier (1 RU for full, 2 RU for archive) is applied on top.
+For per-protocol debug and trace capabilities, see [Debug and trace APIs](/docs/debug-and-trace-apis).
 
-### WebSocket subscriptions
+### EVM methods affected by block age
 
-Subscriptions over WebSocket flip the counting model. Setting up the subscription counts as one request — and then **each push notification the node sends to you counts as one more request.**
-
-- `eth_subscribe newHeads` on Ethereum mainnet (≈one new block every 12 s) → ~7,200 requests/day.
-- `eth_subscribe logs` filtered to one contract emitting 5 events per block → ~36,000 requests/day.
-- `eth_subscribe newPendingTransactions` on a high-throughput chain → easily millions of requests/day.
-
-<Note>
-If you're running sustained subscriptions, consider an [Unlimited Node](/docs/unlimited-node) — it uses RPS-tiered flat-fee pricing instead of per-request billing, so subscription throughput stops mapping to RU cost.
-</Note>
-
-The same rule applies to legacy HTTP filter polling (`eth_newPendingTransactionFilter` + `eth_getFilterChanges`): each poll that returns events is one request per call, not per event — but the call cadence is yours to control, unlike a WebSocket push.
-
-## EVM protocols
-
-- Full node calls against the latest state: 1 RU.
-- Archive state requests (historical state at a past block): 2 RUs.
-- Debug and trace APIs: 2 RUs per call (require archive state).
-
-### Archive state methods
-
-These methods are billed at 2 RUs when called against a block older than ~128 blocks from the tip:
+The block-age rule in the [table above](#full-vs-archive-by-protocol) applies to these EVM methods:
 
 - `eth_getBalance`
 - `eth_getCode`
@@ -67,30 +47,63 @@ These methods are billed at 2 RUs when called against a block older than ~128 bl
 - `eth_callMany`
 - `eth_createAccessList`
 
-Calls targeting `latest`, `pending`, or a recent block within the ~128-block window are billed at 1 RU.
+All other EVM methods are billed as full (1 RU) regardless of the block they target.
+
+### Solana method scope
+
+Archive billing on Solana applies only to these methods:
+
+- `getTransaction`
+- `getBlock`
+- `getBlockTime`
+- `getBlocks`
+- `getBlocksWithLimit`
+- `getSignaturesForAddress`
+- `getFirstAvailableBlock`
+- `getSignatureStatuses`
+
+For these methods, archive (2 RUs) applies when the requested slot is beyond the recent retention window of our Solana full nodes. Calls within retention are billed as full (1 RU).
+
+`getSignaturesForAddress` and `getFirstAvailableBlock` are always billed as archive, regardless of slot.
+
+All other Solana methods are billed as full (1 RU) regardless of slot.
+
+See also [Solana archive methods availability](/docs/limits#solana-archive-methods-availability).
+
+## HTTP requests vs WebSocket subscriptions
+
+A "request" is anything the node returns to you over the wire. The transport changes how those individual returns are counted.
+
+### HTTP
+
+Each JSON-RPC call counts as one request, regardless of how much data the response contains.
+
+- `eth_blockNumber` — 1 request.
+- `eth_getLogs` across 2,000 blocks returning 5,000 events — still 1 request.
+- `eth_call` simulating a complex contract — 1 request.
+
+The RU multiplier (1 RU for full, 2 RUs for archive) is applied on top.
+
+### WebSocket subscriptions
+
+Subscriptions over WebSocket flip the counting model. Setting up the subscription counts as one request — and then each push notification the node sends to you counts as one more request.
+
+- `eth_subscribe newHeads` on Ethereum mainnet (≈one new block every 12 s) — \~7,200 requests/day.
+- `eth_subscribe logs` filtered to one contract emitting 5 events per block — \~36,000 requests/day.
+- `eth_subscribe newPendingTransactions` on a high-throughput chain — easily millions of requests/day.
 
 <Note>
-The exact threshold may vary slightly by network but is approximately 128 blocks for most EVM networks on Chainstack.
+If you're running sustained subscriptions, consider an [Unlimited Node](/docs/unlimited-node) — it uses RPS-tiered flat-fee pricing instead of per-request billing, so subscription throughput stops mapping to RU cost.
 </Note>
 
-### Debug and trace methods
+The same rule applies to legacy HTTP filter polling (`eth_newPendingTransactionFilter` + `eth_getFilterChanges`): each poll that returns events is one request per call, not per event — but the call cadence is yours to control, unlike a WebSocket push.
 
-All `debug_*` and `trace_*` methods — including `debug_traceTransaction`, `debug_traceBlockByNumber`, and `trace_block` — are billed at 2 RUs per call, as they require archive state.
+## Predicting whether an EVM call is full or archive
 
-For debug and trace capabilities by protocol, see [debug & trace APIs](/docs/debug-and-trace-apis).
+For any EVM protocol in the [table above](#full-vs-archive-by-protocol):
 
-## Solana
+1. Read the chain tip with `eth_blockNumber`.
+2. Compute `tip − your_block`.
+3. If the result is `127` or greater, the call is archive (2 RUs). Otherwise it's full (1 RU).
 
-- A Solana full node keeps about 1.5 days of full block data. Requests within that horizon are consumed as 1 RU.
-- Anything beyond that horizon is an archive call and is consumed as 2 RUs.
-- Only specific Solana methods can fetch archive data. See the list under [Solana archive methods availability](/docs/limits#solana-archive-methods-availability).
-
-## TON
-
-There is no difference between full and archive requests. All data is always available, and every request is consumed as 1 RU.
-
-## All other protocols
-
-- Full node request: 1 RU
-- Archive request: 2 RUs
-
+Calls without a block parameter — `eth_blockNumber`, `eth_chainId`, `net_version` — are always full.
