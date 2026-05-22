@@ -62,11 +62,16 @@ Archive billing on Solana applies only to these methods:
 - `getFirstAvailableBlock`
 - `getSignatureStatuses`
 
-For these methods, archive (2 RUs) applies when the requested slot is beyond the recent retention window of our Solana full nodes. Calls within retention are billed as full (1 RU).
+A request is archive (2 RUs) when its target slot is more than **5,000 slots** below the lowest slot our Solana full node still retains. Calls within retention are full (1 RU).
 
 `getSignaturesForAddress` and `getFirstAvailableBlock` are always billed as archive, regardless of slot.
 
 All other Solana methods are billed as full (1 RU) regardless of slot.
+
+#### Two values shape the boundary
+
+- **Ledger retention** — each Solana full node is configured with `--limit-ledger-size 400000000` (400 million shreds). [Shreds](https://github.com/solana-foundation/specs/blob/main/p2p/shred.md) are Solana's network-propagation units, and the number produced per slot varies with block density, so this caps disk usage rather than fixing the slot count retained.
+- **Safety buffer** — 5,000 slots. Requests targeting slots within 5,000 slots of the pruning floor are routed to the archive backend to avoid races where the full node prunes data mid-request. This is the threshold that triggers archive billing.
 
 See also [Solana archive methods availability](/docs/limits#solana-archive-methods-availability).
 
