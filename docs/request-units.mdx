@@ -23,7 +23,7 @@ For each protocol, here's what counts as a **full request (1 RU)** and what coun
 | Protocols | Classification |
 | --- | --- |
 | Ethereum, Polygon, BNB Smart Chain, Arbitrum, Base, Optimism, Avalanche, Linea, Mantle, Berachain, Scroll, Zora, Sonic, Unichain, Monad, Hyperliquid (HyperEVM), Plasma, Kaia, Cronos, Gnosis Chain, Celo, Moonbeam, MegaETH, Ronin, Fantom, zkSync Era, Polygon zkEVM, Blast, Tempo | Less than 127 blocks behind the tip is **full**; 127 or more blocks behind is **archive** |
-| Solana | **Archive** billing applies to specific methods when fetching historical data beyond the full-node retention. See [Solana method scope](#solana-method-scope) below. |
+| Solana | **Archive** billing applies to specific methods when fetching historical slots. See [Solana method scope](#solana-method-scope) below. |
 | Bitcoin, TON, Sui, Aptos, Starknet, Polkadot, TRON, opBNB, Harmony | No archive split — every request is billed as full |
 
 ## Method rules
@@ -62,7 +62,7 @@ Archive billing on Solana applies only to these methods:
 - `getFirstAvailableBlock`
 - `getSignatureStatuses`
 
-A request is archive (2 RUs) when its target slot is more than **5,000 slots** below the lowest slot our Solana full node still retains. Calls within retention are full (1 RU).
+A request is archive (2 RUs) when its target slot is below `firstAvailable + 5,000`, where `firstAvailable` is the lowest slot our Solana full node still retains. Slots at or above this boundary are full (1 RU).
 
 `getSignaturesForAddress` and `getFirstAvailableBlock` are always billed as archive, regardless of slot.
 
@@ -71,7 +71,7 @@ All other Solana methods are billed as full (1 RU) regardless of slot.
 #### Two values shape the boundary
 
 - **Ledger retention** — each Solana full node is configured with `--limit-ledger-size 400000000` (400 million shreds). [Shreds](https://github.com/solana-foundation/specs/blob/main/p2p/shred.md) are Solana's network-propagation units, and the number produced per slot varies with block density, so this caps disk usage rather than fixing the slot count retained.
-- **Safety buffer** — 5,000 slots. Requests targeting slots within 5,000 slots of the pruning floor are routed to the archive backend to avoid races where the full node prunes data mid-request. This is the threshold that triggers archive billing.
+- **Safety buffer** — 5,000 slots immediately above the pruning floor. Requests targeting these slots are routed to the archive backend to avoid races where the full node prunes data mid-request. This sets the boundary that triggers archive billing.
 
 See also [Solana archive methods availability](/docs/limits#solana-archive-methods-availability).
 
