@@ -73,6 +73,22 @@ All other Solana methods are billed as full (1 RU) regardless of slot.
 - **Ledger retention** — each Solana full node is configured with `--limit-ledger-size 400000000` (400 million shreds). [Shreds](https://github.com/solana-foundation/specs/blob/main/p2p/shred.md) are Solana's network-propagation units, and the number produced per slot varies with block density, so this caps disk usage rather than fixing the slot count retained.
 - **Safety buffer** — 5,000 slots immediately above the pruning floor. Requests targeting these slots are routed to the archive backend to avoid races where the full node prunes data mid-request. This sets the boundary that triggers archive billing.
 
+#### Putting it together
+
+A call's RU cost on Solana depends on the method and, for methods eligible for archive billing, the target slot. The ledger size (400M shreds) caps how far back the full node retains data; the 5,000-slot safety buffer above the pruning floor sets the actual billing boundary.
+
+For a sequence of calls:
+
+| Call | Why | Cost |
+| --- | --- | --- |
+| `getBalance(account)` | Not eligible for archive billing | 1 RU |
+| `getBlockHeight()` | Not eligible | 1 RU |
+| `getTransaction(signature)` on a recent transaction | Eligible; target slot above the boundary | 1 RU |
+| `getTransaction(signature)` on a transaction from months ago | Eligible; target slot below the boundary | 2 RUs |
+| `getSignaturesForAddress(address)` | Always archive | 2 RUs |
+| `getBlock(slot=1)` | Eligible; target slot far below the boundary | 2 RUs |
+| **Total** | | **9 RUs** |
+
 See also [Solana archive methods availability](/docs/limits#solana-archive-methods-availability).
 
 ## HTTP requests vs WebSocket subscriptions
