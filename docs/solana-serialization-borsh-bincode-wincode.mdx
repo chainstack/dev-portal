@@ -41,6 +41,8 @@ Bincode is unmaintained as of [RUSTSEC-2025-0141](https://rustsec.org/advisories
 
 Its headline feature is true zero-copy deserialization: for fixed-layout `#[repr(C)]` structs of primitive fields, you get typed references directly into the original byte buffer with no allocation and no copy. That is exactly the pattern you want when parsing high volumes of raw account data, such as in a Geyser pipeline. Wincode is audited by Neodyme, OtterSec, and Asymmetric Research, and it is the format [RUSTSEC-2025-0141](https://rustsec.org/advisories/RUSTSEC-2025-0141) points to as the bincode successor.
 
+Because it matches bincode, Wincode writes 8-byte length prefixes for `Vec` and `String`, where Borsh writes 4-byte prefixes — so Borsh-encoded and Wincode-encoded bytes are not interchangeable. Decode data with the same library that wrote it.
+
 ## Decode account data from your Chainstack node
 
 The most common task is reading account data your program wrote with Borsh. First, get a Solana RPC endpoint:
@@ -194,15 +196,18 @@ assert_eq!(original, decoded);
 ```
 </CodeGroup>
 
+To serialize straight into a destination instead of allocating an intermediate `Vec`, use `wincode::serialize_into(dst, src)` — note the writer comes first. To serialize Solana's `Pubkey` (address) with Wincode, enable the `wincode` feature on `solana-pubkey` or `solana-address`; it is off by default.
+
 ### Zero-copy reads with Wincode
 
-For high-throughput parsing, Wincode can hand you a typed reference straight into the byte buffer — no allocation, no copy. The struct must be `#[repr(C)]`, made entirely of primitive zero-copy fields, with no implicit padding.
+For high-throughput parsing, Wincode can hand you a typed reference straight into the byte buffer — no allocation, no copy. There is no `ZeroCopy` derive: derive `SchemaRead` (and `SchemaWrite`) on a `#[repr(C)]` struct whose fields are all zero-copy eligible, and the impl is generated for you. Add `#[wincode(assert_zero_copy)]` to make the compiler reject the type at definition if it is not eligible.
 
 ```rust Rust
 use wincode::{SchemaWrite, SchemaRead, ZeroCopy};
 
 // Layout matches a token-like account: mint (32), owner (32), amount (8).
-#[derive(SchemaWrite, SchemaRead, ZeroCopy)]
+#[derive(SchemaWrite, SchemaRead)]
+#[wincode(assert_zero_copy)]
 #[repr(C)]
 struct TokenAccountData {
     mint: [u8; 32],
@@ -210,6 +215,7 @@ struct TokenAccountData {
     amount: u64,
 }
 
+// `use wincode::ZeroCopy` brings from_bytes / from_bytes_mut into scope.
 // Read a typed reference into the buffer — zero allocations, zero copies.
 let account: &TokenAccountData = TokenAccountData::from_bytes(raw)?;
 println!("{}", account.amount);
@@ -218,6 +224,10 @@ println!("{}", account.amount);
 let account: &mut TokenAccountData = TokenAccountData::from_bytes_mut(raw_mut)?;
 account.amount += 500; // writes directly into the underlying bytes
 ```
+
+Zero-copy is strict about layout. A type qualifies only if it is `#[repr(C)]` (or `#[repr(transparent)]`), contains no `String`, `Vec`, or `Option`, and has no implicit padding. Padding is the subtle trap: a struct of two `u64` fields followed by a single `u8` is not eligible, because the trailing byte leaves the struct misaligned — you would have to pad it out to the next 8-byte boundary. Anything variable-length, like a `String` or `Vec`, can never be zero-copy, since its size is not known from the type alone.
+
+In practice you rarely make a whole account zero-copy. The pattern is to keep one full struct for the complete data and a separate, slimmer `#[repr(C)]` view for the hot path. A counter bump, for example, reads and writes only the counter through the zero-copy view — skipping the full deserialize-then-reserialize, which is where the largest compute savings come from.
 
 ## Which format should you use?
 
