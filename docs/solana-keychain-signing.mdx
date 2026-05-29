@@ -1,0 +1,184 @@
+---
+title: "Solana: pluggable transaction signing with solana-keychain"
+description: Sign Solana transactions with one interface across local keypairs, Turnkey, Privy, KMS, and HashiCorp Vault using solana-keychain, then submit through your Chainstack node.
+---
+
+**TLDR:**
+* solana-keychain is an audited Solana Foundation library that gives you one signing interface across 12 backends — local keypairs, Turnkey, Privy, AWS and GCP KMS, Fireblocks, HashiCorp Vault, and more.
+* The signer it returns is a native Solana Kit signer, so it drops straight into your normal transaction flow.
+* Moving from a local key to a managed signer is a one-line change — the rest of your build, sign, and send code stays identical.
+* The signed transaction goes out through your Chainstack endpoint like any other.
+
+## What solana-keychain is
+
+[solana-keychain](https://github.com/solana-foundation/solana-keychain) is a Solana Foundation library that provides a single signing interface backed by many implementations. Instead of learning each provider's SDK, you pick a backend and supply its credentials; how the key is stored and how signing happens is abstracted away. It ships for both TypeScript and Rust, is tree-shakeable, and has been audited by Accretion.
+
+The key design point: the signer you get back implements Solana Kit's `TransactionPartialSigner` and `MessagePartialSigner` interfaces. It is a Kit signer — you pass it anywhere Kit expects one (fee payer, instruction signer) with no adapter. Your transaction-building and submission code does not change when you switch backends.
+
+<Note>
+The packages are ESM-only. Your `package.json` needs `"type": "module"` (or a bundler that handles ESM), or you will hit a "no exports" error — the same requirement as Solana Kit itself.
+</Note>
+
+## One interface, many backends
+
+There are two ways to construct a signer:
+
+* `createKeychainSigner({ backend, ...config })` — the unified entry point. The `backend` field selects the implementation and narrows the config to that backend's fields.
+* `create<Backend>Signer(config)` — per-backend functions (`createMemorySigner`, `createTurnkeySigner`, and so on), if you prefer to import only what you use.
+
+Both return a `Promise<SolanaSigner>`. The examples below use the unified `createKeychainSigner`.
+
+## Sign and send with a local keypair
+
+Start with the memory backend — a local keypair, the same thing you would use in a script or for development. First, get a Solana RPC endpoint:
+
+1. [Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+2. [Deploy a node](/docs/manage-your-networks).
+3. [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+
+Then install the packages and send a transfer. The signer plugs directly into the Kit flow.
+
+```bash
+npm install @solana/keychain @solana/kit @solana-program/system
+```
+
+```typescript TypeScript
+import { createKeychainSigner } from "@solana/keychain";
+import {
+  address,
+  appendTransactionMessageInstruction,
+  createSolanaRpc,
+  createSolanaRpcSubscriptions,
+  createTransactionMessage,
+  getSignatureFromTransaction,
+  pipe,
+  sendAndConfirmTransactionFactory,
+  setTransactionMessageFeePayerSigner,
+  setTransactionMessageLifetimeUsingBlockhash,
+  signTransactionMessageWithSigners,
+} from "@solana/kit";
+import { getTransferSolInstruction } from "@solana-program/system";
+
+const rpc = createSolanaRpc("YOUR_CHAINSTACK_HTTPS_ENDPOINT");
+const rpcSubscriptions = createSolanaRpcSubscriptions("YOUR_CHAINSTACK_WSS_ENDPOINT");
+
+// Swap only this block to change backend — everything below stays the same.
+// The memory backend accepts one of: keyPair, privateKey, privateKeyString, or
+// privateKeyPath (a Solana CLI keypair JSON file; Node only).
+const signer = await createKeychainSigner({
+  backend: "memory",
+  privateKeyPath: "/path/to/keypair.json",
+});
+
+const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+
+const message = pipe(
+  createTransactionMessage({ version: 0 }),
+  (tx) => setTransactionMessageFeePayerSigner(signer, tx),
+  (tx) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, tx),
+  (tx) =>
+    appendTransactionMessageInstruction(
+      getTransferSolInstruction({
+        source: signer,
+        destination: address("RecipientAddressHere"),
+        amount: 1_000_000n, // 0.001 SOL
+      }),
+      tx,
+    ),
+);
+
+const signedTransaction = await signTransactionMessageWithSigners(message);
+await sendAndConfirmTransactionFactory({ rpc, rpcSubscriptions })(signedTransaction, {
+  commitment: "confirmed",
+});
+console.log("Sent:", getSignatureFromTransaction(signedTransaction));
+```
+
+## Swap in a managed signer
+
+To sign with a managed service instead of a local key, change only the `createKeychainSigner` call. Everything else — building the message, signing, sending through your Chainstack node — is untouched. On-chain, the transaction looks identical regardless of which backend signed it.
+
+<CodeGroup>
+```typescript Turnkey
+// Keep credentials in environment variables, not in source.
+const signer = await createKeychainSigner({
+  backend: "turnkey",
+  organizationId: process.env.TURNKEY_ORG_ID,
+  apiPublicKey: process.env.TURNKEY_API_PUBLIC_KEY,
+  apiPrivateKey: process.env.TURNKEY_API_PRIVATE_KEY,
+  privateKeyId: process.env.TURNKEY_PRIVATE_KEY_ID, // the Turnkey key used to sign
+  publicKey: process.env.TURNKEY_SOLANA_ADDRESS,    // base58 Solana address
+});
+```
+
+```typescript Privy
+const signer = await createKeychainSigner({
+  backend: "privy",
+  appId: process.env.PRIVY_APP_ID,
+  appSecret: process.env.PRIVY_APP_SECRET,
+  walletId: process.env.PRIVY_WALLET_ID, // the Privy wallet ID, not the Solana address
+});
+```
+</CodeGroup>
+
+<Warning>
+For Privy, the signer needs the **wallet ID** — an opaque identifier from your Privy dashboard — not the wallet's public key. Passing the address will not work.
+</Warning>
+
+## Supported backends
+
+Pass the `backend` value below to `createKeychainSigner`, or install the matching package and call its `create<Backend>Signer` function.
+
+| `backend` | Package | What it is |
+| --- | --- | --- |
+| `memory` | `@solana/keychain-memory` | Local keypair — development and scripts |
+| `turnkey` | `@solana/keychain-turnkey` | Turnkey wallet API |
+| `privy` | `@solana/keychain-privy` | Privy wallet API |
+| `aws-kms` | `@solana/keychain-aws-kms` | AWS KMS |
+| `gcp-kms` | `@solana/keychain-gcp-kms` | Google Cloud KMS |
+| `fireblocks` | `@solana/keychain-fireblocks` | Fireblocks |
+| `vault` | `@solana/keychain-vault` | HashiCorp Vault (transit engine) |
+| `dfns` | `@solana/keychain-dfns` | Dfns |
+| `para` | `@solana/keychain-para` | Para |
+| `cdp` | `@solana/keychain-cdp` | Coinbase Developer Platform |
+| `crossmint` | `@solana/keychain-crossmint` | Crossmint |
+| `openfort` | `@solana/keychain-openfort` | Openfort |
+
+## Gotchas
+
+* ESM only — set `"type": "module"` in `package.json`, as with Solana Kit.
+* `privateKeyPath` is Node-only — it reads from the filesystem. The other memory inputs (`keyPair`, `privateKey`, `privateKeyString`) work in any environment.
+* The memory backend stores the key as a non-extractable `CryptoKey` — you cannot read the raw key back out of the signer.
+* HashiCorp Vault needs the transit secrets engine enabled and an HTTPS address, and is the most involved backend to set up (tokens, namespaces, and TLS can all trip you up). The hosted services are far quicker to get signing.
+* For production, pin to a tagged release. The audit covers code through the v1.0.0 tag; backends added later (for example, `memory` and `openfort` in v1.2.0) are newer than the audited commit.
+
+## Rust
+
+The Rust crate mirrors the TypeScript API. Backends are feature-gated, and you select the Solana SDK version for your validator target.
+
+```toml Cargo.toml
+# Local keypair only:
+solana-keychain = { version = "1.2", features = ["memory"] }
+
+# Managed backends, e.g.:
+# solana-keychain = { version = "1.2", features = ["turnkey", "fireblocks"] }
+
+# For Agave 3.x/4.x, select the v3 SDK (sdk-v2 is the default):
+# solana-keychain = { version = "1.2", features = ["memory", "sdk-v3"] }
+```
+
+Every backend implements the same `SolanaSigner` trait — `pubkey`, `sign_transaction`, `sign_message`, and `is_available` — so swapping backends is the same one-line change as in TypeScript.
+
+<Check>
+### Get your own node endpoint today
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Additional resources
+
+* [Transferring SPL tokens on Solana](/docs/transferring-spl-tokens-on-solana-typescript) — build and send token transactions with Solana Kit.
+* [Enhancing SPL token transfers with retry logic](/docs/enhancing-solana-spl-token-transfers-with-retry-logic) — make submission robust.
+* [solana-foundation/solana-keychain](https://github.com/solana-foundation/solana-keychain) — source, backend docs, and the audit report.
