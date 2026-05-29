@@ -1,0 +1,182 @@
+---
+title: "Solana: batching token instructions with p-token"
+description: Use the p-token batch instruction to bundle multiple Solana token operations into a single CPI, cutting compute costs. Build it in TypeScript and Rust against your Chainstack node.
+---
+
+**TLDR:**
+* p-token is a compute-optimized, drop-in rewrite of the SPL Token program. It runs at the same program ID, so your existing code and Chainstack endpoints already use it — a transfer now costs ~76 compute units instead of ~4,645.
+* It adds a `batch` instruction that bundles several token operations into one token-program call.
+* Batching only pays off through cross-program invocation (CPI): it amortizes the fixed per-CPI base cost across all the bundled operations.
+* At the top level, batching is pure overhead — instructions there are already cheap, so send them separately.
+
+## What p-token changes
+
+p-token is a [Pinocchio](https://github.com/anza-xyz/pinocchio)-based reimplementation of the SPL Token program from Anza, shipped through [SIMD-0266](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0266-efficient-token-program.md). It went live on Solana mainnet at epoch 971 and is fully backwards compatible.
+
+p-token activates as a feature-gate swap at the **same program ID** (`TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`). Account layouts, instruction discriminators, and account structures are byte-for-byte identical to the old program. You do not change a single address, and transactions you send through your Chainstack node already run the optimized program.
+
+What you get is a large drop in compute units. The figures below are from the SIMD-0266 governance proposal:
+
+| Instruction | SPL Token (CU) | p-token (CU) |
+| --- | --- | --- |
+| Transfer | 4,645 | 76 |
+| TransferChecked | 6,200 | 105 |
+| MintTo | 4,538 | 119 |
+| Burn | 4,753 | 126 |
+| InitializeAccount | 4,527 | 154 |
+| CloseAccount | 2,916 | 120 |
+| SyncNative | 3,045 | 61 |
+
+The upgrade also adds three new instructions: `batch`, `withdraw_excess_lamports`, and `unwrap_lamports`. This page focuses on `batch`.
+
+## The batch instruction
+
+`batch` (discriminator `255`) lets you pack several token-program instructions into a single instruction. The wire format is a flat sequence: the discriminator, then one entry per sub-instruction, repeating until the data buffer is exhausted. There is no count prefix — the program loops until it runs out of bytes.
+
+Each sub-instruction entry is a 2-byte header followed by its data:
+
+* `numberOfAccounts` — how many accounts this sub-instruction consumes from the flat account list.
+* `dataLength` — the byte length of the instruction data that follows.
+* `data` — the raw token instruction bytes, including that instruction's own discriminator.
+
+All accounts for all sub-instructions are passed as one flat list, consumed left to right: sub-instruction 1 takes the first `numberOfAccounts` accounts, sub-instruction 2 takes the next batch, and so on.
+
+## What you can batch
+
+Almost every token-program instruction can go into a batch — `transfer` and `transferChecked`, `mintTo` and `burn`, `approve` and `revoke`, `freeze` and `thaw`, the `initializeMint` and `initializeAccount` variants, `closeAccount`, `syncNative`, and `withdrawExcessLamports`. They execute sequentially, in the order you add them.
+
+Two things you cannot batch:
+
+* A batch itself — the `batch` instruction is not batchable, so no nesting.
+* Associated token account (ATA) creation — the Associated Token Account program is a separate program that in turn calls the token program, so its instructions cannot be folded into a token-program batch. If you want account creation inside the same batch, create a plain token account (the System program's create-account plus `initializeAccount`) rather than an ATA.
+
+There is no fixed cap on how many instructions one batch holds. Two Solana constraints bind instead:
+
+* The 255-account-reference limit — a single instruction can reference at most 255 accounts, and a batch counts accounts across all its sub-instructions (they are not deduplicated). Instructions that touch few accounts let you pack the most in.
+* The ~1,232-byte transaction size — each sub-instruction's header, data, and account references add up.
+
+Which limit you hit first depends on the instruction. Account-light operations (a `revoke` touches two accounts) are bound by the account cap, so well over a hundred fit; a batch of plain transfers hits the transaction-size limit first, at around 70 per batch.
+
+## When batching pays off
+
+The rule is simple: **`batch` is only worth it when you call the token program through CPI.**
+
+Every `invoke` call on Solana carries a fixed base cost of about 1,000 compute units, regardless of the instruction inside it. When a program transfers tokens twice, it pays that base cost twice — once per CPI. `batch` collapses those into a single CPI, so you pay the 1,000 CU base cost **once** and then only the (now tiny) cost of each token operation:
+
+* Two separate token CPIs — `2 × 1,000` base CU `+ 2 ×` operation cost.
+* One batch CPI — `1 × 1,000` base CU `+ 2 ×` operation cost.
+
+The savings grow with each operation you fold in. This matters because almost every DeFi program issues multiple token CPIs in a single instruction — an AMM transfers two tokens per swap, an LP deposit transfers one token and mints another. Folding those operations into one `batch` CPI eliminates the redundant per-CPI base costs. The effect compounds: bundling about a dozen token operations into a single CPI rather than a dozen separate CPIs has been measured to cut total compute roughly threefold — from around 18,000 CU to about 6,000. A batch's single CPI is not free, and its cost rises with the number of accounts it carries, but it is far cheaper than paying the base cost on every invocation.
+
+At the **top level** of a transaction there is no CPI, so there is nothing to amortize. A `batch` of top-level instructions just adds the wrapper overhead and runs slower than sending the instructions separately. Use `batch` from inside a program, not from your client, unless you have a specific reason to.
+
+In practice the gains are real but modest, so treat `batch` as a compute optimization, not a necessity — the big efficiency win on token operations came from p-token itself, which you already get for free. Reach for `batch` when your program issues two or more token instructions back-to-back through CPI with nothing else in between. Because they run sequentially in order, you cannot interleave other logic between batched operations.
+
+## Batch via CPI in Rust
+
+For new programs, the [`pinocchio-token`](https://docs.rs/pinocchio-token/0.6.0/pinocchio_token/) crate gives you an idiomatic `Batch` builder and an `IntoBatch` trait implemented for every instruction type.
+
+```toml Cargo.toml
+[dependencies]
+pinocchio = "0.7"
+pinocchio-token = "0.6"
+```
+
+```rust Rust
+use pinocchio::{account_info::AccountInfo, program_error::ProgramError, ProgramResult};
+use pinocchio_token::instructions::{Batch, IntoBatch, Transfer};
+
+pub fn process_swap(accounts: &[AccountInfo]) -> ProgramResult {
+    let [src_a, dst_a, src_b, dst_b, authority, _rest @ ..] = accounts else {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    };
+
+    // Pre-allocate the batch buffers on the stack.
+    // Data buffer = header_data_len(N) + sum of each sub-instruction's data size.
+    // A Transfer is 9 bytes (1 discriminator + 8 amount); here N = 2.
+    let mut data_buf = [core::mem::MaybeUninit::<u8>::uninit(); Batch::header_data_len(2) + 9 + 9];
+    let mut ix_accounts_buf = [core::mem::MaybeUninit::uninit(); 6]; // 3 + 3 accounts
+    let mut cpi_accounts_buf = [core::mem::MaybeUninit::uninit(); 4]; // unique accounts
+
+    let mut batch = Batch::new(&mut data_buf, &mut ix_accounts_buf, &mut cpi_accounts_buf)?;
+
+    // First transfer: src_a -> dst_a
+    Transfer { from: src_a, to: dst_a, authority, amount: 1_000_000 }.into_batch(&mut batch)?;
+
+    // Second transfer: src_b -> dst_b
+    Transfer { from: src_b, to: dst_b, authority, amount: 500_000 }.into_batch(&mut batch)?;
+
+    // One CPI for both transfers — the 1,000 CU base cost is paid only once.
+    batch.invoke()
+}
+```
+
+Programs already built on the `spl-token` crate can still use `batch` by constructing the instruction data in the wire format above and issuing a normal `invoke` to the token program ID — it works because p-token runs at that same address. For new code, `pinocchio-token` is the cleaner path.
+
+<Warning>
+`Batch::new` requires you to pre-size three stack buffers before building the batch. Get the data-buffer size wrong (`header_data_len(N)` plus each sub-instruction's data length) and you get a runtime `ProgramError`, not a compile error.
+</Warning>
+
+## Build a batch instruction in TypeScript
+
+If you do need to construct a `batch` from a client, the [`@solana-program/token`](https://www.npmjs.com/package/@solana-program/token) client exposes `getBatchInstruction`. This is a low-level API — you supply each sub-instruction's raw data and account count, and you attach the flat account list yourself.
+
+```bash
+npm install @solana-program/token @solana/kit
+```
+
+```typescript TypeScript
+import { getBatchInstruction } from "@solana-program/token";
+
+// Encode a Transfer sub-instruction: discriminator (3) + amount (u64 LE) = 9 bytes.
+function encodeTransfer(amount: bigint): Uint8Array {
+  const data = new Uint8Array(9);
+  data[0] = 3; // Transfer discriminator
+  new DataView(data.buffer).setBigUint64(1, amount, true);
+  return data;
+}
+
+const batchIx = getBatchInstruction({
+  data: [
+    // Transfer uses 3 accounts: source, destination, authority.
+    { numberOfAccounts: 3, instructionData: encodeTransfer(1_000_000n) },
+    { numberOfAccounts: 3, instructionData: encodeTransfer(500_000n) },
+  ],
+});
+
+// Attach the flat account list in sub-instruction order:
+// [source1, destination1, authority1, source2, destination2, authority2]
+// as the instruction's accounts, then add batchIx to your transaction message
+// and send it through your Chainstack endpoint.
+```
+
+The client adds the per-sub-instruction length prefix for you — pass the raw instruction bytes (including each instruction's own discriminator) in `instructionData`. Remember that the account count per entry must match the accounts you append, in order.
+
+## Caveats and gotchas
+
+* No instruction-name logs — p-token does not emit the `Program log: Instruction: Transfer` lines the old program logged, because logging cost ~103 CU and was a large share of each instruction's total. If you parse [logsSubscribe](/reference/logssubscribe) output or [Geyser](/docs/solana-listening-to-programs-using-geyser-and-yellowstone-grpc-node-js) streams, parse instruction data instead of instruction-name logs.
+* Indexers must look inside batches — a `batch` is a single top-level instruction (discriminator `255`) that hides its real operations as sub-instructions. To catch every transfer or mint, descend into discriminator-`255` instructions and walk their sub-instructions; scanning only top-level instructions will miss anything bundled in a batch.
+* 255-byte data cap per sub-instruction — the `dataLength` header is a single byte, so each bundled instruction's data must be 255 bytes or less. Transfers (9 bytes) are far under this, but parameter-heavy instructions can approach it.
+* Account ordering is positional — accounts are consumed in sub-instruction order from one flat list. A misordered list is a silent bug, not an error.
+* Token-2022 has no equivalent — `batch` exists in p-token only. Token-2022 (`TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`) is a separate program with no batch mechanism.
+
+## The other new instructions
+
+* `withdraw_excess_lamports` — recovers SOL mistakenly sent to a mint or multisig account above its rent-exemption minimum, which the old program left stranded.
+* `unwrap_lamports` — moves lamports directly out of a wrapped-SOL token account to a destination, without the create-and-close dance.
+
+<Check>
+### Get your own node endpoint today
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Additional resources
+
+* [Transferring SPL tokens on Solana](/docs/transferring-spl-tokens-on-solana-typescript) — the single-transfer baseline batching builds on.
+* [Compute budget](/docs/solana-compute-budget) — set compute unit limits and prices for your transactions.
+* [Listening to programs using Geyser and Yellowstone gRPC](/docs/solana-listening-to-programs-using-geyser-and-yellowstone-grpc-node-js) — where the no-logs change matters most.
+* [SIMD-0266: efficient token program](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0266-efficient-token-program.md) — the proposal behind p-token.
+* [solana-program/token](https://github.com/solana-program/token) — p-token source and the generated clients.
