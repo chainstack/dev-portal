@@ -1,0 +1,152 @@
+---
+title: "Solana: Pinocchio vs Quasar program frameworks"
+description: Compare the Pinocchio and Quasar Solana program frameworks — efficiency, ergonomics, zero-copy, and audit status — and choose the right one for programs you deploy and test against your Chainstack node.
+---
+
+**TLDR:**
+* Pinocchio and Quasar are both zero-copy, high-efficiency Solana program frameworks, but they optimize for different things.
+* Pinocchio is low-level and audited (p-token is built on it): maximum control, but you write the owner, signer, and discriminator checks yourself.
+* Quasar is a newer, beta, unaudited framework with Anchor-like ergonomics that keeps Pinocchio-level efficiency and is zero-copy by default.
+* Rule of thumb: reach for Quasar to write an efficient program quickly; reach for Pinocchio for byte-level control or an audited, battle-tested base.
+
+## The framework spectrum
+
+Solana program frameworks sit on a spectrum that trades control and effort for ergonomics:
+
+* **Native** — a raw entry point and manual pointer work. Maximum control, no safety nets.
+* **Pinocchio** — a thin, zero-copy library: safe account and instruction views, entry-point macros, and CPI helpers, but no validation or routing. You write those.
+* **Quasar** — an Anchor-like macro layer (account validation, discriminators, PDA seeds, context structs) that compiles down to Pinocchio-tier efficiency and is zero-copy by design.
+* **Anchor** — the full-featured, most battle-tested framework: borsh serialization, 8-byte discriminators, IDL and client generation. The highest developer experience and the highest compute cost.
+
+This page focuses on the two middle options, Pinocchio and Quasar, since [Anchor has its own guide](/docs/solana-anchor-development).
+
+## Pinocchio
+
+[Pinocchio](https://github.com/anza-xyz/pinocchio) is a zero-dependency, `no_std` program library from Anza (the Agave client team). It reads the runtime's serialized input in place through a single pointer — no copies — and exposes zero-copy account and instruction views, with an optional no-allocator mode for programs that need no heap. It is audited (by Zellic) and battle-tested: [p-token](/docs/solana-ptoken-batch-instruction), the production SPL Token replacement, is built on it.
+
+The trade-off is that Pinocchio gives you no safety nets. There is no framework-provided owner check, signer check, discriminator validation, or writable assertion — you implement all of them. You think in terms of instruction data, account data, and the owner field, not instructions and validated accounts.
+
+Pinocchio offers two entry-point macros:
+
+* `entrypoint!` — parses the whole input (all accounts and instruction data) before calling your function. Best for programs with many instructions, where that one-time parse is amortized.
+* `lazy_program_entrypoint!` — hands you a context and parses nothing until you ask for it, so you pay only for the accounts and data you touch. Best for programs with one or a few instructions; it dropped the memo program's compute by roughly 80–87%. Note that, unlike the standard entry point, it does not detect duplicate accounts for you.
+
+A minimal program routes on a discriminator byte and validates accounts by hand:
+
+```rust Rust
+// pinocchio = "0.11"
+use pinocchio::error::ProgramError;
+use pinocchio::{entrypoint, AccountView, Address, ProgramResult};
+
+entrypoint!(process_instruction);
+
+pub fn process_instruction(
+    program_id: &Address,
+    accounts: &mut [AccountView],
+    instruction_data: &[u8],
+) -> ProgramResult {
+    let [counter, authority, _rest @ ..] = accounts else {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    };
+
+    // You write these checks — the framework does not.
+    if !authority.is_signer() {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
+    if counter.owner() != program_id {
+        return Err(ProgramError::IncorrectProgramId);
+    }
+
+    match instruction_data.first() {
+        Some(&0) => Ok(()), // increment the counter in place
+        _ => Err(ProgramError::InvalidInstructionData),
+    }
+}
+```
+
+<Note>
+Pinocchio's type names have shifted across releases — 0.11 uses `AccountView` and `Address`, where older versions used `AccountInfo` and `Pubkey`. Pin a version and follow [docs.rs/pinocchio](https://docs.rs/pinocchio/latest/pinocchio/) for the exact API. The no-allocator mode also forbids heap types (`String`, `Vec`) anywhere in the program, including transitively through dependencies.
+</Note>
+
+## Quasar
+
+[Quasar](https://github.com/blueshift-gg/quasar) is a newer program framework from Blueshift. It brings Anchor-style ergonomics — `#[program]`, `#[account]`, `#[derive(Accounts)]`, and a context type — while compiling to Pinocchio-tier efficiency. Accounts are pointer-cast directly from the input buffer, so it is zero-copy and zero-allocation by default. It is not built on Pinocchio; both libraries sit on the same disaggregated Solana SDK crates.
+
+The same counter looks declarative — validation comes from the account constraints, not hand-written code:
+
+```rust Rust
+#![no_std]
+// Install the CLI with `cargo install --path cli`, then scaffold with `quasar init`.
+use quasar_lang::prelude::*;
+
+declare_id!("YourProgramID11111111111111111111111111111111");
+
+// State account — 1-byte discriminator, PDA seeds, zero-copy.
+#[account(discriminator = 1, set_inner)]
+#[seeds(b"counter", authority: Address)]
+pub struct Counter {
+    pub authority: Address,
+    pub count: u64,
+}
+
+// Validated accounts — constraints replace the hand-written checks.
+#[derive(Accounts)]
+pub struct Increment {
+    #[account(mut, address = Counter::seeds(authority.address()))]
+    pub counter: Account<Counter>,
+    pub authority: Signer,
+}
+
+#[program]
+mod my_counter {
+    use super::*;
+
+    #[instruction(discriminator = 0)]
+    pub fn increment(ctx: Ctx<Increment>) -> Result<(), ProgramError> {
+        ctx.accounts.counter.count += 1;
+        Ok(())
+    }
+}
+```
+
+Quasar programs are `#![no_std]`. They use 1-byte configurable discriminators (not Anchor's 8-byte hash) and provide bounded, inline zero-copy `String` and `Vec` types whose maximum sizes are fixed at compile time — for example `String<32>` or `Vec<Address, 10>`.
+
+## Efficiency in context
+
+At this tier, the framework barely moves compute — both Pinocchio and Quasar compile to near-hand-written efficiency. Published benchmarks from Accelerate 2025 for a simple memo program put Anchor at roughly 649 compute units (down to ~281 when hand-optimized), Pinocchio at ~108, and hand-written assembly at ~104. p-token, built on Pinocchio, cut SPL Token compute by 88–95% and shrank the binary by about 40%.
+
+So the choice between Pinocchio and Quasar is not an efficiency contest. Quasar targets the same Pinocchio tier; in a like-for-like basic program it runs a handful of compute units above Pinocchio, and that small gap is precisely the owner and discriminator checks Quasar performs for you — the ones you would write by hand in Pinocchio. The real decision is control versus ergonomics at the same efficiency level. Against Anchor, both are dramatically cheaper.
+
+## Which should you use?
+
+| | Pinocchio | Quasar |
+| --- | --- | --- |
+| Style | Low-level library | Anchor-like framework |
+| You write validation | Yes — owner, signer, discriminator | No — declared via constraints |
+| Zero-copy | Yes | Yes, by default |
+| Audited | Yes (Zellic); powers p-token | No — beta |
+| Best for | Byte-level optimization, security-critical or audited bases, CPIs | Writing an efficient program quickly with low risk of mistakes |
+
+* Choose **Quasar** when you want to ship an efficient program fast and let the framework prevent common mistakes — and you can accept beta, unaudited software.
+* Choose **Pinocchio** when you need full control for byte-level optimization, or you want an audited, battle-tested foundation for a security-critical program.
+
+## Caveats
+
+* Quasar is beta and unaudited — its README states it "has not been audited. APIs may change. Use at your own risk." It ships through its own CLI (`quasar init`) rather than versioned crates.io releases (the published `0.0.0` crate is a placeholder), so pin to a specific commit and expect breaking changes. Do not ship it to production without your own audit. Its 1-byte discriminators are also incompatible with Anchor's 8-byte scheme, which matters if you parse or migrate across both.
+* Pinocchio has no safety nets — a single missed owner, signer, or discriminator check is a vulnerability. Pin a version, since the API has shifted across releases.
+* An Anchor v2 built on a Pinocchio entry point is in development (not released as of this writing) and may reshape this comparison once it ships.
+
+<Check>
+### Get your own node endpoint today
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Additional resources
+
+* [Anchor development](/docs/solana-anchor-development) — the full-featured framework this page contrasts against.
+* [p-token batch instruction](/docs/solana-ptoken-batch-instruction) — a production program built on Pinocchio.
+* [anza-xyz/pinocchio](https://github.com/anza-xyz/pinocchio) — source, docs, and examples.
+* [blueshift-gg/quasar](https://github.com/blueshift-gg/quasar) — source, and [quasar-lang.com](https://quasar-lang.com/docs) for the docs.
