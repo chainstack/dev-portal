@@ -1,0 +1,273 @@
+---
+title: "Solana: Borsh, Bincode, and Wincode serialization"
+description: Compare Borsh, Bincode, and Wincode serialization on Solana, decode account data fetched from your Chainstack node, and choose the right format for your program.
+---
+
+**TLDR:**
+* Solana accounts store raw bytes — to read them, you need to know how the owning program serialized its data.
+* Borsh is the canonical, deterministic, cross-language format used by Anchor and most clients.
+* Bincode is the Rust-only format the validator has historically used internally; it is now unmaintained and being phased out.
+* Wincode is Anza's bincode-compatible replacement with zero-copy reads, already shipping inside Agave — it is the reason recent gRPC streams are faster.
+
+## Why serialization matters on Solana
+
+A Solana account is just an owner, some lamports, and an opaque byte array in its `data` field. The runtime does not know or care what those bytes mean — the program that owns the account decides how to lay them out. When you call [getAccountInfo or getMultipleAccounts](/docs/solana-getaccountinfo-getmultipleaccounts) against your Chainstack node, you get those bytes back as base64. Turning them into a typed struct is deserialization, and you have to use the same format the program used to write them.
+
+Three serialization formats dominate the Solana ecosystem, and they are not interchangeable on the wire:
+
+* Borsh — the canonical format for on-chain program data and clients.
+* Bincode — the format the validator uses internally for its own wire protocol and snapshots.
+* Wincode — Anza's high-performance, bincode-compatible successor.
+
+Picking the wrong one gives you garbage, not an error, so it pays to know which is which.
+
+### Borsh
+
+Borsh — Binary Object Representation Serializer for Hashing — is deterministic and canonical: a given value always serializes to exactly one byte sequence, and two different values can never produce the same bytes. That property is why it is the default for on-chain account data and why it has a [formal, language-agnostic specification](https://borsh.io/) with implementations in Rust, TypeScript, Python, Go, C++, and more.
+
+It is the default in [Anchor](/docs/solana-anchor-development) and across the SPL. Integers are little-endian, dynamic containers (`Vec`, `String`) use a 4-byte length prefix, and enum variants use a single-byte discriminant. Use Borsh whenever your data crosses a language boundary — for example, a TypeScript or Python indexer reading account data from your Chainstack node.
+
+### Bincode
+
+Bincode is a Rust-only binary format with no formal specification and no maintained cross-language implementations. The Solana validator has historically used it for its internal wire protocol (gossip, repair, shreds), transaction serialization, and on-disk snapshots.
+
+<Warning>
+Bincode is unmaintained as of [RUSTSEC-2025-0141](https://rustsec.org/advisories/RUSTSEC-2025-0141) (January 7, 2026). The advisory recommends migrating to Wincode. Avoid bincode for new code — you will still encounter it in existing Solana data structures, but the ecosystem is actively moving off it.
+</Warning>
+
+### Wincode
+
+[Wincode](https://github.com/anza-xyz/wincode) is a serialization library from Anza, the team behind the Agave validator. It was built to replace bincode on the validator's hot paths, and it is **byte-for-byte wire-compatible with bincode's default configuration** — so it is a drop-in performance upgrade, not a new protocol.
+
+Its headline feature is true zero-copy deserialization: for fixed-layout `#[repr(C)]` structs of primitive fields, you get typed references directly into the original byte buffer with no allocation and no copy. That is exactly the pattern you want when parsing high volumes of raw account data, such as in a Geyser pipeline. Wincode is audited by Neodyme, OtterSec, and Asymmetric Research, and it is the format [RUSTSEC-2025-0141](https://rustsec.org/advisories/RUSTSEC-2025-0141) points to as the bincode successor.
+
+## Decode account data from your Chainstack node
+
+The most common task is reading account data your program wrote with Borsh. First, get a Solana RPC endpoint:
+
+1. [Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+2. [Deploy a node](/docs/manage-your-networks).
+3. [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+
+Then fetch the account and deserialize its bytes. The schema must match your on-chain struct's field order exactly.
+
+<CodeGroup>
+```typescript TypeScript
+import * as borsh from "borsh";
+import { Connection, PublicKey } from "@solana/web3.js";
+
+// Schema must match the on-chain struct field-for-field, in order.
+const schema = {
+  struct: {
+    amount: "u64",
+    nonce: "u32",
+  },
+};
+
+const connection = new Connection("YOUR_CHAINSTACK_ENDPOINT");
+const pubkey = new PublicKey("YourProgramAccountAddressHere");
+
+const accountInfo = await connection.getAccountInfo(pubkey);
+if (!accountInfo) throw new Error("Account not found");
+
+// web3.js returns account data as a Buffer, already base64-decoded.
+const decoded = borsh.deserialize(schema, accountInfo.data) as {
+  amount: bigint;
+  nonce: number;
+};
+
+console.log(decoded.amount); // u64 values come back as BigInt
+console.log(decoded.nonce);
+```
+
+```python Python
+from borsh_construct import CStruct, U32, U64
+from solana.rpc.api import Client
+from solders.pubkey import Pubkey
+
+# Schema must match the on-chain struct field-for-field, in order.
+schema = CStruct(
+    "amount" / U64,
+    "nonce" / U32,
+)
+
+client = Client("YOUR_CHAINSTACK_ENDPOINT")
+pubkey = Pubkey.from_string("YourProgramAccountAddressHere")
+
+account = client.get_account_info(pubkey).value
+if account is None:
+    raise ValueError("Account not found")
+
+decoded = schema.parse(bytes(account.data))
+print(decoded.amount)
+print(decoded.nonce)
+```
+</CodeGroup>
+
+<Note>
+Anchor programs prepend an 8-byte discriminator (a hash of the account name) to the data. Skip the first 8 bytes before deserializing, or use the [Anchor client](/docs/solana-anchor-development), which handles it for you.
+</Note>
+
+### Not everything is Borsh: SPL Token accounts
+
+A common trap: SPL Token accounts are **not** Borsh-encoded. The Token program uses the Solana-native `Pack` trait — a fixed-size, C-style layout (a token account is exactly 165 bytes, with the owner at offset 32). This is why `memcmp` filters work at fixed byte offsets. Trying to Borsh-decode a token account will fail or return nonsense.
+
+You have two clean options:
+
+* Pass `encoding: "jsonParsed"` to `getAccountInfo` and let your Chainstack node return a structured JSON object with `mint`, `owner`, and `tokenAmount`.
+* Decode the binary layout client-side with `@solana/spl-token`, which uses fixed-offset buffer layouts, not Borsh.
+
+```typescript TypeScript
+import { AccountLayout } from "@solana/spl-token";
+import { Connection, PublicKey } from "@solana/web3.js";
+
+const connection = new Connection("YOUR_CHAINSTACK_ENDPOINT");
+const info = await connection.getAccountInfo(new PublicKey("TokenAccountAddressHere"));
+if (!info) throw new Error("Account not found");
+
+const token = AccountLayout.decode(info.data); // fixed 165-byte layout, not Borsh
+console.log(token.amount); // bigint
+console.log(new PublicKey(token.owner).toBase58());
+```
+
+The rule of thumb: Anchor and most custom programs use Borsh; the Token program and other native programs use packed `Pack` layouts. When in doubt, `jsonParsed` lets the node do the work for well-known programs.
+
+## Serialize and deserialize in Rust
+
+On the program and validator side, all three formats are Rust libraries doing the same job. Here is the same struct round-tripped through each.
+
+```toml Cargo.toml
+borsh = { version = "1", features = ["derive"] }
+bincode = { version = "2", features = ["derive"] }
+wincode = { version = "0.5", features = ["derive"] }
+```
+
+<CodeGroup>
+```rust Borsh
+use borsh::{BorshSerialize, BorshDeserialize, to_vec, from_slice};
+
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug)]
+struct Transfer {
+    amount: u64,
+    nonce: u32,
+}
+
+let original = Transfer { amount: 1_000_000, nonce: 42 };
+
+let bytes: Vec<u8> = to_vec(&original)?;
+let decoded: Transfer = from_slice(&bytes)?;
+assert_eq!(original, decoded);
+```
+
+```rust Bincode
+use bincode::{Encode, Decode, config};
+
+#[derive(Encode, Decode, PartialEq, Debug)]
+struct Transfer {
+    amount: u64,
+    nonce: u32,
+}
+
+let cfg = config::standard();
+let original = Transfer { amount: 1_000_000, nonce: 42 };
+
+let bytes: Vec<u8> = bincode::encode_to_vec(&original, cfg)?;
+// decode_from_slice returns (value, bytes_read)
+let (decoded, _len): (Transfer, usize) = bincode::decode_from_slice(&bytes, cfg)?;
+assert_eq!(original, decoded);
+```
+
+```rust Wincode
+use wincode::{SchemaWrite, SchemaRead};
+
+#[derive(SchemaWrite, SchemaRead, PartialEq, Debug)]
+struct Transfer {
+    amount: u64,
+    nonce: u32,
+}
+
+let original = Transfer { amount: 1_000_000, nonce: 42 };
+
+let bytes: Vec<u8> = wincode::serialize(&original)?;
+let decoded: Transfer = wincode::deserialize(&bytes)?;
+assert_eq!(original, decoded);
+```
+</CodeGroup>
+
+### Zero-copy reads with Wincode
+
+For high-throughput parsing, Wincode can hand you a typed reference straight into the byte buffer — no allocation, no copy. The struct must be `#[repr(C)]`, made entirely of primitive zero-copy fields, with no implicit padding.
+
+```rust Rust
+use wincode::{SchemaWrite, SchemaRead, ZeroCopy};
+
+// Layout matches a token-like account: mint (32), owner (32), amount (8).
+#[derive(SchemaWrite, SchemaRead, ZeroCopy)]
+#[repr(C)]
+struct TokenAccountData {
+    mint: [u8; 32],
+    owner: [u8; 32],
+    amount: u64,
+}
+
+// Read a typed reference into the buffer — zero allocations, zero copies.
+let account: &TokenAccountData = TokenAccountData::from_bytes(raw)?;
+println!("{}", account.amount);
+
+// Or borrow mutably and edit the buffer in place.
+let account: &mut TokenAccountData = TokenAccountData::from_bytes_mut(raw_mut)?;
+account.amount += 500; // writes directly into the underlying bytes
+```
+
+## Which format should you use?
+
+| | Borsh | Bincode | Wincode |
+| --- | --- | --- | --- |
+| Maintained by | NEAR | Unmaintained | Anza |
+| Primary use on Solana | On-chain data, clients, Anchor | Validator internals (legacy) | Validator internals (current) |
+| Cross-language | Yes (TS, Python, Go, more) | No (Rust only) | No (Rust only) |
+| Deterministic and canonical | Yes | Version-dependent | Yes, for fixed layouts |
+| Zero-copy reads | No | No | Yes (`#[repr(C)]` structs) |
+| Formal spec | Yes | No | No (bincode-compatible) |
+| Status | Stable, recommended | Retired ([RUSTSEC-2025-0141](https://rustsec.org/advisories/RUSTSEC-2025-0141)) | Active, replacing bincode |
+
+In practice:
+
+* Building an on-chain program, or a client or indexer that reads its data — use Borsh. Anchor gives you this by default, and it keeps your TypeScript and Python tooling interoperable.
+* Writing a performance-critical native program or low-level tooling that parses raw account bytes at volume — reach for Wincode and its zero-copy reads.
+* Maintaining existing code that uses bincode — plan a migration to Wincode. The wire formats are compatible for default types, so the move does not break data already on disk or in flight.
+
+## Performance and Geyser streams
+
+Wincode's payoff is in compute units (CU) on-chain and CPU cycles in the validator. The community [`febo/tide`](https://github.com/febo/tide) benchmark measures the CU cost of reading and updating one field of a 160-byte, token-like account on-chain. The numbers are workload-specific, but the ordering is consistent and dramatic:
+
+| Approach | CU |
+| --- | --- |
+| `transmute` (theoretical floor) | 35 |
+| Wincode (zero-copy) | 35 |
+| Wincode (standard) | 62 |
+| Bincode 2 | 214 |
+| Borsh | 617 |
+| Bincode 1 | 8,127 |
+
+This is not just an on-chain concern. Anza moved the validator's hot serialization paths to Wincode in Agave 3.1 and broadened it in Agave 4.0. Independent benchmarks attribute single-digit-millisecond latency improvements on account and transaction gRPC streams to the change. If you run Geyser workloads against Chainstack [Trader Nodes](/docs/solana-trader-nodes) or [Yellowstone gRPC](/docs/solana-listening-to-programs-using-geyser-and-yellowstone-grpc-node-js), this lands as lower stream latency as the fleet runs newer Agave — with no change required on your side.
+
+<Note>
+Wincode does not change how you consume Geyser data. The [Yellowstone gRPC](/docs/solana-listening-to-programs-using-geyser-and-yellowstone-grpc-node-js) boundary is Protocol Buffers, so your subscriber code is unaffected. The benefit is faster validator-internal serialization, which shows up as lower latency. The raw `account.data` you receive is still encoded by whichever program owns the account — so the decoding rules above (Borsh, `Pack`, and so on) still apply.
+</Note>
+
+<Check>
+### Get your own node endpoint today
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Additional resources
+
+* [getAccountInfo vs getMultipleAccounts](/docs/solana-getaccountinfo-getmultipleaccounts) — fetch the bytes you decode here.
+* [Anchor development](/docs/solana-anchor-development) — the framework that handles Borsh and discriminators for you.
+* [Listening to programs using Geyser and Yellowstone gRPC](/docs/solana-listening-to-programs-using-geyser-and-yellowstone-grpc-node-js) — stream account and transaction data at scale.
+* [Borsh specification](https://borsh.io/) — the canonical, cross-language format spec.
+* [anza-xyz/wincode](https://github.com/anza-xyz/wincode) — the bincode-compatible successor from Anza.
