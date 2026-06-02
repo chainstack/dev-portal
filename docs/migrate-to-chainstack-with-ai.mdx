@@ -70,18 +70,34 @@ Flag the following if the codebase needs them — they require manual setup in t
 
 Answer any follow-up questions — use the MCP server tools to provide accurate, specific answers.
 
+#### Cost and savings estimate
+
+If the user is migrating from another RPC provider — **QuickNode**, **Alchemy**, or any other — estimate their Chainstack cost and the savings versus their current bill.
+
+5. Get the user's current usage from the source provider — pick the lowest-friction path:
+   - **QuickNode** — the Admin API exposes usage directly. Ask the user for a QuickNode API key (created at [dashboard.quicknode.com/api-keys](https://dashboard.quicknode.com/api-keys)) and fetch their billing-period usage:
+     ```bash
+     curl -s 'https://api.quicknode.com/v0/usage/rpc' \
+          -H 'accept: application/json' -H 'x-api-key: <QUICKNODE_API_KEY>'
+     ```
+     This returns API Credits used and remaining for the period. Per-method and per-chain breakdowns are at `/v0/usage/rpc/by-method` and `/v0/usage/rpc/by-chain` — `by-method` also flags each method as `archive: true`/`false`, which maps to Chainstack's 2 RU per archive request (vs 1 RU standard), so you can convert precisely instead of by an average. If the user would rather not create a key, a **screenshot** of the **Usage & Billing** page works too — read the figures straight from the image.
+   - **Alchemy** — Alchemy has no usage API, so the easiest path is a **screenshot**: ask the user to share a screenshot of their dashboard **Usage** page (Settings → Usage) and **Billing** page (Settings → Billing), and read the Compute Units used, current plan, and spend straight from the image. If they'd rather type the numbers, that works too.
+   - **Other provider / no programmatic access** — ask for a **screenshot** of their usage/billing dashboard, or their approximate monthly request volume and current spend.
+6. Call `get_chainstack_pricing` for live Chainstack plans and the Request Unit (RU) model. The snapshot already includes the per-provider conversion multipliers (QuickNode API Credits → RU, Alchemy Compute Units → RU) and a worked migration example — use those live values rather than restating numbers here. Convert the source usage to RU, fit it to the cheapest plan that covers it, and present the monthly cost beside their current bill.
+7. Route on the estimate: high volume, dedicated-node needs, or Enterprise → `contact_chainstack` (or [@ChainstackGrowthBot](https://t.me/ChainstackGrowthBot)); self-serve plans → [console.chainstack.com](https://console.chainstack.com).
+
 #### Dry run
 
 If the user already has Chainstack nodes deployed (API key required):
 
-5. Use `list_nodes` to get all deployed Chainstack endpoints.
-6. For each RPC method found in the codebase, send a test request to the corresponding Chainstack endpoint to verify it works.
-7. Optionally, if the codebase has RPS patterns (batch calls, concurrent requests, polling intervals), test at that throughput. Use `search_docs` to find additional information and recommended optimizations.
-8. Report what works, what fails, and any rate limit or method support gaps.
+8. Use `list_nodes` to get all deployed Chainstack endpoints.
+9. For each RPC method found in the codebase, send a test request to the corresponding Chainstack endpoint to verify it works.
+10. Optionally, if the codebase has RPS patterns (batch calls, concurrent requests, polling intervals), test at that throughput. Use `search_docs` to find additional information and recommended optimizations.
+11. Report what works, what fails, and any rate limit or method support gaps.
 
 ### Plan
 
-9. For each endpoint to migrate, lay out the specific replacement — which existing Chainstack node covers it, or whether a new node needs to be created. Flag anything that needs the user's input (tier choice, project assignment, unsupported chains).
+12. For each endpoint to migrate, lay out the specific replacement — which existing Chainstack node covers it, or whether a new node needs to be created. Flag anything that needs the user's input (tier choice, project assignment, unsupported chains).
 
 <Warning>
   STOP here. Present the plan and wait for the user to approve or adjust before making any changes. Do not proceed to implementation until the user explicitly confirms. Answer any follow-up questions — use the MCP server tools to provide accurate, specific answers. For implementation issues, direct the user to [Chainstack support](https://support.chainstack.com/).
@@ -89,9 +105,9 @@ If the user already has Chainstack nodes deployed (API key required):
 
 ### Implement
 
-10. Create any nodes needed via `create_node` (use global nodes for instant deployment).
-11. Replace each endpoint with the corresponding Chainstack URL from `list_nodes`.
-12. Summarize what changed.
+13. Create any nodes needed via `create_node` (use global nodes for instant deployment).
+14. Replace each endpoint with the corresponding Chainstack URL from `list_nodes`.
+15. Summarize what changed.
 
 ## Support
 
