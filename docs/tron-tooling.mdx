@@ -11,7 +11,7 @@ description: "TRON blockchain development tools guide. Use TronWeb.js, gRPC, web
   * `/jsonrpc` — Ethereum-compatible JSON-RPC (read-only operations)
   * `/wallet` — TRON HTTP API (full node operations including transactions)
   * `/walletsolidity` — TRON HTTP API (confirmed data from solidity node)
-  * **gRPC** — high-performance binary protocol for efficient data access
+  * **gRPC** — high-performance binary protocol for efficient data access (see [available services](#available-services))
 
   Note that the TRON nodes provided are full only (non-archive), which makes some of the methods unsupported.
 </Info>
@@ -57,9 +57,29 @@ gRPC endpoints use x-token authentication. Pass your token in the request metada
   Find your gRPC endpoint and x-token in the Chainstack console under your TRON node's **Access and credentials** section.
 </Info>
 
+### Available services
+
+The TRON proto files define several gRPC services. Here's what a Chainstack TRON node currently serves:
+
+| Service | Status on Chainstack |
+| --- | --- |
+| `protocol.Wallet` | Available — the full node API: accounts, blocks, contracts, and transaction operations |
+| `protocol.Database` | Available — block metadata helpers |
+| `protocol.WalletSolidity` | Not available yet |
+| `protocol.WalletExtension` | Not available yet |
+| `protocol.Monitor` | Not available yet |
+
+Calling a service that isn't currently served returns the gRPC `UNIMPLEMENTED` status (`Method not found`). Note that this is different from setups that expose a separate solidity gRPC port (for example, port `50061` on a self-hosted java-tron node) — on Chainstack, use the `Wallet` stub in your generated client. For solidified (confirmed) data, use the HTTP `/walletsolidity` API on the same node endpoint — see [TRON methods](/docs/tron-methods) for availability.
+
+<Warning>
+  ### Reflection advertises more than is served
+
+  The endpoint supports gRPC server reflection, and the reflection list includes every service from the TRON protos, including services that are not yet served. Don't infer availability from reflection or from the proto definitions; the table above reflects actual behavior.
+</Warning>
+
 ### Proto files
 
-TRON gRPC does not support server reflection, so you need the protocol buffer definitions to make calls. Get them from the official TRON protocol repository:
+The endpoint supports server reflection for discovery, but to generate typed clients you need the protocol buffer definitions. Get them from the official TRON protocol repository:
 
 ```shell
 git clone https://github.com/tronprotocol/protocol.git
