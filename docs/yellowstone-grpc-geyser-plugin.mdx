@@ -25,11 +25,27 @@ Benefits
 - Uses a standard gRPC interface with protobuf-formatted payloads.
 - Accessible from any language supporting gRPC (Python, Go, Rust, JavaScript).
 - Ideal for analytics, sniping bots, MEV strategies, data indexing, real-time dashboards, and compliance monitoring.
-- `from_slot`/`fromSlot` support to replay and recover missed events. For an example, see `learning-examples/historical_replay_with_from_slot.py` in [Solana Geyser Python tutorial](https://github.com/chainstacklabs/grpc-geyser-tutorial).
+- `from_slot`/`fromSlot` support to replay recent slots and recover events missed during a brief disconnect. For an example, see `learning-examples/recover_missed_slots_with_from_slot.py` in [Solana Geyser Python tutorial](https://github.com/chainstacklabs/grpc-geyser-tutorial). The replay buffer holds a limited number of recent slots, not full history. See [Replay depth with from_slot](#replay-depth-with-from_slot) below.
 
 ## Jito ShredStream enabled by default
 
 Chainstack Solana nodes have Jito ShredStream enabled by default, providing significantly enhanced performance for Yellowstone gRPC Geyser streaming. ShredStream accelerates block data propagation by delivering shreds directly to nodes, resulting in better consistency, improved tail latency, and higher reliability. No additional configuration is required.
+
+## Replay depth with from_slot
+
+The `from_slot` field replays recent slots from a server-side ring buffer, so a client that briefly disconnects can reconnect and catch up without missing events. It is a reconnection-recovery mechanism, not a historical backfill.
+
+On Global Nodes, the buffer holds approximately the last 100 slots (around a minute). Requesting a `from_slot` older than the buffer returns an error:
+
+```text
+broadcast from <slot> is not available, last available: <slot>
+```
+
+For arbitrary historical data beyond the buffer, use the standard JSON-RPC methods (`getBlock`, `getSignaturesForAddress`, and `getTransaction`) instead of `from_slot`.
+
+<Note>
+  Need a deeper replay window? [Dedicated Nodes](/docs/dedicated-node) can be configured with a larger `from_slot` buffer for latency-sensitive workloads. [Contact us](https://chainstack.com/contact/) to set this up.
+</Note>
 
 ## Enable the Yellowstone gRPC Geyser plugin
 
