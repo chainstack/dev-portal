@@ -1,0 +1,259 @@
+---
+title: "Solana: Capped onchain budgets for AI agents"
+description: "Give an AI agent a spending budget it can draw against autonomously, using a Solana fixed-delegation allowance — and see how it complements x402 for agentic commerce. Built in Python against a Chainstack node."
+---
+
+**TLDR:**
+* An AI agent that pays for things shouldn't hold the keys to your whole wallet. The Solana Subscriptions & Allowances program lets you grant it a **fixed delegation** — a capped, optionally time-limited budget it can spend against on its own.
+* The agent gets its own keypair and draws against the budget without you signing each payment; the program enforces the cap and you can revoke at any time.
+* This is the standing-budget complement to **x402**, which handles stateless pay-per-call payments. Together they cover both sides of agentic commerce: per-request access and a bounded autonomous spend.
+* We build it in Python against a Chainstack node — grant an allowance, have the agent spend against it, and watch the program reject an overspend.
+
+## Why agents need a budget primitive
+
+Hand an autonomous agent your wallet and you've handed it everything. The moment it can sign for one payment, it can sign for all of them. That's the wrong trust model for software that runs unattended.
+
+What you actually want is the model you already use with cards and corporate spend: a **capped allowance**. The agent can spend up to a limit, on its own, for as long as you allow — and not a token more. On Solana, the [Subscriptions & Allowances program](/docs/solana-subscriptions-and-allowances) gives you exactly that primitive with its **fixed delegation**.
+
+## Allowances and x402 are complementary
+
+If you're building agent payments on Solana, you'll meet two primitives. They solve different halves of the problem:
+
+| | x402 | Fixed-delegation allowance |
+| --- | --- | --- |
+| Shape | Per-request payment over HTTP 402 | A standing, pre-authorized budget |
+| State | Stateless — no account, no standing authorization | An onchain delegation the agent draws against |
+| Best for | Pay-per-call API access, metered usage, discovery | A bounded autonomous spend across many actions |
+| Authorization | The agent pays for each call as it goes | You authorize once; the agent spends within the cap |
+
+x402 is how an agent pays for a single API call without an account or subscription. A fixed-delegation allowance is how you give that agent a wallet-scoped budget in the first place. A realistic agent uses both: you grant it, say, a 50-token monthly allowance, and it spends that down via x402 calls and other onchain payments — never able to exceed what you authorized. The Solana Foundation's agentic-commerce work (x402, and the MPP spending-limit specs) points at exactly this pairing.
+
+<Note>
+The same idea powers infrastructure billing. An agent that consumes paid services — RPC tiers, data feeds, tool APIs — can be handed a capped allowance and left to pull what it needs, when it needs it, with a hard ceiling you set once.
+</Note>
+
+## How a fixed delegation works
+
+The mechanics are the allowance model from the [pillar guide](/docs/solana-subscriptions-and-allowances): one **Subscription Authority** (SA) PDA per `(user, mint)` becomes the single `u64::MAX` delegate on your token account, and individual delegation PDAs hold the real limits.
+
+For an agent budget, the delegation's **delegatee is the agent's wallet**:
+
+* You (the **delegator**) create a fixed delegation naming the agent as delegatee, with a total `amount` and an optional `expiry_ts`.
+* The agent (the **delegatee**) calls `transferFixed`, **signing with its own key**, to move tokens from your account to whoever it's paying. Each transfer decrements the remaining budget.
+* When the budget hits zero or the expiry passes, transfers stop. You can also revoke the delegation PDA at any time to cut it off immediately.
+
+Only the agent can spend this particular delegation, only up to the cap, only before expiry — and it never touches the rest of your balance.
+
+## Prerequisites
+
+* Python 3.10+
+* `pip install solana solders`
+* A Chainstack Solana **devnet** node endpoint
+* Some devnet SOL from the [Chainstack faucet](https://faucet.chainstack.com/solana-testnet-faucet)
+
+<Check>
+### Run Solana mainnet and devnet nodes on Chainstack
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required. You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+## Build it in Python
+
+As in the pillar guide, there's no Python SDK, so we build the instructions by hand. The setup below shares the same foundation; the new pieces are the two fixed-delegation instructions.
+
+<Steps>
+
+<Step title="Constants, helpers, and instruction builders">
+
+```python
+import struct
+
+from solana.rpc.api import Client
+from solana.rpc.commitment import Confirmed
+from solders.keypair import Keypair
+from solders.pubkey import Pubkey
+from solders.instruction import Instruction, AccountMeta
+from solders.message import MessageV0
+from solders.transaction import VersionedTransaction
+from solders.system_program import transfer, TransferParams
+from spl.token.client import Token
+from spl.token.constants import TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
+
+CHAINSTACK_DEVNET = "YOUR_CHAINSTACK_SOLANA_DEVNET_ENDPOINT"
+
+PROGRAM_ID = Pubkey.from_string("De1egAFMkMWZSN5rYXRj9CAdheBamobVNubTsi9avR44")
+SYS_PROGRAM = Pubkey.from_string("11111111111111111111111111111111")
+EVENT_AUTHORITY = Pubkey.find_program_address([b"event_authority"], PROGRAM_ID)[0]
+
+client = Client(CHAINSTACK_DEVNET, commitment=Confirmed)
+
+
+def sa_pda(user, mint):
+    return Pubkey.find_program_address([b"SubscriptionAuthority", bytes(user), bytes(mint)], PROGRAM_ID)
+
+def delegation_pda(sa, delegator, delegatee, nonce):
+    return Pubkey.find_program_address(
+        [b"delegation", bytes(sa), bytes(delegator), bytes(delegatee), nonce.to_bytes(8, "little")], PROGRAM_ID)
+
+def ata(owner, mint):
+    return Pubkey.find_program_address(
+        [bytes(owner), bytes(TOKEN_PROGRAM_ID), bytes(mint)], ASSOCIATED_TOKEN_PROGRAM_ID)[0]
+
+def meta(pubkey, signer, writable):
+    return AccountMeta(pubkey=pubkey, is_signer=signer, is_writable=writable)
+
+def send(ixs, payer, signers):
+    bh = client.get_latest_blockhash().value.blockhash
+    tx = VersionedTransaction(MessageV0.try_compile(payer.pubkey(), ixs, [], bh), signers)
+    sig = client.send_raw_transaction(bytes(tx)).value
+    client.confirm_transaction(sig, commitment=Confirmed)
+    return str(sig)
+
+def read_sa_init_id(sa):
+    data = client.get_account_info(sa).value.data
+    return int.from_bytes(data[98:106], "little", signed=True)
+
+
+def ix_init_subscription_authority(user, mint):
+    sa, _ = sa_pda(user, mint)
+    return Instruction(PROGRAM_ID, bytes([0]), [
+        meta(user, True, True), meta(sa, False, True), meta(mint, False, False),
+        meta(ata(user, mint), False, True), meta(SYS_PROGRAM, False, False),
+        meta(TOKEN_PROGRAM_ID, False, False),
+    ])
+
+
+def ix_create_fixed_delegation(user, mint, agent, nonce, amount, expiry_ts=0):
+    sa, _ = sa_pda(user, mint)
+    deleg, _ = delegation_pda(sa, user, agent, nonce)
+    # CreateFixedDelegationData: nonce u64, amount u64, expiry_ts i64, expected_sa_init_id i64.
+    data = bytes([1]) + struct.pack("<QQqq", nonce, amount, expiry_ts, read_sa_init_id(sa))
+    return Instruction(PROGRAM_ID, data, [
+        meta(user, True, True), meta(sa, False, False), meta(deleg, False, True),
+        meta(agent, False, False), meta(SYS_PROGRAM, False, False),
+    ])
+
+
+def ix_transfer_fixed(agent, user, mint, nonce, amount, receiver):
+    sa, _ = sa_pda(user, mint)
+    deleg, _ = delegation_pda(sa, user, agent, nonce)
+    # TransferData: amount u64, delegator (the user), mint. The AGENT signs.
+    data = bytes([4]) + struct.pack("<Q", amount) + bytes(user) + bytes(mint)
+    return Instruction(PROGRAM_ID, data, [
+        meta(deleg, False, True), meta(sa, False, False), meta(ata(user, mint), False, True),
+        meta(ata(receiver, mint), False, True), meta(mint, False, False),
+        meta(TOKEN_PROGRAM_ID, False, False), meta(agent, True, False),
+        meta(EVENT_AUTHORITY, False, False), meta(PROGRAM_ID, False, False),
+    ])
+```
+
+</Step>
+
+<Step title="Set up the wallets and a balance">
+
+A `user` (you, funding the agent), an `agent` (the autonomous spender), and a `service` the agent will pay. Fund the user from the [Chainstack faucet](https://faucet.chainstack.com/solana-testnet-faucet), then the script gives the agent a little SOL for its own transaction fees.
+
+```python
+import time
+
+user = Keypair()
+agent = Keypair()
+service = Keypair()
+
+print("Fund this user address from the Chainstack faucet, then continue:")
+print(user.pubkey())
+while client.get_balance(user.pubkey()).value == 0:
+    time.sleep(2)
+
+# The agent pays its own fees when it spends, so give it a little SOL.
+send([transfer(TransferParams(from_pubkey=user.pubkey(), to_pubkey=agent.pubkey(),
+     lamports=50_000_000))], payer=user, signers=[user])
+
+# A 6-decimal mint, with 100 tokens for the user to budget from.
+token = Token.create_mint(conn=client, payer=user, mint_authority=user.pubkey(),
+                          decimals=6, program_id=TOKEN_PROGRAM_ID)
+MINT = token.pubkey
+token.create_associated_token_account(user.pubkey())
+token.create_associated_token_account(service.pubkey())
+token.mint_to(dest=ata(user.pubkey(), MINT), mint_authority=user, amount=100_000_000)
+print("mint:", MINT, "| agent:", agent.pubkey())
+```
+
+</Step>
+
+<Step title="Grant the agent a budget">
+
+Initialize the user's Subscription Authority, then create a fixed delegation naming the agent as delegatee with a 10-token cap. `nonce` lets you create more than one delegation for the same agent later; `expiry_ts=0` means no expiry.
+
+```python
+NONCE = 1
+send([ix_init_subscription_authority(user.pubkey(), MINT)], payer=user, signers=[user])
+send([ix_create_fixed_delegation(user.pubkey(), MINT, agent.pubkey(), NONCE, 10_000_000)],
+     payer=user, signers=[user])
+print("granted the agent a 10-token budget")
+```
+
+</Step>
+
+<Step title="The agent spends — on its own signature">
+
+The agent now pays the service twice, signing each transfer itself. The user is not in the loop. Each draw decrements the remaining budget.
+
+```python
+for amount in (3_000_000, 3_000_000):  # 3 tokens, then 3 more
+    sig = send([ix_transfer_fixed(agent.pubkey(), user.pubkey(), MINT, NONCE, amount, service.pubkey())],
+               payer=agent, signers=[agent])
+    print("agent paid 3 tokens:", sig)
+
+bal = client.get_token_account_balance(ata(service.pubkey(), MINT)).value
+print("service balance:", bal.ui_amount_string)  # 6 — and 4 left on the budget
+```
+
+</Step>
+
+<Step title="The cap holds">
+
+With 4 tokens left, an attempt to pull 10 fails — the program rejects it with `AmountExceedsLimit`. The agent can never spend past what you authorized.
+
+```python
+try:
+    send([ix_transfer_fixed(agent.pubkey(), user.pubkey(), MINT, NONCE, 10_000_000, service.pubkey())],
+         payer=agent, signers=[agent])
+except Exception as e:
+    print("overspend rejected:", e)
+```
+
+To cut the agent off before the budget is spent, the user revokes the delegation PDA (instruction `revokeDelegation`, discriminator `3`), which closes it and returns the rent.
+
+</Step>
+
+</Steps>
+
+That's a complete, scoped agent budget: granted once, drawn down autonomously, hard-capped by the program, and revocable at will.
+
+## Where this fits
+
+The fixed delegation is the trust boundary for autonomous spending. Pair it with x402 and you have the full agentic-commerce loop on Solana: the agent discovers and pays for services per call with x402, and the allowance is the bounded pool it spends from — with a ceiling you set once and can revoke any time.
+
+The same pattern underpins agent-friendly infrastructure billing. A service that sells RPC tiers, data, or tool access can let an agent pre-authorize a budget and pull against it as it works, instead of demanding a card on file or a prepaid balance. To track that spending as it happens, see [indexing subscription events with Geyser](/docs/solana-indexing-subscription-events-geyser) — every `transferFixed` emits a `FixedTransfer` event with the amount and remaining budget.
+
+## Conclusion
+
+Autonomous agents need a way to spend that isn't "all or nothing." Solana's fixed-delegation allowance gives you a capped, expirable, revocable budget that an agent draws against on its own signature — the missing guardrail for letting software transact for you. It slots in alongside x402 for per-call payments, and it's the same primitive that makes agent-billed infrastructure practical.
+
+### About the author
+<CardGroup>
+  <Card title="Ake">
+    <img src="/images/docs/profile_images/1719912994363326464/8_Bi4fdM_400x400.jpg" alt="Ake" style={{width: '80px', height: '80px', borderRadius: '50%', objectFit: 'cover', display: 'block', margin: '0 auto'}} noZoom />
+
+    <Icon icon="code" iconType="solid" /> Director of Developer Experience @ Chainstack
+    <br /><Icon icon="screwdriver-wrench" iconType="solid" /> Talk to me all things Web3
+    <br />20 years in technology | 8+ years in Web3 full time years experience
+
+    <div style={{display: "flex", justifyContent: "center", gap: "12px"}}>
+      <a href="https://github.com/akegaviar/" style={{textDecoration: "none", borderBottom: "none"}}><Icon icon="github" iconType="brands" /></a>
+      <a href="https://twitter.com/akegaviar" style={{textDecoration: "none", borderBottom: "none"}}><Icon icon="twitter" iconType="brands" /></a>
+      <a href="https://www.linkedin.com/in/ake/" style={{textDecoration: "none", borderBottom: "none"}}><Icon icon="linkedin" iconType="brands" /></a>
+    </div>
+  </Card>
+</CardGroup>

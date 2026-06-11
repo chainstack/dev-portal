@@ -11,9 +11,9 @@ description: "TRON blockchain development tools guide. Use TronWeb.js, gRPC, web
   * `/jsonrpc` — Ethereum-compatible JSON-RPC (read-only operations)
   * `/wallet` — TRON HTTP API (full node operations including transactions)
   * `/walletsolidity` — TRON HTTP API (confirmed data from solidity node)
-  * **gRPC** — high-performance binary protocol for efficient data access
+  * **gRPC** — high-performance binary protocol for efficient data access (see [available services](#available-services))
 
-  Note that the TRON nodes provided are full only (non-archive), which makes some of the methods unsupported.
+  TRON nodes are deployed in archive mode — for TRON, this means the complete block and transaction history from genesis, not historical state. See [Historical data availability](#historical-data-availability).
 </Info>
 
 Get started with a [reliable TRON RPC endpoint](https://chainstack.com/build-better-with-tron/) to use the tools below.
@@ -36,6 +36,19 @@ For the full API reference, see the official [TRON API Reference](https://develo
   TRON nodes currently do not support WebSocket connections for event subscriptions. If you need to subscribe to events, please vote and follow the feature request at [TRON event plugin support](https://ideas.chainstack.com/p/implement-tron-event-plugin).
 </Note>
 
+## Historical data availability
+
+TRON nodes on Chainstack run in archive mode. For TRON, archive means the complete block and transaction history — not historical state. Unlike EVM archive nodes, java-tron has no state-at-block queries; this is a protocol limitation ([java-tron#6289](https://github.com/tronprotocol/java-tron/issues/6289)), not a Chainstack one. Billing is independent of the node mode — every TRON request is billed as full (1 RU); see [Request units](/docs/request-units).
+
+Available on your node:
+
+- Complete block and transaction history from genesis — block and transaction methods accept any historical block, for example `/wallet/getblockbynum` and `eth_getBlockByNumber`
+- Historical TRX balances — `/wallet/getaccountbalance` and `/wallet/getblockbalance` with a `block_identifier`
+
+Not available on any TRON node:
+
+- Historical contract or account state, beyond the TRX balance lookups above — `eth_getBalance`, `eth_call`, `eth_getCode`, and `eth_getStorageAt` accept only the `latest` block parameter and return `QUANTITY not supported, just support TAG as latest` for anything else; `triggerconstantcontract` always runs against current state. java-tron tracks archive-node support in [java-tron#6289](https://github.com/tronprotocol/java-tron/issues/6289).
+
 ## gRPC API
 
 TRON nodes on Chainstack support gRPC for high-performance access. gRPC uses HTTP/2 and Protocol Buffers for efficient binary serialization, making it ideal for high-throughput applications and data indexing.
@@ -57,9 +70,29 @@ gRPC endpoints use x-token authentication. Pass your token in the request metada
   Find your gRPC endpoint and x-token in the Chainstack console under your TRON node's **Access and credentials** section.
 </Info>
 
+### Available services
+
+The TRON proto files define several gRPC services. Here's what a Chainstack TRON node currently serves:
+
+| Service | Status on Chainstack |
+| --- | --- |
+| `protocol.Wallet` | Available — the full node API: accounts, blocks, contracts, and transaction operations |
+| `protocol.Database` | Available — block metadata helpers |
+| `protocol.WalletSolidity` | Not available yet |
+| `protocol.WalletExtension` | Not available yet |
+| `protocol.Monitor` | Not available yet |
+
+Calling a service that isn't currently served returns the gRPC `UNIMPLEMENTED` status (`Method not found`). Note that this is different from setups that expose a separate solidity gRPC port (for example, port `50061` on a self-hosted java-tron node) — on Chainstack, use the `Wallet` stub in your generated client. For solidified (confirmed) data, use the HTTP `/walletsolidity` API on the same node endpoint — see [TRON methods](/docs/tron-methods) for availability.
+
+<Warning>
+  ### Reflection advertises more than is served
+
+  The endpoint supports gRPC server reflection, and the reflection list includes every service from the TRON protos, including services that are not yet served. Don't infer availability from reflection or from the proto definitions; the table above reflects actual behavior.
+</Warning>
+
 ### Proto files
 
-TRON gRPC does not support server reflection, so you need the protocol buffer definitions to make calls. Get them from the official TRON protocol repository:
+The endpoint supports server reflection for discovery, but to generate typed clients you need the protocol buffer definitions. Get them from the official TRON protocol repository:
 
 ```shell
 git clone https://github.com/tronprotocol/protocol.git

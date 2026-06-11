@@ -24,13 +24,17 @@ For each protocol, here's what counts as a **full request (1 RU)** and what coun
 | --- | --- |
 | Ethereum, Polygon, BNB Smart Chain, Arbitrum, Base, Optimism, Avalanche, Linea, Mantle, Berachain, Scroll, Zora, Sonic, Unichain, Monad, Hyperliquid (HyperEVM), Plasma, Kaia, Cronos, Gnosis Chain, Celo, Moonbeam, MegaETH, Ronin, Fantom, zkSync Era, Polygon zkEVM, Blast, Tempo | Less than 127 blocks behind the tip is **full**; 127 or more blocks behind is **archive** |
 | Solana | **Archive** billing applies to specific methods when fetching historical slots. See [Solana method scope](#solana-method-scope) below. |
-| Bitcoin, TON, Sui, Aptos, Starknet, Polkadot, TRON, opBNB, Harmony | No archive split — every request is billed as full |
+| TON | Most requests are **full**. `getTransactions` and `getTransactionsStd` are always **archive**; block/seqno methods are **archive** when the requested block is 128 or more seqno behind the tip. See [TON method scope](#ton-method-scope) below. |
+| Bitcoin, Sui, Aptos, Starknet, Polkadot, TRON, opBNB, Harmony | No archive split — every request is billed as full |
 
 ## Method rules
 
 ### Always 2 RUs
 
-All `debug_*` and `trace_*` methods — including `debug_traceTransaction`, `debug_traceBlockByNumber`, and `trace_block` — are billed at 2 RUs regardless of block age, as they require archive state.
+These EVM methods are billed at 2 RUs regardless of block age:
+
+- All `debug_*`, `trace_*`, and `arbtrace_*` methods — including `debug_traceTransaction`, `debug_traceBlockByNumber`, and `trace_block`.
+- `eth_callMany`
 
 For per-protocol debug and trace capabilities, see [Debug and trace APIs](/docs/debug-and-trace-apis).
 
@@ -38,14 +42,28 @@ For per-protocol debug and trace capabilities, see [Debug and trace APIs](/docs/
 
 The block-age rule in the [table above](#full-vs-archive-by-protocol) applies to these EVM methods:
 
-- `eth_getBalance`
-- `eth_getCode`
-- `eth_getTransactionCount`
-- `eth_getStorageAt`
 - `eth_call`
-- `eth_getProof`
-- `eth_callMany`
 - `eth_createAccessList`
+- `eth_estimateGas`
+- `eth_feeHistory`
+- `eth_getAccount`
+- `eth_getBalance`
+- `eth_getBlockByNumber`
+- `eth_getBlockReceipts`
+- `eth_getBlockTransactionCountByHash`
+- `eth_getBlockTransactionCountByNumber`
+- `eth_getCode`
+- `eth_getLogs`
+- `eth_getProof`
+- `eth_getStorageAt`
+- `eth_getTransactionByBlockNumberAndIndex`
+- `eth_getTransactionCount`
+- `eth_getUncleCountByBlockHash`
+- `eth_getUncleCountByBlockNumber`
+- `eth_newFilter`
+- `eth_simulateV1`
+
+For `eth_getLogs` and `eth_newFilter`, the block evaluated for billing is `fromBlock` if set, otherwise `toBlock` if set, otherwise `latest`. For example, `eth_getLogs({fromBlock: 1, toBlock: latest})` bills as archive because `fromBlock` is far below the tip — even though the range extends to `latest`.
 
 All other EVM methods are billed as full (1 RU) regardless of the block they target.
 
@@ -89,6 +107,24 @@ For a sequence of calls:
 | **Total** | | **8 RUs** |
 
 See also [Solana archive methods availability](/docs/limits#solana-archive-methods-availability).
+
+### TON method scope
+
+TON requests are billed as full (1 RU) by default. Archive billing (2 RUs) applies in two cases.
+
+**Always archive**, regardless of parameters:
+
+- `getTransactions`
+- `getTransactionsStd`
+
+These methods return an account's transaction history keyed by address (and logical time), not by block. The depth of the result cannot be determined before the request is served, so they are always classified as archive.
+
+**Archive only when targeting a historical block** — these methods take a block/seqno parameter and are billed as archive (2 RUs) when the requested seqno is 128 or more behind the chain tip, and full (1 RU) otherwise (recent block, or no block parameter):
+
+- v2: `getBlockTransactions`, `getBlockTransactionsExt`, `getBlockHeader`, `lookupBlock`, `shards` / `getShards`, `getShardAccountCell`, `getShardBlockProof`, `getMasterchainBlockSignatures`, `getAddressState`, `getConfigParam`, `getConfigAll`
+- v3: `transactions`, `transactionsByMasterchainBlock`, `blocks`, `traces`, `actions`, `masterchainBlockShards`, `masterchainBlockShardState`
+
+The threshold is evaluated against the latest seqno of the workchain referenced by the request — the masterchain by default. All other TON methods — across v2 REST, v3 REST, and the `/jsonRPC` envelope — are billed as full (1 RU).
 
 ## HTTP requests vs WebSocket subscriptions
 
