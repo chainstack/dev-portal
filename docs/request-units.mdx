@@ -29,9 +29,7 @@ For each protocol, here's what counts as a **full request (1 RU)** and what coun
 | Starknet | Most requests are **full**. Trace methods are always **2 RUs**; block-scoped methods are **archive** when the requested block is more than 128 behind the tip. See [Starknet method scope](#starknet-method-scope) below. |
 | Bitcoin, Sui, Polkadot, TRON, opBNB, Harmony | No archive split — every request is billed as full |
 
-## Method rules
-
-### Always 2 RUs
+## Always 2 RUs
 
 These EVM methods are billed at 2 RUs regardless of block age:
 
@@ -40,7 +38,7 @@ These EVM methods are billed at 2 RUs regardless of block age:
 
 For per-protocol debug and trace capabilities, see [Debug and trace APIs](/docs/debug-and-trace-apis).
 
-### EVM methods affected by block age
+## EVM methods affected by block age
 
 The block-age rule in the [table above](#full-vs-archive-by-protocol) applies to these EVM methods:
 
@@ -69,7 +67,7 @@ For `eth_getLogs` and `eth_newFilter`, the block evaluated for billing is `fromB
 
 All other EVM methods are billed as full (1 RU) regardless of the block they target.
 
-### Solana method scope
+## Solana method scope
 
 Archive billing on Solana applies only to these methods:
 
@@ -88,12 +86,12 @@ A request is archive (2 RUs) when its target slot is below `firstAvailable + 5,0
 
 All other Solana methods are billed as full (1 RU) regardless of slot.
 
-#### Two values shape the Solana archive boundary
+### Two values shape the Solana archive boundary
 
 - **Ledger retention** — each Solana full node is configured with `--limit-ledger-size 400000000` (400 million shreds). [Shreds](https://github.com/solana-foundation/specs/blob/main/p2p/shred.md) are Solana's network-propagation units, and the number produced per slot varies with block density, so this caps disk usage rather than fixing the slot count retained.
 - **Safety buffer** — 5,000 slots immediately above the pruning floor. Requests targeting these slots are routed to the archive backend to avoid races where the full node prunes data mid-request. This sets the boundary that triggers archive billing.
 
-#### Putting it together
+### Putting it together
 
 A call's RU cost on Solana depends on the method and, for methods eligible for archive billing, the target slot. The ledger size (400M shreds) caps how far back the full node retains data; the 5,000-slot safety buffer above the pruning floor sets the actual billing boundary.
 
@@ -110,7 +108,7 @@ For a sequence of calls:
 
 See also [Solana archive methods availability](/docs/limits#solana-archive-methods-availability).
 
-### TON method scope
+## TON method scope
 
 TON requests are billed as full (1 RU) by default. Archive billing (2 RUs) applies in two cases.
 
@@ -123,12 +121,30 @@ These methods return an account's transaction history keyed by address (and logi
 
 **Archive only when targeting a historical block** — these methods take a block/seqno parameter and are billed as archive (2 RUs) when the requested seqno is more than 128 behind the chain tip, and full (1 RU) otherwise (recent block, or no block parameter):
 
-- v2: `getBlockTransactions`, `getBlockTransactionsExt`, `getBlockHeader`, `lookupBlock`, `shards` / `getShards`, `getShardAccountCell`, `getShardBlockProof`, `getMasterchainBlockSignatures`, `getAddressState`, `getConfigParam`, `getConfigAll`
-- v3: `transactions`, `transactionsByMasterchainBlock`, `blocks`, `traces`, `actions`, `masterchainBlockShards`, `masterchainBlockShardState`
+- v2:
+  - `getBlockTransactions`
+  - `getBlockTransactionsExt`
+  - `getBlockHeader`
+  - `lookupBlock`
+  - `shards` / `getShards`
+  - `getShardAccountCell`
+  - `getShardBlockProof`
+  - `getMasterchainBlockSignatures`
+  - `getAddressState`
+  - `getConfigParam`
+  - `getConfigAll`
+- v3:
+  - `transactions`
+  - `transactionsByMasterchainBlock`
+  - `blocks`
+  - `traces`
+  - `actions`
+  - `masterchainBlockShards`
+  - `masterchainBlockShardState`
 
 The threshold is evaluated against the latest seqno of the workchain referenced by the request — the masterchain by default. All other TON methods — across v2 REST, v3 REST, and the `/jsonRPC` envelope — are billed as full (1 RU).
 
-### Aptos method scope
+## Aptos method scope
 
 Aptos requests are billed as full (1 RU) by default. Aptos sequences data two ways, and the archive threshold differs by which an endpoint takes:
 
@@ -161,7 +177,7 @@ This endpoint returns an account's transaction history keyed by address, not by 
 
 A request that omits the block or version parameter, or targets one within the threshold, is billed as full (1 RU). All other Aptos endpoints are billed as full (1 RU).
 
-### Starknet method scope
+## Starknet method scope
 
 Starknet requests are billed as full (1 RU) by default. Three cases are billed at 2 RUs.
 
