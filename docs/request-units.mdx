@@ -24,8 +24,10 @@ For each protocol, here's what counts as a **full request (1 RU)** and what coun
 | --- | --- |
 | Ethereum, Polygon, BNB Smart Chain, Arbitrum, Base, Optimism, Avalanche, Linea, Mantle, Berachain, Scroll, Zora, Sonic, Unichain, Monad, Hyperliquid (HyperEVM), Plasma, Kaia, Cronos, Gnosis Chain, Celo, Moonbeam, MegaETH, Ronin, Fantom, zkSync Era, Polygon zkEVM, Blast, Tempo | Less than 127 blocks behind the tip is **full**; 127 or more blocks behind is **archive** |
 | Solana | **Archive** billing applies to specific methods when fetching historical slots. See [Solana method scope](#solana-method-scope) below. |
-| TON | Most requests are **full**. `getTransactions` and `getTransactionsStd` are always **archive**; block/seqno methods are **archive** when the requested block is 128 or more seqno behind the tip. See [TON method scope](#ton-method-scope) below. |
-| Bitcoin, Sui, Aptos, Starknet, Polkadot, TRON, opBNB, Harmony | No archive split — every request is billed as full |
+| TON | Most requests are **full**. `getTransactions` and `getTransactionsStd` are always **archive**; block/seqno methods are **archive** when the requested seqno is more than 128 behind the tip. See [TON method scope](#ton-method-scope) below. |
+| Aptos | Most requests are **full**. `/v1/accounts/{address}/transactions` is always **archive**; block-height methods are **archive** when the requested height is more than 128 behind the tip, and ledger-version methods when the requested version is more than 256 behind. See [Aptos method scope](#aptos-method-scope) below. |
+| Starknet | Most requests are **full**. Trace methods are always **2 RUs**; block-scoped methods are **archive** when the requested block is more than 128 behind the tip. See [Starknet method scope](#starknet-method-scope) below. |
+| Bitcoin, Sui, Polkadot, TRON, opBNB, Harmony | No archive split — every request is billed as full |
 
 ## Method rules
 
@@ -119,12 +121,73 @@ TON requests are billed as full (1 RU) by default. Archive billing (2 RUs) appli
 
 These methods return an account's transaction history keyed by address (and logical time), not by block. The depth of the result cannot be determined before the request is served, so they are always classified as archive.
 
-**Archive only when targeting a historical block** — these methods take a block/seqno parameter and are billed as archive (2 RUs) when the requested seqno is 128 or more behind the chain tip, and full (1 RU) otherwise (recent block, or no block parameter):
+**Archive only when targeting a historical block** — these methods take a block/seqno parameter and are billed as archive (2 RUs) when the requested seqno is more than 128 behind the chain tip, and full (1 RU) otherwise (recent block, or no block parameter):
 
 - v2: `getBlockTransactions`, `getBlockTransactionsExt`, `getBlockHeader`, `lookupBlock`, `shards` / `getShards`, `getShardAccountCell`, `getShardBlockProof`, `getMasterchainBlockSignatures`, `getAddressState`, `getConfigParam`, `getConfigAll`
 - v3: `transactions`, `transactionsByMasterchainBlock`, `blocks`, `traces`, `actions`, `masterchainBlockShards`, `masterchainBlockShardState`
 
 The threshold is evaluated against the latest seqno of the workchain referenced by the request — the masterchain by default. All other TON methods — across v2 REST, v3 REST, and the `/jsonRPC` envelope — are billed as full (1 RU).
+
+### Aptos method scope
+
+Aptos requests are billed as full (1 RU) by default. Aptos sequences data two ways, and the archive threshold differs by which an endpoint takes:
+
+- **Ledger version** — a global counter that increments on every transaction, including the system transactions Aptos adds to each block. The threshold is **256** versions.
+- **Block height** — one increment per block. Because each block spans several versions, the threshold is **128** blocks — roughly the same depth in time as 256 versions.
+
+Archive billing (2 RUs) applies in three cases.
+
+**Always archive**, regardless of parameters:
+
+- `/v1/accounts/{address}/transactions`
+
+This endpoint returns an account's transaction history keyed by address, not by block or version. The depth of the result cannot be determined before the request is served, so it is always classified as archive.
+
+**Archive when targeting a historical block height** — billed as archive (2 RUs) when the requested height is more than 128 behind the chain tip, and full (1 RU) otherwise:
+
+- `/v1/blocks/by_height/{block_height}`
+
+**Archive when targeting a historical ledger version** — billed as archive (2 RUs) when the requested version is more than 256 behind the latest version, and full (1 RU) otherwise:
+
+- `/v1/blocks/by_version/{version}`
+- `/v1/transactions` — the `start` version
+- `/v1/transactions/by_version/{txn_version}`
+- `/v1/transactions/by_hash/{txn_hash}` — resolved to its ledger version
+- `/v1/accounts/{address}/resources` — the `ledger_version` parameter
+- `/v1/accounts/{address}/resource/{resource_type}` — the `ledger_version` parameter
+- `/v1/tables/{table_handle}/item` — the `ledger_version` parameter
+- `/v1/tables/{table_handle}/raw_item` — the `ledger_version` parameter
+- `/v1/view` — the `ledger_version` parameter
+
+A request that omits the block or version parameter, or targets one within the threshold, is billed as full (1 RU). All other Aptos endpoints are billed as full (1 RU).
+
+### Starknet method scope
+
+Starknet requests are billed as full (1 RU) by default. Three cases are billed at 2 RUs.
+
+**Always 2 RUs** — these trace methods are billed at the trace rate (2 RUs) regardless of block age, the same as the EVM `debug_*`/`trace_*` rule:
+
+- `starknet_traceBlockTransactions`
+- `starknet_traceTransaction`
+
+**Archive when targeting a historical block** — these block-scoped methods are billed as archive (2 RUs) when the requested block is more than 128 behind the chain tip, and full (1 RU) otherwise (recent block, or a `latest`/`pending` block tag):
+
+- `starknet_getBlockWithTxHashes`
+- `starknet_getBlockWithTxs`
+- `starknet_getBlockWithReceipts`
+- `starknet_getStateUpdate`
+- `starknet_getBlockTransactionCount`
+- `starknet_getTransactionByBlockIdAndIndex`
+- `starknet_getClass`
+- `starknet_getNonce`
+- `starknet_getClassHashAt`
+- `starknet_getClassAt`
+- `starknet_call`
+- `starknet_getStorageAt`
+
+**Archive when the event range is historical** — `starknet_getEvents` is billed as archive (2 RUs) when its `from_block` or `to_block` is more than 128 behind the tip, and full (1 RU) otherwise. This parallels the `eth_getLogs` rule in the EVM section.
+
+All other Starknet methods are billed as full (1 RU) regardless of the block they target.
 
 ## HTTP requests vs WebSocket subscriptions
 
