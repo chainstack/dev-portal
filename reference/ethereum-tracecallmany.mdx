@@ -1,0 +1,70 @@
+---
+title: debug_traceCallMany | Ethereum
+openapi: /openapi/ethereum_node_api/debug_and_trace/debug_traceCallMany.json POST /0a9d79d93fb2f4a4b1e04695da2b77a7
+description: "Ethereum API method that executes a list of bundles and returns an execution trace for each call, without creating transactions on the blockchain."
+---
+
+Ethereum API method that executes one or more bundles—each a list of transactions—against a given block and returns an execution trace for each call, without creating transactions on the blockchain. Calls within a bundle execute in sequence, so each call sees the state changes made by the calls before it. This method is akin to [eth_call](/reference/ethereum-ethcall) batched across multiple transactions, but it returns detailed execution traces, making it invaluable for debugging complex multi-transaction interactions.
+
+<Note>
+Learn how to [deploy a node](/docs/debug-and-trace-apis#ethereum) with the debug and trace API methods enabled.
+</Note>
+
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+
+
+## Parameters
+
+`debug_traceCallMany` takes three positional parameters:
+
+* `array` — a list of bundles to execute. Each bundle is an object with:
+  + `transactions` — an array of transaction call objects. Each object accepts the same fields as [debug_traceCall](/reference/ethereum-tracecall): `from` (optional), `to`, `gas`, `gasPrice`, `value`, and `data`.
+  + `blockOverrides` — (optional) an object that overrides fields of the execution block header, such as `number`, `time`, or `baseFeePerGas`.
+* `object` — the simulation context that pins where the bundles execute:
+  + `blockNumber` — the block number or tag (for example, `latest`) to execute against.
+  + `transactionIndex` — (optional) the index within the block at which to start; `-1` runs after all transactions in the block.
+* `object` — (optional) the trace configuration. Set `tracer` to one of the native tracers and pass tracer-specific options in `tracerConfig`.
+
+<Note>
+Find the complete [list of available native tracers](/reference/ethereum-debug-trace-rpc-methods#pre-built-native-tracers) in the debug and trace overview.
+</Note>
+
+
+### Combining tracers with `muxTracer`
+
+`muxTracer` runs several native tracers in a single pass, which is the most efficient way to collect more than one trace type for a bundle. Pass a `tracerConfig` object keyed by tracer name, and each tracer's result is returned under its own key:
+
+```json muxTracer config
+{
+  "tracer": "muxTracer",
+  "tracerConfig": {
+    "callTracer": {
+      "onlyTopCall": true,
+      "withLog": false
+    },
+    "prestateTracer": {
+      "diffMode": true
+    }
+  }
+}
+```
+
+
+## Response
+
+* `result` — an array with one entry per bundle. Each entry is an array holding one trace per transaction in the bundle, in execution order. When `muxTracer` is used, each trace is an object keyed by tracer name—for example, `callTracer` and `prestateTracer`—each holding that tracer's output.
+
+
+## Use case
+
+`debug_traceCallMany` is essential for:
+
+* Simulating a sequence of dependent transactions—such as an approval followed by a swap—and inspecting how each call changes state before committing anything on-chain.
+* Forensic analysis of transaction bundles, where you need both the call tree and the prestate diff in one round trip via `muxTracer`.
+* MEV and risk tooling that pre-screens bundles against the current chain state.
