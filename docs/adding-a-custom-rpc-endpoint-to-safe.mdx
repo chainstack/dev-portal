@@ -1,0 +1,81 @@
+---
+title: "Adding a custom RPC endpoint to Safe"
+description: "Point Safe at a Chainstack RPC endpoint. Safe doesn't add networks the way MetaMask does — instead you override the default RPC provider under Settings, so your Safe reads balances, builds, and broadcasts transactions through a node you control."
+---
+
+**TLDR:**
+* Safe ships a fixed list of supported networks, so there's no "add network" flow — instead you override the default public RPC with your own endpoint.
+* The setting lives inside a Safe account — open or create a Safe first, then go to **Settings** > **Environment variables**, paste your Chainstack HTTPS endpoint into **RPC provider**, and click **Save**.
+* The override is stored locally in your browser, so the endpoint must match the network your Safe is deployed on.
+
+## Why override the RPC in Safe
+
+By default, the Safe app makes its on-chain reads through a shared public RPC provider. Pointing Safe at a Chainstack endpoint gives you:
+
+- Reliability — a dedicated node endpoint instead of a rate-limited public endpoint shared across all Safe users.
+- Control — the app's direct on-chain reads (your Safe's owners, threshold, and nonce, deployment checks, gas estimation, and transaction simulation) run through a node you control instead of Safe's default provider.
+- Performance — lower latency and consistent responses for those reads, especially during network congestion.
+
+The override changes only the reads the Safe app makes itself. Safe's hosted services still serve your balances and transaction history, and your connected signer wallet still broadcasts the final transaction through its own RPC.
+
+## What you need
+
+- Your Chainstack node's HTTPS endpoint (with the authentication key) for the same network your Safe is on. See [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+- A Safe account open in the [Safe](https://app.safe.global/) web app. The **Environment variables** setting lives in a Safe's **Settings**, so the **Accounts** welcome screen won't show it — open or create a Safe first.
+- The network must be one Safe already supports — the RPC override only changes *which node* serves an existing network, not which networks are available.
+
+<Note>
+Make sure the endpoint's chain matches the Safe you're viewing. A Polygon endpoint on an Ethereum Safe will leave the app unable to load balances or build transactions.
+</Note>
+
+## Set a custom RPC provider
+
+The **Environment variables** screen lives inside a Safe account's **Settings**. The **Accounts** welcome screen at `app.safe.global/welcome/accounts` has no **Settings** menu, so you have to open a Safe first.
+
+1. Open [Safe](https://app.safe.global/) and connect your wallet.
+2. Open a Safe account from your **Accounts** list. If you don't have one yet, click **Create account** to deploy a new Safe, or **Add** to track an existing Safe by address — either one gives you a Safe context with a **Settings** menu.
+3. In the open Safe, go to **Settings** > **Environment variables** in the left sidebar.
+4. Under **RPC provider**, paste your Chainstack HTTPS endpoint, for example `https://ethereum-mainnet.core.chainstack.com/AUTH_KEY`.
+5. Click **Save**, then reload the page. Safe now reads chain state and broadcasts transactions through your endpoint.
+
+<Tip>
+Creating a Safe is an on-chain deployment that uses Safe's default RPC, so set up the Safe first and override the RPC afterward. If you only need to change the endpoint for a Safe that already exists, use **Add** to load it by address — you don't need to be a signer to reach **Settings** > **Environment variables**.
+</Tip>
+
+<Note>
+The same screen has a **Tenderly** section for transaction simulation. That's separate from the RPC provider — leave it at the default `https://simulation.safe.global` unless you run your own Tenderly setup. Chainstack endpoints serve standard JSON-RPC, not the Tenderly simulation API.
+</Note>
+
+## Verify
+
+After saving, start a new transaction in the Safe (for example, a token send) and take it to the review step. If gas estimation and the transaction simulation complete without errors, the Safe app is reading through your endpoint. The asset balances on the dashboard come from Safe's hosted services rather than the RPC, so they aren't a reliable signal.
+
+For proof that traffic reaches your node, check the request metrics for your endpoint in the [Chainstack console](https://console.chainstack.com/) — you'll see the app's read calls (`eth_call`, `eth_estimateGas`, and similar) as you use the Safe.
+
+To confirm the endpoint itself is healthy and on the right network, query it directly and check the returned chain ID:
+
+<CodeGroup>
+  ```bash cURL
+  curl YOUR_CHAINSTACK_ENDPOINT \
+    -H 'content-type: application/json' \
+    -d '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}'
+  ```
+</CodeGroup>
+
+The hex result must match your Safe's network — for example, `0x1` for Ethereum Mainnet. Look up chain IDs at [chainlist.org](https://chainlist.org/).
+
+## Troubleshooting
+
+- **No Settings menu.** You're on the **Accounts** welcome screen with no Safe open. **Settings** — and the **Environment variables** screen under it — only appears once you open a Safe account, so open or create one first.
+- **Balances or transactions fail to load.** The endpoint is likely on the wrong network. Confirm the chain ID with the `eth_chainId` call above, and that it matches the network your Safe is deployed on.
+- **Endpoint unreachable.** Verify the URL and authentication key. If the direct `curl` call above returns an error or no response, fix the endpoint before adding it to Safe.
+- **The override didn't stick.** Environment variables are stored in your browser's local storage, per device. Set the endpoint again on each browser or device you use, and re-add it after clearing site data.
+- **Revert to the default.** Clear the **RPC provider** field and click **Save** to fall back to Safe's built-in provider.
+- **Use trusted RPC URLs only.** A custom provider serves the on-chain state the Safe app reads — your Safe's owners and nonce, gas estimates, and transaction simulations — so a malicious endpoint can feed you false information before you sign. Only use endpoints you control or trust.
+
+## See also
+
+* [Adding a custom network to MetaMask](/docs/adding-a-custom-network-to-metamask)
+* [Manage your node](/docs/manage-your-node)
+* [Authentication methods for different scenarios](/docs/authentication-methods-for-different-scenarios)
+* [chainlist.org](https://chainlist.org/) — public registry of EVM chain IDs and metadata
