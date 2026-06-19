@@ -1,0 +1,209 @@
+---
+title: "Base: Deploy a B20 token"
+description: "Deploy a B20 token on Base through a Chainstack node — create an Asset token with the B20 factory precompile, mint supply, and verify the balance on-chain."
+---
+
+**TLDR:**
+* You'll deploy a Chainstack Base node and install Base's Foundry build (`base-forge`).
+* You'll create a B20 Asset token by calling the B20 factory precompile in a single transaction, with admin, minter, and supply cap set atomically.
+* You'll mint the initial supply and verify the balance on-chain through your Chainstack endpoint.
+* B20 is an ERC-20 superset, so the result works with any ERC-20 tooling.
+
+## Main article
+
+[B20](/docs/base-b20-token-standard) is Base's native token standard, introduced with the Beryl upgrade. Instead of writing and deploying an ERC-20 contract, you create a token by calling the singleton B20 factory precompile — roles, supply caps, pausing, transfer policies, memos, and `permit` are built into the chain.
+
+This tutorial creates an Asset token, mints its initial supply, and verifies the balance, all through a Chainstack Base node. It targets Base Sepolia, where the B20 precompiles are active. The same flow works on Base mainnet after the June 25, 2026 Beryl activation.
+
+## Prerequisites
+
+* A [Chainstack account](https://console.chainstack.com/) and a Base Sepolia node — see [deploy a node](/docs/manage-your-networks). Copy the node's HTTPS endpoint from its access and credentials.
+* [Base's Foundry build](https://github.com/base/base-anvil) (`base-forge`, `base-cast`). Standard `forge` can't simulate the B20 precompiles locally and aborts with `call to non-contract address`.
+* Some Base Sepolia ETH — see [Base network faucets](https://docs.base.org/base-chain/network-information/network-faucets).
+
+## Step 1. Install Base's Foundry build
+
+```bash
+curl -L https://raw.githubusercontent.com/base/base-anvil/HEAD/foundryup/install | bash
+base-foundryup --install v1.1.0
+```
+
+<Note>
+`base-forge` installs alongside standard Foundry without overwriting it. Use `base-forge` and `base-cast` for the commands below.
+</Note>
+
+## Step 2. Set up the project
+
+```bash
+base-forge init b20-quickstart && cd b20-quickstart
+base-forge install base/base-std --no-git
+```
+
+Add the remappings and the `base = true` flag to `foundry.toml`, under `[profile.default]`. The `base = true` flag tells `base-forge` to run the B20 precompiles inside its local EVM, so the deploy script can simulate the factory call:
+
+```toml
+base = true
+remappings = [
+    "base-std/=lib/base-std/src/",
+    "base-std-test/=lib/base-std/test/",
+]
+```
+
+## Step 3. Configure your Chainstack endpoint
+
+Create a `.env` file in the project directory with your Chainstack Base Sepolia endpoint:
+
+```bash
+export RPC_URL="YOUR_CHAINSTACK_BASE_SEPOLIA_ENDPOINT"
+export PRIVATE_KEY="0x..."
+export ACCOUNT_ADDRESS="0x..."
+export CHAIN_ID="84532"
+```
+
+Confirm the node is reachable and the account is funded:
+
+```bash
+source .env
+base-cast balance $ACCOUNT_ADDRESS --rpc-url $RPC_URL
+```
+
+<Check>
+The command prints a non-zero balance. This account signs the deploy and the mint, and receives the minted supply.
+</Check>
+
+## Step 4. Write the create script
+
+The factory's single entry point is `createB20(variant, salt, params, initCalls)`. Use `B20FactoryLib` to encode `params` and `initCalls` in the canonical form the precompile expects. Create `script/CreateToken.s.sol`:
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import {Script, console} from "forge-std/Script.sol";
+
+import {B20Constants} from "base-std/lib/B20Constants.sol";
+import {B20FactoryLib} from "base-std/lib/B20FactoryLib.sol";
+import {IB20Factory} from "base-std/interfaces/IB20Factory.sol";
+import {StdPrecompiles} from "base-std/StdPrecompiles.sol";
+
+contract CreateToken is Script {
+    function run() external returns (address token) {
+        // For the quickstart, one account is admin + minter.
+        address account = vm.envAddress("ACCOUNT_ADDRESS");
+        bytes32 salt = keccak256("my-first-b20");
+
+        // Name, symbol, initial DEFAULT_ADMIN_ROLE holder, decimals (6-18).
+        bytes memory params = B20FactoryLib.encodeAssetCreateParams("My Token", "MYT", account, 18);
+
+        // Configuration applied atomically at creation.
+        bytes[] memory initCalls = new bytes[](2);
+        initCalls[0] = B20FactoryLib.encodeGrantRole(B20Constants.MINT_ROLE, account);
+        initCalls[1] = B20FactoryLib.encodeUpdateSupplyCap(1_000_000e18);
+
+        vm.startBroadcast();
+        token = StdPrecompiles.B20_FACTORY.createB20(IB20Factory.B20Variant.ASSET, salt, params, initCalls);
+        vm.stopBroadcast();
+
+        console.log("B20 token created at:", token);
+    }
+}
+```
+
+<Info>
+Asset decimals are fixed at creation and must be in `[6, 18]`. The supply cap is optional; the no-cap sentinel is `type(uint128).max`.
+</Info>
+
+<Accordion title="Want a stablecoin instead?">
+Use the `STABLECOIN` variant and its params encoder. A stablecoin fixes decimals at 6 and carries an immutable ISO currency code (uppercase `A`–`Z`):
+
+```solidity
+bytes memory params = B20FactoryLib.encodeStablecoinCreateParams("My USD", "MUSD", account, "USD");
+
+token = StdPrecompiles.B20_FACTORY.createB20(IB20Factory.B20Variant.STABLECOIN, salt, params, initCalls);
+```
+
+Roles, supply cap, minting, and verification work identically.
+</Accordion>
+
+## Step 5. Deploy through your Chainstack node
+
+```bash
+source .env
+base-forge script script/CreateToken.s.sol --rpc-url $RPC_URL --private-key $PRIVATE_KEY --broadcast
+```
+
+On success the script logs the new token's address, which starts `0xB200…`:
+
+```text
+== Logs ==
+  B20 token created at: 0xB200...
+```
+
+Save the address for the next step:
+
+```bash
+TOKEN_ADDRESS=$(jq -er '.returns.token.value' \
+  broadcast/CreateToken.s.sol/$CHAIN_ID/run-latest.json) \
+  && echo "export TOKEN_ADDRESS=$TOKEN_ADDRESS" >> .env \
+  && source .env \
+  && echo "TOKEN_ADDRESS=$TOKEN_ADDRESS"
+```
+
+## Step 6. Mint and verify
+
+Minting requires `MINT_ROLE`, which `initCalls` granted to your account:
+
+```bash
+base-cast send $TOKEN_ADDRESS "mint(address,uint256)" $ACCOUNT_ADDRESS 1000000000000000000000 \
+  --rpc-url $RPC_URL --private-key $PRIVATE_KEY
+
+base-cast call $TOKEN_ADDRESS "balanceOf(address)(uint256)" $ACCOUNT_ADDRESS --rpc-url $RPC_URL
+# 1000000000000000000000 [1e21]
+```
+
+<Check>
+The token holds minted supply on-chain. Search `$TOKEN_ADDRESS` on [sepolia.basescan.org](https://sepolia.basescan.org) to view it.
+</Check>
+
+## Alternative: deploy directly with `cast`
+
+Because your Chainstack Base node runs the B20 precompiles, you can create a basic token without `base-forge` — standard Foundry's `cast` is enough, since the factory call executes on the node rather than in a local simulation:
+
+```bash
+# Encode the Asset params (version 1, name, symbol, admin, decimals)
+PARAMS=$(cast abi-encode "f((uint8,string,string,address,uint8))" \
+  "(1,My Token,MYT,$ACCOUNT_ADDRESS,18)")
+
+# Call the factory; initCalls is an empty array here
+cast send 0xB20f000000000000000000000000000000000000 \
+  "createB20(uint8,bytes32,bytes,bytes[])(address)" \
+  0 $(cast keccak "my-first-b20") "$PARAMS" "[]" \
+  --rpc-url $RPC_URL --private-key $PRIVATE_KEY
+```
+
+Predict the token's address with a read call (no gas):
+
+```bash
+cast call 0xB20f000000000000000000000000000000000000 \
+  "getB20Address(uint8,address,bytes32)(address)" \
+  0 $ACCOUNT_ADDRESS $(cast keccak "my-first-b20") --rpc-url $RPC_URL
+```
+
+<Note>
+The `cast` path creates a minimal token (no roles or supply cap). To configure roles, the supply cap, and policies atomically at creation, use the `base-forge` script above with `B20FactoryLib`, which also guarantees the canonical encoding the precompile requires.
+</Note>
+
+## What you built
+
+In this tutorial you:
+
+* Created a B20 Asset token with a single `createB20` call through your Chainstack Base node
+* Configured its admin, minter, and supply cap atomically with `initCalls`
+* Minted supply and verified the balance on-chain
+
+You did all of this without writing, deploying, or auditing a token contract.
+
+## Next steps
+
+* Learn the full standard in [Base B20 token standard](/docs/base-b20-token-standard).
+* Gate transfers or mints with policy registry allowlists and blocklists, add granular pause, or issue a stablecoin variant. See the [B20 specification](https://docs.base.org/base-chain/specs/upgrades/beryl/b20).
