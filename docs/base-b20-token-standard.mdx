@@ -1,0 +1,91 @@
+---
+title: "Base B20 token standard"
+description: "B20 is Base's native, ERC-20-compatible token standard, implemented as a precompile with built-in roles, transfer policies, and supply controls. Learn how it works and how to use it on Chainstack."
+---
+
+B20 is Base's native token standard, introduced with the [Beryl upgrade](https://docs.base.org/base-chain/specs/upgrades/beryl/overview) (Base mainnet activation June 25, 2026). It is an ERC-20 superset implemented as a native precompile rather than a smart contract: it keeps full ERC-20 compatibility while building roles, transfer policies, supply caps, pausing, memos, and `permit` directly into the chain.
+
+You create a B20 token by calling the singleton B20 factory precompile — there is no token contract to write, deploy, or audit.
+
+## B20 vs. ERC-20
+
+| | ERC-20 | B20 |
+| --- | --- | --- |
+| Implementation | Smart contract you write and deploy | Native precompile |
+| Creation | Deploy your own bytecode | One `createB20` call to the factory |
+| Compliance features | Build them yourself | Roles, transfer policies, freeze-and-seize, pause, supply cap, and memos built in |
+| Compatibility | — | Full ERC-20 selector parity — a drop-in for wallets, explorers, and indexers |
+| Cost and throughput | Standard EVM execution | Cheaper and higher-throughput (native) |
+
+Because B20 implements the full ERC-20 surface, existing wallets, explorers, and indexers treat a B20 token like any other ERC-20.
+
+## How B20 works
+
+All B20 tokens are created through the singleton B20 factory precompile. A single call configures and creates the token in one transaction:
+
+```solidity
+createB20(variant, salt, params, initCalls)
+```
+
+- `variant` — `ASSET` or `STABLECOIN`.
+- `salt` — caller-chosen entropy that fixes the token's deterministic address.
+- `params` — ABI-encoded name, symbol, initial admin, and decimals.
+- `initCalls` — an optional batch of configuration calls (grant roles, set the supply cap, bind policies) applied atomically at creation.
+
+### Precompile addresses
+
+| Precompile | Address |
+| --- | --- |
+| B20 factory | `0xB20f000000000000000000000000000000000000` |
+| Policy registry | `0x8453000000000000000000000000000000000002` |
+| Activation registry | `0x8453000000000000000000000000000000000001` |
+
+Token addresses are deterministic and encode the variant in the address itself: `[10-byte B20 prefix][1-byte variant][9-byte hash of deployer and salt]`. Tokens created by the factory start with `0xB200…`; the factory itself is `0xB20f…`. You can predict a token's address before creating it with `getB20Address(variant, deployer, salt)`.
+
+## Variants
+
+| Variant | Decimals | Adds |
+| --- | --- | --- |
+| **Asset** | 6–18, set at creation | Rebase multiplier, on-chain announcements, batched issuance, extra metadata |
+| **Stablecoin** | 6, fixed | Immutable ISO-style currency code (for example, `USD`) |
+
+## Built-in features
+
+B20 ships a compliance and operations toolkit that an ERC-20 leaves you to build:
+
+- **Role-based access control** — `DEFAULT_ADMIN_ROLE`, `MINT_ROLE`, `BURN_ROLE`, `BURN_BLOCKED_ROLE`, `PAUSE_ROLE`, `UNPAUSE_ROLE`, and `METADATA_ROLE`. The Asset variant adds `OPERATOR_ROLE`. A token can be made permanently admin-less.
+- **Transfer policies** — each token binds allowlist or blocklist policies from the policy registry to per-actor scopes (transfer sender, transfer receiver, mint receiver).
+  <Warning>Every policy scope defaults to `ALWAYS_ALLOW` at creation. An unconfigured B20 is fully open — constrain it intentionally in `initCalls`.</Warning>
+- **Freeze-and-seize** — `burnBlocked` burns from a policy-blocked account, the path regulated issuers need.
+- **Supply cap** — an optional cap enforced on every mint.
+- **Granular pause** — pause `TRANSFER`, `MINT`, or `BURN` independently, with separate pause and unpause roles.
+- **Memos** — attach a `bytes32` reference (a payment ID or settlement tag) to transfers, mints, and burns. Each is emitted as a `Memo` event for off-chain reconciliation.
+- **ERC-2612 `permit`** and **ERC-7572 `contractURI`** are built in.
+
+## Availability
+
+B20 ships with the Beryl upgrade:
+
+| Network | Beryl activation |
+| --- | --- |
+| Base Sepolia | June 18, 2026 |
+| Base mainnet | June 25, 2026, 18:00 UTC |
+
+Chainstack Base nodes serve the B20 precompiles, so you can create and query B20 tokens through your Chainstack Base endpoint.
+
+## Use B20 on Chainstack
+
+<Steps>
+<Step title="Deploy a Base node">
+[Deploy a Base node](/docs/manage-your-networks) on Chainstack and copy your endpoint.
+</Step>
+<Step title="Create a token">
+Call the B20 factory from a script or directly with `cast`. See the [Deploy a B20 token](/docs/base-tutorial-deploy-a-b20-token) tutorial for the full walkthrough.
+</Step>
+</Steps>
+
+## See also
+
+- [Base: deploy a B20 token](/docs/base-tutorial-deploy-a-b20-token) — Chainstack tutorial
+- [B20 token standard specification](https://docs.base.org/base-chain/specs/upgrades/beryl/b20) — Base
+- [base-std](https://github.com/base/base-std) — Solidity interfaces and helpers for B20
