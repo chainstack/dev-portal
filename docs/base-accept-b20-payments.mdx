@@ -1,0 +1,124 @@
+---
+title: "Base: Accept B20 payments"
+description: "Accept B20 token payments on Base through a Chainstack node — tag each payment with an order ID using the memo field, then reconcile from on-chain events."
+---
+
+**TLDR:**
+* B20 is an ERC-20 superset, so any app that already accepts ERC-20 accepts B20 with no code changes.
+* B20 adds a memo: `transferWithMemo` attaches a `bytes32` order ID to a payment and emits a `Memo` event right after the standard `Transfer`.
+* You'll tag a payment with an order ID, then reconcile it by reading the `Memo` event through your Chainstack node.
+
+## Main article
+
+[B20](/docs/base-b20-token-standard) is Base's native, ERC-20-compatible token standard. Standard `transfer`, `transferFrom`, `approve`, `balanceOf`, and `permit` all work, so existing ERC-20 payment code accepts B20 unchanged.
+
+What B20 adds for payments is the **memo**: `transferWithMemo` works like `transfer` but also attaches a `bytes32` reference — such as an order ID — and emits a `Memo` event immediately after the standard `Transfer`. Reading that event ties each on-chain payment to an order in your system, which you do through your Chainstack Base node.
+
+This guide tags a payment with an order ID and reconciles it from events. It uses Base Sepolia; the same flow works on Base mainnet after the June 25, 2026 Beryl activation.
+
+## Prerequisites
+
+* A [Chainstack account](https://console.chainstack.com/) and a Base node — see [deploy a node](/docs/manage-your-networks).
+* A B20 token to accept — see [Base: deploy a B20 token](/docs/base-tutorial-deploy-a-b20-token). The payer must hold a balance.
+* [Base's Foundry build](https://github.com/base/base-anvil) (`base-cast`) for the CLI examples, or [viem](https://viem.sh) for the app examples.
+
+## Tag a payment with an order ID
+
+`transferWithMemo(to, amount, memo)` sends the tokens and records the order ID. Encode the order ID as `bytes32`:
+
+<CodeGroup>
+```bash base-cast
+# order ID as bytes32
+MEMO=$(base-cast format-bytes32-string "order-42")
+
+# pay 10 tokens to the merchant, tagged with the order ID
+base-cast send $TOKEN "transferWithMemo(address,uint256,bytes32)" \
+  $MERCHANT 10000000000000000000 $MEMO \
+  --rpc-url $RPC_URL --private-key $PRIVATE_KEY
+```
+```js viem
+import { parseUnits, stringToHex } from 'viem';
+
+const ABI = [
+  { type: 'function', name: 'decimals', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },
+  { type: 'function', name: 'transferWithMemo', stateMutability: 'nonpayable',
+    inputs: [{ name: 'to', type: 'address' }, { name: 'amount', type: 'uint256' }, { name: 'memo', type: 'bytes32' }],
+    outputs: [{ type: 'bool' }] },
+];
+
+// B20 decimals range from 6 to 18 — read them, don't assume.
+const decimals = await publicClient.readContract({ address: TOKEN, abi: ABI, functionName: 'decimals' });
+
+const hash = await walletClient.writeContract({
+  address: TOKEN, abi: ABI, functionName: 'transferWithMemo',
+  args: [MERCHANT, parseUnits('10', decimals), stringToHex('order-42', { size: 32 })],
+});
+```
+</CodeGroup>
+
+<Note>
+B20 decimals range from 6 to 18 — read `decimals()` rather than assuming 18.
+</Note>
+
+## Reconcile payments through your Chainstack node
+
+On the merchant side, read the `Memo` event to match each incoming payment to its order. The event is `Memo(address indexed caller, bytes32 indexed memo)`, and it sits immediately after the payment's `Transfer` in the same transaction.
+
+<CodeGroup>
+```bash base-cast
+# read recent Memo events on the token through your Chainstack node
+base-cast logs --address $TOKEN "Memo(address,bytes32)" \
+  --from-block <FROM_BLOCK> --rpc-url $RPC_URL
+
+# decode an order ID from a Memo topic
+base-cast parse-bytes32-string 0x6f726465722d3432000000000000000000000000000000000000000000000000
+# -> "order-42"
+```
+```js viem
+import { hexToString, parseEventLogs } from 'viem';
+
+const MEMO_ABI = [{ type: 'event', name: 'Memo', inputs: [
+  { name: 'caller', type: 'address', indexed: true },
+  { name: 'memo',   type: 'bytes32', indexed: true },
+] }];
+
+// after a payment, pull the order ID from the receipt
+const receipt = await publicClient.waitForTransactionReceipt({ hash });
+const [memo] = parseEventLogs({ abi: MEMO_ABI, logs: receipt.logs, eventName: 'Memo' });
+const orderId = hexToString(memo.args.memo, { size: 32 }).replace(/\0+$/, ''); // "order-42"
+
+// or watch for incoming payments live
+publicClient.watchContractEvent({
+  address: TOKEN, abi: MEMO_ABI, eventName: 'Memo',
+  onLogs: (logs) => logs.forEach((l) =>
+    markOrderPaid(hexToString(l.args.memo, { size: 32 }).replace(/\0+$/, ''))),
+});
+```
+</CodeGroup>
+
+To collect with an allowance instead of a direct transfer, use `transferFromWithMemo` — it emits the same `Memo` event.
+
+## Handle B20-specific reverts
+
+A B20 transfer can revert where a plain ERC-20 would not. Surface these so a failed payment is visible, not silent:
+
+- **`PolicyForbids`** — the sender or recipient isn't authorized by the token's transfer policy. Most tokens are open by default, but a regulated issuer can gate transfers with an allowlist or blocklist.
+- **`ContractPaused`** — the issuer paused the token's `TRANSFER` feature.
+
+Simulate before sending so you can show the reason instead of a failed transaction:
+
+```js viem
+await publicClient.simulateContract({
+  account, address: TOKEN, abi: ABI, functionName: 'transferWithMemo',
+  args: [MERCHANT, parseUnits('10', decimals), stringToHex('order-42', { size: 32 })],
+});
+```
+
+## What you built
+
+You accepted a B20 payment tagged with an order ID and reconciled it from on-chain events through your Chainstack node — the foundation of an on-chain checkout that ties payments to orders without trusting off-chain signals.
+
+## See also
+
+- [Base B20 token standard](/docs/base-b20-token-standard)
+- [Base: deploy a B20 token](/docs/base-tutorial-deploy-a-b20-token)
