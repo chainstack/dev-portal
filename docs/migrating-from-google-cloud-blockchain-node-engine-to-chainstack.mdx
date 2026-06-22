@@ -1,0 +1,261 @@
+---
+title: "Migrating from Google Cloud Blockchain Node Engine to Chainstack"
+sidebarTitle: "Google Blockchain Node Engine"
+description: "Step-by-step guide to migrate from Google Cloud Blockchain Node Engine and Blockchain RPC to Chainstack before the December 15, 2026 shutdown, covering node-type mapping, endpoint and authentication changes, and code examples."
+---
+
+**TLDR:**
+* Google Cloud is shutting down Blockchain Node Engine (BNE) and Blockchain RPC on December 15, 2026, and will delete all nodes and endpoints on that date.
+* New BNE node and endpoint creation has been disabled since June 15, 2026, so you can migrate existing workloads but you can't provision new BNE resources.
+* Migrating to Chainstack is mostly an endpoint swap: point your application at a Chainstack URL, with the API key carried in that URL.
+* Chainstack covers every chain BNE served—Ethereum, Polygon, and Solana—plus 70+ more protocols.
+* The easiest path is to let an AI coding agent do the whole migration for you; the manual steps are below if you prefer.
+
+## Migrate with AI
+
+The fastest way to migrate off BNE is to let an AI coding agent do it for you. If you use Claude Code, Codex CLI, Cursor, Windsurf, Gemini CLI, Antigravity, or any other agent, paste this into your agent:
+
+```text
+get docs.chainstack.com/docs/migrate-to-chainstack-with-ai.md
+```
+
+The agent scans your codebase for BNE endpoints, checks coverage against Chainstack, plans the replacement, and—after you approve—swaps the endpoints. It uses the [Chainstack MCP server](/docs/chainstack-mcp-server) for live deployment options, pricing, and node management. Prefer to migrate by hand? The rest of this guide walks through it manually. See [migrate to Chainstack with AI](/docs/migrate-to-chainstack-with-ai) for the full runbook.
+
+## Overview
+
+This guide helps you move your Ethereum, Polygon, and Solana workloads from Google Cloud Blockchain Node Engine to Chainstack with minimal code changes. It covers both products Google is retiring: BNE dedicated nodes and the shared Blockchain RPC service.
+
+Google has [announced](https://docs.cloud.google.com/blockchain-node-engine/docs/release-notes) the end of life for both. The two dates that matter are below—plan your cutover around them.
+
+## Migration timeline
+
+- June 15, 2026 — Google disabled creation of new BNE nodes and new Blockchain RPC endpoints. Existing resources keep running and receive critical updates until the shutdown.
+- December 15, 2026 — Google shuts down BNE and Blockchain RPC and deletes all nodes and endpoints. Any application still pointing at a BNE endpoint stops working.
+
+<Warning>
+Complete your migration well before December 15, 2026. After that date Google deletes your nodes and endpoints, and there is no grace period—unmigrated workloads fail.
+</Warning>
+
+## What you're replacing
+
+### Supported networks
+
+Every network either Google product served has a direct Chainstack equivalent, with two testnet exceptions worth noting. Blockchain Node Engine served the full list below; Blockchain RPC served only Ethereum mainnet and the Holesky testnet.
+
+| BNE network | Chainstack equivalent | Notes |
+|-------------|----------------------|-------|
+| Ethereum Mainnet | Ethereum Mainnet | Direct swap |
+| Ethereum Sepolia | Ethereum Sepolia | Direct swap |
+| Ethereum Holesky | Ethereum Hoodi or Sepolia | Holesky is being retired across the ecosystem. Move Holesky workloads to Hoodi, the long-lived testnet, or to Sepolia. |
+| Ethereum Goerli | Ethereum Sepolia or Hoodi | Goerli is long deprecated. Migrate to a supported testnet. |
+| Polygon Mainnet | Polygon Mainnet | Direct swap |
+| Polygon Amoy | Polygon Amoy | Direct swap |
+| Solana | Solana | Direct swap. Chainstack adds Yellowstone gRPC, Trader Nodes, and Warp transactions. |
+
+<Info>
+Chainstack supports 70+ protocols beyond BNE's chains, so you can consolidate other infrastructure on the same provider. See [protocols and networks](/docs/protocols-networks) for the full list.
+</Info>
+
+### Node type mapping
+
+BNE offered dedicated full and archive nodes plus a separate shared Blockchain RPC service. Here is how each maps to a Chainstack node type.
+
+| What you had on Google | Recommended Chainstack option | Why |
+|------------------------|-------------------------------|-----|
+| Blockchain RPC (shared endpoint) | [Global Node](/docs/global-elastic-node) | Shared, geo-distributed, load-balanced, deploys in seconds |
+| BNE full node (dedicated) | [Global Node](/docs/global-elastic-node), or [Dedicated Node](/docs/dedicated-node) for isolation | Global covers most workloads. Dedicated gives you isolated compute, like BNE's per-project model. |
+| BNE archive node (Ethereum Mainnet) | Global Node or [Dedicated Node](/docs/dedicated-node) in archive mode | Full historical state |
+| Predictable, high steady volume | Global Node with the [Unlimited Node](/docs/unlimited-node-add-on) add-on | Flat monthly fee, no per-request metering |
+| Private access (VPC Service Controls) | [Dedicated Node](/docs/dedicated-node) | Isolated infrastructure, with hybrid deployment options for teams that need nodes in their own cloud |
+
+## Choosing your Chainstack node type
+
+For most Ethereum and Polygon migrations, a Global Node is the right default. Choose a different option when you need flat-fee billing, isolation, archive data, or the lowest-latency path for trading.
+
+See [Chainstack pricing](https://chainstack.com/pricing/) for current rates.
+
+### Global Node
+
+A load-balanced endpoint that routes requests to the nearest healthy location and fails over automatically. It deploys in seconds and suits general-purpose applications, development, and variable workloads. This is the closest match for both Blockchain RPC users and most BNE full-node users.
+
+### Unlimited Node
+
+An add-on that converts a node to a flat monthly fee with unlimited requests at a fixed requests-per-second tier. Chainstack counts one request as one request regardless of method, so there is no per-method weighting to model. This suits production applications with steady traffic and teams that want predictable cost—much like BNE's flat per-node billing.
+
+### Dedicated Node
+
+Exclusive infrastructure deployed just for you, not shared with other customers. Dedicated Nodes support archive mode, debug and trace methods, custom configuration, and isolation for compliance requirements. This is the closest analog to a BNE dedicated node, and the right choice if you relied on VPC Service Controls or private access.
+
+Dedicated Nodes require a Pro, Business, or Enterprise subscription.
+
+### Trader Node
+
+Regional, low-latency endpoints you deploy in a specific location for the fastest round-trip to your application. Trader Nodes support Full and Archive modes and the [Warp transactions](/docs/warp-transactions) add-on, which propagates and lands transactions at the fastest speed possible on Solana, Ethereum, and BNB Smart Chain. This suits trading bots and latency-sensitive workloads. Available on paid plans.
+
+<Note>
+Migrating Solana workloads off BNE? On top of the node types above, Chainstack adds the [Yellowstone gRPC Geyser plugin](/docs/yellowstone-grpc-geyser-plugin) for high-performance streaming.
+</Note>
+
+## RPC endpoint migration
+
+What changes depends on which product you're leaving:
+
+- From Blockchain Node Engine — the host changes from a `blockchainnodeengine.com` URL to your Chainstack endpoint, and the API key moves from a request header or query parameter into the endpoint URL itself.
+- From Blockchain RPC — the API key is already embedded in your endpoint URL, so it's a pure host swap: replace the Google endpoint with your Chainstack endpoint.
+
+<Note>
+Copy your full endpoint URL from the [Chainstack console](https://console.chainstack.com/). See [node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+</Note>
+
+### Endpoint and authentication
+
+On BNE you authenticated with a Google Cloud API key, passed either as the `X-goog-api-key` header or as a `key` query parameter:
+
+```text
+# Google BNE — JSON-RPC over HTTPS (key as query parameter)
+https://json-rpc.NODE_ID.blockchainnodeengine.com?key=YOUR_BNE_KEY
+
+# Google BNE — JSON-RPC over HTTPS (key as header)
+# https://json-rpc.NODE_ID.blockchainnodeengine.com
+# header: X-goog-api-key: YOUR_BNE_KEY
+
+# Google BNE — WebSocket
+wss://ws.NODE_ID.blockchainnodeengine.com?key=YOUR_BNE_KEY
+
+# Google BNE — Beacon (consensus-layer) API
+https://beacon.NODE_ID.blockchainnodeengine.com
+```
+
+On Chainstack the authentication key is part of the endpoint URL path, so there is no separate header or query parameter to set:
+
+```text
+# Chainstack — key is part of the endpoint URL
+https://ethereum-mainnet.core.chainstack.com/YOUR_AUTH_KEY
+wss://ethereum-mainnet.core.chainstack.com/YOUR_AUTH_KEY
+```
+
+<Tip>
+If you authenticated to BNE with the `X-goog-api-key` header, remove the custom header entirely after migrating. Your Chainstack credentials live in the URL.
+</Tip>
+
+Migrating a Blockchain RPC endpoint is simpler still. Blockchain RPC is a shared endpoint with the API key already embedded in the URL—the same model Chainstack uses—so there is no header or query parameter to relocate. Copy your endpoint from the Google Cloud console and swap the host:
+
+```text
+# Google Blockchain RPC — shared endpoint, key already embedded (copy from the Google Cloud console)
+YOUR_BLOCKCHAIN_RPC_ENDPOINT
+
+# Chainstack — same key-in-URL model
+https://ethereum-mainnet.core.chainstack.com/YOUR_AUTH_KEY
+```
+
+### HTTP JSON-RPC
+
+The migration is a URL swap. Your existing application logic works unchanged.
+
+<CodeGroup>
+```python Python
+from web3 import Web3
+
+# Before (Google BNE) — key as query parameter
+# w3 = Web3(Web3.HTTPProvider("https://json-rpc.NODE_ID.blockchainnodeengine.com?key=YOUR_BNE_KEY"))
+
+# After (Chainstack) — key in the URL path
+w3 = Web3(Web3.HTTPProvider("YOUR_CHAINSTACK_ENDPOINT"))
+
+print(w3.eth.block_number)
+```
+
+```javascript web3.js
+import { Web3 } from "web3";
+
+// Before (Google BNE)
+// const web3 = new Web3("https://json-rpc.NODE_ID.blockchainnodeengine.com?key=YOUR_BNE_KEY");
+
+// After (Chainstack)
+const web3 = new Web3("YOUR_CHAINSTACK_ENDPOINT");
+
+console.log(await web3.eth.getBlockNumber());
+```
+
+```javascript ethers.js
+import { JsonRpcProvider } from "ethers";
+
+// Before (Google BNE)
+// const provider = new JsonRpcProvider("https://json-rpc.NODE_ID.blockchainnodeengine.com?key=YOUR_BNE_KEY");
+
+// After (Chainstack)
+const provider = new JsonRpcProvider("YOUR_CHAINSTACK_ENDPOINT");
+
+console.log(await provider.getBlockNumber());
+```
+
+```typescript viem
+import { createPublicClient, http } from "viem";
+import { mainnet } from "viem/chains";
+
+// Before (Google BNE)
+// transport: http("https://json-rpc.NODE_ID.blockchainnodeengine.com?key=YOUR_BNE_KEY")
+
+// After (Chainstack)
+const client = createPublicClient({
+  chain: mainnet,
+  transport: http("YOUR_CHAINSTACK_ENDPOINT"),
+});
+
+console.log(await client.getBlockNumber());
+```
+</CodeGroup>
+
+### WebSocket subscriptions
+
+Swap the BNE `wss://ws.NODE_ID.blockchainnodeengine.com` URL for your Chainstack WSS endpoint. Subscription methods such as `eth_subscribe` work the same way. For guidance on when to use HTTP versus WebSocket, see [node connection: HTTP vs WebSocket](/docs/evm-node-connection-http-vs-websocket).
+
+### Beacon Chain API
+
+If you used BNE's `beacon.NODE_ID.blockchainnodeengine.com` endpoint for consensus-layer data, Chainstack exposes the standard [Beacon Chain API](/reference/beacon-chain) on Ethereum nodes. The REST paths are the same as any standard Beacon node, so point your client at the Chainstack Beacon endpoint and keep your existing calls.
+
+## Archive data
+
+BNE offered archive nodes on Ethereum Mainnet. On Chainstack, deploy a Global Node or Dedicated Node in archive mode to query full historical state. Archive requests are billed at a higher request-unit rate than standard requests—see [pricing](https://chainstack.com/pricing/) for details.
+
+## Debug and trace
+
+BNE disabled the `debug` and `admin` namespaces by default. Chainstack provides `debug` and `trace` methods on Global Nodes (paid plans) and [Dedicated Nodes](/docs/dedicated-node). See [debug and trace APIs](/docs/debug-and-trace-apis) for per-protocol availability, and the [Ethereum methods reference](/docs/ethereum-methods) for the full list of supported calls.
+
+## Private and VPC access
+
+If you relied on VPC Service Controls or private IP access on BNE, [Dedicated Nodes](/docs/dedicated-node) give you isolated infrastructure, and Chainstack offers [hybrid deployment](/docs/hybrid-hosting) for teams that need nodes inside their own cloud account. This keeps your infrastructure isolated and lets you stay on your existing cloud provider. [Contact Chainstack](https://support.chainstack.com/) to scope a hybrid or dedicated deployment.
+
+## Validate and cut over
+
+<Steps>
+<Step title="Deploy your Chainstack node">
+Sign up at [console.chainstack.com](https://console.chainstack.com/) and deploy a node for each network you run on BNE.
+</Step>
+<Step title="Test your RPC methods">
+Send the RPC calls your application uses against the new Chainstack endpoint and confirm the responses match.
+</Step>
+<Step title="Check throughput">
+Test at your real request rate. Review the [throughput guidelines](/docs/limits) and add the [Unlimited Node](/docs/unlimited-node-add-on) add-on if you need a flat-fee high-volume tier.
+</Step>
+<Step title="Repoint your application">
+Update your application code, environment variables, and config files to the Chainstack endpoint URL.
+</Step>
+<Step title="Decommission BNE">
+Delete your legacy BNE nodes in the Google Cloud console. Google deletes Blockchain RPC endpoints for you on December 15, 2026.
+</Step>
+</Steps>
+
+<Check>
+Your application runs entirely on Chainstack endpoints, and no code path references a `blockchainnodeengine.com` URL.
+</Check>
+
+## Next steps
+
+- [Deploy a Global Node](/docs/global-elastic-node)
+- [Migrate to Chainstack with AI](/docs/migrate-to-chainstack-with-ai)
+- [Review throughput guidelines](/docs/limits)
+- [Set up access rules and IP allowlisting](/docs/access-rules)
+- [Chainstack pricing](https://chainstack.com/pricing/)
+
+For migration help, contact [Chainstack support](https://support.chainstack.com/).
