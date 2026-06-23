@@ -1,0 +1,30 @@
+name: _probe-pr
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe whether GITHUB_TOKEN can create a PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          BR="probe-tmp-${GITHUB_RUN_ID}"
+          git checkout -B "$BR"
+          mkdir -p .probe && echo "probe ${GITHUB_RUN_ID}" > .probe/stamp.txt
+          git add -A
+          git commit -m "probe: test Actions PR-creation permission"
+          echo "----- push (tests contents:write) -----"
+          git push -f origin "$BR"; echo "push exit=$?"
+          echo "----- gh pr create (tests the create-PRs toggle) -----"
+          OUT=$(gh pr create --base main --head "$BR" --title "probe: PR-creation permission test (auto-closing)" --body "Automated permission probe; closes itself." 2>&1); CODE=$?
+          echo "$OUT"
+          if [ $CODE -eq 0 ]; then echo "RESULT=PR_CREATE_OK"; gh pr close "$BR" --delete-branch || git push origin --delete "$BR";
+          else echo "RESULT=PR_CREATE_BLOCKED"; git push origin --delete "$BR" || true; fi
