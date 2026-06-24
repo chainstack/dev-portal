@@ -1,0 +1,98 @@
+---
+title: preTransferCheck | Hyperliquid info
+openapi: /openapi/hyperliquid_node_api/hypercore_info/info_pre_transfer_check.json post /info
+description: "The info endpoint with type: \"preTransferCheck\" pre-flights a transfer to a destination — sanction status, whether the destination exists, the fee, and transaction history."
+---
+
+<Info>
+You can only use this endpoint on the official Hyperliquid public API. It is not available through Chainstack, as the open-source node implementation does not support it yet. See [Hyperliquid methods](/docs/hyperliquid-methods) for the full availability breakdown.
+</Info>
+
+The `info` endpoint with `type: "preTransferCheck"` pre-flights a transfer to a destination address. It returns whether the destination is sanctioned, whether it already exists on Hyperliquid, the fee that would apply, and whether the user has previously transacted.
+
+<Visibility for="humans">
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+</Visibility>
+
+## Parameters
+
+### Request body
+
+* `type` (string, required) — The request type. Must be `"preTransferCheck"`.
+* `user` (string, required) — Destination address in 42-character hexadecimal format.
+* `source` (string, required) — Source address in 42-character hexadecimal format.
+
+## Response
+
+Returns a pre-transfer check object:
+
+* `isSanctioned` (boolean) — Whether the destination address is sanctioned.
+* `userExists` (boolean) — Whether the destination already exists on Hyperliquid.
+* `fee` (string) — The transfer fee that would apply.
+* `userHasSentTx` (boolean) — Whether the user has previously sent a transaction.
+
+## Example request
+
+<CodeGroup>
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"type": "preTransferCheck", "user": "0x1442ad477ded1b0028b57621aa7b6f7eadb8f568", "source": "0x1442ad477ded1b0028b57621aa7b6f7eadb8f568"}' \
+  https://api.hyperliquid.xyz/info
+```
+
+```python Python (hyperliquid-python-sdk)
+from hyperliquid.info import Info
+from hyperliquid.utils import constants
+
+info = Info(constants.MAINNET_API_URL, skip_ws=True)
+
+# The SDK has no dedicated preTransferCheck helper, so post the request directly.
+check = info.post("/info", {
+    "type": "preTransferCheck",
+    "user": "0x1442ad477ded1b0028b57621aa7b6f7eadb8f568",
+    "source": "0x1442ad477ded1b0028b57621aa7b6f7eadb8f568",
+})
+print(check)
+```
+
+```typescript TypeScript (@nktkas/hyperliquid)
+import { HttpTransport, InfoClient } from "@nktkas/hyperliquid";
+
+const transport = new HttpTransport();
+const info = new InfoClient({ transport });
+
+const check = await info.preTransferCheck({
+  user: "0x1442ad477ded1b0028b57621aa7b6f7eadb8f568",
+  source: "0x1442ad477ded1b0028b57621aa7b6f7eadb8f568",
+});
+console.log(check);
+```
+
+</CodeGroup>
+
+## Example response
+
+```json
+{
+  "isSanctioned": false,
+  "userExists": true,
+  "fee": "0.0",
+  "userHasSentTx": true
+}
+```
+
+## Use cases
+
+The `info` endpoint with `type: "preTransferCheck"` is useful for:
+
+* Pre-flighting a transfer before submitting it
+* Surfacing the applicable fee to the user before sending
+* Sanctions screening of a destination address

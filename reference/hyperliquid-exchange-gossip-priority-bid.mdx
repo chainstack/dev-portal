@@ -1,0 +1,113 @@
+---
+title: Gossip priority bid | Hyperliquid exchange
+openapi: /openapi/hyperliquid_node_api/hypercore_exchange/exchange_gossip_priority_bid.json post /exchange
+description: "Bid in the gossip priority auction to prioritize an IP address for gossip on Hyperliquid. On Hyperliquid exchange."
+---
+
+<Info>
+You can only use this endpoint on the official Hyperliquid public API. It is not available through Chainstack, as the open-source node implementation does not support it yet. See [Hyperliquid methods](/docs/hyperliquid-methods) for the full availability breakdown.
+</Info>
+
+<Note>
+This endpoint requires signature authentication. See our comprehensive [Authentication via Signatures guide](/docs/hyperliquid-authentication-guide) for implementation details.
+</Note>
+
+The `gossipPriorityBid` action places a bid in the gossip priority auction to prioritize an IP address. Lower-indexed slots are strictly prioritized over higher ones. Use [gossipPriorityAuctionStatus](/reference/hyperliquid-info-gossip-priority-auction-status) to read the current auction state.
+
+<Visibility for="humans">
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+</Visibility>
+
+## Parameters
+
+### Required parameters
+
+* `action` (object, required) — The gossip-priority-bid action:
+  * `type` (string) — Must be `"gossipPriorityBid"`.
+  * `slotId` (number) — Auction slot identifier (`0` or `1`). Lower-indexed slots are strictly prioritized.
+  * `ip` (string) — The IP address (IPv4 or IPv6) to prioritize. Any address may bid on behalf of any IP.
+  * `maxGas` (number) — Max gas in wei (1 HYPE = 10^8 wei) charged from the spot balance. The minimum auction price is 0.1 HYPE.
+* `nonce` (number, required) — Current timestamp in milliseconds.
+* `signature` (object, required) — EIP-712 signature of the action.
+
+### Optional parameters
+
+* `expiresAfter` (number, optional) — Timestamp in milliseconds after which the request is rejected.
+
+## Returns
+
+Returns an object with the action status:
+
+* `status` — `"ok"` if the request was processed.
+* `response` — Contains operation details, with `type` `"default"`.
+
+## Example request
+
+<CodeGroup>
+
+```shell cURL
+curl -X POST https://api.hyperliquid.xyz/exchange \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {"type": "gossipPriorityBid", "slotId": 0, "ip": "1.2.3.4", "maxGas": 10000000},
+    "nonce": 1234567890123,
+    "signature": {...}
+  }'
+```
+
+```python Python (hyperliquid-python-sdk)
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+import eth_account
+
+# Public Hyperliquid mainnet endpoint
+wallet = eth_account.Account.from_key("0x...")  # your private key
+exchange = Exchange(wallet, constants.MAINNET_API_URL)
+
+# slot_id is 0 or 1; max_gas is in wei (1 HYPE = 1e8 wei)
+result = exchange.gossip_priority_bid(slot_id=0, ip="1.2.3.4", max_gas=10000000)
+print(result)
+```
+
+```typescript TypeScript (@nktkas/hyperliquid)
+import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { privateKeyToAccount } from "viem/accounts";
+
+// Public Hyperliquid mainnet endpoint (default transport)
+const wallet = privateKeyToAccount("0x..."); // viem or ethers account
+const transport = new HttpTransport();
+const exchange = new ExchangeClient({ transport, wallet });
+
+const result = await exchange.gossipPriorityBid({
+  slotId: 0,
+  ip: "1.2.3.4",
+  maxGas: 10000000, // wei; 1 HYPE = 1e8 wei
+});
+
+console.log(result);
+```
+
+</CodeGroup>
+
+## Response example
+
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "default"
+  }
+}
+```
+
+## Use cases
+
+* **Prioritize a node's gossip** — Win a priority slot for a given IP
+* **Node operations** — Improve propagation for latency-sensitive infrastructure
+* **Auction tooling** — Automate bidding against the current auction status

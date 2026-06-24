@@ -1,0 +1,80 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Hyperliquid Exchange API",
+    "version": "1.0.0",
+    "description": "API for trading operations on Hyperliquid exchange requiring authentication. ⚠️ WARNING: These endpoints require EIP-712 signatures for authentication. The example values provided will NOT work without proper cryptographic signing. You must implement EIP-712 signing to use these endpoints successfully."
+  },
+  "servers": [
+    {
+      "url": "https://api.hyperliquid.xyz"
+    }
+  ],
+  "paths": {
+    "/exchange": {
+      "post": {
+        "tags": [
+          "hyperliquid exchange"
+        ],
+        "summary": "Distribute funds from a vault",
+        "operationId": "vaultDistribute",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "object",
+                    "properties": {
+                      "type": { "type": "string", "default": "vaultDistribute", "enum": ["vaultDistribute"], "description": "Action type" },
+                      "vaultAddress": { "type": "string", "description": "Vault address" },
+                      "usd": { "type": "integer", "description": "Amount to distribute as USD float * 1e6. Set to 0 to close the vault." }
+                    },
+                    "required": ["type", "vaultAddress", "usd"]
+                  },
+                  "nonce": { "type": "integer", "description": "Current timestamp in milliseconds" },
+                  "signature": {
+                    "type": "object",
+                    "description": "EIP-712 signature of the action with r, s, v components",
+                    "properties": {
+                      "r": { "type": "string", "example": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef" },
+                      "s": { "type": "string", "example": "0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321" },
+                      "v": { "type": "integer", "example": 27 }
+                    },
+                    "required": ["r", "s", "v"]
+                  },
+                  "expiresAfter": { "type": "integer", "description": "Timestamp in milliseconds after which the request is rejected (optional)" }
+                },
+                "required": ["action", "nonce", "signature"]
+              },
+              "example": {
+                "action": { "type": "vaultDistribute", "vaultAddress": "0x1719884eb866cb12b2287399b15f7db5e7d775ea", "usd": 1000000 },
+                "nonce": 1705234567890,
+                "signature": { "r": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", "s": "0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321", "v": 27 }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Vault distribute result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "description": "Request status" },
+                    "response": { "type": "object", "properties": { "type": { "type": "string", "default": "default" } } }
+                  },
+                  "example": { "status": "ok", "response": { "type": "default" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
