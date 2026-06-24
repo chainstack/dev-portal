@@ -1,0 +1,215 @@
+---
+title: "Building on Hyperliquid with the nktkas TypeScript SDK"
+description: Build Hyperliquid trading and market-data apps in TypeScript with the nktkas SDK and Chainstack — clients, transports, wallets, trading, and real-time subscriptions.
+---
+
+[@nktkas/hyperliquid](https://github.com/nktkas/hyperliquid) is the community-favorite TypeScript SDK for Hyperliquid: full HyperCore API coverage, end-to-end type safety, and support for every major JS runtime. This guide walks through building with it against a Chainstack Hyperliquid endpoint — reading market data, signing and placing trades, and streaming real-time updates.
+
+<Info>
+**Prerequisites**
+
+- Node.js 18 or higher (for the built-in `fetch` and `WebSocket`)
+- `@nktkas/hyperliquid` and `viem` installed (`npm install @nktkas/hyperliquid viem`)
+- [Reliable Hyperliquid RPC endpoint](https://chainstack.com/build-better-with-hyperliquid/) ([sign up for free](https://console.chainstack.com/))
+</Info>
+
+## The mental model: three clients, two transports
+
+The SDK splits along two axes — **what** you do and **how** you connect.
+
+The clients (the "what"):
+
+- **`InfoClient`** — read-only market and account data (no wallet needed).
+- **`ExchangeClient`** — write actions: place and cancel orders, transfers, leverage, and more (needs a wallet to sign).
+- **`SubscriptionClient`** — real-time streams over WebSocket.
+
+The transports (the "how"):
+
+- **`HttpTransport`** — request/response over HTTP. Used by `InfoClient` and `ExchangeClient`.
+- **`WebSocketTransport`** — persistent connection for `SubscriptionClient`.
+
+You compose them: pick a client, give it a transport. Everything below follows that pattern.
+
+## Reading market data
+
+Start with the `InfoClient`. No wallet, no signing — just data:
+
+```typescript
+import { HttpTransport, InfoClient } from "@nktkas/hyperliquid";
+
+const transport = new HttpTransport();
+const info = new InfoClient({ transport });
+
+// Mid prices for every coin
+const mids = await info.allMids();
+
+// Perpetuals metadata (asset names, size decimals, max leverage)
+const meta = await info.meta();
+console.log(`${meta.universe.length} perpetual markets`);
+
+// L2 order book snapshot for a coin
+const book = await info.l2Book({ coin: "BTC" });
+
+// A user's perpetuals account state
+const state = await info.clearinghouseState({
+  user: "0x1442ad477ded1b0028b57621aa7b6f7eadb8f568",
+});
+```
+
+Every method is fully typed, so your editor autocompletes parameters and response fields. See the [Hyperliquid API reference](/reference/hyperliquid-getting-started) for the complete method list.
+
+## Wallets and signing
+
+Write actions must be signed. nktkas does not ship its own key handling — you pass a [viem](https://viem.sh/) or [ethers](https://docs.ethers.org/) account as the `wallet`, and the SDK signs each action for you.
+
+<CodeGroup>
+
+```typescript viem
+import { privateKeyToAccount } from "viem/accounts";
+
+const wallet = privateKeyToAccount("0x..."); // your private key
+```
+
+```typescript ethers
+import { Wallet } from "ethers";
+
+const wallet = new Wallet("0x..."); // your private key
+```
+
+</CodeGroup>
+
+Hyperliquid has two signing schemes — **L1 actions** (orders, cancels) and **user-signed actions** (transfers, withdrawals). nktkas picks the right one per method automatically, so you rarely think about it. When you do need the details, see [Signing overview](/docs/hyperliquid-signing-overview), [L1 action signing](/docs/hyperliquid-l1-action-signing), and [user-signed actions](/docs/hyperliquid-user-signed-actions).
+
+<Tip>
+For production frontends, use an **agent wallet** (API wallet): the user approves it once from their browser wallet, then your app signs all trades with the agent key — no chain-mismatch prompts. See [debugging signature errors](/docs/hyperliquid-debugging-signature-errors) for the pattern.
+</Tip>
+
+## Placing and managing trades
+
+Give an `ExchangeClient` a transport and a wallet, then call action methods:
+
+```typescript
+import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { privateKeyToAccount } from "viem/accounts";
+
+const wallet = privateKeyToAccount("0x...");
+const transport = new HttpTransport();
+const exchange = new ExchangeClient({ transport, wallet });
+
+// Place a limit buy: 0.01 BTC at 95000, good-til-canceled
+const result = await exchange.order({
+  orders: [{
+    a: 0,           // asset index (0 = BTC; look it up in info.meta())
+    b: true,        // isBuy
+    p: "95000",     // price
+    s: "0.01",      // size
+    r: false,       // reduceOnly
+    t: { limit: { tif: "Gtc" } },
+  }],
+  grouping: "na",
+});
+console.log(result.response.data.statuses);
+
+// Cancel by asset index + order id
+await exchange.cancel({ cancels: [{ a: 0, o: 123456 }] });
+
+// Adjust leverage
+await exchange.updateLeverage({ asset: 0, isCross: true, leverage: 5 });
+```
+
+The asset index (`a`) comes from the `info.meta()` universe — its position in the array. Prices and sizes are **strings**, and Hyperliquid enforces strict tick and lot precision; rounding wrong gets the order rejected. See [order precision](/docs/hyperliquid-order-precision) for the rules.
+
+## Real-time data
+
+For live data, swap to the `WebSocketTransport` and a `SubscriptionClient`. Each subscription takes a callback that fires on every update:
+
+```typescript
+import { SubscriptionClient, WebSocketTransport } from "@nktkas/hyperliquid";
+
+const transport = new WebSocketTransport();
+const subs = new SubscriptionClient({ transport });
+
+// Stream mid prices for all coins
+await subs.allMids((data) => {
+  console.log(data.mids);
+});
+
+// Stream the BTC order book
+await subs.l2Book({ coin: "BTC" }, (book) => {
+  console.log(book.levels);
+});
+
+// Stream a user's order updates — the basis for copy-trading bots
+await subs.orderUpdates({ user: "0x..." }, (orders) => {
+  console.log(orders);
+});
+```
+
+`SubscriptionClient` also exposes `trades`, `userFills`, `userEvents`, `candle`, `bbo`, and `webData2`. For a full real-time application built on these streams, see [building a copy trading bot](/docs/hyperliquid-copy-trading-websocket).
+
+## Using your Chainstack node
+
+By default, every transport points at the public Hyperliquid API. To route reads through your own Chainstack Hyperliquid node, pass its endpoint as `apiUrl`:
+
+```typescript
+import { HttpTransport, InfoClient } from "@nktkas/hyperliquid";
+
+const transport = new HttpTransport({ apiUrl: "YOUR_CHAINSTACK_ENDPOINT" });
+const info = new InfoClient({ transport });
+
+// Served by your Chainstack node
+const meta = await info.meta();
+const state = await info.clearinghouseState({ user: "0x..." });
+```
+
+Two things to know, both driven by what the open-source Hyperliquid node implements:
+
+- **Trading stays on the public API.** `apiUrl` routes both `/info` and `/exchange`, but nodes do not serve `/exchange` actions — so keep your `ExchangeClient` on the default (public) transport. Trades are signed locally and submitted to Hyperliquid either way.
+- **Some reads are public-only.** Your node serves a large subset of HyperCore `info` methods (`meta`, `clearinghouseState`, `spotMeta`, `openOrders`, and more); others (`allMids`, `l2Book`, `metaAndAssetCtxs`, `candleSnapshot`, `userFills`, …) are only on the public API. The [Hyperliquid methods](/docs/hyperliquid-methods) table marks exactly which is which — a public-only method against your node returns `Failed to deserialize the JSON body into the target type`.
+
+Where your Chainstack node shines is **HyperEVM**: the full `eth_*` JSON-RPC surface (plus WebSocket subscriptions and debug/trace) runs on your dedicated endpoint. That side is standard EVM tooling — use [viem](https://viem.sh/) or [ethers](https://docs.ethers.org/) pointed at your endpoint rather than the HyperCore SDK above. See [Hyperliquid tooling](/docs/hyperliquid-tooling) and the [API reference](/reference/hyperliquid-getting-started).
+
+<Note>
+Pass `isTestnet: true` to a transport (`new HttpTransport({ isTestnet: true })`) to target Hyperliquid testnet instead of mainnet.
+</Note>
+
+## Error handling
+
+The SDK throws on transport failures and on unsuccessful API responses, so wrap actions in `try/catch`. Successful actions still carry a status you should check:
+
+```typescript
+try {
+  const result = await exchange.order({
+    orders: [{ a: 0, b: true, p: "95000", s: "0.01", r: false, t: { limit: { tif: "Gtc" } } }],
+    grouping: "na",
+  });
+
+  const status = result.response.data.statuses[0];
+  if ("error" in status) {
+    console.error("Order rejected:", status.error);
+  } else if ("resting" in status) {
+    console.log("Resting order id:", status.resting.oid);
+  } else if ("filled" in status) {
+    console.log("Filled at:", status.filled.avgPx);
+  }
+} catch (err) {
+  // Network/timeout error, or the API returned an error response
+  console.error("Request failed:", err);
+}
+```
+
+A common error is `Provided chainId ... must match the active chainId ...` when signing from a browser wallet — see [debugging signature errors](/docs/hyperliquid-debugging-signature-errors).
+
+## Summary
+
+The nktkas SDK gives you three composable clients — `InfoClient`, `ExchangeClient`, and `SubscriptionClient` — over HTTP and WebSocket transports, with viem/ethers wallets for signing. Point reads at your Chainstack node for the HyperCore methods it serves and for all of HyperEVM, keep trading on the public API, and stream live data over WebSocket. From here, the copy-trading, TWAP, and funding-rate guides build complete strategies on these same primitives.
+
+## Related resources
+
+- [Hyperliquid tooling](/docs/hyperliquid-tooling) — SDKs and APIs at a glance
+- [Hyperliquid methods](/docs/hyperliquid-methods) — which methods run on your node vs the public API
+- [Authentication guide](/docs/hyperliquid-authentication-guide) — sign and authenticate exchange actions
+- [Debugging signature errors](/docs/hyperliquid-debugging-signature-errors) — agent wallets and chain-mismatch fixes
+- [Order precision](/docs/hyperliquid-order-precision) — tick and lot sizing rules
+- [Building a copy trading bot](/docs/hyperliquid-copy-trading-websocket) — a full WebSocket application
+- [API reference](/reference/hyperliquid-getting-started) — the complete Hyperliquid API
