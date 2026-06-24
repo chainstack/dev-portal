@@ -111,26 +111,53 @@ curl -X POST https://api.hyperliquid.xyz/exchange \
   }'
 ```
 
-```python Python
+```python Python (hyperliquid-python-sdk)
 from hyperliquid.exchange import Exchange
 from hyperliquid.utils import constants
 import eth_account
 
-# Initialize with your private key
+# Initialize with your private key. The public mainnet API is used
+# because this signing endpoint is not served through Chainstack.
 account = eth_account.Account.from_key("0x...")
 exchange = Exchange(account, constants.MAINNET_API_URL)
 
-# Place a limit buy order for BTC
+# Place a limit buy order for BTC.
 order_result = exchange.order(
-    coin="BTC",
-    is_buy=True, 
+    name="BTC",
+    is_buy=True,
     sz=0.01,
     limit_px=50000,
     order_type={"limit": {"tif": "Gtc"}},
-    reduce_only=False
+    reduce_only=False,
 )
 
 print(order_result)
+```
+
+```typescript TypeScript (@nktkas/hyperliquid)
+import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { privateKeyToAccount } from "viem/accounts";
+
+// The default HttpTransport targets the public mainnet API because
+// this signing endpoint is not served through Chainstack.
+const wallet = privateKeyToAccount("0x...");
+const transport = new HttpTransport();
+const exchange = new ExchangeClient({ transport, wallet });
+
+// Place a limit buy order for asset index 0 (BTC perpetual).
+const result = await exchange.order({
+  orders: [{
+    a: 0,
+    b: true,
+    p: "50000",
+    s: "0.01",
+    r: false,
+    t: { limit: { tif: "Gtc" } },
+  }],
+  grouping: "na",
+});
+
+console.log(result);
 ```
 
 </CodeGroup>
