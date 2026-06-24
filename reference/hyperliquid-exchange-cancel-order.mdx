@@ -73,28 +73,42 @@ curl -X POST https://api.hyperliquid.xyz/exchange \
   }'
 ```
 
-```python Python
+```python Python (hyperliquid-python-sdk)
+import eth_account
 from hyperliquid.exchange import Exchange
 from hyperliquid.utils import constants
-import eth_account
 
-# Initialize with your private key
-account = eth_account.Account.from_key("0x...")
-exchange = Exchange(account, constants.MAINNET_API_URL)
+# Signing requires a wallet (LocalAccount). Asset index 0 = BTC.
+wallet = eth_account.Account.from_key("0x...")
+exchange = Exchange(wallet, constants.MAINNET_API_URL)
 
-# Cancel an order by ID
-cancel_result = exchange.cancel(
-    coin="BTC",
-    oid=77738308
-)
+# Cancel one order by coin name + order ID (oid).
+# This posts the {"type": "cancel", "cancels": [{"a": 0, "o": 77738308}]} action.
+result = exchange.cancel("BTC", 77738308)
 
-# Cancel multiple orders
-cancel_results = exchange.cancel_multiple([
-    {"coin": "BTC", "oid": 77738308},
-    {"coin": "ETH", "oid": 77738309}
-])
+# To cancel several orders in a single request, use bulk_cancel:
+# result = exchange.bulk_cancel([
+#     {"coin": "BTC", "oid": 77738308},
+# ])
 
-print(cancel_result)
+print(result)
+```
+
+```typescript TypeScript (@nktkas/hyperliquid)
+import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { privateKeyToAccount } from "viem/accounts";
+
+// Signing requires a wallet. Asset ID 0 = BTC.
+const wallet = privateKeyToAccount("0x...");
+const transport = new HttpTransport();
+const exchange = new ExchangeClient({ transport, wallet });
+
+// Posts the { type: "cancel", cancels: [{ a: 0, o: 77738308 }] } action.
+const result = await exchange.cancel({
+  cancels: [{ a: 0, o: 77738308 }],
+});
+
+console.log(result);
 ```
 
 </CodeGroup>

@@ -111,26 +111,52 @@ curl -X POST https://api.hyperliquid.xyz/exchange \
   }'
 ```
 
-```python Python
+```python Python (hyperliquid-python-sdk)
 from hyperliquid.exchange import Exchange
 from hyperliquid.utils import constants
-import eth_account
+from eth_account import Account
 
-# Initialize with your private key
-account = eth_account.Account.from_key("0x...")
-exchange = Exchange(account, constants.MAINNET_API_URL)
+# Exchange requires a wallet (LocalAccount) to sign the order
+wallet = Account.from_key("0x...")
+exchange = Exchange(wallet, constants.MAINNET_API_URL)
 
-# Place a limit buy order for BTC
+# Place a limit buy order. Asset 0 maps to the coin name BTC,
+# matching the curl payload (b: true, p: "50000", s: "0.01", Gtc, grouping "na").
 order_result = exchange.order(
-    coin="BTC",
-    is_buy=True, 
+    name="BTC",
+    is_buy=True,
     sz=0.01,
     limit_px=50000,
     order_type={"limit": {"tif": "Gtc"}},
-    reduce_only=False
+    reduce_only=False,
 )
 
 print(order_result)
+```
+
+```typescript TypeScript (@nktkas/hyperliquid)
+import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { privateKeyToAccount } from "viem/accounts";
+
+// ExchangeClient signs with a wallet over an HTTP transport (mainnet by default)
+const wallet = privateKeyToAccount("0x...");
+const transport = new HttpTransport();
+const exchange = new ExchangeClient({ transport, wallet });
+
+// Same payload as the curl: asset 0, buy, price "50000", size "0.01", Gtc, grouping "na"
+const result = await exchange.order({
+  orders: [{
+    a: 0,
+    b: true,
+    p: "50000",
+    s: "0.01",
+    r: false,
+    t: { limit: { tif: "Gtc" } },
+  }],
+  grouping: "na",
+});
+
+console.log(result);
 ```
 
 </CodeGroup>
