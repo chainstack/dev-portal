@@ -47,6 +47,8 @@ Returns an object with the action status:
 
 ## Example request
 
+<CodeGroup>
+
 ```shell cURL
 curl -X POST https://api.hyperliquid.xyz/exchange \
   -H "Content-Type: application/json" \
@@ -56,6 +58,58 @@ curl -X POST https://api.hyperliquid.xyz/exchange \
     "signature": {...}
   }'
 ```
+
+```python Python (hyperliquid-python-sdk)
+# The hyperliquid-python-sdk has no cDeposit convenience method,
+# so build and sign the user-signed action with the SDK primitives.
+import eth_account
+
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils.constants import MAINNET_API_URL
+from hyperliquid.utils.signing import get_timestamp_ms, sign_user_signed_action
+
+# EIP-712 payload for the cDeposit action.
+C_DEPOSIT_SIGN_TYPES = [
+    {"name": "hyperliquidChain", "type": "string"},
+    {"name": "wei", "type": "uint64"},
+    {"name": "nonce", "type": "uint64"},
+]
+
+wallet = eth_account.Account.from_key("0x...")  # your private key
+exchange = Exchange(wallet, MAINNET_API_URL)  # public mainnet endpoint
+
+nonce = get_timestamp_ms()
+action = {
+    "type": "cDeposit",
+    "wei": 1 * 10**8,  # amount of wei to deposit into staking (float \* 1e8)
+    "nonce": nonce,
+}
+signature = sign_user_signed_action(
+    wallet,
+    action,
+    C_DEPOSIT_SIGN_TYPES,
+    "HyperliquidTransaction:CDeposit",
+    True,  # is_mainnet
+)
+result = exchange._post_action(action, signature, nonce)
+print(result)
+```
+
+```typescript TypeScript (@nktkas/hyperliquid)
+import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { privateKeyToAccount } from "viem/accounts";
+
+const wallet = privateKeyToAccount("0x..."); // your private key
+const transport = new HttpTransport(); // public mainnet endpoint
+const exchange = new ExchangeClient({ transport, wallet });
+
+const result = await exchange.cDeposit({
+  wei: 1 * 1e8, // amount of wei to deposit into staking (float \* 1e8)
+});
+console.log(result);
+```
+
+</CodeGroup>
 
 ## Use case
 

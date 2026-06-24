@@ -48,6 +48,8 @@ Returns an object with the action status:
 
 ## Example request
 
+<CodeGroup>
+
 ```shell cURL
 curl -X POST https://api.hyperliquid.xyz/exchange \
   -H "Content-Type: application/json" \
@@ -57,6 +59,58 @@ curl -X POST https://api.hyperliquid.xyz/exchange \
     "signature": {...}
   }'
 ```
+
+```python Python (hyperliquid-python-sdk)
+# pip install hyperliquid-python-sdk eth-account
+import time
+import eth_account
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+
+# The leader (outer signer) collects the inner signatures and submits the action.
+leader = eth_account.Account.from_key("0xLEADER_PRIVATE_KEY")
+exchange = Exchange(leader, constants.MAINNET_API_URL)
+
+multi_sig_user = "0xMULTI_SIG_ACCOUNT_ADDRESS"
+nonce = int(time.time() * 1000)
+
+# inner_action is the action the multi-sig account performs (for example, an order).
+inner_action = {"type": "scheduleCancel", "time": None}
+
+# signatures collected from each authorized signer of the multi-sig account.
+signatures = [
+    # sign_multi_sig_inner_action(...) output per signer
+]
+
+result = exchange.multi_sig(
+    multi_sig_user=multi_sig_user,
+    inner_action=inner_action,
+    signatures=signatures,
+    nonce=nonce,
+)
+print(result)
+```
+
+```typescript TypeScript (@nktkas/hyperliquid)
+// npm install @nktkas/hyperliquid viem
+import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { privateKeyToAccount } from "viem/accounts";
+
+const multiSigUser = "0xMULTI_SIG_ACCOUNT_ADDRESS"; // the multi-sig account address
+const signers = [
+  privateKeyToAccount("0xLEADER_PRIVATE_KEY"), // leader — signs the wrapper
+  privateKeyToAccount("0xOTHER_SIGNER_PRIVATE_KEY"),
+] as const;
+
+const transport = new HttpTransport(); // public mainnet endpoint
+const client = new ExchangeClient({ transport, signers, multiSigUser });
+
+// The client wraps each action in a multiSig action automatically.
+const result = await client.order({ orders: [/* ... */], grouping: "na" });
+console.log(result);
+```
+
+</CodeGroup>
 
 ## Use case
 
