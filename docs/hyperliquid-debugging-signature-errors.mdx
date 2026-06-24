@@ -154,13 +154,13 @@ Hyperliquid L1 actions require signing with **chainId 1337**, but your wallet is
 
   ```typescript
   import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
-  import { PrivateKeySigner } from "@nktkas/hyperliquid/signing";
+  import { privateKeyToAccount } from "viem/accounts";
 
   // Agent wallet signs with chainId 1337 automatically
-  const agentSigner = new PrivateKeySigner({ privateKey: AGENT_PRIVATE_KEY });
+  const agentAccount = privateKeyToAccount(AGENT_PRIVATE_KEY);
   const client = new ExchangeClient({
     transport: new HttpTransport(),
-    wallet: agentSigner
+    wallet: agentAccount
   });
 
   // User's browser wallet only signs approveAgent (chainId 0x66eee)
@@ -220,7 +220,7 @@ For production applications, use this two-wallet pattern:
 
 ```typescript
 import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
-import { PrivateKeySigner } from "@nktkas/hyperliquid/signing";
+import { privateKeyToAccount } from "viem/accounts";
 
 // First: user approves agent via browser wallet (one-time)
 const agentAddress = await approveAgentWithBrowserWallet();
@@ -228,7 +228,7 @@ const agentAddress = await approveAgentWithBrowserWallet();
 // Then: agent handles all trading
 const agentClient = new ExchangeClient({
   transport: new HttpTransport(),
-  wallet: new PrivateKeySigner({ privateKey: agentPrivateKey })
+  wallet: privateKeyToAccount(agentPrivateKey)
 });
 
 // No chainId conflicts because browser wallet never signs L1 actions
@@ -240,7 +240,7 @@ Hyperliquid has two community TypeScript SDKs:
 
 | SDK | Maintainer | Features |
 |-----|------------|----------|
-| [@nktkas/hyperliquid](https://github.com/nktkas/hyperliquid) | nktkas | Full API coverage, PrivateKeySigner, viem/ethers support |
+| [@nktkas/hyperliquid](https://github.com/nktkas/hyperliquid) | nktkas | Full API coverage, viem/ethers wallet support |
 | [nomeida/hyperliquid](https://github.com/nomeida/hyperliquid) | nomeida | Simpler API, good for quick integrations |
 
 ### @nktkas/hyperliquid examples
@@ -256,7 +256,7 @@ npm install @nktkas/hyperliquid viem
 import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
 import { privateKeyToAccount } from "viem/accounts";
 
-const account = privateKeyToAccount("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+const account = privateKeyToAccount("0x..."); // your private key
 const client = new ExchangeClient({
   transport: new HttpTransport(),
   wallet: account
@@ -275,14 +275,14 @@ const result = await client.order({
 });
 ```
 
-```typescript With PrivateKeySigner (no viem dependency)
+```typescript With an ethers account
 import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
-import { PrivateKeySigner } from "@nktkas/hyperliquid/signing";
+import { Wallet } from "ethers";
 
-const signer = new PrivateKeySigner({ privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" });
+const wallet = new Wallet("0x..."); // your private key
 const client = new ExchangeClient({
   transport: new HttpTransport(),
-  wallet: signer
+  wallet
 });
 
 // Same API as with viem
