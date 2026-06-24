@@ -84,9 +84,15 @@ jobs:
           # Create the PR if none is open; otherwise the force-push already updated it.
           if ! gh pr view "$BR" --json state --jq .state 2>/dev/null | grep -q OPEN; then
             gh pr create --base main --head "$BR" \
+              --assignee akegaviar \
               --title "chore: sync llms.txt" \
               --body "Automated regeneration of the nested llms.txt from docs.json (\`scripts/generate_llms_txt.py\`). Passed size/parse/page-count guards. Auto-merges once the Mintlify Deployment check passes."
           fi
+
+          # Ensure the PR is assigned (so the assignee is notified even if the PR
+          # already existed and was only refreshed by the force-push above).
+          gh pr edit "$BR" --add-assignee akegaviar \
+            || echo "::warning::Could not assign the PR to akegaviar."
 
           # Enable auto-merge. If the repo setting "Allow auto-merge" is off, this is a no-op
           # warning and the PR stays open for a manual one-click merge — the workflow still succeeds.
