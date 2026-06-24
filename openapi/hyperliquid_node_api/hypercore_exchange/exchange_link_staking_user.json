@@ -1,0 +1,80 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Hyperliquid Exchange API",
+    "version": "1.0.0",
+    "description": "API for trading operations on Hyperliquid exchange requiring authentication. ⚠️ WARNING: These endpoints require EIP-712 signatures for authentication. The example values provided will NOT work without proper cryptographic signing. You must implement EIP-712 signing to use these endpoints successfully."
+  },
+  "servers": [
+    {
+      "url": "https://api.hyperliquid.xyz"
+    }
+  ],
+  "paths": {
+    "/exchange": {
+      "post": {
+        "tags": ["hyperliquid exchange"],
+        "summary": "Link a staking user (initiate or finalize)",
+        "operationId": "linkStakingUser",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "object",
+                    "properties": {
+                      "type": { "type": "string", "default": "linkStakingUser", "enum": ["linkStakingUser"], "description": "Action type" },
+                      "signatureChainId": { "type": "string", "description": "Chain ID in hex format used for EIP-712 signing" },
+                      "hyperliquidChain": { "type": "string", "enum": ["Mainnet", "Testnet"], "description": "Hyperliquid network type" },
+                      "user": { "type": "string", "description": "Target account address. Trading user initiating: enter the staking account address. Staking user finalizing: enter the trading account address." },
+                      "isFinalize": { "type": "boolean", "description": "false = trading user initiates the link request; true = staking user finalizes the permanent link" },
+                      "nonce": { "type": "integer", "description": "Timestamp in milliseconds, equal to the envelope nonce" }
+                    },
+                    "required": ["type", "signatureChainId", "hyperliquidChain", "user", "isFinalize", "nonce"]
+                  },
+                  "nonce": { "type": "integer", "description": "Current timestamp in milliseconds" },
+                  "signature": {
+                    "type": "object",
+                    "description": "EIP-712 signature of the action with r, s, v components",
+                    "properties": {
+                      "r": { "type": "string", "example": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef" },
+                      "s": { "type": "string", "example": "0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321" },
+                      "v": { "type": "integer", "example": 27 }
+                    },
+                    "required": ["r", "s", "v"]
+                  }
+                },
+                "required": ["action", "nonce", "signature"]
+              },
+              "example": {
+                "action": { "type": "linkStakingUser", "signatureChainId": "0x66eee", "hyperliquidChain": "Mainnet", "user": "0x1442ad477ded1b0028b57621aa7b6f7eadb8f568", "isFinalize": false, "nonce": 1705234567890 },
+                "nonce": 1705234567890,
+                "signature": { "r": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", "s": "0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321", "v": 27 }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Link staking user result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "description": "Request status" },
+                    "response": { "type": "object", "properties": { "type": { "type": "string", "default": "default" } } }
+                  },
+                  "example": { "status": "ok", "response": { "type": "default" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

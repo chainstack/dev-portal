@@ -1,0 +1,119 @@
+---
+title: Set display name | Hyperliquid exchange
+openapi: /openapi/hyperliquid_node_api/hypercore_exchange/exchange_set_display_name.json post /exchange
+description: "Set or clear your account display name on Hyperliquid (for leaderboards and social features). On Hyperliquid exchange."
+---
+
+<Info>
+You can only use this endpoint on the official Hyperliquid public API. It is not available through Chainstack, as the open-source node implementation does not support it yet. See [Hyperliquid methods](/docs/hyperliquid-methods) for the full availability breakdown.
+</Info>
+
+<Note>
+This endpoint requires signature authentication. See our comprehensive [Authentication via Signatures guide](/docs/hyperliquid-authentication-guide) for implementation details.
+</Note>
+
+The `setDisplayName` action sets your account's display name, used in leaderboards and social features. Set an empty string to remove the display name.
+
+<Visibility for="humans">
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+</Visibility>
+
+## Parameters
+
+### Required parameters
+
+* `action` (object, required) — The set-display-name action:
+  * `type` (string) — Must be `"setDisplayName"`.
+  * `displayName` (string) — The display name (max 20 characters). An empty string removes it.
+* `nonce` (number, required) — Current timestamp in milliseconds.
+* `signature` (object, required) — EIP-712 signature of the action.
+
+### Optional parameters
+
+* `expiresAfter` (number, optional) — Timestamp in milliseconds after which the request is rejected.
+
+## Returns
+
+Returns an object with the action status:
+
+* `status` — `"ok"` if the request was processed.
+* `response` — Contains operation details, with `type` `"default"`.
+
+## Example request
+
+<CodeGroup>
+
+```shell cURL
+curl -X POST https://api.hyperliquid.xyz/exchange \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {"type": "setDisplayName", "displayName": "satoshi"},
+    "nonce": 1234567890123,
+    "signature": {...}
+  }'
+```
+
+```python Python (hyperliquid-python-sdk)
+# Note: the official hyperliquid-python-sdk does not expose a setDisplayName
+# helper yet, so build and post the signed action directly.
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+from hyperliquid.utils.signing import sign_l1_action, get_timestamp_ms
+import eth_account
+
+# Public Hyperliquid mainnet endpoint
+wallet = eth_account.Account.from_key("0x...")  # your private key
+exchange = Exchange(wallet, constants.MAINNET_API_URL)
+
+timestamp = get_timestamp_ms()
+action = {"type": "setDisplayName", "displayName": "satoshi"}
+signature = sign_l1_action(
+    wallet,
+    action,
+    None,  # vault_address
+    timestamp,
+    None,  # expires_after
+    exchange.base_url == constants.MAINNET_API_URL,
+)
+result = exchange._post_action(action, signature, timestamp)
+print(result)
+```
+
+```typescript TypeScript (@nktkas/hyperliquid)
+import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { privateKeyToAccount } from "viem/accounts";
+
+// Public Hyperliquid mainnet endpoint (default transport)
+const wallet = privateKeyToAccount("0x..."); // viem or ethers account
+const transport = new HttpTransport();
+const exchange = new ExchangeClient({ transport, wallet });
+
+const result = await exchange.setDisplayName({ displayName: "satoshi" });
+
+console.log(result);
+```
+
+</CodeGroup>
+
+## Response example
+
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "default"
+  }
+}
+```
+
+## Use cases
+
+* **Personalize your account** — Show a name on leaderboards
+* **Social features** — Make your account recognizable
+* **Clear your name** — Send an empty string to remove the display name

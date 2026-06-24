@@ -1,0 +1,82 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Hyperliquid Exchange API",
+    "version": "1.0.0",
+    "description": "API for trading operations on Hyperliquid exchange requiring authentication. ⚠️ WARNING: These endpoints require EIP-712 signatures for authentication. The example values provided will NOT work without proper cryptographic signing. You must implement EIP-712 signing to use these endpoints successfully."
+  },
+  "servers": [
+    {
+      "url": "https://api.hyperliquid.xyz"
+    }
+  ],
+  "paths": {
+    "/exchange": {
+      "post": {
+        "tags": [
+          "hyperliquid exchange"
+        ],
+        "summary": "Borrow / lend (supply, withdraw, repay, borrow)",
+        "operationId": "borrowLend",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "object",
+                    "properties": {
+                      "type": { "type": "string", "default": "borrowLend", "enum": ["borrowLend"], "description": "Action type" },
+                      "operation": { "type": "string", "enum": ["supply", "withdraw", "repay", "borrow"], "description": "Borrow/lend operation to perform" },
+                      "token": { "type": "integer", "description": "Token ID" },
+                      "amount": { "type": "string", "nullable": true, "description": "Amount to supply/withdraw/repay/borrow (null = full)" }
+                    },
+                    "required": ["type", "operation", "token", "amount"]
+                  },
+                  "nonce": { "type": "integer", "description": "Current timestamp in milliseconds" },
+                  "signature": {
+                    "type": "object",
+                    "description": "EIP-712 signature of the action with r, s, v components",
+                    "properties": {
+                      "r": { "type": "string", "example": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef" },
+                      "s": { "type": "string", "example": "0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321" },
+                      "v": { "type": "integer", "example": 27 }
+                    },
+                    "required": ["r", "s", "v"]
+                  },
+                  "vaultAddress": { "type": "string", "nullable": true, "description": "Address when acting on behalf of a vault (optional)" },
+                  "expiresAfter": { "type": "integer", "description": "Timestamp in milliseconds after which the request is rejected (optional)" }
+                },
+                "required": ["action", "nonce", "signature"]
+              },
+              "example": {
+                "action": { "type": "borrowLend", "operation": "supply", "token": 0, "amount": "1" },
+                "nonce": 1705234567890,
+                "signature": { "r": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef", "s": "0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321", "v": 27 }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Borrow/lend result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "description": "Request status" },
+                    "response": { "type": "object", "properties": { "type": { "type": "string", "default": "default" } } }
+                  },
+                  "example": { "status": "ok", "response": { "type": "default" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
