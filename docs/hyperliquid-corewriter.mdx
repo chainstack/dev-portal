@@ -24,6 +24,10 @@ HyperEVM and HyperCore are two execution environments on the same chain, and con
 
 This split mirrors the API: read precompiles are the on-chain equivalent of `/info` queries, and CoreWriter is the on-chain equivalent of signed `/exchange` actions. The difference is that CoreWriter actions are authored *by the calling contract's own address*—the contract is the HyperCore actor, so no off-chain signature is involved.
 
+<Note>
+CoreWriter actions are submitted as ordinary HyperEVM transactions, so deploying the contract and calling CoreWriter both run against your Chainstack HyperEVM (`/evm`) endpoint—a contract drives HyperCore orders and transfers without the signed `/exchange` API. Chainstack also serves the `/info` reads used to verify results (`clearinghouseState`, `spotClearinghouseState`, `openOrders`). The one step that needs Hyperliquid's public `/exchange` endpoint is the big-block toggle below. See [Hyperliquid methods](/docs/hyperliquid-methods) for the full endpoint matrix.
+</Note>
+
 ## How CoreWriter works
 
 CoreWriter exposes a single function:
@@ -219,7 +223,7 @@ forge build
 
 ### Deploy through a Chainstack endpoint
 
-HyperEVM uses a [dual-block architecture](/docs/hyperliquid-development): fast 1-second small blocks with a 3M gas limit, and slow 1-minute big blocks with a 30M gas limit. A small contract deploys fine in small blocks, but larger contracts need big blocks. To route your transactions to big blocks, send the HyperCore action `{"type": "evmUserModify", "usingBigBlocks": true}` from the deployer account, then unset it afterward.
+HyperEVM uses a [dual-block architecture](/docs/hyperliquid-development): fast 1-second small blocks with a 3M gas limit, and slow 1-minute big blocks with a 30M gas limit. The example contracts here deploy comfortably in small blocks. Larger contracts need big blocks, which you opt into with the HyperCore action `{"type": "evmUserModify", "usingBigBlocks": true}`. That is an `/exchange` action, so—unlike the deploy and contract calls, which use your Chainstack endpoint—it goes to Hyperliquid's public endpoint (`https://api.hyperliquid.xyz/exchange`); Chainstack does not serve `/exchange` (see [Hyperliquid methods](/docs/hyperliquid-methods)).
 
 Deploy with `forge create`, pointing at your Chainstack HyperEVM endpoint:
 
