@@ -1,13 +1,25 @@
 ---
 title: "Ethereum API reference: JSON-RPC and Beacon quickstart"
-description: "Use the Ethereum JSON-RPC and Beacon Chain APIs on Chainstack to deploy nodes, send transactions, and query the execution and consensus layers."
+description: "Use the Ethereum JSON-RPC and Beacon Chain APIs on Chainstack to deploy nodes, send transactions, and query the execution and consensus layers. Chain ID 1, proof of stake, 100 methods served, archive and debug & trace on mainnet and testnets."
 ---
 
-## What is the Ethereum protocol?
+The Ethereum API gives developers programmatic access to the canonical EVM blockchain across both of its layers: the execution layer over JSON-RPC for accounts, contracts, logs, and transactions, and the consensus layer over the Beacon Chain REST API for validators, attestations, and finality. Chainstack serves both through a single Ethereum node endpoint.
 
-Ethereum, launched in 2015, is a decentralized and open-source blockchain network that provides a platform for developers to build decentralized applications for diverse purposes. Ethereum relies on a proof-of-stake (PoS) consensus mechanism, and one of Ethereum's most critical features is its smart contract functionality, which empowers developers to create self-executing programs, automating the enforcement of contractual terms and conditions.
+## Ethereum API at a glance
 
-Find useful Ethereum tools in the [Ethereum tooling](https://docs.chainstack.com/docs/ethereum-tooling) section.
+| Property | Value |
+| --- | --- |
+| Chain | Ethereum — Layer 1, proof-of-stake consensus |
+| Mainnet chain ID | `1` |
+| Testnet chain IDs | Sepolia `11155111`, Hoodi `560048` |
+| Block time | ~12 seconds |
+| Execution layer | JSON-RPC — `eth`, `net`, `web3`, `debug`, `trace`, `erigon` namespaces |
+| Consensus layer | Beacon Chain REST API — `/eth/v1/beacon`, `/eth/v1/validator`, `/eth/v1/node` |
+| Methods served by Chainstack | 100 — 69 execution-layer JSON-RPC methods + 31 Beacon Chain endpoints |
+| Real-time data | WebSocket `eth_subscribe` (newHeads, logs, newPendingTransactions, syncing) |
+| Debug & trace | `debug_*`, `trace_*`, and `erigon_*` namespaces |
+| Networks | Mainnet, Sepolia, and Hoodi, with full and archive nodes |
+| Request units | 1 RU per full request, 2 RUs per archive request |
 
 <Visibility for="humans">
 <Check>
@@ -19,38 +31,138 @@ Find useful Ethereum tools in the [Ethereum tooling](https://docs.chainstack.com
 </Check>
 </Visibility>
 
-## What is the Ethereum API?
+## What is Ethereum
 
-The Ethereum API allows developers to communicate with the Ethereum blockchain to build applications.
+Ethereum, launched in 2015, is a decentralized, open-source blockchain network that provides a platform for developers to build decentralized applications for diverse purposes. Ethereum runs on a proof-of-stake (PoS) consensus mechanism, and one of its most critical features is smart contract functionality, which lets developers create self-executing programs that automate the enforcement of contractual terms and conditions.
 
-Chainstack Ethereum nodes provide execution layer API and consensus layer API (aka Beacon Chain API).
+Ethereum is the reference implementation of the Ethereum Virtual Machine (EVM), the execution environment that dozens of other chains — Base, BNB Smart Chain, Polygon, Arbitrum, Optimism, and more — adopt for compatibility. Tooling, contract bytecode, and JSON-RPC calls that work against Ethereum carry over to the wider EVM ecosystem with minimal changes.
 
-An application must connect to an Ethereum RPC node to read data from and send transactions to the Ethereum blockchain.
+A modern Ethereum node runs two clients that share consensus and produce blocks together:
 
-When communicating with an Ethereum RPC node, the Ethereum client implements a JSON-RPC specification, a communication protocol allowing one to make remote calls and execute them as if they were made locally.
+- Execution layer — processes transactions, runs the EVM, and holds account and contract state. It exposes the JSON-RPC interface that applications use to read state and send transactions.
+- Consensus layer — runs proof-of-stake validation through the Beacon Chain, tracking validators, attestations, and finality. It exposes a REST API for validator duties and chain-finality data.
+
+## What is the Ethereum API
+
+The Ethereum API lets developers build decentralized applications, analytics tools, wallets, and indexers. To read data from and send transactions to the Ethereum blockchain, an application connects to an Ethereum node endpoint, then calls the layer it needs:
+
+- The execution layer implements the JSON-RPC specification, a communication protocol that lets you make remote calls and execute them as if they were local. This is where you query balances, blocks, logs, and receipts, call and deploy smart contracts, and submit signed transactions.
+- The consensus layer exposes the Beacon Chain REST API for validator state, committees, sync committees, rewards, and finality checkpoints.
+
+A Chainstack Ethereum node serves both, so a single endpoint covers execution-layer JSON-RPC, Beacon Chain queries, and WebSocket subscriptions for real-time data.
+
+## Methods
+
+Chainstack serves 100 Ethereum methods across the execution and consensus layers:
+
+| Layer | Namespace or path | Methods served | Notes |
+| --- | --- | --- | --- |
+| Execution | `eth_*` | 39 | Accounts, blocks, logs, gas, contract calls, transactions, subscriptions |
+| Execution | `debug_*` | 9 | Transaction and block tracing |
+| Execution | `trace_*` | 8 | OpenEthereum-style tracing and replays |
+| Execution | `erigon_*` | 8 | Erigon-specific block, header, and log queries |
+| Execution | `net_*` | 3 | Network listening status and peer count |
+| Execution | `web3_*` | 2 | Client version and Keccak-256 hashing |
+| Consensus | Beacon Chain REST | 31 | Validators, committees, rewards, finality, events |
+
+For the complete, per-method availability matrix, see [Ethereum methods](/docs/ethereum-methods).
+
+<Note>
+The `txpool_*` and `admin_*` namespaces are listed for completeness but are not served on Chainstack Ethereum nodes. See [Ethereum methods](/docs/ethereum-methods) for the full availability matrix.
+</Note>
+
+### What you can build
+
+With a Chainstack Ethereum endpoint you can:
+
+- Query chain state — balances, blocks, logs, receipts, storage, proofs, and gas — through the standard `eth_*` JSON-RPC interface, compatible with ethers, viem, and web3.py.
+- Deploy and call Solidity contracts with Hardhat, Foundry, Remix, and Ape, using `eth_call`, `eth_estimateGas`, and `eth_sendRawTransaction`.
+- Debug and trace transactions with `debug_traceTransaction`, `trace_block`, `trace_replayTransaction`, and the `erigon_*` namespace on archive nodes.
+- Stream real-time data over WebSocket with `eth_subscribe` for `newHeads`, `logs`, `newPendingTransactions`, and `syncing`.
+- Read consensus-layer state — validators, committees, sync committees, rewards, and finality checkpoints — through the Beacon Chain REST API.
+- Index historical state at any block height — balances, contract storage, and traces — against an archive node.
 
 ## How to start using the Ethereum API
 
-You need access to an Ethereum RPC node to use the Ethereum API.
-
-Follow these steps to sign up on Chainstack, deploy an Ethereum RPC node, and find your endpoint credentials:
+You need access to an Ethereum node endpoint to use the Ethereum API. Follow these steps to sign up, deploy a node, and find your credentials:
 
 <Steps>
   <Step>
     [Sign up with Chainstack](https://console.chainstack.com/user/account/create).
   </Step>
   <Step>
-    [Deploy a node](https://docs.chainstack.com/docs/manage-your-networks).
+    [Deploy a node](/docs/manage-your-networks).
   </Step>
   <Step>
-    [View node access and credentials](https://docs.chainstack.com/docs/manage-your-node#view-node-access-and-credentials).
+    [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
   </Step>
 </Steps>
 
-Now, you can connect to the Ethereum blockchain and use the Ethereum API to build.
+Now you are ready to connect to the Ethereum blockchain and use the Ethereum API to build.
 
-<Info>
-  **See also**
+## SDKs and tooling
 
-  [Build better with Ethereum](https://chainstack.com/build-better-with-ethereum/)
-</Info>
+You can call the API directly over HTTP and WebSocket, or use a maintained library:
+
+- JavaScript and TypeScript — [ethers.js](https://github.com/ethers-io/ethers.js) and [viem](https://github.com/wevm/viem).
+- Python — [web3.py](https://github.com/ethereum/web3.py).
+- .NET — [Nethereum](https://github.com/Nethereum/Nethereum).
+
+For smart contract development, point [Foundry](https://github.com/foundry-rs/foundry), [Hardhat](https://github.com/NomicFoundation/hardhat), [Ape](https://github.com/ApeWorX/ape), or Scaffold-ETH 2 at your Chainstack endpoint. Point any library or framework at your node URL and add a chain ID. See [Ethereum tooling](/docs/ethereum-tooling) for wallet, IDE, library, and framework setup.
+
+## Networks
+
+Chainstack supports Ethereum mainnet and the Sepolia and Hoodi testnets, with full and archive node modes, WebSocket connections, and debug & trace APIs.
+
+| Feature | Mainnet | Sepolia | Hoodi |
+| --- | --- | --- | --- |
+| Chain ID | `1` | `11155111` | `560048` |
+| Full nodes | Yes | Yes | — |
+| Archive nodes | Yes | Yes | Yes |
+| WebSocket | Yes | Yes | Yes |
+| Debug & trace APIs | Yes | Yes | Yes |
+
+<Note>
+A full node keeps recent state — the latest 128 blocks — while an archive node holds all historical state from genesis. Use an archive node for historical balances, contract storage at past blocks, and `trace_*` replays. See [Networks](/docs/protocols-networks) for the full deployment matrix.
+</Note>
+
+## Frequently asked questions
+
+### What is the Ethereum chain ID?
+
+Ethereum mainnet is chain ID `1`. The Chainstack-supported testnets are Sepolia (`11155111`) and Hoodi (`560048`). Set the chain ID in your wallet, SDK, or framework config alongside your Chainstack RPC endpoint.
+
+### What is the difference between a full node and an archive node?
+
+A full node keeps recent state — the latest 128 blocks on Ethereum — which covers most live application reads and transaction submission. An archive node retains all historical state from genesis, so you can query balances and contract storage at any past block and run `trace_*` replays. Chainstack offers both modes on mainnet and Sepolia, and archive on Hoodi.
+
+### Does Ethereum support debug and trace methods?
+
+Yes. Chainstack Ethereum nodes serve the `debug_*`, `trace_*`, and `erigon_*` namespaces — including `debug_traceTransaction`, `trace_block`, `trace_replayTransaction`, and `trace_filter` — for transaction tracing and smart contract debugging. Debug and trace are available on mainnet, Sepolia, and Hoodi.
+
+### Does Chainstack support WebSocket subscriptions on Ethereum?
+
+Yes. Connect over WebSocket and use `eth_subscribe` to stream `newHeads`, `logs`, `newPendingTransactions`, and `syncing` events in real time. Use `eth_unsubscribe` to cancel a subscription.
+
+### Which SDKs work with the Ethereum API?
+
+Any standard Ethereum library works against a Chainstack endpoint: ethers.js and viem for JavaScript and TypeScript, web3.py for Python, and Nethereum for .NET. For contracts, use Foundry, Hardhat, Ape, or Scaffold-ETH 2. See [Ethereum tooling](/docs/ethereum-tooling).
+
+### Does Chainstack serve the Beacon Chain (consensus layer) API?
+
+Yes. Chainstack Ethereum nodes expose 31 Beacon Chain REST endpoints alongside execution-layer JSON-RPC, covering validators, committees, sync committees, rewards, finality checkpoints, and the events stream. See [Ethereum methods](/docs/ethereum-methods) for the full list.
+
+### How are Ethereum requests priced?
+
+Pricing is 1 request unit (RU) per full request and 2 RUs per archive request. For which EVM methods bill as full versus archive, see [Request units — EVM methods affected by block age](/docs/request-units#evm-methods-affected-by-block-age).
+
+## Related Ethereum resources
+
+- [Ethereum methods](/docs/ethereum-methods) — complete per-method availability reference
+- [Ethereum tooling](/docs/ethereum-tooling) — wallets, IDEs, libraries, and frameworks
+- [Ethereum Trader Nodes with Warp transactions](/docs/ethereum-trader-nodes) — low-latency transaction propagation
+- [Ethereum logs tutorial series: logs and filters](/docs/ethereum-logs-tutorial-series-logs-and-filters) — query and filter event logs
+- [Ethereum: how to analyze pending blocks](/docs/ethereum-how-to-analyze-pending-blocks) — inspect the mempool and pending state
+- [Ethereum Dencun: rundown with examples](/docs/ethereum-dencun-rundown-with-examples) — blobs and the Dencun upgrade
+- [Debug and trace](/reference/ethereum-debug-trace-rpc-methods) — tracing method reference and examples
+- [Subscriptions](/reference/ethereum-web3js-subscriptions-methods) — WebSocket subscription method reference

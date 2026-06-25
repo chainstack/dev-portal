@@ -1,13 +1,23 @@
 ---
 title: "TON API reference: The Open Network JSON-RPC quickstart"
-description: "Use the TON API on Chainstack to query The Open Network, send transactions, work with jettons and NFTs, and build apps on the high-throughput layer-1."
+description: "Use the TON API on Chainstack to query The Open Network, send transactions, work with jettons and NFTs, and build apps on the high-throughput layer-1. 62 methods across HTTP API v2 and v3, archive on mainnet and testnet, no EVM chain ID."
 ---
 
-## What is the TON protocol
+The TON API gives developers programmatic access to The Open Network, a non-EVM layer-1 blockchain. Chainstack serves it through two HTTP API surfaces on a single endpoint — the v2 node API (which also accepts JSON-RPC) and the v3 indexer — so one node covers real-time reads, transaction sending, jettons, NFTs, and smart contract calls.
 
-TON (The Open Network) is a fully decentralized layer-1 blockchain designed for fast transactions and scalability. It was originally designed by Telegram and later developed by the open TON Community. TON uses a unique sharding mechanism to achieve high throughput and low latency.
+## TON API at a glance
 
-TON employs a Proof-of-Stake consensus mechanism where validators stake TON coins to participate in block production and validation. The network is designed to support millions of transactions per second through its dynamic sharding system.
+| Property | Value |
+| --- | --- |
+| Chain | TON (The Open Network) — non-EVM layer-1, Proof-of-Stake |
+| Address model | Workchains — masterchain (`-1`) and basechain (`0`) |
+| EVM chain ID | None — TON is not EVM-compatible |
+| API surfaces | HTTP API v2 (node API, also runs JSON-RPC) and HTTP API v3 (indexer) |
+| Methods served by Chainstack | 62 — 28 on v2 and 34 on v3 |
+| Low-level protocol | ADNL on dedicated nodes |
+| Networks | Mainnet and testnet |
+| Node mode | Archive (all data available on every node) |
+| Request units | 1 RU per full request, 2 RUs per archive request |
 
 <Visibility for="humans">
 <Check>
@@ -19,22 +29,22 @@ TON employs a Proof-of-Stake consensus mechanism where validators stake TON coin
 </Check>
 </Visibility>
 
+## What is the TON protocol
+
+TON (The Open Network) is a fully decentralized layer-1 blockchain designed for fast transactions and scalability. It was originally designed by Telegram and later developed by the open TON Community. TON uses a unique sharding mechanism to achieve high throughput and low latency.
+
+TON employs a Proof-of-Stake consensus mechanism where validators stake TON coins to participate in block production and validation. Unlike EVM chains, TON has no single chain ID — it organizes state into workchains: the masterchain (workchain `-1`) coordinates the network and stores consensus data, and the basechain (workchain `0`) carries most user accounts and smart contracts.
+
 ## What is the TON API
 
-<Check>
-  ### Both TON API v2 and v3 are supported
+The TON API lets developers build decentralized applications on TON. It provides methods to read blockchain data, send transactions, and interact with smart contracts, jettons, and NFTs. To communicate with the TON blockchain, an application connects to a managed Chainstack TON node.
 
-  Chainstack supports both v2 and v3 APIs:
+Chainstack exposes two API surfaces on the same endpoint, and both serve the same data:
 
-  * TON API v2 — node API that can also run JSON-RPC methods.
-  * TON API v3 — an indexer.
-</Check>
+- TON API v2 — the node API. It serves real-time requests directly off a node and also accepts JSON-RPC through the `/jsonRPC` envelope.
+- TON API v3 — the indexer. It serves processed, indexed data through REST endpoints, which suits complex queries and stable historical reads.
 
-<Info>
-  ### TON billing: full vs archive
-
-  v2 and v3 are priced the same, and all data is available. Most TON requests are billed as full (1 request unit); requests that read historical data are archive (2 request units) — `getTransactions` and `getTransactionsStd` are always archive, and block/seqno methods are archive when the requested block is 128 or more seqno behind the tip. See [Request units — TON method scope](/docs/request-units#ton-method-scope) for the full method list.
-</Info>
+The interactive examples on each TON method page are REST, but every Chainstack TON endpoint also accepts JSON-RPC, and each page has a JSON-RPC curl counterpart.
 
 <Check>
   ### ADNL protocol support on dedicated nodes
@@ -42,19 +52,44 @@ TON employs a Proof-of-Stake consensus mechanism where validators stake TON coin
   TON dedicated nodes on Chainstack support the [ADNL protocol](https://docs.ton.org/v3/documentation/network/protocols/adnl/overview) for secure, low-level network communication. This enables advanced use cases requiring direct interaction with the TON network layer.
 </Check>
 
-The TON API allows developers to interact with the TON blockchain to build decentralized applications. It provides methods to read data from the blockchain, send transactions, and interact with smart contracts.
+For help deciding between the two surfaces, see [choosing v2 or v3](/docs/ton-choosing-v2-or-v3).
 
-To communicate with the TON blockchain, an application must connect to a TON node. Chainstack provides managed TON nodes that developers can use to access the network.
+## TON API surface
 
-When communicating with a TON node, clients use HTTP requests to interact with the API, which follows RESTful & JSON-RPC principles for most operations.
+The two surfaces differ in how they serve data, not in what data they cover.
 
-Note that interactive examples are REST on each of the TOP API reference pages, but the Chainstack TON endpoints also support JSON-RPC calls. Each of the pages has a JSON-RPC curl example counterpart
+| API surface | Type | Serves off | Best for | Served by |
+| --- | --- | --- | --- | --- |
+| TON API v2 | Node API + JSON-RPC | A node | Real-time reads, transaction sending | Chainstack |
+| TON API v3 | Indexer | An indexer | Processed data, complex and historical queries | Chainstack |
+| ADNL | Low-level network protocol | A dedicated node | Direct TON network-layer interaction | Chainstack (dedicated nodes) |
+
+## Methods
+
+Chainstack serves 62 TON methods across the two HTTP API surfaces, all on the same endpoint:
+
+| API surface | Prefix | Methods | Availability |
+| --- | --- | --- | --- |
+| TON API v2 | `/v2/` | 28 | All served by Chainstack |
+| TON API v3 | `/v3/` | 34 | All served by Chainstack |
+
+For the complete, per-method reference, see [TON methods](/docs/ton-methods). Both surfaces are priced the same — see [TON billing](#how-is-ton-usage-billed-on-chainstack) below.
+
+### What you can build
+
+With a Chainstack TON endpoint you can:
+
+- Read account state and balances with `/v2/getAddressInformation`, `/v2/getWalletInformation`, and the v3 `/v3/account` and `/v3/wallet` endpoints.
+- Send transactions by submitting a serialized message with `/v2/sendBoc` or `/v2/sendBocReturnHash`, and estimate fees first with `/v2/estimateFee`.
+- Read blocks and the masterchain with `/v2/getMasterchainInfo`, `/v2/lookupBlock`, and the v3 `/v3/blocks` endpoint.
+- Work with jettons (TON fungible tokens) through `/v3/jetton/masters`, `/v3/jetton/wallets`, and `/v3/jetton/transfers`.
+- Work with NFTs through `/v3/nft/collections`, `/v3/nft/items`, and `/v3/nft/transfers`.
+- Call smart contract get-methods with `/v2/runGetMethod` or `/v3/runGetMethod`.
+- Trace and analyze activity with the v3 indexer — `/v3/traces`, `/v3/actions`, and `/v3/events`.
 
 ## How to start using the TON API
 
-To use the TON API, you need access to a TON node.
-
-Follow these steps to sign up on Chainstack, deploy a TON node, and find your endpoint credentials:
+To use the TON API, you need access to a TON node. Follow these steps to sign up on Chainstack, deploy a TON node, and find your endpoint credentials:
 
 <Steps>
 <Step>
@@ -69,3 +104,71 @@ Follow these steps to sign up on Chainstack, deploy a TON node, and find your en
 </Steps>
 
 Now you are ready to connect to the TON blockchain and use the TON API to build your decentralized applications.
+
+## SDKs and tooling
+
+You can call the TON API directly over HTTP, or use a maintained SDK in your language. Point any SDK at your Chainstack endpoint:
+
+- JavaScript — [TonWeb](https://github.com/toncenter/tonweb) (`npm install tonweb`) and [Ton.js](https://github.com/ton-org/ton) (`npm install ton`).
+- Python — [TONsdk](https://github.com/tonfactory/tonsdk), [PyTONLib](https://github.com/toncenter/pytonlib), and [Pytoniq](https://github.com/yungwine/pytoniq).
+- Go — [TonUtils](https://github.com/xssnick/tonutils-go) and [tongo](https://github.com/tonkeeper/tongo).
+- Rust — [Tonlib-rs](https://github.com/ston-fi/tonlib-rs).
+- .NET — [TonSdk.NET](https://github.com/continuation-team/TonSdk.NET).
+
+For smart contract development, use [Blueprint](https://github.com/ton-org/blueprint) (`npm create ton@latest`) with FunC and the Sandbox local test environment. See [TON tooling](/docs/ton-tooling) for setup snippets across every SDK, supported wallets, and IDEs.
+
+## Networks
+
+Chainstack supports both TON mainnet and testnet. TON nodes run in archive mode, so all historical data is available on every node, and both surfaces are served on each.
+
+| Feature | Mainnet | Testnet |
+| --- | --- | --- |
+| TON API v2 | Yes | Yes |
+| TON API v3 | Yes | Yes |
+| Archive data | Yes | Yes |
+| Faucet | N/A | [Chainstack faucet](https://faucet.chainstack.com) |
+
+<Note>
+TON has no debug and trace namespace and no EVM-style WebSocket subscriptions. For analyzing activity, use the v3 indexer endpoints — `/v3/traces`, `/v3/actions`, and `/v3/events`.
+</Note>
+
+## Frequently asked questions
+
+### What is the difference between TON API v2 and v3?
+
+v2 is the node API: it serves real-time requests directly off a node and also accepts JSON-RPC. v3 is the indexer: it serves processed, structured data through REST, which suits complex queries and stable historical reads. Both are priced the same and expose the same data on Chainstack. Use v2 for the freshest data and v3 for cleaned, indexed data. See [choosing v2 or v3](/docs/ton-choosing-v2-or-v3).
+
+### Does TON have an EVM chain ID?
+
+No. TON is not EVM-compatible, so it has no numeric chain ID. Instead, TON organizes state into workchains — the masterchain (`-1`) and the basechain (`0`) — and addresses accounts and contracts by workchain.
+
+### How many TON methods does Chainstack support?
+
+62, all served directly on Chainstack nodes: 28 on the v2 node API and 34 on the v3 indexer. See the [TON methods reference](/docs/ton-methods) for the full per-method list.
+
+### How do I send a transaction on TON?
+
+Serialize your message as a bag of cells (BOC) and submit it with `/v2/sendBoc`, or use `/v2/sendBocReturnHash` to get the transaction hash back. Most SDKs build and sign the BOC for you.
+
+### What are jettons on TON?
+
+Jettons are TON's fungible token standard (TEP-74), the equivalent of ERC-20 on EVM chains. Read jetton data through the v3 indexer with `/v3/jetton/masters`, `/v3/jetton/wallets`, `/v3/jetton/transfers`, and `/v3/jetton/burns`. See [how to develop jettons](/docs/ton-how-to-develop-fungible-tokens-jettons) and [how to interact with jettons](/docs/ton-how-to-interact-with-jettons).
+
+### How is TON usage billed on Chainstack?
+
+By request unit. Most TON requests are full (1 RU). Archive requests (2 RUs) apply to history reads — `getTransactions` and `getTransactionsStd` are always archive, and block/seqno methods are archive when the requested block is 128 or more seqno behind the tip. v2 and v3 are priced the same. See [request units — TON method scope](/docs/request-units#ton-method-scope).
+
+### Does Chainstack support the ADNL protocol?
+
+Yes, on dedicated nodes. ADNL is TON's low-level network protocol for secure, direct interaction with the network layer. The HTTP API v2 and v3 surfaces cover most use cases; ADNL is for advanced, low-level needs. See [TON tooling](/docs/ton-tooling).
+
+## Related TON resources
+
+- [TON methods](/docs/ton-methods) — complete per-method API reference
+- [TON: choosing v2 or v3](/docs/ton-choosing-v2-or-v3) — pick the right API surface
+- [TON tooling](/docs/ton-tooling) — SDKs, wallets, IDEs, and Blueprint setup
+- [TON: wallet initialization with TonWeb](/docs/ton-wallet-initialization-with-tonweb) — deploy a wallet contract end to end
+- [TON: how to develop fungible tokens (jettons)](/docs/ton-how-to-develop-fungible-tokens-jettons) — build jetton minter and wallet contracts
+- [TON: how to customize fungible tokens (jettons)](/docs/ton-how-to-customize-fungible-tokens-jettons) — extend jettons with capped supply and mint price
+- [TON: how to interact with jettons](/docs/ton-how-to-interact-with-jettons) — read jetton metadata, balances, and history
+- [TON: how to develop non-fungible tokens (NFT)](/docs/ton-how-to-develop-non-fungible-tokens) — build NFT item and collection contracts
