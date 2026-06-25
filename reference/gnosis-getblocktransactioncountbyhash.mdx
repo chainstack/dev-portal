@@ -29,19 +29,6 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 ## `eth_getBlockTransactionCountByHash` code examples
 
 <CodeGroup>
-```javascript web3.js
-const Web3 = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
-
-async function getTransactionsCount(blockHash) {
-  const count = await web3.eth.getBlockTransactionCount(blockHash)
-  console.log(count);
-}
-
-getTransactionsCount('0x1f9478a9ef62c5216be342e1a1cb673c61c10a91cb7ca71a31debfd4e9d1feac')
-```
-
 ```javascript ethers.js
 const ethers = require('ethers');
 const NODE_URL = "CHAINSTACK_NODE_URL";
@@ -67,16 +54,16 @@ print(web3.eth.get_block_transaction_count("0x1f9478a9ef62c5216be342e1a1cb673c61
 
 ## Use case
 
-`eth_getBlockTransactionCountByHash` is a useful tool for analyzing transaction volume on the Gnosis Chain. For instance, a [new block is generated on the Gnosis blockchain every 5 seconds](https://etherscan.io/chart/blocktime), resulting in approximately 720 blocks per hour. Using the web3.js library, one can inspect the past 720 blocks starting from the latest block and use `eth_getBlockTransactionCountByHash` to find the number of transactions in each block.
+`eth_getBlockTransactionCountByHash` is a useful tool for analyzing transaction volume on the Gnosis Chain. For instance, a [new block is generated on the Gnosis blockchain every 5 seconds](https://etherscan.io/chart/blocktime), resulting in approximately 720 blocks per hour. Using the ethers.js library, one can inspect the past 720 blocks starting from the latest block and use `eth_getBlockTransactionCountByHash` to find the number of transactions in each block.
 
 ```javascript index.js
-const Web3 = require("web3");
+const ethers = require("ethers");
 const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
+const provider = new ethers.JsonRpcProvider(NODE_URL);
 
 async function retrieveTransactionsCount() {
   // Get the current block number
-  const currentBlockNumber = await web3.eth.getBlockNumber();
+  const currentBlockNumber = await provider.getBlockNumber();
 
   // Calculate the block number from one hour ago
   const oneHourAgoBlockNumber = currentBlockNumber - 720; // 720 blocks/hr on average on the Gnosis mainnet
@@ -88,11 +75,11 @@ async function retrieveTransactionsCount() {
   for (let block = currentBlockNumber; block > oneHourAgoBlockNumber; block--) {
 
     // Get the hash of each block
-    const getBlockHash = await web3.eth.getBlock(block, false);
+    const getBlockHash = await provider.getBlock(block);
     const blockHash = getBlockHash.hash
 
     // Get the number of transactions in this block using each hash
-    const transactionCount = await web3.eth.getBlockTransactionCount(blockHash);
+    const transactionCount = Number(await provider.send("eth_getBlockTransactionCountByHash", [blockHash]));
 
     // Add the number of transactions in this block to the total
     totalTransactionCount += transactionCount;
@@ -108,7 +95,7 @@ retrieveTransactionsCount();
 ```
 
 
-This example connects to a Gnosis Chain node using the web3.js library. The `retrieveTransactionsCount` function gets the current block number, calculates the block number from one hour ago, and uses a for loop to iterate through all blocks in that range.
+This example connects to a Gnosis Chain node using the ethers.js library. The `retrieveTransactionsCount` function gets the current block number, calculates the block number from one hour ago, and uses a for loop to iterate through all blocks in that range.
 
 The function then retrieves the hash of each block and the number of transactions in each block and adds it to a total transaction count. The final result, the total number of transactions in the previous hour, is logged to the console.
 

@@ -46,19 +46,6 @@ const clientVersion = async () => {
 clientVersion();
 ```
 
-```javascript web3.js
-const { Web3 } = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
-
-async function getClient() {
-  const client = await web3.eth.getNodeInfo();
-  console.log(client);
-}
-
-getClient();
-```
-
 ```python web3.py
 from web3 import Web3  
 node_url = "CHAINSTACK_NODE_URL"
@@ -81,30 +68,22 @@ Read [Expanding your blockchain horizons: The eth\_getBlockReceipts emulator](/d
 </Note>
 
 
-Here is an implementation of this use case using web3.js:
+Here is an implementation of this use case using ethers.js:
 
 ```javascript index.js
-const { Web3, Web3PluginBase } = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
+const ethers = require("ethers");
 
-// Define the ExtraMethods class
-class ExtraMethods extends Web3PluginBase {
-  pluginNamespace = 'extra';
+// Create a ChainstackProvider instance for Ethereum mainnet
+const chainstack = new ethers.ChainstackProvider("mainnet");
 
-  async getBlockReceipts(blockNumber) {
-    return this.requestManager.send({
-      method: 'eth_getBlockReceipts',
-      params: [blockNumber],
-    });
-  }
+// Call eth_getBlockReceipts, which has no dedicated ethers helper
+async function getBlockReceipts(blockNumber) {
+  return chainstack.send("eth_getBlockReceipts", [blockNumber]);
 }
-
-web3.registerPlugin(new ExtraMethods());
 
 // Get client version
 async function getClient() {
-  const client = await web3.eth.getNodeInfo();
+  const client = await chainstack.send("web3_clientVersion", []);
   return client;
 }
 
@@ -154,14 +133,14 @@ async function getAllReceipts(blockId) {
     const version = parseVersion(clientVersion);
     if (isVersionGreaterThanOrEqual(version, '1.13.0')) {
       console.log('Client is Geth with supported version.');
-      const receipts = await web3.extra.getBlockReceipts(blockId);
+      const receipts = await getBlockReceipts(blockId);
     return receipts;
     } else {
       console.log('Client is Geth, but version is not supported.');
     }
   } else if (clientName === 'erigon') {
     console.log('Client is Erigon');
-    const receipts = await web3.extra.getBlockReceipts(blockId);
+    const receipts = await getBlockReceipts(blockId);
     return receipts;
   } else {
     console.log('Client version is not Geth or Erigon');
@@ -186,13 +165,13 @@ main();
 Let's break down the code:
 
 1. **The `getBlockReceipts` Method**:  
-   The `getBlockReceipts` function is a part of the `ExtraMethods` class, which extends the functionality of the `web3` object via the `Web3PluginBase`. This method uses `this.requestManager.send` to call the `eth_getBlockReceipts` JSON-RPC method, passing a single parameter `blockNumber`. The function formats the input and output values and returns the resulting receipts. This method is accessible through `web3.extra.getBlockReceipts` due to the registration of the `ExtraMethods` plugin with `web3.registerPlugin(new ExtraMethods())`.
+   The `getBlockReceipts` function is a helper that calls the `eth_getBlockReceipts` JSON-RPC method directly with `chainstack.send`, passing a single parameter `blockNumber`. Because ethers.js does not expose a dedicated helper for this method, `provider.send` is used to issue the raw JSON-RPC call and return the resulting receipts.
 2. **The `getClient` Function**:  
-   This function retrieves the client version using the `web3.eth.getNodeInfo` call, which internally calls the `web3_clientVersion` JSON-RPC method without parameters. It formats the returned value and provides the full client version string.
+   This function retrieves the client version by calling the `web3_clientVersion` JSON-RPC method without parameters through `chainstack.send`. It returns the full client version string.
 3. **The `getClientName` Function**:  
    `getClientName` calls `getClient` to get the complete client version string. It then extracts both the client's name and its version by splitting the version string at the first `/` and `-` characters. The function concatenates these parts to form a string in the format "ClientName/Version".
 4. **The `getAllReceipts` Function**:  
-   This function uses `getClientName` to retrieve the name and version of the client in a combined format. It checks if the client is `Geth` and, if so, further verifies whether its version is greater than or equal to `1.13.0` using the `parseVersion` and `isVersionGreaterThanOrEqual` functions. If the client is `Geth` with a supported version or `Erigon`, the function proceeds to fetch block receipts using `web3.extra.getBlockReceipts`. If the client is neither a supported version of `Geth` nor `Erigon`, it logs a message indicating this.
+   This function uses `getClientName` to retrieve the name and version of the client in a combined format. It checks if the client is `Geth` and, if so, further verifies whether its version is greater than or equal to `1.13.0` using the `parseVersion` and `isVersionGreaterThanOrEqual` functions. If the client is `Geth` with a supported version or `Erigon`, the function proceeds to fetch block receipts using the `getBlockReceipts` helper. If the client is neither a supported version of `Geth` nor `Erigon`, it logs a message indicating this.
 5. **Version Parsing and Comparison**:  
    Additional functions `parseVersion` and `isVersionGreaterThanOrEqual` are included for parsing the version string and comparing it against a specified minimum version. `parseVersion` extracts the semantic version number from the client version string, and `isVersionGreaterThanOrEqual` compares this version against the specified minimum version, `1.13.0` in this case.
 6. **Main Function and Execution Flow**:  

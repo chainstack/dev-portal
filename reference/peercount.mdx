@@ -28,19 +28,6 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 ## `net_peerCount` code examples
 
 <CodeGroup>
-```javascript web3.js
-const Web3 = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
-
-async function getPeers() {
-  const peers = await web3.eth.net.getPeerCount()
-  console.log(peers);
-}
-
-getPeers();
-```
-
 ```javascript ethers.js
 const ethers = require('ethers');
 const NODE_URL = "CHAINSTACK_NODE_URL";
@@ -69,12 +56,12 @@ print(peers)
 
 One practical use case for the `net_peerCount` method is to monitor the number of peers connected to a node and take some action if the number drops below a certain threshold. For example, a developer might want to send a notification to check the node if the peer count is low for more than 10 minutes.
 
-Here is an implementation of this concept using web3.js:
+Here is an implementation of this concept using ethers.js:
 
 ```javascript index.js
-const Web3 = require("web3");
+const ethers = require("ethers");
 const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
+const provider = new ethers.JsonRpcProvider(NODE_URL);
 
 const MIN_PEER_COUNT = 5; // Set the minimum number of peers.
 let lowPeerCountTime = null; // Track the time when peer count first dropped below the threshold.
@@ -83,7 +70,8 @@ let lowPeerCountTime = null; // Track the time when peer count first dropped bel
  * Checks the number of connected peers and sends a notification if the peer count has been low for more than 10 minutes.
  */
 function checkPeerCount() {
-  web3.eth.net.getPeerCount().then((peerCount) => {
+  provider.send("net_peerCount").then((peerCountHex) => {
+    const peerCount = Number(peerCountHex); // net_peerCount returns a hex string; convert it to a number.
     console.log(`Number of connected peers: ${peerCount}`);
 
     if (peerCount < MIN_PEER_COUNT) {
@@ -116,7 +104,7 @@ setInterval(checkPeerCount, 60 * 1000);
 ```
 
 
-This code defines a function called `checkPeerCount` that retrieves the current number of connected peers using the `web3.eth.net.getPeerCount` method. The function then checks whether the peer count is below a minimum threshold (defined as `MIN_PEER_COUNT`), and takes appropriate action based on the result.
+This code defines a function called `checkPeerCount` that retrieves the current number of connected peers by sending the `net_peerCount` RPC request with `provider.send`. Since `net_peerCount` returns a hexadecimal string, the function converts it to a number with `Number()`. The function then checks whether the peer count is below a minimum threshold (defined as `MIN_PEER_COUNT`), and takes appropriate action based on the result.
 
 If the peer count is below the threshold and this is the first time the count has dropped below the threshold, the function records the current time and logs a message to the console. If the peer count remains below the threshold for more than 10 minutes, the function logs a message to the console indicating that a notification should be sent and optionally sends a notification via email or SMS.
 

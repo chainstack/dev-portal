@@ -28,19 +28,6 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 ## `eth_gasPrice` code examples
 
 <CodeGroup>
-```javascript web3.js
-const Web3 = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
-
-async function getGasPrice() {
-  const baseFee = await web3.eth.getGasPrice();
-  console.log(`the base gas fee is: ${baseFee} Wei`);
-}
-
-getGasPrice()
-```
-
 ```javascript ethers.js
 const ethers = require('ethers');
 const NODE_URL = "CHAINSTACK_NODE_URL";
@@ -80,16 +67,16 @@ The `eth_gasPrice` method returns the base fee.
 The following script calculates the total fee to send with a transaction based on the base fee and an arbitrary priority fee that the user can choose.
 
 ```javascript index.js
-const Web3 = require("web3");
+const ethers = require("ethers");
 const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
+const provider = new ethers.JsonRpcProvider(NODE_URL);
 
 async function getGas(priorityFee) {
 
-    const priorityFeeWei = web3.utils.toWei(String(priorityFee), 'gwei');
-    const baseFee = await web3.eth.getGasPrice();
+    const priorityFeeWei = ethers.parseUnits(String(priorityFee), 'gwei');
+    const baseFee = (await provider.getFeeData()).gasPrice;
 
-    const totalFee = Number(priorityFeeWei) + Number(baseFee)
+    const totalFee = priorityFeeWei + baseFee
     return [totalFee, baseFee]
 }
 
@@ -99,11 +86,11 @@ async function main() {
   const PRIORITY_FEE = 0.1;
   
   const [totalFee, baseFee] = await getGas(PRIORITY_FEE)
-  const baseFeeGwei = web3.utils.fromWei(String(baseFee), 'gwei')
+  const baseFeeGwei = ethers.formatUnits(baseFee, 'gwei')
   console.log(`The priority fee: ${PRIORITY_FEE} Gwei.`)
   console.log(`The Arbitrum base fee at this moment is: ${Number(baseFeeGwei).toFixed(2)} Gwei.`)
   
-  const gweiFee = web3.utils.fromWei(String(totalFee), 'gwei')
+  const gweiFee = ethers.formatUnits(totalFee, 'gwei')
   console.log(`The total gas fee should be at least: ${Number(gweiFee).toFixed(2)} Gwei.`)
 }
 
@@ -111,8 +98,8 @@ main()
 ```
 
 
-The `getGas` function calculates the total fee required to process a transaction. The function takes in a `priorityFee` as input representing the fee a user is willing to pay to prioritize their transaction processing. The function first converts the `priorityFee` from Gwei to Wei (the smallest unit of ether) using `web3.utils.toWei`. Then, it uses the `web3.eth.getGasPrice` method to retrieve the current base fee set by the network. The function finally adds the priority fee to the base fee and returns the total fee along with the base fee as an array.
+The `getGas` function calculates the total fee required to process a transaction. The function takes in a `priorityFee` as input representing the fee a user is willing to pay to prioritize their transaction processing. The function first converts the `priorityFee` from Gwei to Wei (the smallest unit of ether) using `ethers.parseUnits`. Then, it uses the `provider.getFeeData` method to retrieve the current base fee set by the network. The function finally adds the priority fee to the base fee and returns the total fee along with the base fee as an array.
 
-The `main` function is the entry point of the code. It first sets a constant `PRIORITY_FEE` to 10 Gwei. Then calls the `getGas` function with `PRIORITY_FEE` as an argument and destructures the returned array into two variables `totalFee` and `baseFee`. The code then converts `baseFee` and `totalFee` from Wei to Gwei using `web3.utils.fromWei` for better readability, and logs the results to the console.
+The `main` function is the entry point of the code. It first sets a constant `PRIORITY_FEE` to 10 Gwei. Then calls the `getGas` function with `PRIORITY_FEE` as an argument and destructures the returned array into two variables `totalFee` and `baseFee`. The code then converts `baseFee` and `totalFee` from Wei to Gwei using `ethers.formatUnits` for better readability, and logs the results to the console.
 
 The main function logs the priority fee, the base fee at that moment, and the minimum recommended total fee that should be paid to process a transaction.

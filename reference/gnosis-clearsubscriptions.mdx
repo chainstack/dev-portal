@@ -1,14 +1,14 @@
 ---
 title: "clearSubscriptions | Gnosis"
-description: "Unsubscribe from all active Gnosis Chain web3.js subscriptions at once using clearSubscriptions. Useful for cleanup when resetting your event listeners."
+description: "Unsubscribe from all active Gnosis Chain ethers.js subscriptions at once using removeAllListeners. Useful for cleanup when resetting your event listeners."
 ---
 
-The subscriptions available using the `web3.eth.subscribe` methods are:
+The subscriptions available using the ethers.js `provider.on` method are:
 
 <CardGroup cols={2}>
-  <Card title="subscribe('newBlockHeaders')" icon="angle-right" iconType="solid" href="/reference/gnosis-subscribenewblockheaders" horizontal/>
-  <Card title="subscribe('logs')" icon="angle-right" iconType="solid" href="/reference/gnosis-subscribelogs" horizontal/>
-  <Card title="subscribe('syncing')" icon="angle-right" iconType="solid" href="/reference/gnosis-subscribesyncing" horizontal/>
+  <Card title="on('block')" icon="angle-right" iconType="solid" href="/reference/gnosis-subscribenewblockheaders" horizontal/>
+  <Card title="on(filter)" icon="angle-right" iconType="solid" href="/reference/gnosis-subscribelogs" horizontal/>
+  <Card title="eth_syncing" icon="angle-right" iconType="solid" href="/reference/gnosis-subscribesyncing" horizontal/>
 </CardGroup>
 
 <Visibility for="humans">
@@ -23,7 +23,7 @@ The subscriptions available using the `web3.eth.subscribe` methods are:
 
 ## Parameters
 
-`boolean` — keep the [subscribe("syncing")](/reference/gnosis-subscribesyncing) subscription if `true`.
+`boolean` — keep the [eth_syncing](/reference/gnosis-subscribesyncing) subscription if `true`.
 
 ## Response
 
@@ -33,14 +33,14 @@ The subscriptions available using the `web3.eth.subscribe` methods are:
 
 <CodeGroup>
   ```javascript index.js
-  const Web3 = require("web3");
+  const ethers = require("ethers");
   const NODE_URL = "CHAINSTACK_WSS_URL";
-  const web3 = new Web3(NODE_URL);
+  const provider = new ethers.WebSocketProvider(NODE_URL);
 
   async function clearSubscriptions() {
       try {
-        await web3.eth.clearSubscriptions();
-        console.log("Subscriptions were cancelled successfully");
+        await provider.removeAllListeners();
+        console.log("Subscriptions were canceled successfully");
         return process.exit(1)
 
       } catch (error) {
@@ -57,23 +57,20 @@ The subscriptions available using the `web3.eth.subscribe` methods are:
 
 A way to use the `clearSubscriptions` method is to place it in a timer to clear all of the subscriptions after a pre-determined about.
 
-The following code is an example using the [subscribe("newBlockHeaders")](/reference/gnosis-subscribenewblockheaders) method, which will be stopped and removed after one minute using `clearSubscriptions`:
+The following code is an example using the [block event](/reference/gnosis-subscribenewblockheaders) subscription, which will be stopped and removed after one minute using `clearSubscriptions`:
 
 <CodeGroup>
   ```javascript index.js
-  const Web3 = require("web3");
+  const ethers = require("ethers");
   const NODE_URL = "CHAINSTACK_WSS_URL";
-  const web3 = new Web3(NODE_URL);
+  const provider = new ethers.WebSocketProvider(NODE_URL);
 
   async function subscribeToNewBlocks() {
       try {
-          // Create a new subscription to the 'newBlockHeaders' event
-          const subscription = await web3.eth.subscribe('newBlockHeaders');
-
-          // Attach event listeners to the subscription object
-          subscription.on('connected', handleConnected);
-          subscription.on('data', handleNewBlock);
-          subscription.on('error', handleError);
+          // Attach event listeners for new blocks and errors
+          provider.on('block', handleNewBlock);
+          provider.on('error', handleError);
+          console.log("Subscribed to new blocks");
       } catch (error) {
           console.error(`Error subscribing to new blocks: ${error}`);
       }
@@ -81,14 +78,9 @@ The following code is an example using the [subscribe("newBlockHeaders")](/refer
 
   /* Fallback functions to react to the different events */
 
-  // Event listener that logs a message when the subscription is connected
-  function handleConnected(subscriptionId) {
-      console.log(`New subscription: ${subscriptionId}`);
-  }
-
-  // Event listener that logs the received block header data
-  function handleNewBlock(blockHeader) {
-      console.log(blockHeader);
+  // Event listener that logs the received block number
+  function handleNewBlock(blockNumber) {
+      console.log(blockNumber);
   }
 
   // Event listener that logs any errors that occur
@@ -98,8 +90,8 @@ The following code is an example using the [subscribe("newBlockHeaders")](/refer
 
   async function clearSubscriptions() {
       try {
-          await web3.eth.clearSubscriptions();
-          console.log("Subscriptions were cancelled successfully");
+          await provider.removeAllListeners();
+          console.log("Subscriptions were canceled successfully");
           return process.exit(1)
 
       } catch (error) {
@@ -120,6 +112,6 @@ The following code is an example using the [subscribe("newBlockHeaders")](/refer
   ```
 </CodeGroup>
 
-The code starts by defining an async function called `subscribeToNewBlocks` that creates a new subscription to the `newBlockHeaders` event using the `web3.eth.subscribe` method. This method returns a subscription object that can be used to attach event listeners for different events, such as `connected`, `data`, and `error`. The code defines three event listener functions `handleConnected`, `handleNewBlock`, and `handleError` that log messages to the console when these events occur.
+The code starts by defining an async function called `subscribeToNewBlocks` that subscribes to the `block` event using the `provider.on` method. Every time a new block is mined, ethers.js emits the `block` event with the new block number. The code defines two event listener functions, `handleNewBlock` and `handleError`, that log messages to the console when these events occur.
 
-The `subscribeToNewBlocks` function is called from the `main` function, which is also defined in the code. The `main` function calls `subscribeToNewBlocks` to create a new subscription and then schedules the `clearSubscriptions` function to run once after 60 seconds using the `setTimeout` function. The `clearSubscriptions` function uses the `web3.eth.clearSubscriptions` method to cancel any existing subscriptions and log a message to the console if the cancellation was successful.
+The `subscribeToNewBlocks` function is called from the `main` function, which is also defined in the code. The `main` function calls `subscribeToNewBlocks` to create a new subscription and then schedules the `clearSubscriptions` function to run once after 60 seconds using the `setTimeout` function. The `clearSubscriptions` function uses the `provider.removeAllListeners` method to cancel any existing subscriptions and log a message to the console if the cancellation was successful.

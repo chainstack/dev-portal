@@ -3,7 +3,7 @@ title: 'subscribe "logs" | Gnosis'
 description: "Reference for the subscribe \"logs\" JSON-RPC method on the Gnosis blockchain via Chainstack nodes. Parameters, response, and examples included."
 ---
 
-Gnosis Chain web3.js subscription equivalent to [eth\_newFilter](/reference/gnosis-newfilter). `subscribe("logs")` allows developers to subscribe to real-time updates about new event logs on the Gnosis Chain; the application will receive notifications whenever new logs matching the filter are emitted.
+Gnosis Chain subscription equivalent to [eth\_newFilter](/reference/gnosis-newfilter). `subscribe("logs")` allows developers to subscribe to real-time updates about new event logs on the Gnosis Chain; the application will receive notifications whenever new logs matching the filter are emitted.
 
 <Visibility for="humans">
 <Check>
@@ -44,23 +44,22 @@ Gnosis Chain web3.js subscription equivalent to [eth\_newFilter](/reference/gnos
 ## `subscribe("logs")` code example
 
 <Info>
-  Note that web3.js subscriptions require a WebSocket connection.
+  Note that subscriptions require a WebSocket connection.
 </Info>
 
-Use the [event emitter instances](https://web3js.readthedocs.io/en/v1.2.11/web3-eth-subscribe.html#eth-subscription-return) to attach event listeners to the subscription object:
+Use the ethers.js `WebSocketProvider` to attach event listeners to a log filter:
 
-* `data` — activates for each new syncing event.
-* `error` — activates if an error is detected during the subscription.
-* `connected` — activates after the subscription is successfully connected and returns the subscription ID.
-* `unsubscribe` — unsubscribes the subscription and returns `true` if successful.
+* `provider.on(filter, listener)` — registers a listener that activates for each new log matching the filter.
+* `provider.on("error", listener)` — activates if an error is detected during the subscription.
+* `provider.off(filter)` — removes the listener and stops receiving updates for the filter.
 
 <CodeGroup>
   ```javascript index.js
-  const Web3 = require("web3");
+  const { ethers } = require("ethers");
   const NODE_URL = "CHAINSTACK_WSS_URL";
-  const web3 = new Web3(NODE_URL);
+  const provider = new ethers.WebSocketProvider(NODE_URL);
 
-  // Only log transfer events from the WMATIC smart contract.
+  // Only log transfer events from the given smart contract.
   const logsFilter = {
       address: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',
       topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef']
@@ -68,33 +67,28 @@ Use the [event emitter instances](https://web3js.readthedocs.io/en/v1.2.11/web3-
 
   async function subscribeToLogs() {
       try {
-          // Create a new subscription to the 'pendingTransactions' event
-          const subscription = await web3.eth.subscribe('logs', logsFilter);
+          // Create a new subscription to logs matching the filter
+          provider.on(logsFilter, handleLogs);
 
-          // Attach event listeners to the subscription object
-          subscription.on('connected', handleConnected);
-          subscription.on('data', handleLogs);
-          subscription.on('error', handleError);
+          // Attach an event listener for subscription errors
+          provider.on("error", handleError);
+
+          console.log("Subscribed to logs");
       } catch (error) {
-          console.error(`Error subscribing to new sync: ${error}`);
+          console.error(`Error subscribing to logs: ${error}`);
       }
   }
 
   /* Fallback functions to react to the different events */
 
-  // Event listener that logs a message when the subscription is connected
-  function handleConnected(subscriptionId) {
-      console.log(`New subscription: ${subscriptionId}`);
-  }
-
   // Event listener that logs the filtered events
-  async function handleLogs(logs) {
-      console.log(logs)
+  async function handleLogs(log) {
+      console.log(log)
   }
 
   // Event listener that logs any errors that occur
   function handleError(error) {
-      console.error(`Error receiving new blocks: ${error}`);
+      console.error(`Error receiving new logs: ${error}`);
   }
 
   subscribeToLogs();

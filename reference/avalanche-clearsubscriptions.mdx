@@ -1,9 +1,9 @@
 ---
 title: "clearSubscriptions | Avalanche"
-description: Use eth_clearSubscriptions on Avalanche via web3.js to remove all active WebSocket subscriptions from your Chainstack node connection at once.
+description: Use eth_clearSubscriptions on Avalanche via ethers.js to remove all active WebSocket subscriptions from your Chainstack node connection at once.
 ---
 
-The subscriptions available using the `web3.eth.subscribe` method are:
+The subscriptions available using the `provider.on` method are:
 
 <CardGroup>
   <Card title="subscribe('newBlockHeaders')" href="/reference/avalanche-subscribenewblockheaders" icon="angle-right" horizontal />
@@ -34,14 +34,14 @@ The subscriptions available using the `web3.eth.subscribe` method are:
 
 <CodeGroup>
   ```javascript index.js
-  const Web3 = require("web3");
+  const { ethers } = require("ethers");
   const NODE_URL = "CHAINSTACK_WSS_URL";
-  const web3 = new Web3(NODE_URL);
+  const provider = new ethers.WebSocketProvider(NODE_URL);
 
   async function clearSubscriptions() {
       try {
-        await web3.eth.clearSubscriptions();
-        console.log("Subscriptions were cancelled successfully");
+        await provider.removeAllListeners();
+        console.log("Subscriptions were canceled successfully");
         return process.exit(1)
 
       } catch (error) {
@@ -62,19 +62,19 @@ The following code is an example using the [subscribe("newBlockHeaders")](/refer
 
 <CodeGroup>
   ```javascript index.js
-  const Web3 = require("web3");
+  const { ethers } = require("ethers");
   const NODE_URL = "CHAINSTACK_WSS_URL";
-  const web3 = new Web3(NODE_URL);
+  const provider = new ethers.WebSocketProvider(NODE_URL);
 
   async function subscribeToNewBlocks() {
       try {
-          // Create a new subscription to the 'newBlockHeaders' event
-          const subscription = await web3.eth.subscribe('newBlockHeaders');
+          // Create a new subscription to the 'block' event
+          provider.on("block", handleNewBlock);
 
-          // Attach event listeners to the subscription object
-          subscription.on('connected', handleConnected);
-          subscription.on('data', handleNewBlock);
-          subscription.on('error', handleError);
+          // Attach an event listener for any provider errors
+          provider.on("error", handleError);
+
+          console.log("New subscription created");
       } catch (error) {
           console.error(`Error subscribing to new blocks: ${error}`);
       }
@@ -82,14 +82,9 @@ The following code is an example using the [subscribe("newBlockHeaders")](/refer
 
   /* Fallback functions to react to the different events */
 
-  // Event listener that logs a message when the subscription is connected
-  function handleConnected(subscriptionId) {
-      console.log(`New subscription: ${subscriptionId}`);
-  }
-
-  // Event listener that logs the received block header data
-  function handleNewBlock(blockHeader) {
-      console.log(blockHeader);
+  // Event listener that logs the received block number
+  function handleNewBlock(blockNumber) {
+      console.log(blockNumber);
   }
 
   // Event listener that logs any errors that occur
@@ -99,8 +94,8 @@ The following code is an example using the [subscribe("newBlockHeaders")](/refer
 
   async function clearSubscriptions() {
       try {
-          await web3.eth.clearSubscriptions();
-          console.log("Subscriptions were cancelled successfully");
+          await provider.removeAllListeners();
+          console.log("Subscriptions were canceled successfully");
           return process.exit(1)
 
       } catch (error) {
@@ -121,6 +116,6 @@ The following code is an example using the [subscribe("newBlockHeaders")](/refer
   ```
 </CodeGroup>
 
-The code starts by defining an async function called `subscribeToNewBlocks` that creates a new subscription to the `newBlockHeaders` event using the `web3.eth.subscribe` method. This method returns a subscription object that can be used to attach event listeners for different events, such as `connected`, `data`, and `error`. The code defines three event listener functions `handleConnected`, `handleNewBlock`, and `handleError` that log messages to the console when these events occur.
+The code starts by defining an async function called `subscribeToNewBlocks` that creates a new subscription to the `block` event using the `provider.on` method. This method attaches event listeners to the provider for different events, such as `block` and `error`. The code defines two event listener functions `handleNewBlock` and `handleError` that log messages to the console when these events occur.
 
-The `subscribeToNewBlocks` function is called from the `main` function, which is also defined in the code. The `main` function calls `subscribeToNewBlocks` to create a new subscription and then schedules the `clearSubscriptions` function to run once after 60 seconds using the `setTimeout` function. The `clearSubscriptions` function uses the `web3.eth.clearSubscriptions` method to cancel any existing subscriptions and log a message to the console if the cancellation was successful.
+The `subscribeToNewBlocks` function is called from the `main` function, which is also defined in the code. The `main` function calls `subscribeToNewBlocks` to create a new subscription and then schedules the `clearSubscriptions` function to run once after 60 seconds using the `setTimeout` function. The `clearSubscriptions` function uses the `provider.removeAllListeners` method to cancel any existing subscriptions and log a message to the console if the cancellation was successful.
