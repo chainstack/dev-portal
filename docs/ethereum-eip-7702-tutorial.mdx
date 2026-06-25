@@ -1,0 +1,304 @@
+---
+title: "EIP-7702: delegate an EOA and batch transactions"
+description: "Use EIP-7702 set-code transactions (type 0x04, Pectra) to give an Ethereum EOA smart-contract code: delegate to a contract, batch calls atomically, sponsor gas, read and revoke the delegation. Verified viem examples on Chainstack."
+---
+
+**TLDR:**
+* EIP-7702 (live since the Pectra upgrade, May 7, 2025) lets an externally owned account (EOA) temporarily run a smart contract's code through a new transaction type, `0x04`.
+* You sign an authorization naming a contract; the network writes a 23-byte delegation designator — `0xef0100` followed by the contract address — into the EOA's code. `eth_getCode` then returns that designator instead of `0x`.
+* The delegate runs in the EOA's own storage and balance context, which unlocks batching, gas sponsorship, and session keys without moving funds to a new address.
+* All examples below use [viem](https://viem.sh/docs/eip7702) and are verified against Chainstack on Sepolia (chain ID `11155111`), where Pectra has been live since March 5, 2025.
+
+## What is EIP-7702
+
+EIP-7702, "Set code for EOAs," is the account-abstraction feature shipped in Ethereum's Pectra upgrade. It introduces a new [EIP-2718](https://eips.ethereum.org/EIPS/eip-2718) transaction type, `0x04` (the set-code transaction), that carries an `authorization_list`. Each authorization lets an EOA delegate its code to a smart contract — so the EOA can do things only contracts could before (batch multiple calls atomically, let someone else pay gas, enforce custom signing rules) while keeping the same address, balance, and history.
+
+Unlike [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337), which runs through a separate mempool and bundlers, EIP-7702 is a native transaction type — you send it to any standard JSON-RPC endpoint.
+
+<Visibility for="humans">
+<Check>
+### Get your own node endpoint today
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+</Visibility>
+
+## How EIP-7702 works
+
+A set-code transaction carries an authorization list. Each authorization is a signed tuple:
+
+| Field | Meaning |
+| --- | --- |
+| `chain_id` | The chain the authorization is valid on, or `0` to make it valid on every EVM chain that supports EIP-7702. |
+| `address` | The contract to delegate to. Set it to the zero address to revoke. |
+| `nonce` | Must match the authorizing account's nonce at validation time. |
+| `y_parity`, `r`, `s` | A secp256k1 signature over `keccak256(0x05 || rlp([chain_id, address, nonce]))`. |
+
+When a valid authorization is processed, the EVM writes a **delegation designator** to the EOA's code — exactly 23 bytes:
+
+```text
+0xef0100 || <20-byte contract address>
+```
+
+The `0xef` prefix is a banned opcode ([EIP-3541](https://eips.ethereum.org/EIPS/eip-3541)), so clients treat the designator as a pointer rather than executable code. Two consequences matter in practice:
+
+- The delegate executes in the **EOA's** storage and balance context — inside the contract, `address(this)` is the EOA's address.
+- The delegation **persists across transactions** until you change it. It is not undone at the end of the block.
+
+<Note>
+The authorization signature uses the magic byte `0x05`, which is different from the transaction type byte `0x04`. viem and other libraries handle this for you.
+</Note>
+
+### Self-sponsor vs relayer
+
+There are two ways to submit a set-code transaction:
+
+- **Self-sponsor** — the EOA both signs the authorization and sends the transaction. Because the transaction consumes the EOA's nonce, the authorization's nonce must be `transaction.nonce + 1`. viem handles this off-by-one automatically when you pass `executor: 'self'`.
+- **Relayer (sponsored)** — a separate account pays gas and submits the transaction; the EOA only signs the authorization. The authorization's nonce equals the EOA's current nonce.
+
+## Prerequisites
+
+You need an Ethereum node endpoint on a network where Pectra is live. For development, use Sepolia.
+
+<Steps>
+<Step>
+[Sign up with Chainstack](https://console.chainstack.com/user/account/create).
+</Step>
+<Step>
+[Deploy an Ethereum Sepolia node](/docs/manage-your-networks).
+</Step>
+<Step>
+[View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+</Step>
+</Steps>
+
+Then install viem (version 2.x has stable EIP-7702 support):
+
+```bash
+npm install viem
+```
+
+## Delegate an EOA to a contract
+
+This self-sponsored flow signs an authorization and sends the type-`0x04` transaction from the same EOA. Point the transport at your Chainstack Sepolia endpoint.
+
+```javascript index.js
+import { createWalletClient, createPublicClient, http } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { sepolia } from "viem/chains";
+
+const account = privateKeyToAccount("0xYOUR_PRIVATE_KEY");
+const NODE_URL = "YOUR_CHAINSTACK_ENDPOINT";
+
+const walletClient = createWalletClient({ account, chain: sepolia, transport: http(NODE_URL) });
+const publicClient = createPublicClient({ chain: sepolia, transport: http(NODE_URL) });
+
+// The contract whose code the EOA will run (deploy your own; see "Batch transactions" below)
+const DELEGATE = "0xYOUR_DELEGATE_CONTRACT";
+
+// 1. Sign the authorization. executor: 'self' sets authorization.nonce = tx.nonce + 1
+const authorization = await walletClient.signAuthorization({
+  account,
+  contractAddress: DELEGATE,
+  executor: "self",
+});
+
+// 2. Send the type-0x04 set-code transaction
+const hash = await walletClient.sendTransaction({
+  authorizationList: [authorization],
+  to: account.address,
+});
+console.log("set-code tx:", hash);
+```
+
+After the transaction confirms, its receipt `type` is `eip7702`, and the EOA now carries the delegation designator.
+
+## Read and revoke a delegation
+
+Read the EOA's code with [eth\_getCode](/reference/ethereum-getcode) — a delegated account returns the 23-byte designator instead of `0x`:
+
+```javascript index.js
+const code = await publicClient.getCode({ address: account.address });
+console.log(code);
+// 0xef0100ca11bde05977b3631167028862be2a173976ca11
+//  ^^^^^^ prefix      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ delegate address
+```
+
+To revoke, sign an authorization for the zero address and send another set-code transaction. The EOA's code resets to empty:
+
+```javascript index.js
+const revoke = await walletClient.signAuthorization({
+  account,
+  contractAddress: "0x0000000000000000000000000000000000000000",
+  executor: "self",
+});
+
+await walletClient.sendTransaction({ authorizationList: [revoke], to: account.address });
+
+const after = await publicClient.getCode({ address: account.address });
+console.log(after); // 0x  (delegation removed)
+```
+
+<Note>
+Revoking removes the code pointer, but it does **not** clear the EOA's storage. State written by a previous delegate remains in the account's storage slots.
+</Note>
+
+## Batch transactions from an EOA
+
+The headline EIP-7702 use case is executing several calls atomically — for example `approve` and `transfer` in a single transaction. Delegate to a minimal batch executor:
+
+```solidity BatchCallDelegation.sol
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract BatchCallDelegation {
+    struct Call {
+        bytes data;
+        address to;
+        uint256 value;
+    }
+
+    function execute(Call[] calldata calls) external payable {
+        // Runs in the EOA's storage context: add require(msg.sender == address(this))
+        // in production to prevent arbitrary callers from spending the EOA's balance.
+        for (uint256 i = 0; i < calls.length; i++) {
+            Call memory call = calls[i];
+            (bool success, bytes memory result) = call.to.call{value: call.value}(call.data);
+            if (!success) {
+                assembly { revert(add(result, 32), mload(result)) }
+            }
+        }
+    }
+}
+```
+
+Then delegate and execute the batch in one transaction with `writeContract`, which also accepts an `authorizationList`:
+
+```javascript index.js
+import { createWalletClient, http, encodeFunctionData } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { sepolia } from "viem/chains";
+
+const account = privateKeyToAccount("0xYOUR_PRIVATE_KEY");
+const walletClient = createWalletClient({ account, chain: sepolia, transport: http("YOUR_CHAINSTACK_ENDPOINT") });
+
+const erc20Abi = [
+  { name: "approve", type: "function", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] },
+  { name: "transfer", type: "function", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] },
+];
+const batchAbi = [
+  { name: "execute", type: "function", inputs: [{ name: "calls", type: "tuple[]", components: [{ name: "data", type: "bytes" }, { name: "to", type: "address" }, { name: "value", type: "uint256" }] }], outputs: [] },
+];
+
+// 1. Authorize the deployed BatchCallDelegation contract
+const authorization = await walletClient.signAuthorization({
+  account,
+  contractAddress: "0xYOUR_BATCH_EXECUTOR",
+  executor: "self",
+});
+
+// 2. Build the calls: approve, then transfer
+const calls = [
+  { to: "0xTOKEN", value: 0n, data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: ["0xSPENDER", 1000000n] }) },
+  { to: "0xTOKEN", value: 0n, data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: ["0xRECIPIENT", 1000000n] }) },
+];
+
+// 3. One atomic transaction: delegate + run the batch on the EOA's own address
+const hash = await walletClient.writeContract({
+  abi: batchAbi,
+  address: account.address,
+  authorizationList: [authorization],
+  functionName: "execute",
+  args: [calls],
+});
+console.log("batch tx:", hash);
+```
+
+Once the EOA is delegated, later calls do not need to re-authorize — the code is already set until you revoke it.
+
+## Sponsor gas with a relayer
+
+In the relayer pattern, a separate account pays gas and submits the transaction while the EOA only signs the authorization. Omit `executor: 'self'` and put the relayer on the wallet client:
+
+```javascript index.js
+import { createWalletClient, http } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { sepolia } from "viem/chains";
+
+const relay = privateKeyToAccount("0xRELAY_PRIVATE_KEY"); // pays gas
+const eoa = privateKeyToAccount("0xEOA_PRIVATE_KEY");     // delegates, pays nothing
+
+const walletClient = createWalletClient({ account: relay, chain: sepolia, transport: http("YOUR_CHAINSTACK_ENDPOINT") });
+
+// EOA signs the authorization (no executor: 'self')
+const authorization = await walletClient.signAuthorization({ account: eoa, contractAddress: "0xYOUR_DELEGATE_CONTRACT" });
+
+// Relay submits the set-code transaction and pays the gas
+const hash = await walletClient.sendTransaction({ authorizationList: [authorization], to: eoa.address });
+```
+
+## Security considerations
+
+EIP-7702 hands a contract control over your account's storage and balance. By mid-2025 there were already real losses — a \$1.54M batch-transaction phishing attack and a \$146K drainer variant — so treat delegation with care.
+
+<Warning>
+Only delegate to contracts you have audited or fully trust. A malicious or buggy delegate can drain the EOA, because it runs with the account's full balance and storage access.
+</Warning>
+
+- **Storage collisions** — changing delegation does not clear storage. If a new delegate uses a storage slot differently than the previous one, it reads corrupted data. Use [ERC-7201](https://eips.ethereum.org/EIPS/eip-7201) namespaced storage in any contract meant to be a delegate.
+- **Broken `tx.origin` checks** — a delegated EOA can run contract logic while still being `tx.origin`, so `require(tx.origin == msg.sender)` no longer proves "called by an EOA." Replace such guards with an explicit reentrancy guard.
+- **Constructors do not run** — delegation never calls the contract's constructor. Initialize through an explicit `initialize()` guarded against re-initialization.
+- **Bundle initialization** — if you split delegation and initialization into two transactions, an attacker can front-run the init. Encode the init call in the same set-code transaction's `data`.
+- **`chain_id = 0`** — an authorization signed with chain ID `0` is valid on every EIP-7702 chain. Only use it deliberately.
+
+See the [ethereum.org EIP-7702 guidelines](https://ethereum.org/roadmap/pectra/7702/) and [OpenZeppelin's EOA delegation docs](https://docs.openzeppelin.com/contracts/5.x/eoa-delegation) for production patterns.
+
+## Networks
+
+EIP-7702 is available wherever Pectra has activated.
+
+| Network | Chain ID | Pectra activation |
+| --- | --- | --- |
+| Ethereum mainnet | `1` | May 7, 2025 |
+| Sepolia | `11155111` | Mar 5, 2025 |
+| Hoodi | `560048` | Mar 2025 |
+
+Chainstack serves Ethereum mainnet, Sepolia, and Hoodi — see [Ethereum API reference](/reference/ethereum-getting-started).
+
+## Frequently asked questions
+
+### What is the EIP-7702 delegation designator?
+
+It is the 23-byte value `0xef0100` followed by the 20-byte delegate contract address, written to the EOA's code when a valid authorization is processed. `eth_getCode` returns it for a delegated account; a plain EOA returns `0x`.
+
+### How do I revoke an EIP-7702 delegation?
+
+Send another set-code transaction with an authorization whose `address` is the zero address (`0x0000000000000000000000000000000000000000`). The EOA's code resets to empty. Note that storage written by the previous delegate is not cleared.
+
+### What is the difference between self-sponsor and relayer mode?
+
+In self-sponsor mode the EOA signs the authorization and sends its own transaction, so `authorization.nonce` must be `tx.nonce + 1` (viem's `executor: 'self'` handles this). In relayer mode a different account pays gas and submits the transaction, and `authorization.nonce` equals the EOA's current nonce.
+
+### Can I use ethers.js or viem for EIP-7702?
+
+viem 2.x has first-class, stable support (`signAuthorization`, `authorizationList` on `sendTransaction`/`writeContract`), which is what this guide uses. ethers added support more recently; viem is the most mature today.
+
+### Is EIP-7702 live on mainnet?
+
+Yes — it shipped with Pectra on Ethereum mainnet on May 7, 2025, and on Sepolia on March 5, 2025. Use Sepolia for development.
+
+### Does a delegation expire?
+
+No. The delegation designator persists across transactions and blocks until you change it or revoke it with a new set-code transaction. A single signed authorization delegates indefinitely.
+
+## Related resources
+
+- [Ethereum API reference](/reference/ethereum-getting-started) — endpoints, methods, and networks
+- [Ethereum tooling](/docs/ethereum-tooling) — ethers.js, viem, and framework setup
+- [eth\_getCode](/reference/ethereum-getcode) — read an account's code (and its delegation designator)
+- [eth\_sendRawTransaction](/reference/ethereum-sendrawtransaction) — broadcast signed transactions
+- [Ethereum Dencun: rundown with examples](/docs/ethereum-dencun-rundown-with-examples) — the previous upgrade's features
+- [EIP-7702 specification](https://eips.ethereum.org/EIPS/eip-7702) — the canonical spec
+- [viem EIP-7702 documentation](https://viem.sh/docs/eip7702) — full API reference
