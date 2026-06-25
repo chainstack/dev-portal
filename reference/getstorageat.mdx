@@ -79,7 +79,7 @@ print(web3.to_hex(storage))
 
 One use case for `eth_getStorageAt` is analyzing how the value stored at a specific storage slot of a smart contract changes over time. For example, a developer may want to track the change in a specific variable of a smart contract, such as the total supply of a token, and perform some analysis on it.
 
-Here's an example implementation of this use case using web3.js.
+Here's an example implementation of this use case using ethers.js.
 
 The following program analyzes the [Wrapped Ether](https://polygonscan.com/token/0x7ceb23fd6bc0add59e62ac25578270cff1b9f619#code) smart contract on the Polygon chain to track how the total supply changes over time.
 
@@ -106,12 +106,12 @@ contract ERC20 is Context, IERC20 {
 ```
 
 
-Here's an example implementation of this use case using web3.js:
+Here's an example implementation of this use case using ethers.js:
 
 ```javascript index.js
-const Web3 = require("web3");
+const ethers = require("ethers");
 const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
+const provider = new ethers.JsonRpcProvider(NODE_URL);
 
 // You need an archive node is going more than 127 blocks in the past.
 
@@ -125,22 +125,22 @@ async function getStorageValueOverTime() {
 
   // The range of blocks to analyze
   const startBlock = 16000000;
-  const endBlock = await web3.eth.getBlockNumber();
+  const endBlock = await provider.getBlockNumber();
 
   for (let blockNumber = startBlock; blockNumber <= endBlock; blockNumber++) {
 
     // Retrieve the name and total supply from the smart contract storage at each block
     const [name, supply] = await Promise.all([
-      web3.eth.getStorageAt(wethAddress, nameSlot, blockNumber),
-      web3.eth.getStorageAt(wethAddress, totalSupplySlot, blockNumber)
+      provider.getStorage(wethAddress, nameSlot, blockNumber),
+      provider.getStorage(wethAddress, totalSupplySlot, blockNumber)
     ]);
 
     // Decode the name and total supply from hexadecimal format to their original values
-    const decodedName = web3.utils.hexToUtf8(name);
-    const decodedSupply = web3.utils.toBN(supply);
+    const decodedName = ethers.toUtf8String(name);
+    const decodedSupply = BigInt(supply);
 
-    // Convert the total supply from Wei to Ether and round to 4 decimal places
-    const convertedSupply = web3.utils.fromWei(decodedSupply, 'ether');
+    // Convert the total supply from wei to ether and round to 4 decimal places
+    const convertedSupply = ethers.formatEther(decodedSupply);
     const adjustedSupply = Number(convertedSupply).toFixed(4);
 
     // Output the block number, name, and total supply for each block
@@ -166,11 +166,11 @@ The `getStorageValueOverTime` function retrieves and outputs the name and total 
 
 The function begins by declaring constants for the WETH contract address, the storage slot indices for the name and total supply data, the starting block height, and the current block height.
 
-Next, the function enters a `for` loop that iterates over every block between the start block and the current block height. Within the loop, the function retrieves the name and total supply from the smart contract storage at the current block height using the `web3.eth.getStorageAt` method.
+Next, the function enters a `for` loop that iterates over every block between the start block and the current block height. Within the loop, the function retrieves the name and total supply from the smart contract storage at the current block height using the `provider.getStorage` method.
 
-The `Promise.all` method is used to retrieve the name and total supply in parallel for improved efficiency. The `web3.utils.hexToUtf8` method is then used to convert the name from hexadecimal format to its original string value.
+The `Promise.all` method is used to retrieve the name and total supply in parallel for improved efficiency. The `ethers.toUtf8String` method is then used to convert the name from hexadecimal format to its original string value.
 
-The `web3.utils.toBN` method is used to convert the total supply from hexadecimal format to a `BigNumber object`, which can be used for mathematical operations. The `web3.utils.fromWei` method is then used to convert the total supply from wei to ether.
+The `BigInt` constructor is used to convert the total supply from hexadecimal format to a `bigint` value, which can be used for mathematical operations. The `ethers.formatEther` method is then used to convert the total supply from wei to ether.
 
 Finally, the `Number` and `toFixed` methods are used to round the total supply to four decimal places and output the block number, name, and total supply for each block; note that this is for readability, and you should use the raw wei data to make calculations.
 

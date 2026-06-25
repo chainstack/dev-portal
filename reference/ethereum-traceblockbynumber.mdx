@@ -121,38 +121,27 @@ One use case for `traceBlockByNumber` would be to trace a block, calculate how m
 
 To accomplish this, you can use `traceBlockByNumber` to retrieve the trace of each transaction in the block and then iterate over the transactions to count the total number of transactions and calculate the total gas used. Once you have this information, you can divide the total gas used by the total number of transactions to get the average gas used.
 
-Here is an implementation of this idea using web3.js:
+Here is an implementation of this idea using ethers.js:
 
 ```javascript index.js
-const { Web3, Web3PluginBase } = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
+const ethers = require("ethers");
 
-// Define the TraceBlockPlugin class
-class TraceBlockPlugin extends Web3PluginBase {
-    pluginNamespace = 'trace';
-
-    async traceBlockByNumber(blockId, tracer) {
-        return this.requestManager.send({
-            method: 'debug_traceBlockByNumber',
-            params: [blockId, tracer],
-        });
-    }
-}
-
-// Register the plugin
-web3.registerPlugin(new TraceBlockPlugin());
+// Create a ChainstackProvider instance for Ethereum mainnet
+const chainstack = new ethers.ChainstackProvider("mainnet");
 
 async function getAverageGasUsed(block) {
 
-    const tracer = { tracer: 'callTracer' };
-    const traceResult = await web3.trace.traceBlockByNumber(block, tracer);
+    const tracer = { tracer: "callTracer" };
+    const traceResult = await chainstack.send("debug_traceBlockByNumber", [
+      block,
+      tracer,
+    ]);
     let totalGasUsed = 0;
     let transactionCount = 0;
 
     for (let obj of traceResult) {
       const gasUsed = obj.result.gasUsed;
-      const decimalGas = web3.utils.hexToNumber(gasUsed);
+      const decimalGas = parseInt(gasUsed, 16);
       totalGasUsed += decimalGas;
       transactionCount++;
     }
@@ -167,10 +156,10 @@ getAverageGasUsed("latest");
 ```
 
 
-First, the code defines a custom method called `traceBlockByNumber` that allows tracing the execution of a block identified by its number. This method is then used in the `getAverageGasUsed` function to trace the transactions in the specified block.
+First, the code creates a `ChainstackProvider` instance for Ethereum mainnet. This provider is then used in the `getAverageGasUsed` function to trace the transactions in the specified block.
 
-Inside the function, we define a tracer object with the value of `callTracer`, which will help us get more detailed information about the block. Then, we call the `traceBlockByNumber` RPC method, passing in the block number and the tracer object as parameters. This returns an array of objects containing information about each transaction in the block.
+Inside the function, we define a tracer object with the value of `callTracer`, which will help us get more detailed information about the block. Then, we call the `debug_traceBlockByNumber` RPC method through `provider.send`, passing in the block number and the tracer object as parameters. This returns an array of objects containing information about each transaction in the block.
 
-We then declare two variables to keep track of the total gas used and the number of transactions in the block. We loop through each transaction in the block using a `for...of` loop and extract the `gasUsed` property of each transaction's result object. We convert this value from hexadecimal to decimal using the `web3.utils.hexToNumber` method and add it to the `totalGasUsed` variable. We also increment the `transactionCount` variable to keep track of how many transactions there are in the block.
+We then declare two variables to keep track of the total gas used and the number of transactions in the block. We loop through each transaction in the block using a `for...of` loop and extract the `gasUsed` property of each transaction's result object. We convert this value from hexadecimal to decimal using `parseInt` with a radix of 16 and add it to the `totalGasUsed` variable. We also increment the `transactionCount` variable to keep track of how many transactions there are in the block.
 
 Finally, we calculate the `averageGasUsed` by dividing the `totalGasUsed` by the `transactionCount` and displaying the result. We use the `Math.round()` method to round the result to the nearest integer for readability. When we call the function, we pass in the string `"latest"` to get the average gas used for the latest block.

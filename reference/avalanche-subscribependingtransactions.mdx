@@ -5,7 +5,7 @@ description: "Reference docs for the subscribe (\"pendingTransactions\") JSON-RP
 
 Note that because the Avalanche mempool is [only accessible to validators](/docs/mempool-configuration), this method will only return transactions that were submitted through the same node you are connected to.
 
-web3.js subscription equivalent to [eth\_newPendingTransactionFilter](/reference/avalanche-newpendingtransactionfilter). `subscribe("pendingTransactions")` allows developers to subscribe to real-time updates about pending transactions on the Avalanche blockchain; the application will receive notifications whenever a pending transaction appears on the blockchain.
+The ethers.js subscription equivalent to [eth\_newPendingTransactionFilter](/reference/avalanche-newpendingtransactionfilter). `subscribe("pendingTransactions")` allows developers to subscribe to real-time updates about pending transactions on the Avalanche blockchain; the application will receive notifications whenever a pending transaction appears on the blockchain.
 
 
 <Visibility for="humans">
@@ -30,31 +30,30 @@ web3.js subscription equivalent to [eth\_newPendingTransactionFilter](/reference
 ## `subscribe("pendingTransactions")` code example
 
 <Info>
-  Note that web3.js subscriptions require a WebSocket connection.
+  Note that ethers.js subscriptions require a WebSocket connection.
 </Info>
 
-Use the [event emitter instances](https://web3js.readthedocs.io/en/v1.2.11/web3-eth-subscribe.html#eth-subscription-return) to attach event listeners to the subscription object:
+Use the `provider.on` method with the `"pending"` event to attach a listener to the WebSocket provider:
 
-* `data` — activates for each new syncing event.
-* `error` — activates if an error is detected during the subscription.
-* `connected` — activates after the subscription is successfully connected and returns the subscription ID.
-* `unsubscribe` — unsubscribes the subscription and returns `true` if successful.
+* `"pending"` — fires for each new pending transaction hash received by the connected node.
+* `"error"` — fires if an error is detected on the provider connection.
+* `provider.removeAllListeners` — removes the listeners so the program can stop receiving updates.
 
 <CodeGroup>
   ```javascript index.js
-  const Web3 = require("web3");
+  const { ethers } = require("ethers");
   const NODE_URL = "CHAINSTACK_WSS_URL";
-  const web3 = new Web3(NODE_URL);
+  const provider = new ethers.WebSocketProvider(NODE_URL);
 
   async function subscribeToPendingTransactions() {
       try {
-          // Create a new subscription to the 'pendingTransactions' event
-          const subscription = await web3.eth.subscribe('pendingTransactions');
+          // Subscribe to the 'pending' event to receive new pending transaction hashes
+          provider.on("pending", handleNewPending);
 
-          // Attach event listeners to the subscription object
-          subscription.on('connected', handleConnected);
-          subscription.on('data', handleNewPending);
-          subscription.on('error', handleError);
+          // Attach an error listener to the provider connection
+          provider.on("error", handleError);
+
+          console.log("New subscription: pending");
       } catch (error) {
           console.error(`Error subscribing to pending transactions: ${error}`);
       }
@@ -62,14 +61,9 @@ Use the [event emitter instances](https://web3js.readthedocs.io/en/v1.2.11/web3-
 
   /* Fallback functions to react to the different events */
 
-  // Event listener that logs a message when the subscription is connected
-  function handleConnected(subscriptionId) {
-      console.log(`New subscription: ${subscriptionId}`);
-  }
-
-  // Event listener that logs the received pendingTransactions
-  function handleNewPending(transactions) {
-      console.log(transactions);
+  // Event listener that logs the received pending transaction hashes
+  function handleNewPending(transactionHash) {
+      console.log(transactionHash);
   }
 
   // Event listener that logs any errors that occur
@@ -85,55 +79,50 @@ Use the [event emitter instances](https://web3js.readthedocs.io/en/v1.2.11/web3-
 
 A practical use case for `subscribe("pendingTransactions")` is a DApp that continuously listens for new pending transactions, then isolates the `from`, `to`, and `value` fields for analytics purposes. This is useful, for example, to only track transactions that move at least a certain amount of AVAX.
 
-The following is an implementation of this concept using web3.js subscriptions:
+The following is an implementation of this concept using ethers.js subscriptions:
 
 <CodeGroup>
   ```javascript index.js
-  const Web3 = require("web3");
+  const { ethers } = require("ethers");
   const NODE_URL = "CHAINSTACK_WSS_URL";
-  const web3 = new Web3(NODE_URL);
+  const provider = new ethers.WebSocketProvider(NODE_URL);
 
   async function subscribeTopendingTransactions() {
       try {
-          // Create a new subscription to the 'pendingTransactions' event
-          const subscription = await web3.eth.subscribe('pendingTransactions');
+          // Subscribe to the 'pending' event to receive new pending transaction hashes
+          provider.on("pending", handleNewPending);
 
-          // Attach event listeners to the subscription object
-          subscription.on('connected', handleConnected);
-          subscription.on('data', handleNewPending);
-          subscription.on('error', handleError);
+          // Attach an error listener to the provider connection
+          provider.on("error", handleError);
+
+          console.log("New subscription: pending");
       } catch (error) {
           console.error(`Error subscribing to new blocks: ${error}`);
       }
   }
 
-  // Use this function to unsuscribe and exit the program
+  // Use this function to unsubscribe and exit the program
   function unsubscribe() {
-      subscription.unsubscribe(function(error, success) {
-          if (success) console.log("Successfully unsubscribed!");
-          return process.exit(1)
-      });
+      provider.removeAllListeners();
+      console.log("Successfully unsubscribed!");
+      return process.exit(1);
   }
 
   /* Fallback functions to react to the different events */
 
-  // Event listener that logs a message when the subscription is connected
-  function handleConnected(subscriptionId) {
-      console.log(`New subscription: ${subscriptionId}`);
-  }
-
-  // Event listener that logs the received pendingTransactions and extracts from, to, and value fields
+  // Event listener that logs the received pending transactions and extracts from, to, and value fields
   async function handleNewPending(transactionHash) {
       try {
-          const transaction = await web3.eth.getTransaction(transactionHash);
+          const transaction = await provider.getTransaction(transactionHash);
+          if (!transaction) return; // The transaction may not be available yet
           const from = transaction.from;
           const to = transaction.to;
           const value = transaction.value;
-          if (value >= 100000000000000000000) { // 100 AVAX in Wei
+          if (value >= 100000000000000000000n) { // 100 AVAX in wei
               console.log(`----- New pending transaction ------`);
               console.log(`From: ${from}`)
               console.log(`To: ${to}`)
-              console.log(`Value: ${Number(web3.utils.fromWei(value, 'ether')).toFixed(2)} AVAX\n`)
+              console.log(`Value: ${Number(ethers.formatEther(value)).toFixed(2)} AVAX\n`)
           }
       } catch (error) {
           console.error(`Error getting transaction: ${error}`);
@@ -149,11 +138,11 @@ The following is an implementation of this concept using web3.js subscriptions:
   ```
 </CodeGroup>
 
-This code creates a new subscription to the `pendingTransactions` event using the `web3.eth.subscribe` method. This method returns a subscription object that can be used to attach event listeners to the subscription.
+This code creates a new subscription to the `pending` event using the `provider.on` method on a `WebSocketProvider`. This method attaches a listener that the provider calls every time a new pending transaction hash arrives.
 
-The code defines three event listener functions that are attached to the subscription object: `handleConnected`, `handleNewPending`, and `handleError`. The `handleConnected` function is called when the subscription is connected, and it logs a message with the subscription ID. The `handleNewPending` function is called when a new pending transaction is received; it runs the [eth\_getTransactionByHash](/reference/avalanche-gettransactionbyhash) method and extracts the `from`, `to`, and `value` fields. If the value transferred is above 100 AVAX, the data is logged.
+The code defines two event listener functions that are attached to the provider: `handleNewPending` and `handleError`. The `handleNewPending` function is called when a new pending transaction is received; it runs the [eth\_getTransactionByHash](/reference/avalanche-gettransactionbyhash) method through `provider.getTransaction` and extracts the `from`, `to`, and `value` fields. If the value transferred is above 100 AVAX, the data is logged.
 
-The code includes the `unsuscribe` function that can be implemented in the logic to unsubscribe and exit the program when a condition is met.
+The code includes the `unsubscribe` function that can be implemented in the logic to remove the listeners and exit the program when a condition is met.
 
 The `handleError` function is called when an error occurs, and it logs an error message.
 

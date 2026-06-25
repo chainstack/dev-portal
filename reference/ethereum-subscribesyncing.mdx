@@ -32,47 +32,41 @@ description: "Monitor Ethereum node sync status in real time with web3.js. Subsc
 ## `subscribe("syncing")` code example
 
 <Info>
-  Note that web3.js subscriptions require a WebSocket connection.
+  Note that ethers.js subscriptions require a WebSocket connection.
 </Info>
 
-Use the [event emitter instances](https://web3js.readthedocs.io/en/v1.2.11/web3-eth-subscribe.html#eth-subscription-return) to attach event listeners to the subscription object:
+Use the [provider events](https://docs.ethers.org/v6/api/providers/#ProviderEvent) to attach event listeners to the provider:
 
-* `data` — activates for each new syncing event:
+* `sync` — activates for each new syncing event.
 * `error` — activates if an error is detected during the subscription.
-* `connected` — activates after the subscription is successfully connected and returns the subscription ID.
-* `unsubscribe` — unsubscribes the subscription and returns `true` if successful.
+* `provider.removeAllListeners` — removes the listeners and stops the subscription.
 
 <CodeGroup>
   ```javascript index.js
-  const Web3 = require("web3");
+  const ethers = require("ethers");
   const NODE_URL = "CHAINSTACK_WSS_URL";
-  const web3 = new Web3(NODE_URL);
+  const provider = new ethers.WebSocketProvider(NODE_URL);
 
   async function subscribeToSync() {
       try {
-          // Create a new subscription to the 'pendingTransactions' event
-          const subscription = await web3.eth.subscribe('syncing');
+          // Subscribe to the 'sync' event
+          provider.on('sync', handleSync);
 
-          // Attach event listeners to the subscription object
-          subscription.on('connected', handleConnected);
-          subscription.on('data', handleSync);
-          subscription.on('error', handleError);
+          // Attach an error listener to the provider
+          provider.on('error', handleError);
+
+          console.log('Subscribed to sync events');
 
       } catch (error) {
           console.error(`Error subscribing to sync: ${error}`);
       }
   }
 
-  /* Fallback functions to react to the different events */
+  /* Callback functions to react to the different events */
 
-  // Event listener that logs a message when there is a new syncing event
-  function handleConnected(subscriptionId) {
-      console.log(`New subscription: ${subscriptionId}`);
-  }
-
-  // Event listener that logs the filtered events
+  // Event listener that logs the sync status
   async function handleSync(sync) {
-      console.log(sync)
+      console.log(sync);
   }
 
   // Event listener that logs any errors that occur
@@ -88,50 +82,35 @@ Use the [event emitter instances](https://web3js.readthedocs.io/en/v1.2.11/web3-
 
 A practical use case for `subscribe("syncing")` is a DApp that continuously listens for the status of a node and notifies the developer if the node falls behind a certain number of blocks.
 
-The following is an implementation of this concept using web3.js subscriptions, this program will leave a notification in the console if the node falls more than 100 blocks behind.
+The following is an implementation of this concept using ethers.js subscriptions, this program will leave a notification in the console if the node falls more than 100 blocks behind.
 
 <CodeGroup>
   ```javascript index.js
-  const Web3 = require("web3");
+  const ethers = require("ethers");
   const NODE_URL = "CHAINSTACK_WSS_URL";
-  const web3 = new Web3(NODE_URL);
+  const provider = new ethers.WebSocketProvider(NODE_URL);
 
   async function subscribeToSync() {
       try {
-          // Create a new subscription to the 'pendingTransactions' event
-          const subscription = await web3.eth.subscribe('syncing');
+          // Subscribe to the 'sync' event
+          provider.on('sync', handleSync);
 
-          // Attach event listeners to the subscription object
-          subscription.on('connected', handleConnected);
-          subscription.on('data', handleSync);
-          subscription.on('error', handleError);
+          // Attach an error listener to the provider
+          provider.on('error', handleError);
+
+          console.log('Subscribed to sync events');
 
       } catch (error) {
           console.error(`Error: ${error}`);
       }
   }
 
-  /* Fallback functions to react to the different events */
+  /* Callback functions to react to the different events */
 
-  // Event listener that logs a message when there is a new syncing event
-  function handleConnected(subscriptionId) {
-      console.log(`New subscription: ${subscriptionId}`);
-  }
-
-  // Event listener that logs the filtered events
+  // Event listener that compares the current and highest blocks
   async function handleSync(sync) {
-      let currentBlock;
-      let highestBlock;
-      const status = sync.status;
-
-      for (const property in status) {
-        if (property === 'CurrentBlock') {
-          currentBlock = status[property];
-
-        } else if (property === 'HighestBlock') {
-          highestBlock = status[property];
-        }
-      }
+      const currentBlock = sync.currentBlock;
+      const highestBlock = sync.highestBlock;
 
       if (currentBlock !== undefined && highestBlock !== undefined) {
         const blocksBehind = highestBlock - currentBlock;
@@ -152,9 +131,9 @@ The following is an implementation of this concept using web3.js subscriptions, 
   ```
 </CodeGroup>
 
-This code creates a new subscription to the `syncing` event using the `web3.eth.subscribe` method. This method returns a subscription object that can be used to attach event listeners to the subscription.
+This code creates a new subscription to the `sync` event using the `provider.on` method on a `WebSocketProvider`. This method attaches event listeners to the provider for the events you want to track.
 
-The code defines three event listener functions that are attached to the subscription object: `handleConnected`, `handleSync`, and `handleError`. The `handleConnected` function is called when the subscription is connected, and it logs a message with the subscription ID. The `handleSync` function is called when a new syncing event is emitted, extracts the `CurrentBlock` and the `HighestBlock` field, and then compares them. If the node is more than 1,000 blocks behind, the user will receive an alert.
+The code defines two event listener functions that are attached to the provider: `handleSync` and `handleError`. The `handleSync` function is called when a new syncing event is emitted, extracts the `currentBlock` and the `highestBlock` fields, and then compares them. If the node is more than 1,000 blocks behind, the user will receive an alert.
 
 The `handleError` function is called when an error occurs, and it logs an error message.
 

@@ -54,16 +54,16 @@ print(web3.eth.get_block_transaction_count("0x7709b7cacb9a3d647afe557d51891c00ad
 
 ## Use case
 
-`eth_getBlockTransactionCountByHash` is a useful tool for analyzing transaction volume on the Polygon blockchain. On average, a [new block is generated on the Polygon mainnet every 2.1 seconds](https://polygonscan.com/chart/blocktime), resulting in approximately 1,700 blocks per hour. Using the web3.js library, one can inspect the past 1,700 blocks starting from the latest block, retrieve the hash of each block, and use `eth_getBlockTransactionCountByHash` to find the number of transactions in each block.
+`eth_getBlockTransactionCountByHash` is a useful tool for analyzing transaction volume on the Polygon blockchain. On average, a [new block is generated on the Polygon mainnet every 2.1 seconds](https://polygonscan.com/chart/blocktime), resulting in approximately 1,700 blocks per hour. Using the ethers.js library, one can inspect the past 1,700 blocks starting from the latest block, retrieve the hash of each block, and use `eth_getBlockTransactionCountByHash` to find the number of transactions in each block.
 
 ```javascript index.js
-const Web3 = require("web3");
+const ethers = require("ethers");
 const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
+const provider = new ethers.JsonRpcProvider(NODE_URL);
 
 async function retrieveTransactionsCount() {
   // Get the current block number
-  const currentBlockNumber = await web3.eth.getBlockNumber();
+  const currentBlockNumber = await provider.getBlockNumber();
 
   // Calculate the block number from one hour ago
   const oneHourAgoBlockNumber = currentBlockNumber - 1700; // 1700 blocks/hr on average on the Polygon mainnet
@@ -75,16 +75,16 @@ async function retrieveTransactionsCount() {
   for (let block = currentBlockNumber; block > oneHourAgoBlockNumber; block--) {
 
     // Get the hash of each block
-    const getBlockHash = await web3.eth.getBlock(block, false);
+    const getBlockHash = await provider.getBlock(block, false);
     const blockHash = getBlockHash.hash
 
     // Get the number of transactions in this block using each hash
-    const transactionCount = await web3.eth.getBlockTransactionCount(blockHash);
+    const transactionCount = await provider.send("eth_getBlockTransactionCountByHash", [blockHash]);
 
     // Add the number of transactions in this block to the total
-    totalTransactionCount += transactionCount;
+    totalTransactionCount += Number(transactionCount);
 
-    console.log(`Block #${block} has ${transactionCount} transactions.`);
+    console.log(`Block #${block} has ${Number(transactionCount)} transactions.`);
   }
 
   console.log(`The total number of transactions in the previous hour is: ${totalTransactionCount}`);
@@ -95,7 +95,7 @@ retrieveTransactionsCount();
 ```
 
 
-This example connects to a Polygon node using the web3.js library. The `retrieveTransactionsCount` function gets the current block number, calculates the block number from one hour ago, and uses a for loop to iterate through all blocks in that range.
+This example connects to a Polygon node using the ethers.js library. The `retrieveTransactionsCount` function gets the current block number, calculates the block number from one hour ago, and uses a for loop to iterate through all blocks in that range.
 
 The function then retrieves the hash of each block and the number of transactions in each block and adds it to a total transaction count. The final result, the total number of transactions in the previous hour, is logged to the console.
 
