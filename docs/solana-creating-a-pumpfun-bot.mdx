@@ -8,10 +8,10 @@ description: Build a fully coded Python bot that interacts directly with pump.fu
 </Frame>
 **TLDR**
 
-* This Python-based Solana bot monitors the pump.fun on-chain program to detect new tokens, automatically buys them, and optionally sells them soon after.
+* This Python-based Solana bot monitors the pump.fun on-chain program to detect new tokens, automatically buys them, and optionally sells them soon after. The same bot also supports [letsbonk.fun](https://letsbonk.fun) via a config switch.
 * It decodes transaction data using the pump.fun Anchor IDL, fetching token details like mint addresses and bonding curves.
-* Scripts for listening, buying, and selling combine into a main “trade” engine with optional flags (e.g., continuous trading or filtering by creator/token name).
-* Learning examples provide reference scripts on Anchor discriminators, price fetching, and subscribing to Solana websockets.
+* You configure one or more bot instances as `.yaml` files in the `bots/` directory (strategy, slippage, priority fees, exit rules) and run them with `pump_bot`.
+* Learning examples provide reference scripts on Anchor discriminators, price fetching, and subscribing to Solana websockets via `logsSubscribe`, `blockSubscribe`, and Geyser.
 
 The pump.fun project is generating millions of USD in fees and in the volume as evidenced by [pump.fun DefiLlama project page](https://defillama.com/protocol/pump#information).
 
@@ -41,103 +41,99 @@ It's very useful to know that the pump.fun program and all the associated accoun
 
 The other thing important to know is that the tokens created with pump.fun are 6 decimal tokens, which is different from the default Solana 9 decimal SPL tokens.
 
-The bot subscribes over WebSocket to a Solana mainnet RPC node and extracts all the newly minted coins created by the pump.fun main program ID: [6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P](https://solscan.io/account/6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P)
+The bot subscribes over WebSocket to a Solana mainnet RPC node and extracts all the newly minted coins created by the pump.fun main program ID [6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P](https://solscan.io/account/6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P). It can listen with `logsSubscribe` (supported by every provider), `blockSubscribe`, or a Geyser stream for the lowest latency.
 
-Once a new coin is minted, the bot buys the coin and then sells it — the behavior is dictated by a few flags. See the implementation and the additional details for a full description.
+Once a new coin is minted, the bot buys it and then exits according to your configured strategy. When a token's bonding curve completes, its liquidity graduates to PumpSwap—pump.fun's own AMM. You set the behavior per bot instance in a `.yaml` config file; see [Configure and run the bot](#configure-and-run-the-bot).
 
 ## Implementation
 
-The core of the bot consists of three components:
+The bot is installed and run with [uv](https://github.com/astral-sh/uv). Your secrets—RPC HTTP and WebSocket endpoints, the wallet private key, and optional Geyser credentials—go in a `.env` file, and each bot instance is a `.yaml` file in the `bots/` directory. The core logic has two paths: a listener that detects new tokens, and the buy/sell execution.
 
-* Listener script
-* Buy script
-* Sell script
+### Listener
 
-All of the three scripts are put together in the main `trade.py` implementation.
-
-### Listener script
-
-To be able to construct a buy transaction (and later on a sell transaction), the bot needs the global constants and the coin related variables.
-
-The global pump.fun and Solana system program & account addresses, as well things like RPC endpoints, slippage etc are set in the `config.py` file.
-
-The coin related variables that are necessary for constructing transactions are:
+To construct a buy (and later a sell) transaction, the bot needs the global program and account addresses plus the new token's variables:
 
 * `mint` — the created token address
-* `bondingCurve` — the bonding curve account created for the newly minted token; this is the account that defines the token price
-* `associatedBondingCurve` — the associated account that's holding the tokens that you buy and sell per the bonding curve token price information; the mechanism here is the default Solana one, which is the same thing as how you need an associated token account as a user to hold a token
+* `bondingCurve` — the bonding curve account for the new token; this account defines the token price
+* `associatedBondingCurve` — the associated token account that holds the tokens bought and sold against the bonding curve
 
-To get the three addresses all once (`mint`, `bondingCurve`, and `associatedBondingCurve`), the bot uses the [blockSubscribe | Solana](/reference/blocksubscribe-solana) method over WebSocket with full transaction details, filters out the transactions are 1) only related to the main pump.fun executable program `6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P` and 2) that only match the `create` instruction.
+The bot can obtain these addresses three ways, fastest last:
 
-Then from the those transactions, the bot extracts the required addresses.
+* **`logsSubscribe`** — subscribes to the pump.fun program logs and derives the `associatedBondingCurve` on the fly (it is a PDA of the `bondingCurve`, the token program, and the `mint`). This works on every provider and is the default path.
+* **`blockSubscribe`** — subscribes to full blocks filtered to the pump.fun program's `create` instruction and extracts the addresses. Reliable on Chainstack, but not every provider supports it.
+* **Geyser** — a gRPC stream for the lowest latency. See the [Geyser implementation guide](/docs/solana-listening-to-pumpfun-token-mint-using-geyser) and [Yellowstone Geyser](/docs/yellowstone-grpc-geyser-plugin).
 
 <Note>
-  While `blockSubscribe` works for this use case, it has known stability issues with busy programs. For production bots and better performance, consider using [Geyser as recommended by the Solana team](https://github.com/anza-xyz/agave/issues/3879#issuecomment-2519700883). See our [Geyser implementation guide](/docs/solana-listening-to-pumpfun-token-mint-using-geyser) and learn more about [Geyser](/docs/yellowstone-grpc-geyser-plugin).
+  Earlier versions of the bot relied on `blockSubscribe`, which has stability issues with busy programs and isn't available on every plan. The bot now defaults to `logsSubscribe` (deriving the associated bonding curve locally) and supports Geyser for production. See [Solana: Listening to pump.fun token mint using only logsSubscribe](/docs/solana-listening-to-pumpfun-token-mint-using-only-logssubscribe).
 </Note>
 
-### Buy script
+### Buy and sell
 
-The buy script takes the global pump.fun program & accounts and the system ones from `config.py` and the coin specific ones from the listener script.
-
-Then using the `mint` address and the end user address (from your private key), the bot creates an associated token account to be able to hold the tokens.
-
-Then the bot fetches the token price from the `bondingCurve` account.
-
-And then the bot does the purchase.
+Using the `mint` and your wallet address (from the private key in `.env`), the bot creates an associated token account to hold the token, fetches the price from the `bondingCurve` account, and submits the buy. The sell path is the reverse and simpler—it fetches the price and submits a sell.
 
 A couple of notes:
 
-* Here and in all other scripts, the [Anchor instruction discriminators](https://book.anchor-lang.com/anchor_bts/discriminator.html) are precalculated. See `learning-examples/calculate_discriminator.py`
-* There's a default 15 second cooldown period between getting the new token details and proceeding with creating an associated token account for it and the actual purchase. This cooldown is for the things to stabilize a bit, otherwise you might get errors. The Solana is so fast and the way we are retrieving the new token details (using the `blockSubscribe` method) is also up there in the speed league, so when it comes to doing the actual *write* transactions, not all of the data that we already have may have fully propagated across the cluster, so you might get an error as a result. Feel free to experiment with this cooldown setting.
+* The [Anchor instruction discriminators](https://book.anchor-lang.com/anchor_bts/discriminator.html) are precalculated. See `learning-examples/calculate_discriminator.py`.
+* `extreme_fast_mode` (in the bot config) skips the bonding-curve stabilization wait and the RPC price check and buys a fixed token amount directly—faster, but less precise. With it off, the bot waits and price-checks first so the new token's data has propagated across the cluster.
 
-### Sell script
+<Warning>
+pump.fun ships breaking on-chain program upgrades—for example, the [2026-04-28 fee-recipient change](https://github.com/pump-fun/pump-public-docs/blob/main/docs/BREAKING_FEE_RECIPIENT.md) altered the buy/sell account lists. When the program changes, account lists and IDLs must be updated, so always cross-check against a recent successful transaction and pull the latest from the repository before running.
+</Warning>
 
-The sell script is basically the buy script but in reverse and cropped and simpler, because it does not need to use the listener script, nor does it need to create an associated token account.
+## Configure and run the bot
 
-All the sell script does is fetch the price and execute a sell instruction.
+### Install
 
-### Trade script
+```shell
+git clone https://github.com/chainstacklabs/pump-fun-bot.git
+cd pump-fun-bot
+uv sync
+source .venv/bin/activate
+uv pip install -e .
+```
 
-The main script that you run the bot with is `trade.py`. This is the script that puts together the listener script, the buy script, and the sell script.
+### Configure
 
-### Logging
+Copy `.env.example` to `.env` and add your Solana RPC endpoints and wallet private key. Then edit or copy a `.yaml` template in `bots/`—each file is a separate bot instance. Key settings:
 
-The `trades` directory keeps the tab on your listens and trades:
+* `platform` — `"pump_fun"` (default) or `"lets_bonk"` to trade on [letsbonk.fun](https://letsbonk.fun) instead
+* `trade.buy_amount`, `trade.buy_slippage`, `trade.sell_slippage` — position size and slippage tolerance
+* `trade.exit_strategy` — `"time_based"`, `"tp_sl"` (take-profit/stop-loss), or `"manual"`
+* `trade.extreme_fast_mode` — skip the price check and buy a fixed token amount for speed
+* `priority_fees` — `enable_fixed` with a `fixed_amount`, or `enable_dynamic` (estimates via `getRecentPrioritizationFees`); see [Solana: priority fees for faster transactions](/docs/solana-how-to-priority-fees-faster-transactions)
+* `filters` — restrict trading to tokens matching a name/symbol or created by a specific address
+* `geyser` — endpoint and auth token for the Geyser listener
 
-* Each token that pops up as part of your listener script is saved as a token address txt file
-* The `trades.log` is an appendable file that adds each of your trades (buy/sell), along with the token address and a time stamp.
+### Run
+
+```shell
+# Run as the installed package
+pump_bot
+
+# Or run directly
+uv run src/bot_runner.py
+```
+
+Each enabled bot in `bots/` runs as its own instance, so you can run several strategies at once.
+
+<Note>
+This bot is for learning, not production. Also by Chainstack: [pumpfun-cli](https://github.com/chainstacklabs/pumpfun-cli) (a terminal client for trading, launching, and managing tokens, with smart routing between the bonding curve and PumpSwap) and [pumpclaw](https://github.com/chainstacklabs/pumpclaw) (an agent skill that lets AI assistants like Claude Code and Codex operate pumpfun-cli).
+</Note>
 
 ## Learning examples
 
-There are numerous scripts and other data in the `learning-examples` directory that should help you understand how the bot is constructed and how to interact with Solana in general, so be sure to check it out.
+The `learning-examples` directory has many scripts for understanding how the bot works and how to interact with Solana. Highlights:
 
-Examples:
+* `listen-new-tokens/listen_logsubscribe_abc.py` — snipes new tokens using only `logsSubscribe`, deriving the associated bonding curve on the fly (no extra `getTransaction` call)
+* `listen-new-tokens/compare_listeners.py` — runs the listener methods side by side to see which detects new tokens first
+* `bonding-curve-progress/get_bonding_curve_status.py` — checks whether a token's bonding curve is still active or has completed
+* `listen-migrations/listen_logsubscribe.py` — detects graduations to PumpSwap; see [Listening to pump.fun migrations to PumpSwap](/docs/solana-listening-to-pumpfun-migrations-to-raydium)
+* `compute_associated_bonding_curve.py` — derives the associated bonding curve PDA for a token
+* `calculate_discriminator.py` — calculates Anchor instruction discriminators from the IDL in `idl/`
+* `pumpswap/` — manual buy and sell examples against the PumpSwap AMM
+* `manual_buy.py` / `manual_sell.py` — manual buy and sell with parameters you provide
 
-* `blockSubscribe_extract_transactions.py` — connects over WebSocket, subscribes with [blockSubscribe | Solana](/reference/blocksubscribe-solana), and dumps all the extracted transactions in raw form to the `learning-examples/blockSubscribe-transactions` directory
-* `calculate_discriminator.py` — calculates the unique discriminator as part of the [Anchor framework](https://book.anchor-lang.com/anchor_bts/discriminator.html) for the pump.fun instructions. The instructions themselves can be taken from the `idl/pump_fun_idl.json` file
-* `fetch_price.py` — a full implementation of doing a `getAccountInfo` call to a token's bonding curve address and then decoding the response
-* `decode_from_blockSubscribe.py` — decodes the raw transactions extracted with the `blockSubscribe` method
-* `decode_from_getAccountInfo.py` — decodes the raw response from the `getAccountInfo` call to a token's bonding curve address; this is how you fetch the token price
-* `listen_create_from_blocksubscribe.py` — this is basically `blockSubscribe_extract_transactions.py` but with all the additional parsing to keep printing the newly minted token data to you
-* `listen_new_direct.py` — uses [logsSubscribe | Solana](/reference/logssubscribe-solana) to print the parsed token data from the pump.fun program logs; this is here as an example but it is not used in our bot as the logs do not emit the `associatedBondingCurve` address
-* `listen_new_portal.py` — just an example of getting the newly minted token data stream from a third-party API like pumpportal; not used in our bot
-* `manual_buy.py` — a manual buy script; you provide all the necessary parameters
-* `manual_sell.py` — a manual sell script; you provide all the necessary parameters
-
-## Fun flags
-
-You can run the `trade.py` script, which is the bot itself, with a few flags:
-
-* `--yolo` — keeps the bot running in continuous mode; the bot buys a token, sells the token 20 seconds later, and then buys a new one
-* `--match` — trades the tokens with names or symbols matching this string you provide
-* `--bro` — only buys and sells the tokens created by a certain user address
-* `--marry` — makes the script buy a token and never sell
-
-You can also combine the flags, for example running:
-
-`python trade.py --match doge --bro 7YmjpX4sPPw9pq6P2hrq9LehAi6QjELPWZYKXRrLaLCB --marry`
-
-will only buy the tokens that have `doge` in the name or description, created by the user `7YmjpX4sPPw9pq6P2hrq9LehAi6QjELPWZYKXRrLaLCB` and never sell the tokens.
+The IDLs in `idl/` are vendored from [pump-fun/pump-public-docs](https://github.com/pump-fun/pump-public-docs); refresh them from there when the program changes.
 
 <CardGroup>
   <Card title="Ake">
