@@ -125,6 +125,8 @@ description: "Concise description for SEO and navigation"
 - `<Info>` for neutral contextual information
 - `<Check>` for success confirmations
 
+Keep callouts short — one or two sentences. A callout is a glanceable alert, not a container for long explanations. If the content runs to a paragraph or more, put it in normal prose and keep only the single key takeaway in the callout.
+
 ### Code examples
 
 - When appropriate, include complete, runnable examples
