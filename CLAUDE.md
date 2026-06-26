@@ -242,6 +242,30 @@ When updating the master list:
 2. Regenerate dependent tables
 3. Verify changes display correctly
 
+## Self-Hosted deployments master list
+
+`self-hosted-deployments.json` is the single source of truth for every Chainstack Self-Hosted deployment — protocols, networks, clients, client versions, CPU/RAM/storage, presets, and exposed ports. It is hand-maintained from the upstream sources:
+
+- Resource and client data — upstream preset and network definitions
+- Port constants — upstream client port definitions
+
+Pages with generated tables (regenerate on every master list change):
+
+- `docs/self-hosted/supported-clients-and-protocols.mdx` — the catalog (matrix + per-family sections)
+- `docs/self-hosted/requirements.mdx` — the per-family resource summary
+
+Pages that mention protocols in prose (update the protocol names when a deployment is added or removed):
+
+- `docs/self-hosted/introduction.mdx` — the multi-protocol feature bullet
+- `docs/self-hosted/faq.mdx` — the production-readiness answer
+- `docs/self-hosted/deploying-nodes.mdx` — the supported-deployments pointer
+
+When a preset changes upstream:
+
+1. Update `self-hosted-deployments.json`
+2. Regenerate the dependent tables
+3. Verify changes display correctly
+
 ## API documentation requirements (Cloud only)
 
 These guidelines apply to Cloud API documentation. Self-Hosted does not have API reference docs.
