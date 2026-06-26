@@ -1,0 +1,210 @@
+---
+title: "Stream real-time transactions on Base with Flashblocks"
+description: "Base has no public mempool, so pending-transaction filters return empty. Stream transactions in real time over WebSocket with Flashblocks, with tested Python and JavaScript examples."
+---
+
+Base has no public mempool — pending transactions are held privately by the sequencer, so `eth_newPendingTransactionFilter` and `eth_subscribe("newPendingTransactions")` return empty. To watch transactions in real time on Base, subscribe to Flashblocks: the sequencer streams pre-confirmed sub-blocks roughly every 200 ms over WebSocket. This guide streams individual transactions, filtered event logs, and the in-progress block, with tested Python and JavaScript.
+
+<Info>
+Flashblocks is enabled by default on Chainstack Base endpoints. For how it works, see [Flashblocks on Base](/docs/flashblocks-on-base).
+</Info>
+
+## Prerequisites
+
+* A Base mainnet WebSocket endpoint. On Chainstack, copy the WSS endpoint from your Base node's **Access and credentials** tab — it looks like `wss://base-mainnet.core.chainstack.com/<key>`. The examples below use `YOUR_CHAINSTACK_WSS_ENDPOINT` as a placeholder.
+* Python 3.8+ with the `websockets` library (`pip install websockets`), or Node.js 22+ (the `WebSocket` client is built in, so there are no dependencies to install).
+
+## Why pending-transaction filters return empty on Base
+
+Base is an OP Stack chain with a single sequencer. Transactions go to the sequencer's private mempool and are never gossiped to RPC nodes, so a node has no public pending transactions to report. `eth_newPendingTransactionFilter` and `eth_subscribe("newPendingTransactions")` are accepted but always return empty — this is by design, not a node error, and it is the same on every Base RPC provider. See [Mempool configurations](/docs/mempool-configuration) for the per-protocol breakdown.
+
+Flashblocks fills this gap from the other side: instead of unconfirmed mempool transactions, it streams transactions the sequencer has already pre-confirmed into a 200 ms sub-block.
+
+## Stream individual transactions
+
+`eth_subscribe("newFlashblockTransactions")` pushes each transaction as the sequencer pre-confirms it — one WebSocket message per transaction, roughly every 200 ms in batches. By default each message is a transaction hash. Pass `true` as a second parameter to receive the full transaction object instead.
+
+<CodeGroup>
+```python Python
+import asyncio
+import json
+
+import websockets
+
+WSS = "YOUR_CHAINSTACK_WSS_ENDPOINT"  # wss://base-mainnet.core.chainstack.com/<key>
+
+
+async def stream_transactions():
+    async with websockets.connect(WSS) as ws:
+        await ws.send(json.dumps({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "eth_subscribe",
+            "params": ["newFlashblockTransactions"],  # add True for full tx objects
+        }))
+        await ws.recv()  # subscription id
+
+        async for raw in ws:
+            message = json.loads(raw)
+            if message.get("method") == "eth_subscription":
+                tx_hash = message["params"]["result"]
+                print(tx_hash)
+
+
+asyncio.run(stream_transactions())
+```
+
+```javascript JavaScript
+// Node.js 22+ has a built-in WebSocket — no dependencies required.
+const WSS = "YOUR_CHAINSTACK_WSS_ENDPOINT"; // wss://base-mainnet.core.chainstack.com/<key>
+
+const ws = new WebSocket(WSS);
+
+ws.addEventListener("open", () => {
+  ws.send(JSON.stringify({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "eth_subscribe",
+    params: ["newFlashblockTransactions"], // add true for full tx objects
+  }));
+});
+
+ws.addEventListener("message", (event) => {
+  const message = JSON.parse(event.data);
+  if (message.method === "eth_subscription") {
+    console.log(message.params.result);
+  }
+});
+```
+</CodeGroup>
+
+You get a continuous stream of transaction hashes:
+
+```text
+0x0cfe50baafea669279002091724b8b63c38e26a63283bbd276c5f4aa98b4df95
+0x6f924d44e1b02b71072032b26a263d8ed70e4d943ea4b7aef9d36950b13908a0
+0xe9a7f6b0db41bb499326bdf6cc5b67015c0c2e59bc0ab0d798b11ce953576af4
+```
+
+### Full transaction objects
+
+Pass `true` to receive the full transaction with its receipt fields (`logs`, `status`, `gasUsed`) embedded — useful when you want to act on the transaction without a follow-up `eth_getTransactionReceipt` call:
+
+```python
+"params": ["newFlashblockTransactions", True]
+```
+
+```json
+{
+  "hash": "0xe9a7f6b0db41bb499326bdf6cc5b67015c0c2e59bc0ab0d798b11ce953576af4",
+  "blockNumber": "0x2da0b71",
+  "blockHash": null,
+  "from": "0x065d75c4550f27c2665716569c105a785edf64ee",
+  "to": "0x681e908b8ab57c49c74d770f369754ccc3e1ae09",
+  "value": "0x0",
+  "status": "0x1",
+  "type": "0x2"
+}
+```
+
+`blockHash` is `null` because the transaction is pre-confirmed, not yet sealed into a final block. `blockNumber` is the block the sequencer is currently building.
+
+## Stream filtered event logs
+
+`eth_subscribe("pendingLogs")` streams event logs from pre-confirmed transactions, filtered by `address` and `topics` the same way as `eth_getLogs`. This example follows USDC transfers on Base:
+
+```python
+import asyncio
+import json
+
+import websockets
+
+WSS = "YOUR_CHAINSTACK_WSS_ENDPOINT"
+USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+
+
+async def stream_logs():
+    async with websockets.connect(WSS) as ws:
+        await ws.send(json.dumps({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "eth_subscribe",
+            "params": ["pendingLogs", {"address": USDC, "topics": [TRANSFER]}],
+        }))
+        await ws.recv()  # subscription id
+
+        async for raw in ws:
+            message = json.loads(raw)
+            if message.get("method") == "eth_subscription":
+                log = message["params"]["result"]
+                print(log["transactionHash"], log["data"])
+
+
+asyncio.run(stream_logs())
+```
+
+Each log carries the standard fields, with `blockHash` set to zero until the block seals:
+
+```json
+{
+  "address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+  "topics": [
+    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+    "0x000000000000000000000000b7bb38bf6c9f947b1a192199cc2b152cda3bf1ef",
+    "0x0000000000000000000000008f10b468b06c6fd214b65f87778827f7d113f996"
+  ],
+  "data": "0x000000000000000000000000000000000000000000000000000000000550d0b5",
+  "blockNumber": "0x2da0b7d",
+  "blockHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "transactionHash": "0xc5043e57489bbfe79f2002412d958ddca923d3fff432ae..."
+}
+```
+
+## Stream the in-progress block
+
+`eth_subscribe("newFlashblocks")` pushes the block the sequencer is currently building as a standard block object, refreshed roughly every 200 ms. Across updates the block `number` stays the same while `transactions` grows, and `hash` and `stateRoot` are zero until the block seals — it is the `pending` block, streamed:
+
+```python
+block = message["params"]["result"]
+print(int(block["number"], 16), len(block["transactions"]))
+```
+
+```text
+47844267 1
+47844267 51
+47844267 131
+47844267 252
+47844267 308
+47844268 1
+```
+
+The block number repeats while transactions accumulate, then advances to the next block — each 2-second block is built from about 10 Flashblocks.
+
+## Read pre-confirmed state over HTTP
+
+If you need request-response access rather than a stream, the `pending` block tag reflects the latest Flashblock on Chainstack Base endpoints. `eth_getBlockByNumber("pending")`, `eth_getTransactionReceipt`, and `eth_call` with the `pending` tag all return pre-confirmed state:
+
+```bash
+curl -s -X POST YOUR_CHAINSTACK_HTTPS_ENDPOINT \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["pending",false]}'
+```
+
+The `pending` block is one block ahead of `latest`, with a zero `hash` and fewer transactions, because the sequencer is still building it.
+
+## Production considerations
+
+* Pre-confirmations are not final. Flashblock state can change until the 2-second block seals, so for settlement confirm the transaction against `latest` or a finalized block.
+* Empty hashes are expected. `blockHash` is `null` on streamed transactions and zero on logs and Flashblocks until the block seals — read the final hash from the sealed block.
+* The stream is best-effort. Flashblocks can arrive in bursts or pause briefly; if the stream stops, fall back to the finalized block from the node.
+* Re-subscribe on reconnect. A subscription ends when the WebSocket drops, so re-send the `eth_subscribe` request after reconnecting.
+* Throughput tracks network activity. In tests against Base mainnet, `newFlashblockTransactions` delivered roughly 130–330 transactions per second.
+
+## Related
+
+* [Flashblocks on Base](/docs/flashblocks-on-base) — how Flashblocks works
+* [Mempool configurations](/docs/mempool-configuration) — mempool availability by protocol
+* [`eth_subscribe newFlashblockTransactions`](/reference/base-subscribe-newflashblocktransactions)
+* [`eth_subscribe pendingLogs`](/reference/base-subscribe-pendinglogs)
+* [`eth_subscribe newFlashblocks`](/reference/base-subscribe-newflashblocks)
