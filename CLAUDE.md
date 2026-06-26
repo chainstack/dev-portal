@@ -1,5 +1,17 @@
 # Chainstack Developer Portal project context, structure, and formatting
 
+## Public repo — no internal info
+
+This repository is public, and every page renders publicly at [docs.chainstack.com](https://docs.chainstack.com) (and is republished as `llms-full.txt`, per-page `.md`, and through the MCP server). The PR itself — description, screenshots, commit messages, sample payloads — is public too, and gets indexed and cached. Never include:
+
+- **Secrets** — API keys, tokens, private keys, credentials. Use placeholders like `YOUR_API_KEY`.
+- **Internal infrastructure** — internal hostnames, cluster names, dashboards (Grafana, BetterStack), admin/backoffice URLs.
+- **Customer data** — names, PII, account or usage details.
+- **Unreleased material** — features, pricing, or roadmap that isn't public yet.
+- **Internal references** — YouTrack ticket links, internal Slack threads, internal-only notes.
+
+A secret committed to a public repo is compromised even after you delete or force-push it — rotate it.
+
 ## Project context
 
 - This is a documentation project on the Mintlify platform
@@ -7,22 +19,22 @@
 - Navigation is configured in `docs.json`
 - When creating a new article as an *.mdx file, always remember to add the file name to the appropriate section in the navigation file `docs.json`
 - The docs use Mintlify's product switcher with two products:
-  - **Platform** — managed blockchain infrastructure (docs in `docs/`)
+  - **Cloud** — managed blockchain infrastructure (docs in `docs/`)
   - **Self-Hosted** — deploy on your own infrastructure (docs in `docs/self-hosted/`)
 
 ## Directory structure
 
 ```
 dev-portal/
-├── docs/                    # Platform documentation
+├── docs/                    # Cloud documentation
 │   ├── page-name.mdx
 │   └── self-hosted/         # Self-Hosted documentation
 │       ├── page-name.mdx
 │       └── changelog/       # Self-Hosted release notes
-├── images/                  # Platform images
+├── images/                  # Cloud images
 │   └── self-hosted/         # Self-Hosted images
-├── changelog/               # Platform release notes
-├── openapi/                 # Platform API specifications
+├── changelog/               # Cloud release notes
+├── openapi/                 # Cloud API specifications
 └── docs.json                # Navigation configuration for both products
 ```
 
@@ -32,7 +44,7 @@ The navigation uses a product-based hierarchy:
 
 ```
 products
-└── product (Platform | Self-Hosted)
+└── product (Cloud | Self-Hosted)
     ├── description
     ├── icon
     └── tabs
@@ -49,10 +61,10 @@ When adding a new page:
 1. Create the `.mdx` file in the appropriate directory
 2. Add the page path to the correct product → tab → group in `docs.json`
 
-Example for Platform:
+Example for Cloud:
 ```json
 {
-  "product": "Platform",
+  "product": "Cloud",
   "tabs": [{
     "tab": "Guides",
     "groups": [{
@@ -81,7 +93,7 @@ Example for Self-Hosted:
 
 Use relative paths with the `/docs/` prefix:
 
-- Platform pages: `/docs/page-name`
+- Cloud pages: `/docs/page-name`
 - Self-Hosted pages: `/docs/self-hosted/page-name`
 
 Examples:
@@ -90,7 +102,7 @@ See [System requirements](/docs/self-hosted/requirements) for details.
 Learn more about [Global Nodes](/docs/global-elastic-node).
 ```
 
-Cross-product linking is supported—you can link from Self-Hosted docs to Platform docs and vice versa.
+Cross-product linking is supported—you can link from Self-Hosted docs to Cloud docs and vice versa.
 
 ## Required page structure
 
@@ -138,10 +150,10 @@ description: "Concise description for SEO and navigation"
 
 The documentation has two products with separate release notes:
 
-- **Platform** — managed blockchain infrastructure (`changelog.mdx` + `changelog/` directory)
+- **Cloud** — managed blockchain infrastructure (`changelog.mdx` + `changelog/` directory)
 - **Self-Hosted** — deploy on your own infrastructure (`docs/self-hosted/release-notes.mdx` + `docs/self-hosted/changelog/`)
 
-### Platform release notes
+### Cloud release notes
 
 #### Structure
 
@@ -230,9 +242,9 @@ When updating the master list:
 2. Regenerate dependent tables
 3. Verify changes display correctly
 
-## API documentation requirements (Platform only)
+## API documentation requirements (Cloud only)
 
-These guidelines apply to Platform API documentation. Self-Hosted does not have API reference docs.
+These guidelines apply to Cloud API documentation. Self-Hosted does not have API reference docs.
 
 - Document all parameters with `<ParamField>`
 - Show response structure with `<ResponseField>`
@@ -428,14 +440,6 @@ Examples:
 - Monday–Friday
 - 09:00–17:00
 
-#### Hyphens in prefixes "re" and "pre"
-
-Don't use a hyphen (-) after prefixes "re" and "pre" unless its absence causes confusion.
-
-Correct:
-- resend, rewrite, prehistoric
-- *re-cover* and *re-creation* as distinct from *recover* and *recreation*
-
 #### Em dash
 
 Em dashes can function as an alternative to parentheses, commas, or a colon.
@@ -458,12 +462,6 @@ Examples:
 - CHAINSTACK_NODE_ENDPOINT — your deployed Chainstack node.
 - code-level-variable — lowercase description of the variable.
 
-#### Periods
-
-Periods are used in most text elements that are not **headings** or **interaction** items.
-
-Periods go inside quotation marks. They go outside parentheses when the parenthetical is part of a larger sentence, and inside parentheses when the parenthetical stands alone.
-
 #### Commas
 
 We make use of the Oxford comma. In a series of 3 or more items, use a comma before the final "and" or "or".
@@ -474,24 +472,6 @@ We make use of the Oxford comma. In a series of 3 or more items, use a comma bef
 #### Exclamation marks
 
 Use exclamation marks sparingly, and never more than one at a time. They should be almost non-existent in product elements. Do not use them in failures or alert messages.
-
-#### Colons
-
-When a colon is used within a sentence, the first word following the colon is lowercased unless it is a proper noun.
-
-When a colon introduces two or more sentences, speech in dialogue, a quotation or question, the first word following it is capitalized.
-
-To merit a colon, the words that introduce a series or list must themselves constitute a grammatically complete sentence.
-
-Correct:
-- The menagerie included cats, pigeons, newts, and deer ticks.
-
-Incorrect:
-- The menagerie included: cats, pigeons, newts, and deer ticks.
-
-#### Semicolons
-
-Use a semicolon between two independent clauses not joined by a conjunction to signal a closer connection between them than a period would.
 
 #### Dollar signs
 
@@ -674,7 +654,7 @@ Full markdown code:
 To invite a member to the project, click **Members** > **Invite member**.
 ```
 
-### UI as a word (Platform)
+### UI as a word (Cloud)
 
 Never use UI as a word when providing instructions for the [Chainstack console](https://console.chainstack.com/). Instead, use Chainstack.
 
@@ -687,12 +667,12 @@ For Self-Hosted documentation:
 
 - Use **Control Panel** to refer to the Self-Hosted web interface
 - Use **Chainstack Self-Hosted** for the product name (not just "Chainstack")
-- Never use "Chainstack" alone when referring to Self-Hosted—this causes confusion with the managed Platform product
+- Never use "Chainstack" alone when referring to Self-Hosted—this causes confusion with the managed Cloud product
 
 Examples:
 - Correct: Log in to the Control Panel
 - Correct: Chainstack Self-Hosted supports Ethereum Mainnet
-- Incorrect: Log in to Chainstack (ambiguous—could mean Platform)
+- Incorrect: Log in to Chainstack (ambiguous—could mean Cloud)
 - Incorrect: On the Self-Hosted UI, navigate to... (use "Control Panel" instead)
 
 ## Word usage
