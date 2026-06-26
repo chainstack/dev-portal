@@ -134,6 +134,8 @@ Use appropriate components for content:
 | `<Card>`, `<CardGroup>` | Highlighting content |
 | `<Frame>` | Wrapping images with alt text |
 
+Keep callouts short — one or two sentences. A callout is a glanceable alert, not a container for long explanations; if the content runs to a paragraph or more, move it into normal prose and keep only the key takeaway in the callout.
+
 ## 8. Code examples
 
 When adding code examples:
