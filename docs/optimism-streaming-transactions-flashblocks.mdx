@@ -1,0 +1,130 @@
+---
+title: "Track real-time transactions on Optimism with Flashblocks"
+description: "Optimism exposes Flashblocks through the pending tag, not eth_subscribe. Build a real-time view of pre-confirmed transactions on Optimism by polling the pending block every 250ms, with tested Python and JavaScript."
+---
+
+Optimism produces Flashblocks — 250 ms pre-confirmation sub-blocks — but exposes them through the standard `pending` block tag, not through WebSocket subscriptions. To follow transactions in real time on Optimism, poll the `pending` block roughly every 250 ms and track the transactions that are new since the last poll. This guide does that with tested Python and JavaScript, then covers the pre-confirmed read methods.
+
+<Info>
+For how Flashblocks works on Optimism, see [Flashblocks on Optimism](/docs/flashblocks-on-optimism). For Base, which also exposes Flashblocks as WebSocket subscriptions, see [Stream real-time transactions on Base with Flashblocks](/docs/base-streaming-transactions-flashblocks).
+</Info>
+
+## Prerequisites
+
+* An Optimism mainnet HTTPS endpoint. On Chainstack, copy it from your Optimism node's **Access and credentials** tab — it looks like `https://optimism-mainnet.core.chainstack.com/<key>`. The examples use `YOUR_OPTIMISM_HTTPS_ENDPOINT` as a placeholder.
+* Python 3.8+ with the `requests` library (`pip install requests`), or Node.js 18+ (the `fetch` API is built in, so there are no dependencies to install).
+
+## Why Optimism uses the pending tag, not eth_subscribe
+
+On Optimism, the Flashblocks subscriptions that exist on Base — `eth_subscribe("newFlashblockTransactions")`, `newFlashblocks`, and `pendingLogs` — are not exposed; calling them returns `-32602 Invalid params`. And like every OP Stack chain, Optimism has no public mempool, so `eth_subscribe("newPendingTransactions")` is effectively empty (see [Mempool configurations](/docs/mempool-configuration)). The supported real-time interface is the `pending` block tag, which reflects the latest Flashblock and advances every ~250 ms.
+
+## Track pre-confirmed transactions
+
+Poll `eth_getBlockByNumber("pending", false)` every 250 ms and emit transaction hashes you have not seen before. Each poll returns the block the sequencer is currently building; within one block number the transaction list grows every ~250 ms as new Flashblocks arrive.
+
+<CodeGroup>
+```python Python
+import time
+
+import requests
+
+HTTP = "YOUR_OPTIMISM_HTTPS_ENDPOINT"  # https://optimism-mainnet.core.chainstack.com/<key>
+
+
+def rpc(method, params):
+    response = requests.post(
+        HTTP,
+        json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
+        timeout=20,
+    )
+    return response.json()["result"]
+
+
+seen = set()
+while True:
+    block = rpc("eth_getBlockByNumber", ["pending", False])  # False -> transactions are hashes
+    for tx_hash in block["transactions"]:
+        if tx_hash not in seen:
+            seen.add(tx_hash)
+            print(tx_hash)
+    time.sleep(0.25)
+```
+
+```javascript JavaScript
+// Node.js 18+ has a built-in fetch — no dependencies required.
+const HTTP = "YOUR_OPTIMISM_HTTPS_ENDPOINT"; // https://optimism-mainnet.core.chainstack.com/<key>
+
+async function rpc(method, params) {
+  const response = await fetch(HTTP, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+  });
+  return (await response.json()).result;
+}
+
+const seen = new Set();
+while (true) {
+  const block = await rpc("eth_getBlockByNumber", ["pending", false]);
+  for (const txHash of block.transactions) {
+    if (!seen.has(txHash)) {
+      seen.add(txHash);
+      console.log(txHash);
+    }
+  }
+  await new Promise((resolve) => setTimeout(resolve, 250));
+}
+```
+</CodeGroup>
+
+You get a continuous flow of newly pre-confirmed transaction hashes:
+
+```text
+0x2e8bb259f1f2e0744238e591155db3a075d24d84bd77645681b530b9807a5859
+0x7a5a51b32639f5b2a10060c5fc63d90e738d3d2c2d7880c2ca99c7fe1f721737
+0x918d6dda3c534f67aefa91ef517fc0a66af2d5d054f0e341b25ecdc568584830
+```
+
+The `seen` set de-duplicates hashes that repeat across polls of the same in-progress block. In a test against Optimism mainnet this emitted roughly 33 new transactions per second, tracking network activity.
+
+## How the pending block evolves
+
+Each poll of the `pending` tag returns the same block number with more transactions and a different pre-confirmation hash, until the block seals and the number advances. Sampled every 250 ms:
+
+```text
+#153440621 hash=0x7380844aa8d8 txs=41
+#153440621 hash=0xd94ae98d59f2 txs=86
+#153440621 hash=0x75486d38e01c txs=119
+#153440622 hash=0xf35345a6e335 txs=24
+#153440622 hash=0x55f66d179dc7 txs=45
+```
+
+Unlike Base, where the streamed block carries a zero hash until it seals, Optimism's `pending` hash is non-zero and changes with each Flashblock — so track transactions by their own hash, not by the block hash.
+
+## Read pre-confirmed state
+
+The `pending` tag also serves request-response reads against pre-confirmed state, returning answers in ~250 ms instead of waiting ~2 s for the next canonical block:
+
+* `eth_getBlockByNumber`, `eth_call`, `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`, `eth_getStorageAt`, and `eth_estimateGas` with the `pending` tag.
+* `eth_getTransactionReceipt` and `eth_getTransactionByHash` return the pre-confirmed receipt or transaction as soon as it lands in a Flashblock.
+* `eth_sendRawTransactionSync` submits a signed transaction and returns its pre-confirmed receipt in the same response.
+
+```bash
+curl -s -X POST YOUR_OPTIMISM_HTTPS_ENDPOINT \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt","params":["0x<tx hash>"]}'
+```
+
+## Production considerations
+
+* Pre-confirmations are not final. The pending block can change until the 2-second canonical block seals, so for settlement confirm against `latest` or a finalized block.
+* Poll at ~250 ms. That matches the Flashblock cadence; polling much faster mostly returns the same state.
+* De-duplicate by transaction hash. The same transaction appears in every poll of the block it belongs to until that block seals.
+* `newPendingTransactions` will not help. Optimism has no public mempool, so the subscription is effectively empty — the `pending` tag is the real-time source.
+
+## Related
+
+* [Flashblocks on Optimism](/docs/flashblocks-on-optimism) — how Flashblocks works on Optimism, including the Optimism vs. Base comparison
+* [Stream real-time transactions on Base with Flashblocks](/docs/base-streaming-transactions-flashblocks) — Base's WebSocket-subscription approach
+* [Mempool configurations](/docs/mempool-configuration) — mempool availability by protocol
+* [`eth_getBlockByNumber`](/reference/optimism-getblockbynumber)
