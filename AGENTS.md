@@ -2,6 +2,18 @@
 
 This repository contains the Chainstack Developer Portal built with Mintlify. When working on the project interactively with an agent (e.g. the Codex CLI) please follow the guidelines below for efficient documentation development and maintenance.
 
+## Public repo — no internal info
+
+This repository is public, and every page renders publicly at [docs.chainstack.com](https://docs.chainstack.com) (and is republished as `llms-full.txt`, per-page `.md`, and through the MCP server). The PR itself — description, screenshots, commit messages, sample payloads — is public too, and gets indexed and cached. Never include:
+
+- **Secrets** — API keys, tokens, private keys, credentials. Use placeholders like `YOUR_API_KEY`.
+- **Internal infrastructure** — internal hostnames, cluster names, dashboards (Grafana, BetterStack), admin/backoffice URLs.
+- **Customer data** — names, PII, account or usage details.
+- **Unreleased material** — features, pricing, or roadmap that isn't public yet.
+- **Internal references** — YouTrack ticket links, internal Slack threads, internal-only notes.
+
+A secret committed to a public repo is compromised even after you delete or force-push it — rotate it.
+
 ## 1. Use Mintlify Development Server
 
 * **Always use `mintlify dev`** for local preview.
