@@ -21,7 +21,7 @@ This page is the hub for landing transactions on Solana. Each lever below links 
 A Solana transaction that never confirms almost always failed at one of four points:
 
 - **It never reached the leader.** Submitted through a congested shared RPC, the transaction competes with everyone else for forwarding to the current leader and can be dropped before it ever arrives.
-- **Its blockhash expired.** Every transaction references a blockhash valid for only 150 blocks (about 80–90 seconds). Miss that window and the network drops it with a `TransactionExpiredBlockheightExceededError`.
+- **Its blockhash expired.** Every transaction references a blockhash valid for only 150 blocks (about 60–90 seconds). Miss that window and the network drops it with a `TransactionExpiredBlockheightExceededError`.
 - **Its compute unit limit was wrong.** An undersized limit makes the transaction fail at execution; an oversized one overpays and can deprioritize it. The limit must match what the transaction actually consumes.
 - **It was submitted once and abandoned.** Without re-broadcasting, a single dropped attempt is the end. RPC nodes rebroadcast generically, but application-controlled retries land more reliably under congestion.
 
@@ -31,58 +31,62 @@ The levers below address each failure point in order.
 
 A landable transaction sets two Compute Budget Program instructions: a **compute unit price** (the priority fee, in micro-lamports per compute unit) and a **compute unit limit** sized to what the transaction actually consumes. The priority fee you pay is `compute_unit_price × compute_unit_limit`, so an accurate limit both improves landing and avoids overpaying.
 
-Size the limit from a simulation rather than guessing:
+Size the limit from a live simulation rather than guessing. This example uses [`@solana/kit`](https://github.com/anza-xyz/kit), the current Solana JavaScript SDK — `@solana/web3.js` v1 still works but is now the maintenance branch:
 
 ```typescript
 import {
-  ComputeBudgetProgram, Connection, TransactionMessage,
-  VersionedTransaction, TransactionInstruction, PublicKey,
-} from "@solana/web3.js";
+  createSolanaRpc, createSolanaRpcSubscriptions, pipe,
+  createTransactionMessage, setTransactionMessageFeePayerSigner,
+  setTransactionMessageLifetimeUsingBlockhash, appendTransactionMessageInstructions,
+  estimateComputeUnitLimitFactory, signTransactionMessageWithSigners,
+  sendAndConfirmTransactionFactory, getSignatureFromTransaction,
+} from "@solana/kit";
+import {
+  getSetComputeUnitPriceInstruction, getSetComputeUnitLimitInstruction,
+} from "@solana-program/compute-budget";
 
-// Build a transaction with a simulation-sized compute unit limit and a priority fee.
-async function buildLandableTx(
-  connection: Connection,
-  payer: PublicKey,
-  instructions: TransactionInstruction[],
-  microLamportsPerCU: number,
-) {
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash("confirmed");
+const rpc = createSolanaRpc("YOUR_CHAINSTACK_SOLANA_HTTPS_ENDPOINT");
+const rpcSubscriptions = createSolanaRpcSubscriptions("YOUR_CHAINSTACK_SOLANA_WSS_ENDPOINT");
 
-  // Simulate once to measure the compute units the transaction actually consumes.
-  const simMessage = new TransactionMessage({
-    payerKey: payer, recentBlockhash: blockhash, instructions,
-  }).compileToV0Message();
-  const sim = await connection.simulateTransaction(
-    new VersionedTransaction(simMessage),
-    { replaceRecentBlockhash: true, sigVerify: false },
+// signer: a TransactionSigner (a wallet, or from generateKeyPairSigner)
+// instructions: your program instructions
+// microLamportsPerCU: from the local fee market (see below)
+async function landTransaction(signer, instructions, microLamportsPerCU) {
+  // 1. Fresh blockhash at the confirmed commitment.
+  const { value: blockhash } = await rpc.getLatestBlockhash({ commitment: "confirmed" }).send();
+
+  // 2. Draft the message with the priority fee (compute unit price).
+  const draft = pipe(
+    createTransactionMessage({ version: 0 }),
+    (m) => setTransactionMessageFeePayerSigner(signer, m),
+    (m) => setTransactionMessageLifetimeUsingBlockhash(blockhash, m),
+    (m) => appendTransactionMessageInstructions(
+      [getSetComputeUnitPriceInstruction({ microLamports: microLamportsPerCU }), ...instructions], m),
   );
-  const consumed = sim.value.unitsConsumed ?? 200_000;
 
-  // Prepend the compute budget instructions, adding ~10% margin to the limit.
-  const budget = [
-    ComputeBudgetProgram.setComputeUnitLimit({ units: Math.ceil(consumed * 1.1) }),
-    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: microLamportsPerCU }),
-  ];
-  const message = new TransactionMessage({
-    payerKey: payer, recentBlockhash: blockhash,
-    instructions: [...budget, ...instructions],
-  }).compileToV0Message();
+  // 3. Size the compute unit limit from a live simulation, then set it (~10% margin).
+  const units = await estimateComputeUnitLimitFactory({ rpc })(draft);
+  const message = appendTransactionMessageInstructions(
+    [getSetComputeUnitLimitInstruction({ units: Math.ceil(units * 1.1) })], draft);
 
-  return { tx: new VersionedTransaction(message), lastValidBlockHeight };
+  // 4. Sign and send. sendAndConfirmTransactionFactory confirms over websockets against
+  //    the blockhash + lastValidBlockHeight — no deprecated confirmTransaction.
+  const signedTx = await signTransactionMessageWithSigners(message);
+  await sendAndConfirmTransactionFactory({ rpc, rpcSubscriptions })(signedTx, { commitment: "confirmed" });
+  return getSignatureFromTransaction(signedTx);
 }
 ```
 
-Choose the `microLamportsPerCU` value from live network data rather than a fixed constant. Two methods estimate it:
+Choose the compute unit price from the live **local fee market**, not a fixed constant. Solana's fee market is keyed to the *writable accounts* your transaction locks, so pass those accounts — not program IDs — to `getRecentPrioritizationFees`. Since Agave 2.0, priority fees go entirely to the block-producing validator. Two ways to estimate the price:
 
-- [Estimate priority fees with RPC methods](/docs/solana-estimate-priority-fees-getrecentprioritizationfees) — use `getRecentPrioritizationFees` for a percentile-based estimate.
+- [Estimate priority fees with RPC methods](/docs/solana-estimate-priority-fees-getrecentprioritizationfees) — `getRecentPrioritizationFees` for a percentile-based estimate over your writable accounts.
 - [Analyze adjacent transactions for priority fees](/docs/solana-analyzing-adjacent-transactions-for-priority-fees) — read what actually landed in recent blocks.
 
-For a complete runnable script, see [Priority fees for faster transactions](/docs/solana-how-to-priority-fees-faster-transactions), and for a real trading example, [Priority fees for a Jupiter swap in Python](/docs/solana-priority-fees-for-a-jupiter-in-python).
+For complete runnable scripts, see [Priority fees for faster transactions](/docs/solana-how-to-priority-fees-faster-transactions) and [Priority fees for a Jupiter swap in Python](/docs/solana-priority-fees-for-a-jupiter-in-python) (these currently use web3.js v1; the landing concepts are identical).
 
 ## Lever 2: use a fresh blockhash and respect expiry
 
-Every Solana transaction references a recent blockhash that is valid for **150 blocks — about 80–90 seconds**. The transaction carries a `lastValidBlockHeight`; if the network reaches that height without confirming it, the transaction is dropped and you get a `TransactionExpiredBlockheightExceededError`.
+Every Solana transaction references a recent blockhash that is valid for **150 blocks — about 60–90 seconds**. The transaction carries a `lastValidBlockHeight`; if the network reaches that height without confirming it, the transaction is dropped and you get a `TransactionExpiredBlockheightExceededError`.
 
 Fetch the blockhash at the `confirmed` commitment right before you sign, track its `lastValidBlockHeight`, and stop retrying once the current block height passes it — then rebuild with a new blockhash. The full diagnosis and handling strategy is in [Handle the transaction expiry error](/docs/solana-how-to-handle-the-transaction-expiry-error).
 
@@ -99,14 +103,16 @@ Where you submit `sendTransaction` matters more than any fee you attach. There a
 Priority fees and the submission path solve different problems. The submission path decides whether your transaction reaches the leader; the priority fee decides its ordering once it's there. A high priority fee on a transaction that never reaches the leader still doesn't land.
 </Note>
 
-For live, continuously-measured landing rates comparing Warp against other providers, see the [Chainstack Compare dashboard](https://compare.chainstack.com/). To also defend against sandwich attacks on the way in, see [Solana MEV protection](/docs/solana-mev-protection).
+For competitive or atomic flows — arbitrage, liquidations, high-contention mints — **Jito bundles** are a distinct delivery channel: an all-or-nothing group of up to five transactions that a Jito validator executes in order, prioritized by a tip you attach rather than by the priority fee. Most Solana stake runs the Jito client, so tips are a primary path for latency-sensitive transactions — complementary to SwQoS, not a replacement.
+
+For live, continuously-measured landing rates comparing Warp against other providers, see the [Chainstack Compare dashboard](https://compare.chainstack.com/). To defend against sandwich attacks on the way in — including Jito's `dontfront` — see [Solana MEV protection](/docs/solana-mev-protection).
 
 ## Lever 4: retry and confirm correctly
 
 A single submission is not enough under congestion. Re-broadcast the *same signed transaction* until it either confirms or its blockhash expires — never resubmit with a new blockhash while the old one is still valid, or you risk landing the transaction twice.
 
-- Set `maxRetries` on `sendTransaction`, or set it low and manage rebroadcasting in your own loop for finer control over timing.
-- Confirm against the transaction's `blockhash` and `lastValidBlockHeight` rather than polling blindly, so you stop the moment it lands or expires.
+- For the standard path, `sendAndConfirmTransactionFactory` confirms over websockets against the blockhash and `lastValidBlockHeight` — see the [Lever 1 example](#lever-1-build-a-well-formed-transaction). Avoid the legacy `confirmTransaction` RPC method; it's deprecated.
+- For an aggressive path under congestion, send with `maxRetries: 0` and `skipPreflight: true`, then run your own loop: re-send the same signed transaction every few seconds and poll `getSignatureStatuses`, stopping when it confirms or the current block height passes `lastValidBlockHeight`.
 - Submit through geographically close endpoints to cut propagation latency.
 
 Full patterns are in [Enhance SPL token transfers with retry logic](/docs/enhancing-solana-spl-token-transfers-with-retry-logic) and [Use multiple RPC endpoints to optimize performance](/docs/solana-how-to-use-multiple-rpc-endpoints-optimize-dapp-performance). To confirm and index landed transactions by block and block time, see [Associate transactions with block time using Yellowstone gRPC](/docs/solana-transactions-block-time-yellowstone-grpc).
@@ -118,7 +124,7 @@ Both, in order. First get the transaction to the leader (submission path), then 
 ## FAQ
 
 **Why does my transaction get `TransactionExpiredBlockheightExceededError`?**
-Its blockhash aged past the 150-block (~80–90 second) validity window before the network confirmed it — usually because it was submitted through a congested path, never reached the leader, and wasn't rebroadcast in time. Fix the submission path first, then add retry logic. See [Handle the transaction expiry error](/docs/solana-how-to-handle-the-transaction-expiry-error).
+Its blockhash aged past the 150-block (~60–90 second) validity window before the network confirmed it — usually because it was submitted through a congested path, never reached the leader, and wasn't rebroadcast in time. Fix the submission path first, then add retry logic. See [Handle the transaction expiry error](/docs/solana-how-to-handle-the-transaction-expiry-error).
 
 **Do higher priority fees guarantee my transaction lands?**
 No. Priority fees order transactions the leader has already received; they don't get a transaction to the leader. If the transaction is dropped before the leader on a congested shared RPC, no fee saves it. See [Lever 3: choose the right submission path](#lever-3-choose-the-right-submission-path-the-biggest-lever).
@@ -131,6 +137,9 @@ Simulate the transaction, read `unitsConsumed`, and set the limit to that value 
 
 **Is `sendTransaction` retrying enough on its own?**
 The RPC node rebroadcasts generically, but application-controlled retries — re-sending the same signed transaction until it confirms or expires — land more reliably under congestion. See [Enhance transfers with retry logic](/docs/enhancing-solana-spl-token-transfers-with-retry-logic).
+
+**Which Solana JavaScript library should I use?**
+For new code, `@solana/kit` — the current Solana SDK, shown in [Lever 1](#lever-1-build-a-well-formed-transaction). `@solana/web3.js` v1 still works but is the maintenance branch. The deep-dive tutorials linked here currently use v1; the landing concepts are identical.
 
 ## Deep-dives
 
