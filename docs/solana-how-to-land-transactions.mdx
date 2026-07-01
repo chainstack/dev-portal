@@ -88,7 +88,7 @@ For complete runnable scripts, see [Priority fees for faster transactions](/docs
 
 Every Solana transaction references a recent blockhash that is valid for **150 blocks — about 60–90 seconds**. The transaction carries a `lastValidBlockHeight`; if the network reaches that height without confirming it, the transaction is dropped and you get a `TransactionExpiredBlockheightExceededError`.
 
-Fetch the blockhash at the `confirmed` commitment right before you sign, track its `lastValidBlockHeight`, and stop retrying once the current block height passes it — then rebuild with a new blockhash. The full diagnosis and handling strategy is in [Handle the transaction expiry error](/docs/solana-how-to-handle-the-transaction-expiry-error).
+Fetch the blockhash at the `confirmed` commitment right before you sign, track its `lastValidBlockHeight`, and stop retrying once the current block height passes it — then rebuild with a new blockhash. The full diagnosis and handling strategy is in [Handle the transaction expiry error](/docs/solana-how-to-handle-the-transaction-expiry-error). For transactions that must stay valid beyond that window — offline or multi-party signing — use a [durable nonce](/docs/solana-durable-nonces) instead of a recent blockhash.
 
 ## Lever 3: choose the right submission path (the biggest lever)
 
@@ -103,16 +103,18 @@ Where you submit `sendTransaction` matters more than any fee you attach. There a
 Priority fees and the submission path solve different problems. The submission path decides whether your transaction reaches the leader; the priority fee decides its ordering once it's there. A high priority fee on a transaction that never reaches the leader still doesn't land.
 </Note>
 
-For competitive or atomic flows — arbitrage, liquidations, high-contention mints — **Jito bundles** are a distinct delivery channel: an all-or-nothing group of up to five transactions that a Jito validator executes in order, prioritized by a tip you attach rather than by the priority fee. Most Solana stake runs the Jito client, so tips are a primary path for latency-sensitive transactions — complementary to SwQoS, not a replacement.
+For competitive or atomic flows — arbitrage, liquidations, high-contention mints — **Jito bundles** are a distinct channel: an all-or-nothing group of up to five transactions that a Jito validator executes in order, prioritized by a tip you attach rather than by the priority fee. With most Solana stake running the Jito client, tips are a primary path for latency-sensitive transactions. Bundles are submitted to Jito's Block Engine (`mainnet.block-engine.jito.wtf`), not through a standard RPC node — so this path runs alongside your Chainstack endpoint rather than through it, and complements SwQoS rather than replacing it. See [Solana MEV protection](/docs/solana-mev-protection) for the anti-sandwich `dontfront` pattern.
 
-For live, continuously-measured landing rates comparing Warp against other providers, see the [Chainstack Compare dashboard](https://compare.chainstack.com/). To defend against sandwich attacks on the way in — including Jito's `dontfront` — see [Solana MEV protection](/docs/solana-mev-protection).
+For live, continuously-measured landing rates comparing Warp against other providers, see the [Chainstack Compare dashboard](https://compare.chainstack.com/).
+
+Under heavy, unpredictable load, the most reliable setups **fan out** — submit the same signed transaction through more than one path at once (for example a staked connection plus a public RPC, or add a Jito bundle). De-duplication by signature makes this safe: the network runs a given transaction at most once, no matter how many paths deliver it.
 
 ## Lever 4: retry and confirm correctly
 
 A single submission is not enough under congestion. Re-broadcast the *same signed transaction* until it either confirms or its blockhash expires — never resubmit with a new blockhash while the old one is still valid, or you risk landing the transaction twice.
 
 - For the standard path, `sendAndConfirmTransactionFactory` confirms over websockets against the blockhash and `lastValidBlockHeight` — see the [Lever 1 example](#lever-1-build-a-well-formed-transaction). Avoid the legacy `confirmTransaction` RPC method; it's deprecated.
-- For an aggressive path under congestion, send with `maxRetries: 0` and `skipPreflight: true`, then run your own loop: re-send the same signed transaction every few seconds and poll `getSignatureStatuses`, stopping when it confirms or the current block height passes `lastValidBlockHeight`.
+- For an aggressive path under congestion, send with `maxRetries: 0` and `skipPreflight: true`, then run your own loop: re-send the same signed transaction every few seconds and poll `getSignatureStatuses`, stopping when it confirms or the current block height passes `lastValidBlockHeight`. Skip preflight only after a successful simulation — `skipPreflight: true` also skips the check that catches a malformed transaction, so it hides errors if you haven't already validated.
 - Submit through geographically close endpoints to cut propagation latency.
 
 Full patterns are in [Enhance SPL token transfers with retry logic](/docs/enhancing-solana-spl-token-transfers-with-retry-logic) and [Use multiple RPC endpoints to optimize performance](/docs/solana-how-to-use-multiple-rpc-endpoints-optimize-dapp-performance). To confirm and index landed transactions by block and block time, see [Associate transactions with block time using Yellowstone gRPC](/docs/solana-transactions-block-time-yellowstone-grpc).
