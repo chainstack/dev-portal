@@ -15,7 +15,7 @@ Transaction speed and efficiency are crucial factors that can make or break user
 
 Priority fees on Solana allow users to attach a higher fee to their transactions, incentivizing validators to process them more quickly. By setting a higher compute unit price, your transaction gains priority over those with lower fees, ensuring faster confirmation times. This feature is particularly valuable for time-sensitive operations, such as trading on decentralized exchanges or participating in high-demand events like NFT mints.
 
-In this tutorial, we'll dive into the concept of priority fees on Solana, exploring how they work and why they are a valuable tool for developers and users alike. We'll walk through a practical example, demonstrating how to implement priority fees in your Solana applications using the Solana web3.js library and TypeScript. By the end of this guide, you'll have a solid understanding of priority fees and the ability to leverage them to enhance the performance of your Solana-based projects.
+In this tutorial, we'll dive into the concept of priority fees on Solana, exploring how they work and why they are a valuable tool for developers and users alike. We'll walk through a practical example, demonstrating how to implement priority fees in your Solana applications using `@solana/kit` and TypeScript. `@solana/kit` (formerly `@solana/web3.js` v2) is the current Solana JavaScript SDK; the older `@solana/web3.js` v1 still works but is now in maintenance mode. By the end of this guide, you'll have a solid understanding of priority fees and the ability to leverage them to enhance the performance of your Solana-based projects.
 
 ## Understand Solana Priority Fees
 
@@ -29,7 +29,7 @@ The higher the compute units required for a transaction, the more fees will be p
 
 This project aims to provide a practical demonstration of how to implement priority fees in Solana transactions. The code showcases a simple Solana transaction that transfers SOL from one account to another with the addition of a priority fee.
 
-The example uses the Compute Budget Program's `setComputeUnitPrice` to set a compute unit price, which attaches the priority fee. In production, pair it with `setComputeUnitLimit` to cap the compute units — the priority fee is `compute_unit_price × compute_unit_limit`, so an accurate limit (ideally sized from a transaction simulation) both improves landing and avoids overpaying.
+The example sets a compute unit price with the Compute Budget Program's `getSetComputeUnitPriceInstruction`, which attaches the priority fee, and pairs it with `getSetComputeUnitLimitInstruction` to cap the compute units. The priority fee is `compute_unit_price × compute_unit_limit`, so the example sizes the limit from a live transaction simulation (`estimateComputeUnitLimit`) rather than guessing — an accurate limit both improves landing and avoids overpaying.
 
 ## Prerequisites
 
@@ -108,26 +108,27 @@ To interact with the Solana blockchain, we must install several packages. These 
 
 Follow these steps to install the required packages:
 
-#### Install the Solana Web3.js library
+#### Install the Solana Kit library and program clients
 
 <CodeGroup>
   ```bash Bash
-  npm install @solana/web3.js
+  npm install @solana/kit @solana-program/compute-budget @solana-program/system
   ```
 </CodeGroup>
 
-* The `@solana/web3.js` package is the official Solana Web3 library, which provides a JavaScript API for interacting with the Solana blockchain.
+* The `@solana/kit` package is the current Solana JavaScript SDK, which provides a tree-shakable, functional API for interacting with the Solana blockchain. It also handles base58 encoding/decoding, so no separate `bs58` package is needed.
+* The `@solana-program/compute-budget` package provides the Compute Budget Program instructions used to set the compute unit price (the priority fee) and limit.
+* The `@solana-program/system` package provides the System Program instructions, including the SOL transfer used in this example.
 
 #### Install additional dependencies
 
 <CodeGroup>
   ```bash Bash
-  npm install bs58 dotenv
+  npm install dotenv
   npm install --save-dev ts-node
   ```
 </CodeGroup>
 
-* The `bs58` package is a base58 encoding/decoding library for Solana addresses and keypairs.
 * The `dotenv` package allows us to load environment variables from a `.env` file, which helps store sensitive information like private keys.
 * The `ts-node` package lets you run TypeScript files directly without a separate compilation step.
 
@@ -136,8 +137,9 @@ After running these commands, your `package.json` file should have the following
 <CodeGroup>
   ```Json JSON
     "dependencies": {
-      "@solana/web3.js": "^1.91.1",
-      "bs58": "^5.0.0",
+      "@solana/kit": "^7.0.0",
+      "@solana-program/compute-budget": "^0.15.0",
+      "@solana-program/system": "^0.12.0",
       "dotenv": "^16.4.5"
     }
   ```
@@ -205,77 +207,84 @@ Now that we have set up the project, installed the required packages, and config
 
 <CodeGroup>
   ```typescript TypeScript
-  import { ComputeBudgetProgram, Connection, Keypair, LAMPORTS_PER_SOL, SystemProgram, TransactionInstruction, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
-  import bs58 from "bs58";
-  import 'dotenv/config';
+  import {
+    createSolanaRpc, createSolanaRpcSubscriptions, lamports, pipe,
+    createKeyPairSignerFromBytes, getBase58Encoder,
+    createTransactionMessage, setTransactionMessageFeePayerSigner,
+    setTransactionMessageLifetimeUsingBlockhash, appendTransactionMessageInstructions,
+    estimateComputeUnitLimitFactory, signTransactionMessageWithSigners,
+    sendAndConfirmTransactionFactory, getSignatureFromTransaction,
+  } from "@solana/kit";
+  import {
+    getSetComputeUnitPriceInstruction, getSetComputeUnitLimitInstruction,
+  } from "@solana-program/compute-budget";
+  import { getTransferSolInstruction } from "@solana-program/system";
+  import "dotenv/config";
 
-  const CHAINSTACK_RPC = process.env.SOLANA_RPC || "";
-  const SOLANA_CONNECTION = new Connection(CHAINSTACK_RPC, {wsEndpoint:process.env.SOLANA_WSS, commitment: "confirmed"});
-  console.log(`Connected to Solana RPC at ${CHAINSTACK_RPC.slice(0, -36)}`);
-
-  // Decodes the provided environment variable private key and generates a Keypair.
-  const privateKey = new Uint8Array(bs58.decode(process.env.PRIVATE_KEY!));
-  const FROM_KEYPAIR = Keypair.fromSecretKey(privateKey);
-  console.log(`Initial Setup: Public Key - ${FROM_KEYPAIR.publicKey.toString()}`);
+  const rpc = createSolanaRpc(process.env.SOLANA_RPC!);
+  const rpcSubscriptions = createSolanaRpcSubscriptions(process.env.SOLANA_WSS!);
 
   // Config priority fee and amount to transfer
-  const PRIORITY_RATE = 25000; // MICRO_LAMPORTS
-  const AMOUNT_TO_TRANSFER = 0.001 * LAMPORTS_PER_SOL;
-
-  // Instruction to set the compute unit price for priority fee
-  const PRIORITY_FEE_INSTRUCTIONS = ComputeBudgetProgram.setComputeUnitPrice({microLamports: PRIORITY_RATE});
+  const PRIORITY_RATE = 25000; // micro-lamports per compute unit
+  const AMOUNT_TO_TRANSFER = lamports(1_000_000n); // 0.001 SOL (1 SOL = 1_000_000_000 lamports)
 
   async function sendTransactionWithPriorityFee() {
-    // Create instructions for the transaction
-    const instructions: TransactionInstruction[] = [
-      SystemProgram.transfer({
-        fromPubkey: FROM_KEYPAIR.publicKey,
-        toPubkey: FROM_KEYPAIR.publicKey,
-        lamports: AMOUNT_TO_TRANSFER
-      }),
-      PRIORITY_FEE_INSTRUCTIONS
-    ];
+    // Load the fee payer from a base58-encoded secret key. @solana/kit decodes base58
+    // with getBase58Encoder, so no separate bs58 package is needed.
+    const signer = await createKeyPairSignerFromBytes(
+      getBase58Encoder().encode(process.env.PRIVATE_KEY!)
+    );
+    console.log(`Initial Setup: Public Key - ${signer.address}`);
 
-    // Get the latest blockhash
-    let latestBlockhash = await SOLANA_CONNECTION.getLatestBlockhash('confirmed');
-    console.log(" ✅ - Fetched latest blockhash. Last Valid Height:", latestBlockhash.lastValidBlockHeight);
+    // Get the latest blockhash at the confirmed commitment
+    const { value: latestBlockhash } = await rpc
+      .getLatestBlockhash({ commitment: "confirmed" })
+      .send();
+    console.log(" ✅ - Fetched latest blockhash. Last valid height:", latestBlockhash.lastValidBlockHeight);
 
-    // Generate the transaction message
-    const messageV0 = new TransactionMessage({
-      payerKey: FROM_KEYPAIR.publicKey,
-      recentBlockhash: latestBlockhash.blockhash,
-      instructions: instructions
-    }).compileToV0Message();
-    console.log(" ✅ - Compiled Transaction Message");
+    // Build the transaction message: attach the priority fee (compute unit price)
+    // and the self-transfer instruction.
+    const draftMessage = pipe(
+      createTransactionMessage({ version: 0 }),
+      (m) => setTransactionMessageFeePayerSigner(signer, m),
+      (m) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
+      (m) => appendTransactionMessageInstructions([
+        getSetComputeUnitPriceInstruction({ microLamports: PRIORITY_RATE }),
+        getTransferSolInstruction({
+          source: signer,
+          destination: signer.address,
+          amount: AMOUNT_TO_TRANSFER,
+        }),
+      ], m),
+    );
+    console.log(" ✅ - Built transaction message");
 
-    // Create a VersionedTransaction and sign it
-    const transaction = new VersionedTransaction(messageV0);
-    transaction.sign([FROM_KEYPAIR]);
-    console.log(" ✅ - Transaction Signed");
+    // Size the compute unit limit from a live simulation (~10% margin), then set it.
+    // The priority fee you pay is compute_unit_price × compute_unit_limit, so an
+    // accurate limit improves landing and avoids overpaying.
+    const estimatedUnits = await estimateComputeUnitLimitFactory({ rpc })(draftMessage);
+    const message = appendTransactionMessageInstructions(
+      [getSetComputeUnitLimitInstruction({ units: Math.ceil(estimatedUnits * 1.1) })],
+      draftMessage,
+    );
+    console.log(` ✅ - Estimated compute units: ${estimatedUnits}`);
 
-    console.log(`Sending ${AMOUNT_TO_TRANSFER / LAMPORTS_PER_SOL} SOL from ${FROM_KEYPAIR.publicKey} to ${FROM_KEYPAIR.publicKey} with priority fee rate ${PRIORITY_RATE} microLamports`);
+    // Sign the transaction
+    const signedTransaction = await signTransactionMessageWithSigners(message);
+    const signature = getSignatureFromTransaction(signedTransaction);
+    console.log(" ✅ - Transaction signed");
+
+    console.log(`Sending ${Number(AMOUNT_TO_TRANSFER) / 1e9} SOL from ${signer.address} to ${signer.address} with priority fee rate ${PRIORITY_RATE} micro-lamports`);
 
     try {
-      // Send the transaction to the network
-      const txid = await SOLANA_CONNECTION.sendTransaction(transaction, { maxRetries: 15 });
-      console.log(" ✅ - Transaction sent to network");
-
-      // Confirm the transaction
-      const confirmation = await SOLANA_CONNECTION.confirmTransaction({
-        signature: txid,
-        blockhash: latestBlockhash.blockhash,
-        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-      });
-      if (confirmation.value.err) {
-        throw new Error("🚨 Transaction not confirmed.");
-      }
-
-      // Get the transaction result
-      const txResult = await SOLANA_CONNECTION.getTransaction(txid, {maxSupportedTransactionVersion: 0})
-      console.log('🚀 Transaction Successfully Confirmed!', '\n', `https://solscan.io/tx/${txid}`);
-      console.log(`Transaction Fee: ${txResult?.meta?.fee} Lamports`);
+      // Send and confirm over websockets against the blockhash + lastValidBlockHeight.
+      // sendAndConfirmTransactionFactory replaces the deprecated confirmTransaction.
+      await sendAndConfirmTransactionFactory({ rpc, rpcSubscriptions })(
+        signedTransaction, { commitment: "confirmed" }
+      );
+      console.log("🚀 Transaction Successfully Confirmed!", "\n", `https://solscan.io/tx/${signature}`);
     } catch (error) {
-      console.log(error);
+      console.error(error);
     }
   }
 
@@ -286,19 +295,21 @@ Now that we have set up the project, installed the required packages, and config
 
 Here is a breakdown of the code:
 
-### Initialize connection and account
+### Initialize the RPC client and account
 
-* **RPC connection**: The script initializes a connection to the Solana blockchain using a provided RPC URL and WebSocket (WSS) endpoint for real-time updates. The connection is established with a "confirmed" commitment level.
-* **Account keypair**: It decodes a private key from the environment variable using base58 encoding, converting it into a `Uint8Array`. This array is then used to generate a `Keypair`, representing the sender's account on the Solana blockchain.
+* **RPC client**: The script creates an RPC client with `createSolanaRpc` for HTTP calls and a subscriptions client with `createSolanaRpcSubscriptions` for the websocket confirmation, using the RPC and WSS endpoints from your environment.
+* **Account signer**: It decodes the base58 private key from the environment variable with `getBase58Encoder`, then loads it as a `TransactionSigner` with `createKeyPairSignerFromBytes` — representing the sender's account on the Solana blockchain.
 
 ### Configure transaction details
 
-* **Priority fee and transfer amount**: The script sets a priority fee rate in microLamports and defines the amount of SOL to transfer. The priority fee adjusts the compute unit price to influence the transaction processing speed.
+* **Priority fee and transfer amount**: The script sets a priority fee rate in micro-lamports and defines the amount of SOL to transfer as a `lamports` value. The priority fee adjusts the compute unit price to influence the transaction processing speed.
 
 * **Transaction instructions**: Two main instructions are created:
 
-  1. A transfer instruction to move SOL from the sender's account to a specified recipient (in this case, it transfers to the same account for demonstration).
-  2. An instruction to set the compute unit price, effectively applying the priority fee to the transaction.
+  1. An instruction to set the compute unit price, effectively applying the priority fee to the transaction.
+  2. A transfer instruction to move SOL from the sender's account to a specified recipient (in this case, it transfers to the same account for demonstration).
+
+  A third instruction — the compute unit limit — is appended after the transaction is simulated, so the limit matches what the transaction actually consumes.
 
 <Info>
   In this example, the micro-lamport amount is arbitrary, but you can calculate it more dynamically using the **[getRecentPrioritizationFees](/reference/solana-getrecentprioritizationfees)** method
@@ -306,11 +317,12 @@ Here is a breakdown of the code:
 
 ### Construct and send the transaction
 
-* **Fetch the latest blockhash**: This function retrieves the most recent blockhash from the blockchain. It is required to ensure the transaction is processed in a timely manner, as it ties the transaction to a specific point in the blockchain's history.
-* **Compile the transaction message**: The instructions are compiled into a `TransactionMessage`. This message includes the transaction's metadata, such as the payer and the recent blockhash, alongside the instructions to be executed.
-* **Sign the transaction**: A `VersionedTransaction` is created from the compiled message and signed with the sender's private key. This process authenticates the transaction and ensures it has not been tampered with.
-* **Submit the transaction and await confirmation**: The signed transaction is sent to the network. The script then waits for confirmation that the transaction has been processed. This involves checking that the transaction was successful and did not encounter any errors.
-* **Logging and error handling**: Throughout the process, the script logs key information and milestones, such as the successful connection to the RPC, transaction signing, and submission. It also includes error handling to manage issues during the transaction process, ensuring the sender is informed of the transaction outcome.
+* **Fetch the latest blockhash**: Retrieves the most recent blockhash at the `confirmed` commitment. It ties the transaction to a recent point in the chain's history so the network processes it in a timely manner, and its `lastValidBlockHeight` bounds how long the transaction stays valid.
+* **Build the transaction message**: The `pipe` helper composes a version 0 transaction message — setting the fee payer signer, the blockhash lifetime, and the instructions to be executed.
+* **Size the compute unit limit**: `estimateComputeUnitLimitFactory` simulates the transaction against the node to measure the compute units it consumes, and the script sets the limit to that value plus a ~10% margin.
+* **Sign the transaction**: `signTransactionMessageWithSigners` signs the message with the fee payer's key, authenticating the transaction and ensuring it has not been tampered with.
+* **Submit the transaction and await confirmation**: `sendAndConfirmTransactionFactory` sends the signed transaction and confirms it over websockets against the blockhash and `lastValidBlockHeight` — no deprecated `confirmTransaction` call.
+* **Logging and error handling**: Throughout the process, the script logs key milestones such as the estimated compute units, transaction signing, and submission. It also includes error handling to manage issues during the transaction process, ensuring the sender is informed of the transaction outcome.
 
 This breakdown focuses on the steps involved in creating and sending a Solana transaction with a priority fee, from initializing the necessary components to submitting the transaction and handling the outcome.
 
@@ -325,10 +337,10 @@ You can adjust the recipient, the priority fee rate, and the transfer amount by 
   // Config priority fee and amount to transfer
   const PRIORITY_RATE = 25000; // Adjust the priority fee rate in micro-lamports here
 
-  const AMOUNT_TO_TRANSFER = 0.001 * LAMPORTS_PER_SOL; // Change the transfer amount here
+  const AMOUNT_TO_TRANSFER = lamports(1_000_000n); // Change the transfer amount here (in lamports)
 
-  // Adjust the recipient public key for the transfer
-  const toPubkey = FROM_KEYPAIR.publicKey; // Change to desired recipient's public key
+  // To send to another wallet, import `address` from @solana/kit and set the
+  // transfer destination to address("RECIPIENT_ADDRESS") instead of signer.address.
   ```
 </CodeGroup>
 
@@ -346,16 +358,14 @@ This will initiate the transaction with the applied priority fee, logging the pr
   ```shell Shell
   $ ts-node main.ts
 
-Connected to Solana RPC at https://solana-mainnet.core.chainstack.
 Initial Setup: Public Key - CzNGm14nMopjGYyycMbWqEF2e1aEHcJLKk2CHw9BiZwC
- ✅ - Fetched latest blockhash. Last Valid Height: 235678920
- ✅ - Compiled Transaction Message
- ✅ - Transaction Signed
-Sending 0.001 SOL from CzNGm14nMopjGYyycMbWqEF2e1aEHcJLKk2CHw9BiZwC to CzNGm14nMopjGYyycMbWqEF2e1aEHcJLKk2CHw9BiZwC with priority fee rate 25000 microLamports
- ✅ - Transaction sent to network
+ ✅ - Fetched latest blockhash. Last valid height: 235678920
+ ✅ - Built transaction message
+ ✅ - Estimated compute units: 300
+ ✅ - Transaction signed
+Sending 0.001 SOL from CzNGm14nMopjGYyycMbWqEF2e1aEHcJLKk2CHw9BiZwC to CzNGm14nMopjGYyycMbWqEF2e1aEHcJLKk2CHw9BiZwC with priority fee rate 25000 micro-lamports
 🚀 Transaction Successfully Confirmed!
  https://solscan.io/tx/4iJ6MZQ8kBBp4KeZrcrm9fkfL92mccbgD6uMFu84iNkxSi589E1yw4fbpHUcpEk3LhtDYQ76vjbyNQaG52TSaWfT
-Transaction Fee: 10000 Lamports
 
   ```
 </CodeGroup>
@@ -366,7 +376,7 @@ Transaction Fee: 10000 Lamports
 
 ## Conclusion
 
-In this guide, we've explored the concept of priority fees on the Solana blockchain, demonstrating their significance and how they can be utilized to ensure faster transaction processing times, particularly during periods of high network congestion. You've learned about the mechanics of priority fees, including how they incentivize validators with higher fees for quicker transaction confirmations. Through a practical example, we've walked you through implementing priority fees in your Solana transactions using the `@solana/web3.js` library and TypeScript.
+In this guide, we've explored the concept of priority fees on the Solana blockchain, demonstrating their significance and how they can be utilized to ensure faster transaction processing times, particularly during periods of high network congestion. You've learned about the mechanics of priority fees, including how they incentivize validators with higher fees for quicker transaction confirmations. Through a practical example, we've walked you through implementing priority fees in your Solana transactions using `@solana/kit` and TypeScript.
 
 By adjusting the compute unit price, we've shown how you can prioritize your transactions over others, which is especially useful for time-sensitive operations. This guide has equipped you with the knowledge to incorporate priority fees into your Solana-based applications, enhancing the user experience by reducing wait times for transaction confirmations.
 
