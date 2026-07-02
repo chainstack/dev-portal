@@ -46,13 +46,134 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 
 ### Prerequisites
 
+The example is shown in both Solana JavaScript libraries — both are actively maintained, so use whichever fits your project. `@solana/kit` is the newer, tree-shakable, functional SDK; `@solana/web3.js` is the classic `Connection`/`PublicKey` API.
+
+<Tabs>
+  <Tab title="@solana/kit">
 ```bash
-npm install @solana/web3.js dotenv
+npm install @solana/kit @solana-program/system dotenv
 ```
+  </Tab>
+  <Tab title="@solana/web3.js (classic)">
+```bash
+npm install @solana/web3.js bs58 dotenv
+```
+  </Tab>
+</Tabs>
 
 ### Add `dontfront` protection to a transaction
 
-<CodeGroup>
+<Tabs>
+  <Tab title="@solana/kit">
+```typescript TypeScript
+import {
+  createSolanaRpc,
+  address,
+  lamports,
+  pipe,
+  createKeyPairSignerFromBytes,
+  getBase58Encoder,
+  createTransactionMessage,
+  setTransactionMessageFeePayerSigner,
+  setTransactionMessageLifetimeUsingBlockhash,
+  appendTransactionMessageInstructions,
+  signTransactionMessageWithSigners,
+  getBase64EncodedWireTransaction,
+  AccountRole,
+} from "@solana/kit";
+import { getTransferSolInstruction } from "@solana-program/system";
+import "dotenv/config";
+
+// Use your Chainstack endpoint for reads
+const rpc = createSolanaRpc(process.env.SOLANA_RPC!);
+// @solana/kit decodes base58, so no separate bs58 package is needed
+const payer = await createKeyPairSignerFromBytes(
+  getBase58Encoder().encode(process.env.PRIVATE_KEY!)
+);
+
+// Jito block engine for sends
+const JITO_ENDPOINT =
+  "https://mainnet.block-engine.jito.wtf/api/v1/transactions";
+
+// Any valid pubkey starting with "jitodontfront". Does not need to exist on-chain.
+const DONT_FRONT = address("jitodontfront111111111111111111111111111111");
+
+// Jito tip accounts — pick one at random to reduce contention
+const TIP_ACCOUNTS = [
+  "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",
+  "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe",
+  "Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY",
+  "ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49",
+  "DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh",
+  "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt",
+  "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL",
+  "3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT",
+];
+
+// Append the dontfront marker as a read-only account to any instruction
+function addDontFront(instruction) {
+  return {
+    ...instruction,
+    accounts: [
+      ...(instruction.accounts ?? []),
+      { address: DONT_FRONT, role: AccountRole.READONLY },
+    ],
+  };
+}
+
+function randomTipAccount() {
+  return address(TIP_ACCOUNTS[Math.floor(Math.random() * TIP_ACCOUNTS.length)]);
+}
+
+async function sendWithMEVProtection() {
+  const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+
+  // Your actual instruction — add dontfront to it
+  const transferIx = addDontFront(
+    getTransferSolInstruction({
+      source: payer,
+      destination: payer.address,
+      amount: lamports(1_000_000n), // 0.001 SOL
+    })
+  );
+
+  // Jito tip — minimum 1000 lamports
+  const tipIx = getTransferSolInstruction({
+    source: payer,
+    destination: randomTipAccount(),
+    amount: lamports(1000n),
+  });
+
+  const message = pipe(
+    createTransactionMessage({ version: 0 }),
+    (m) => setTransactionMessageFeePayerSigner(payer, m),
+    (m) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
+    (m) => appendTransactionMessageInstructions([transferIx, tipIx], m)
+  );
+
+  const signedTransaction = await signTransactionMessageWithSigners(message);
+
+  // Send through Jito block engine, NOT standard RPC
+  const serialized = getBase64EncodedWireTransaction(signedTransaction);
+  const response = await fetch(JITO_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "sendTransaction",
+      params: [serialized, { encoding: "base64" }],
+    }),
+  });
+
+  const result = await response.json();
+  console.log("Sent with dontfront protection:", result.result);
+}
+
+sendWithMEVProtection();
+```
+  </Tab>
+  <Tab title="@solana/web3.js (classic)">
 ```typescript TypeScript
 import {
   Connection,
@@ -154,7 +275,8 @@ async function sendWithMEVProtection() {
 
 sendWithMEVProtection();
 ```
-</CodeGroup>
+  </Tab>
+</Tabs>
 
 ## Chainstack Warp transactions vs Jito `dontfront`
 
