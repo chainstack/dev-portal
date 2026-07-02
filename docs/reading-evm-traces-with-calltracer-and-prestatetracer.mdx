@@ -1,0 +1,208 @@
+---
+title: "Reading EVM traces: callTracer and prestateTracer"
+description: "Read Geth's built-in callTracer and prestateTracer output — the call tree, reverts, gas, and pre/post state — with tested debug_traceTransaction examples on Chainstack."
+---
+
+Geth ships two built-in tracers that answer the two questions you actually have about a transaction: **what did it call** (`callTracer`) and **what state did it read or change** (`prestateTracer`). Both run inside the node's EVM as it replays the transaction, and both are passed the same way — as a `tracer` field to `debug_traceTransaction`, `debug_traceCall`, `debug_traceBlockByNumber`, or `debug_traceBlockByHash`. This page explains how to read their output.
+
+For which chains expose debug and trace APIs and how to enable them, see [Debug and Trace APIs](/docs/debug-and-trace-apis). For writing your own tracer, see [Mastering custom JavaScript tracing](/docs/mastering-custom-javascript-tracing-for-ethereum-virtual-machine).
+
+## Which tracer answers which question
+
+| You want to know… | Use | Output shape |
+| --- | --- | --- |
+| What contracts a transaction called, in what order, and why it reverted | `callTracer` | A nested tree of call frames |
+| Where the gas went, per call | `callTracer` | `gasUsed` on each frame |
+| What accounts and storage slots a transaction reads (to replay or simulate it) | `prestateTracer` (default mode) | Account state *before* execution |
+| What state a transaction changed | `prestateTracer` with `diffMode: true` | `pre`/`post` of only what changed |
+
+Both tracers accept an optional `tracerConfig` object, shown per tracer below.
+
+## callTracer: the call tree
+
+`callTracer` reconstructs the transaction as a tree of call frames — the top-level call plus every `CALL`, `DELEGATECALL`, `STATICCALL`, `CREATE`, `CREATE2`, and `SELFDESTRUCT` it made.
+
+```bash cURL
+curl YOUR_CHAINSTACK_ENDPOINT \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "debug_traceTransaction",
+    "params": ["0xTRANSACTION_HASH", {"tracer": "callTracer"}]
+  }'
+```
+
+The result is a single top-level frame whose `calls` array holds its subcalls, each of which may have its own `calls`. This is a Uniswap V3 swap — the router calls the pool, which transfers the two tokens (fields trimmed for readability):
+
+```json JSON
+{
+  "type": "CALL",
+  "from": "0xb36ce3f521a1ff4b0c...",
+  "to": "0x51c72848c68a965f66...",
+  "value": "0x0",
+  "gas": "0x2ec2a",
+  "gasUsed": "0x2221d",
+  "input": "0x771d503f0000...",
+  "calls": [
+    {
+      "type": "CALL",
+      "from": "0x51c72848c68a965f66...",
+      "to": "0x88e6a0c2ddd26feeb6...",
+      "gas": "0x25f50",
+      "gasUsed": "0x16f27",
+      "input": "0x128acb08...",
+      "output": "0x0000...",
+      "calls": [
+        {
+          "type": "CALL",
+          "from": "0x88e6a0c2ddd26feeb6...",
+          "to": "0xc02aaa39223fe8d0a0e5c4f27ead9083c756cc2",
+          "gasUsed": "0x323e",
+          "input": "0xa9059cbb...",
+          "output": "0x0000...01"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Read each frame like this:
+
+- **`type`** — the opcode that created the frame. `DELEGATECALL` runs another contract's code in the caller's context (proxies), so a frame's `from`/`to` being equal usually means a proxy delegating to its implementation.
+- **`from` / `to`** — caller and callee. `to` is absent on `CREATE`/`CREATE2` frames (the address doesn't exist yet).
+- **`value`** — wei transferred with the call.
+- **`gas` / `gasUsed`** — gas supplied to the frame and gas actually consumed by it (both hex). Summing `gasUsed` down a branch shows where a transaction spent its gas.
+- **`input` / `output`** — calldata sent and data returned. The first 4 bytes of `input` are the function selector.
+- **`calls`** — the subcalls this frame made, in execution order. Absent if the frame made none.
+
+### Reverts
+
+When a call reverts, its frame carries an `error` field, and — when the revert returned a reason string — a decoded `revertReason`:
+
+```json JSON
+{
+  "type": "CALL",
+  "to": "0x68b3465833fb72a70e...",
+  "input": "0x472b43f3...",
+  "error": "execution reverted",
+  "revertReason": "Too little received"
+}
+```
+
+The failing frame is the deepest one with an `error`; its parents typically show `execution reverted` too as the failure propagates up. This is the fastest way to find *which* internal call failed rather than just seeing the top-level transaction fail.
+
+### callTracer config
+
+Pass `tracerConfig` alongside the tracer:
+
+```json JSON
+{"tracer": "callTracer", "tracerConfig": {"onlyTopCall": true, "withLog": true}}
+```
+
+- **`onlyTopCall`** (default `false`) — when `true`, traces only the top-level call and skips all subcalls. Cheaper when you only need the entry call.
+- **`withLog`** (default `false`) — when `true`, adds a `logs` array (the events emitted) to each frame that emitted any. Useful for tying emitted events to the exact call that produced them.
+
+## prestateTracer: the state a transaction touches
+
+`prestateTracer` has two modes, selected by `diffMode`.
+
+### Default mode: what the transaction reads
+
+Called without config, `prestateTracer` returns every account the transaction touched, with its state **as it was before** the transaction ran — keyed by address:
+
+```bash cURL
+curl YOUR_CHAINSTACK_ENDPOINT \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "debug_traceTransaction",
+    "params": ["0xTRANSACTION_HASH", {"tracer": "prestateTracer"}]
+  }'
+```
+
+```json JSON
+{
+  "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640": {
+    "balance": "0x0",
+    "nonce": 1,
+    "code": "0x6080604052...",
+    "storage": {
+      "0x0000...0000": "0x0000...01a2",
+      "0x0000...0001": "0x0000...0bb8"
+    }
+  }
+}
+```
+
+Each account carries only the fields the transaction actually accessed: `balance` (hex wei), `nonce` (a number), `code` (hex, present for contracts), and `storage` (only the slots that were read). This is exactly the state needed to replay the transaction off-chain — feed it to a local EVM or an `eth_call` [state override](/docs/debug-and-trace-apis) to reproduce execution without an archive node.
+
+### diffMode: what the transaction changed
+
+With `tracerConfig: {"diffMode": true}`, the tracer returns two maps, `pre` and `post`, containing **only the accounts and fields that changed** — `pre` holds the old values, `post` the new ones:
+
+```json JSON
+{
+  "pre": {
+    "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97": {
+      "balance": "0x64292ce67ac52524",
+      "nonce": 5421974,
+      "code": "0xef0100..."
+    }
+  },
+  "post": {
+    "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97": {
+      "balance": "0x643f4a98e8c258b2"
+    }
+  }
+}
+```
+
+An account appears in `post` only for the fields that changed — here the balance moved (this is the block builder collecting the fee) while `nonce` and `code` were unchanged, so they're omitted from `post`. An account created by the transaction appears only in `post`; one destroyed appears only in `pre`. This mode is the precise answer to "what did this transaction modify."
+
+## Applying tracers to other methods
+
+The same `{tracer, tracerConfig}` object works across the debug namespace:
+
+- **`debug_traceCall`** — trace a hypothetical, unmined call (great for "why would this revert" before sending). Takes a call object and a block tag, then the tracer object.
+- **`debug_traceBlockByNumber`** / **`debug_traceBlockByHash`** — apply the tracer to every transaction in a block; the result is an array of traces.
+
+```bash cURL
+curl YOUR_CHAINSTACK_ENDPOINT \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByNumber",
+    "params": ["latest", {"tracer": "callTracer", "tracerConfig": {"onlyTopCall": true}}]
+  }'
+```
+
+<Note>
+Tracing replays historical execution, so it needs the state at the traced block. Recent blocks work on a [global node](/docs/global-elastic-node); tracing older history needs the state retained by an archive node. See [Debug and Trace APIs](/docs/debug-and-trace-apis) for per-protocol availability and how to enable the namespaces.
+</Note>
+
+## FAQ
+
+**What is the difference between callTracer and prestateTracer?**
+`callTracer` shows control flow — the tree of calls a transaction made, their gas, and any reverts. `prestateTracer` shows data — the account balances, nonces, code, and storage the transaction read (default mode) or changed (`diffMode`). Use `callTracer` to understand *what happened*, `prestateTracer` to understand *what state was involved*.
+
+**How do I find which internal call reverted?**
+Trace with `callTracer` and walk the tree to the deepest frame carrying an `error` field. If the contract returned a reason string, the frame also has a decoded `revertReason`. See [Reverts](#reverts).
+
+**How do I get the state needed to replay a transaction locally?**
+Trace it with `prestateTracer` in default mode. The result is every account and storage slot the transaction reads, in its pre-execution state — the exact input for a local EVM or an `eth_call` state override. See [Default mode](#default-mode-what-the-transaction-reads).
+
+**Why is my trace request timing out or returning an error?**
+Tracing is state-heavy. Confirm your node has the debug/trace namespaces enabled and retains the state for the block you're tracing — recent blocks on a global node, older history on an archive node. Availability and enablement are per-protocol; see [Debug and Trace APIs](/docs/debug-and-trace-apis).
+
+**Can I use these tracers on chains other than Ethereum?**
+Yes, on any Geth-based chain that exposes the `debug_*` namespace (Base, BNB Smart Chain, Optimism, Polygon, Arbitrum via `debug_*` post-Nitro, Hyperliquid HyperEVM, and more). The [Debug and Trace APIs](/docs/debug-and-trace-apis) page lists coverage and client differences.
+
+**Do I need a custom JavaScript tracer instead?**
+Only if the built-in tracers don't capture what you need. `callTracer` and `prestateTracer` cover most debugging and state-inspection needs; for bespoke aggregation, write a [custom JavaScript tracer](/docs/mastering-custom-javascript-tracing-for-ethereum-virtual-machine).
