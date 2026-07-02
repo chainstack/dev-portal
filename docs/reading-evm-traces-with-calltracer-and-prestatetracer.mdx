@@ -1,0 +1,263 @@
+---
+title: "Reading EVM traces: callTracer and prestateTracer"
+description: "Read Geth's built-in callTracer and prestateTracer output — the call tree, reverts, gas, and pre/post state — with tested debug_traceTransaction examples on Chainstack."
+---
+
+Geth ships two built-in tracers that answer the two questions you actually have about a transaction: **what did it call** (`callTracer`) and **what state did it read or change** (`prestateTracer`). Both run inside the node's EVM as it replays the transaction, and both are passed the same way — as a `tracer` field to `debug_traceTransaction`, `debug_traceCall`, `debug_traceBlockByNumber`, or `debug_traceBlockByHash`. This page explains how to read their output.
+
+For which chains expose debug and trace APIs and how to enable them, see [Debug and Trace APIs](/docs/debug-and-trace-apis). For writing your own tracer, see [Mastering custom JavaScript tracing](/docs/mastering-custom-javascript-tracing-for-ethereum-virtual-machine).
+
+## Which tracer answers which question
+
+| You want to know… | Use | Output shape |
+| --- | --- | --- |
+| What contracts a transaction called, in what order, and why it reverted | `callTracer` | A nested tree of call frames |
+| Where the gas went, per call | `callTracer` | `gasUsed` on each frame |
+| What accounts and storage slots a transaction reads (to replay or simulate it) | `prestateTracer` (default mode) | Account state *before* execution |
+| What state a transaction changed | `prestateTracer` with `diffMode: true` | `pre`/`post` of only what changed |
+
+Both tracers accept an optional `tracerConfig` object, shown per tracer below.
+
+## callTracer: the call tree
+
+`callTracer` reconstructs the transaction as a tree of call frames — the top-level call plus every `CALL`, `DELEGATECALL`, `STATICCALL`, `CREATE`, `CREATE2`, and `SELFDESTRUCT` it made.
+
+```bash cURL
+curl YOUR_CHAINSTACK_ENDPOINT \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "debug_traceTransaction",
+    "params": ["0xTRANSACTION_HASH", {"tracer": "callTracer"}]
+  }'
+```
+
+The result is a single top-level frame whose `calls` array holds its subcalls, each of which may have its own `calls`. Here is a complete trace of a straightforward ERC-20 (USDT) transfer — one frame, no subcalls:
+
+```json JSON
+{
+  "from": "0x18e296053cbdf986196903e889b7dca7a73882f6",
+  "gas": "0x15f90",
+  "gasUsed": "0xb41d",
+  "to": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+  "input": "0xa9059cbb0000000000000000000000006e258cde1f8dd20e59f9d22be3ad6a1730a287ae0000000000000000000000000000000000000000000000000000000003e66254",
+  "value": "0x0",
+  "type": "CALL"
+}
+```
+
+Read each frame like this:
+
+- **`type`** — the opcode that created the frame. `DELEGATECALL` runs another contract's code in the caller's context (proxies), so a frame's `from`/`to` being equal usually means a proxy delegating to its implementation.
+- **`from` / `to`** — caller and callee. `to` is absent on `CREATE`/`CREATE2` frames (the address doesn't exist yet).
+- **`value`** — wei transferred with the call.
+- **`gas` / `gasUsed`** — gas supplied to the frame and gas actually consumed by it (both hex). Summing `gasUsed` down a branch shows where a transaction spent its gas.
+- **`input` / `output`** — calldata sent and data returned. The first 4 bytes of `input` are the function selector.
+- **`calls`** — the subcalls this frame made, in execution order. Absent if the frame made none.
+
+When a call makes subcalls, they nest under `calls`. This trace is an ETH transfer into a smart-contract wallet that `DELEGATECALL`s its implementation — note the top frame's empty `input` (`0x`, a plain value transfer), the `value` carried on both frames, and the `DELEGATECALL` type on the subcall:
+
+```json JSON
+{
+  "from": "0xfb74767c1ce1aada0a0e114441173b57f8c1571b",
+  "gas": "0x6ac1",
+  "gasUsed": "0x6ac1",
+  "to": "0x3391aade96c1b96e23ef7f910b58b5c708b96ce5",
+  "input": "0x",
+  "calls": [
+    {
+      "from": "0x3391aade96c1b96e23ef7f910b58b5c708b96ce5",
+      "gas": "0x5f2",
+      "gasUsed": "0x5e0",
+      "to": "0x41675c099f32341bf84bfc5382af534df5c7461a",
+      "input": "0x",
+      "value": "0xa32d2f312d12",
+      "type": "DELEGATECALL"
+    }
+  ],
+  "value": "0xa32d2f312d12",
+  "type": "CALL"
+}
+```
+
+### Reverts
+
+When a call reverts, its frame carries an `error` field, and — when the revert returned a reason string — a decoded `revertReason` plus the raw ABI-encoded `output`. This is a USDC transfer that reverts on insufficient balance; USDC is a proxy, so the revert propagates from the implementation (`DELEGATECALL`) up to the top frame:
+
+```json JSON
+{
+  "from": "0x000000000000000000000000000000000000dead",
+  "gas": "0x20c85580",
+  "gasUsed": "0x8e21",
+  "to": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+  "input": "0xa9059cbb0000000000000000000000000000000000000000000000000000000000000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "output": "0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002645524332303a207472616e7366657220616d6f756e7420657863656564732062616c616e63650000000000000000000000000000000000000000000000000000",
+  "error": "execution reverted",
+  "revertReason": "ERC20: transfer amount exceeds balance",
+  "calls": [
+    {
+      "from": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+      "gas": "0x2044c4ce",
+      "gasUsed": "0x1cc1",
+      "to": "0x43506849d7c04f9138d1a2050bbf3a0c054402dd",
+      "input": "0xa9059cbb0000000000000000000000000000000000000000000000000000000000000001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "output": "0x08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002645524332303a207472616e7366657220616d6f756e7420657863656564732062616c616e63650000000000000000000000000000000000000000000000000000",
+      "error": "execution reverted",
+      "revertReason": "ERC20: transfer amount exceeds balance",
+      "value": "0x0",
+      "type": "DELEGATECALL"
+    }
+  ],
+  "value": "0x0",
+  "type": "CALL"
+}
+```
+
+The failing frame is the deepest one with an `error`; its parents show `execution reverted` too as the failure propagates up. This is the fastest way to find *which* internal call failed rather than just seeing the top-level transaction fail. (`revertReason` is only present when the contract reverts with a reason string — some contracts, like USDT, revert with the `INVALID` opcode instead, which shows as `"error": "invalid opcode: INVALID"` with no `revertReason`.)
+
+### callTracer config
+
+Pass `tracerConfig` alongside the tracer:
+
+```json JSON
+{"tracer": "callTracer", "tracerConfig": {"onlyTopCall": true, "withLog": true}}
+```
+
+- **`onlyTopCall`** (default `false`) — when `true`, traces only the top-level call and skips all subcalls. Cheaper when you only need the entry call.
+- **`withLog`** (default `false`) — when `true`, adds a `logs` array (the events emitted) to each frame that emitted any. Useful for tying emitted events to the exact call that produced them.
+
+## prestateTracer: the state a transaction touches
+
+`prestateTracer` has two modes, selected by `diffMode`.
+
+### Default mode: what the transaction reads
+
+Called without config, `prestateTracer` returns every account the transaction touched, with its state **as it was before** the transaction ran — keyed by address:
+
+```bash cURL
+curl YOUR_CHAINSTACK_ENDPOINT \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "debug_traceTransaction",
+    "params": ["0xTRANSACTION_HASH", {"tracer": "prestateTracer"}]
+  }'
+```
+
+This is a plain ETH transfer, so every account it touched is an externally owned account:
+
+```json JSON
+{
+  "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97": {
+    "balance": "0x67b6ea94a12c5602",
+    "code": "0xef010063c0c19a282a1b52b07dd5a65b58948a07dae32b",
+    "nonce": 5422022
+  },
+  "0xa9ac43f5b5e38155a288d1a01d2cbc4478e14573": {
+    "balance": "0xe367b1b974b4f1d4f22",
+    "nonce": 1095285
+  },
+  "0xe5198ab9cf8252a7756c2e8f370270506af8929c": {
+    "balance": "0x0"
+  }
+}
+```
+
+Each account carries only the fields the transaction actually accessed: `balance` (hex wei), `nonce` (a number), `code` (present for accounts that have code — the first account here carries a short [EIP-7702](/docs/ethereum-eip-7702-tutorial) delegation), and, for contract accounts, a `storage` map of the exact slots read. This is the state needed to replay the transaction off-chain — feed it to a local EVM or an `eth_call` [state override](/docs/debug-and-trace-apis) to reproduce execution without an archive node.
+
+### diffMode: what the transaction changed
+
+With `tracerConfig: {"diffMode": true}`, the tracer returns two maps, `pre` and `post`, containing **only the accounts and fields that changed** — `pre` holds the old values, `post` the new ones:
+
+Here is the same ETH transfer from above, in `diffMode`:
+
+```json JSON
+{
+  "post": {
+    "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97": {
+      "balance": "0x67b6f42159f17e02"
+    },
+    "0xa9ac43f5b5e38155a288d1a01d2cbc4478e14573": {
+      "balance": "0xe366cf3b3ec3709007a",
+      "nonce": 1095286
+    },
+    "0xe5198ab9cf8252a7756c2e8f370270506af8929c": {
+      "balance": "0xe27d87a346ee800"
+    }
+  },
+  "pre": {
+    "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97": {
+      "balance": "0x67b6ea94a12c5602",
+      "code": "0xef010063c0c19a282a1b52b07dd5a65b58948a07dae32b",
+      "nonce": 5422022
+    },
+    "0xa9ac43f5b5e38155a288d1a01d2cbc4478e14573": {
+      "balance": "0xe367b1b974b4f1d4f22",
+      "nonce": 1095285
+    },
+    "0xe5198ab9cf8252a7756c2e8f370270506af8929c": {
+      "balance": "0x0"
+    }
+  }
+}
+```
+
+An account appears in `post` only for the fields that changed: the sender (`0xa9ac43…`) spent value and its `nonce` incremented; the recipient (`0xe5198a…`) and the fee recipient (`0x4838b1…`) only gained balance, so their `nonce` and `code` are omitted from `post`. An account created by the transaction appears only in `post`; one destroyed appears only in `pre`. This mode is the precise answer to "what did this transaction modify."
+
+When a transaction changes contract storage, the changed slots appear under `storage` in `post`. For example, an ERC-20 transfer's `post` includes the token contract with the two balance slots it rewrote:
+
+```json JSON
+"0xdac17f958d2ee523a2206206994597c13d831ec7": {
+  "storage": {
+    "0x091db9d9a9c6e118727ad07f6cd0cfe3b3277fe2b643c6b0eff07704f324c69c": "0x000000000000000000000000000000000000000000000000000062997b365c58",
+    "0x442d4b34f47df890efc6cba33e36ec1bfd065cbc44cfe8d4fd12344487cfcb9b": "0x00000000000000000000000000000000000000000000000000000000049884ac"
+  }
+}
+```
+
+## Applying tracers to other methods
+
+The same `{tracer, tracerConfig}` object works across the debug namespace:
+
+- **`debug_traceCall`** — trace a hypothetical, unmined call (great for "why would this revert" before sending). Takes a call object and a block tag, then the tracer object.
+- **`debug_traceBlockByNumber`** / **`debug_traceBlockByHash`** — apply the tracer to every transaction in a block; the result is an array of traces.
+
+```bash cURL
+curl YOUR_CHAINSTACK_ENDPOINT \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByNumber",
+    "params": ["latest", {"tracer": "callTracer", "tracerConfig": {"onlyTopCall": true}}]
+  }'
+```
+
+<Note>
+Tracing replays historical execution, so it needs the state at the traced block. Recent blocks work on a [global node](/docs/global-elastic-node); tracing older history needs the state retained by an archive node. See [Debug and Trace APIs](/docs/debug-and-trace-apis) for per-protocol availability and how to enable the namespaces.
+</Note>
+
+## FAQ
+
+**What is the difference between callTracer and prestateTracer?**
+`callTracer` shows control flow — the tree of calls a transaction made, their gas, and any reverts. `prestateTracer` shows data — the account balances, nonces, code, and storage the transaction read (default mode) or changed (`diffMode`). Use `callTracer` to understand *what happened*, `prestateTracer` to understand *what state was involved*.
+
+**How do I find which internal call reverted?**
+Trace with `callTracer` and walk the tree to the deepest frame carrying an `error` field. If the contract returned a reason string, the frame also has a decoded `revertReason`. See [Reverts](#reverts).
+
+**How do I get the state needed to replay a transaction locally?**
+Trace it with `prestateTracer` in default mode. The result is every account and storage slot the transaction reads, in its pre-execution state — the exact input for a local EVM or an `eth_call` state override. See [Default mode](#default-mode-what-the-transaction-reads).
+
+**Why is my trace request timing out or returning an error?**
+Tracing is state-heavy. Confirm your node has the debug/trace namespaces enabled and retains the state for the block you're tracing — recent blocks on a global node, older history on an archive node. Availability and enablement are per-protocol; see [Debug and Trace APIs](/docs/debug-and-trace-apis).
+
+**Can I use these tracers on chains other than Ethereum?**
+Yes, on any Geth-based chain that exposes the `debug_*` namespace (Base, BNB Smart Chain, Optimism, Polygon, Arbitrum via `debug_*` post-Nitro, Hyperliquid HyperEVM, and more). The [Debug and Trace APIs](/docs/debug-and-trace-apis) page lists coverage and client differences.
+
+**Do I need a custom JavaScript tracer instead?**
+Only if the built-in tracers don't capture what you need. `callTracer` and `prestateTracer` cover most debugging and state-inspection needs; for bespoke aggregation, write a [custom JavaScript tracer](/docs/mastering-custom-javascript-tracing-for-ethereum-virtual-machine).
