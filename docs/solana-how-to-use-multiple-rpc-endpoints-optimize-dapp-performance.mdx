@@ -54,18 +54,25 @@ Deploy multiple [reliable Solana RPC endpoints](https://chainstack.com/build-bet
 
 ### Installing required packages
 
-Our project will rely on several Node.js packages to communicate with the Solana blockchain:
+Our project relies on a Solana JavaScript library plus `dotenv` (which loads environment variables from a `.env` file into `process.env`, keeping RPC URLs out of your code). This guide shows both Solana JS libraries side by side — both are actively maintained, so use whichever fits your project:
 
-* **`@solana/web3.js`**: This Solana JavaScript library provides the functionality to interact with the Solana blockchain from a JavaScript application.
-* **`dotenv`**: A utility package that loads environment variables from a `.env` file into `process.env`, helping securely manage sensitive information like RPC URLs.
+- **`@solana/kit`** — the newer, tree-shakable, functional SDK. Account subscriptions are exposed through a websocket client (`createSolanaRpcSubscriptions`).
+- **`@solana/web3.js`** — the classic object-oriented API, where a `Connection` object carries both HTTP and websocket calls (`onAccountChange`).
 
-To install these packages, navigate to your project directory in your terminal and run:
+To install, navigate to your project directory and run:
 
-<CodeGroup>
-  ```bash Bash
-  npm install @solana/web3.js dotenv
-  ```
-</CodeGroup>
+<Tabs>
+  <Tab title="@solana/kit">
+```bash Bash
+npm install @solana/kit dotenv
+```
+  </Tab>
+  <Tab title="@solana/web3.js (classic)">
+```bash Bash
+npm install @solana/web3.js dotenv
+```
+  </Tab>
+</Tabs>
 
 Then add this line to your `package.json` file:
 
@@ -104,148 +111,155 @@ With these prerequisites out of the way, you're now set to dive into the code.
 
 Now that we are set, create a new file in your project named `index.js` and paste the following code into it.
 
-<CodeGroup>
-  ```javascript Javascript
-  import { Connection, PublicKey } from '@solana/web3.js';
-  import 'dotenv/config';
+<Tabs>
+  <Tab title="@solana/kit">
+```javascript Javascript
+import { createSolanaRpcSubscriptions, address } from "@solana/kit";
+import "dotenv/config";
 
-  class ConnectionPool {
-      constructor(endpoints) {
-          this.connections = endpoints.map(endpoint => ({
-              rpcUrl: endpoint.rpc,
-              connection: new Connection(endpoint.rpc, { wsEndpoint: endpoint.wss }),
-          }));
-      }
-  }
+// Account subscriptions are websocket-only, so each pool entry needs a WSS URL.
+class SubscriptionPool {
+    constructor(endpoints) {
+        this.subscribers = endpoints.map(endpoint => ({
+            wssUrl: endpoint.wss,
+            rpcSubscriptions: createSolanaRpcSubscriptions(endpoint.wss),
+        }));
+    }
+}
 
-  let latestLoggedBalance = null; // Shared state to track the latest logged balance
+let latestLoggedBalance = null; // Shared state to track the latest logged balance
 
-  function listenForBalanceChanges(publicKey, connectionPool) {
-      connectionPool.connections.forEach(({ connection, rpcUrl }) => {
-          console.log(`Setting up balance change listener for node: ${rpcUrl.slice(0,33)}`);
-          connection.onAccountChange(new PublicKey(publicKey), (accountInfo) => {
-              const newBalance = accountInfo.lamports;
+async function listenForBalanceChanges(publicKey, subscriptionPool, abortSignal) {
+    const account = address(publicKey);
 
-              // Check if this balance change has already been logged
-              if (latestLoggedBalance !== newBalance) {
-                  const now = new Date();
-                  const dateTimeString = now.toISOString(); // Converts current time to ISO 8601 format
+    // Run one subscription per endpoint concurrently; the first node to see the
+    // new data logs it first.
+    await Promise.all(subscriptionPool.subscribers.map(async ({ rpcSubscriptions, wssUrl }) => {
+        console.log(`Setting up balance change listener for node: ${wssUrl.slice(0,33)}`);
 
-                  console.log(`[${dateTimeString}] Balance change detected on node: ${rpcUrl.slice(0,33)}`);
-                  console.log(`[${dateTimeString}] New balance: ${newBalance} lamports`);
-                  console.log("======================================================================")
+        // subscribe() resolves to an async iterable of notifications
+        const notifications = await rpcSubscriptions
+            .accountNotifications(account, { commitment: "confirmed" })
+            .subscribe({ abortSignal });
 
-                  // Update the shared state with the new balance
-                  latestLoggedBalance = newBalance;
-              }
-          }, 'confirmed');
-      });
-  }
+        for await (const notification of notifications) {
+            const newBalance = notification.value.lamports; // bigint in @solana/kit
 
-  (async () => {
-      const nodeEndpoints = [
-          { rpc: process.env.SOLANA_RPC_NODE_1, wss: process.env.SOLANA_WSS_NODE_1 },
-          { rpc: process.env.SOLANA_RPC_NODE_2, wss: process.env.SOLANA_WSS_NODE_2 },
-          { rpc: process.env.SOLANA_RPC_NODE_3, wss: process.env.SOLANA_WSS_NODE_3 },
-      ];
+            // Check if this balance change has already been logged
+            if (latestLoggedBalance !== newBalance) {
+                const dateTimeString = new Date().toISOString(); // ISO 8601 format
 
-      const connectionPool = new ConnectionPool(nodeEndpoints);
-      const publicKey = "G98hD3T33SiJa8WcWgJ9coT5fz1F3ciwJjKnecxxd3Bi"; // Replace with the address you're interested in
+                console.log(`[${dateTimeString}] Balance change detected on node: ${wssUrl.slice(0,33)}`);
+                console.log(`[${dateTimeString}] New balance: ${newBalance} lamports`);
+                console.log("======================================================================");
 
-      // Listen for balance changes on all nodes
-      listenForBalanceChanges(publicKey, connectionPool);
-  })();
-  ```
-</CodeGroup>
+                // Update the shared state with the new balance
+                latestLoggedBalance = newBalance;
+            }
+        }
+    }));
+}
+
+(async () => {
+    const nodeEndpoints = [
+        { wss: process.env.SOLANA_WSS_NODE_1 },
+        { wss: process.env.SOLANA_WSS_NODE_2 },
+        { wss: process.env.SOLANA_WSS_NODE_3 },
+    ];
+
+    const subscriptionPool = new SubscriptionPool(nodeEndpoints);
+    const publicKey = "G98hD3T33SiJa8WcWgJ9coT5fz1F3ciwJjKnecxxd3Bi"; // Replace with the address you're interested in
+
+    // Listen for balance changes on all nodes; call abortController.abort() to stop
+    const abortController = new AbortController();
+    await listenForBalanceChanges(publicKey, subscriptionPool, abortController.signal);
+})();
+```
+  </Tab>
+  <Tab title="@solana/web3.js (classic)">
+```javascript Javascript
+import { Connection, PublicKey } from '@solana/web3.js';
+import 'dotenv/config';
+
+class ConnectionPool {
+    constructor(endpoints) {
+        this.connections = endpoints.map(endpoint => ({
+            rpcUrl: endpoint.rpc,
+            connection: new Connection(endpoint.rpc, { wsEndpoint: endpoint.wss }),
+        }));
+    }
+}
+
+let latestLoggedBalance = null; // Shared state to track the latest logged balance
+
+function listenForBalanceChanges(publicKey, connectionPool) {
+    connectionPool.connections.forEach(({ connection, rpcUrl }) => {
+        console.log(`Setting up balance change listener for node: ${rpcUrl.slice(0,33)}`);
+        connection.onAccountChange(new PublicKey(publicKey), (accountInfo) => {
+            const newBalance = accountInfo.lamports;
+
+            // Check if this balance change has already been logged
+            if (latestLoggedBalance !== newBalance) {
+                const now = new Date();
+                const dateTimeString = now.toISOString(); // Converts current time to ISO 8601 format
+
+                console.log(`[${dateTimeString}] Balance change detected on node: ${rpcUrl.slice(0,33)}`);
+                console.log(`[${dateTimeString}] New balance: ${newBalance} lamports`);
+                console.log("======================================================================")
+
+                // Update the shared state with the new balance
+                latestLoggedBalance = newBalance;
+            }
+        }, 'confirmed');
+    });
+}
+
+(async () => {
+    const nodeEndpoints = [
+        { rpc: process.env.SOLANA_RPC_NODE_1, wss: process.env.SOLANA_WSS_NODE_1 },
+        { rpc: process.env.SOLANA_RPC_NODE_2, wss: process.env.SOLANA_WSS_NODE_2 },
+        { rpc: process.env.SOLANA_RPC_NODE_3, wss: process.env.SOLANA_WSS_NODE_3 },
+    ];
+
+    const connectionPool = new ConnectionPool(nodeEndpoints);
+    const publicKey = "G98hD3T33SiJa8WcWgJ9coT5fz1F3ciwJjKnecxxd3Bi"; // Replace with the address you're interested in
+
+    // Listen for balance changes on all nodes
+    listenForBalanceChanges(publicKey, connectionPool);
+})();
+```
+  </Tab>
+</Tabs>
 
 ## Code breakdown
 
-The code provided establishes a connection to multiple Solana RPC endpoints and listens for balance changes on a specific account across these nodes. This approach enhances the robustness and responsiveness of applications interacting with the Solana blockchain by leveraging multiple geographic locations to minimize latency and ensure higher availability. Let's break down the key components and functionalities of this code:
+Both versions do the same thing — open one client per endpoint, subscribe to a single account across all of them, and log the first node to report each new balance. They differ only in how the subscription is opened and consumed. Here are the key components:
 
-### Importing dependencies and configuring environment variables
+### Imports and environment variables
 
-<CodeGroup>
-  ```jsx jsx
-  import { Connection, PublicKey } from '@solana/web3.js';
-  import 'dotenv/config';
-  ```
-</CodeGroup>
+The `@solana/kit` version imports `createSolanaRpcSubscriptions` and `address`; the `@solana/web3.js` version imports `Connection` and `PublicKey`. Both load `dotenv/config` to read the endpoints from `.env` and keep them out of the code.
 
-* **`@solana/web3.js`**: The Solana JavaScript library provides the necessary functionality to interact with the Solana blockchain.
-* **`dotenv/config`**: Automatically loads environment variables from a `.env` file into `process.env`, securing sensitive information such as RPC URLs.
+### The connection/subscription pool
 
-### The `ConnectionPool` class
+Each pool entry holds one client per endpoint:
 
-<CodeGroup>
-  ```jsx jsx
-  class ConnectionPool {
-      constructor(endpoints) {
-          this.connections = endpoints.map(endpoint => ({
-              rpcUrl: endpoint.rpc,
-              connection: new Connection(endpoint.rpc, { wsEndpoint: endpoint.wss }),
-          }));
-      }
-  }
-  ```
-</CodeGroup>
-
-This class is responsible for managing connections to various Solana RPC endpoints. It takes an array of endpoints upon instantiation, each specifying RPC and WebSocket URLs, and establishes a `Connection` object for each. These connections are stored for subsequent use in listening for account changes.
+- `@solana/web3.js` builds a `Connection` per node, passing the HTTP RPC URL plus `{ wsEndpoint }` for its websocket.
+- `@solana/kit` builds a `createSolanaRpcSubscriptions` client per node. Account subscriptions are websocket-only, which is why the `@solana/kit` pool takes just the `wss` URL for each endpoint.
 
 ### Shared state for balance tracking
 
-<CodeGroup>
-  ```jsx jsx
-  let latestLoggedBalance = null;
-  ```
-</CodeGroup>
+Both keep a single `latestLoggedBalance` so the same balance isn't logged twice when multiple nodes report the same change. In `@solana/kit` this value is a `bigint`; in `@solana/web3.js` it's a `number`.
 
-A globally shared variable to keep track of the most recent balance that has been logged. This prevents the re-logging of the same balance amount if multiple nodes report the same balance change.
+### Listening for balance changes
 
-### Function for listening to balance changes
+This is the core API difference between the two libraries:
 
-<CodeGroup>
-  ```jsx jsx
-  function listenForBalanceChanges(publicKey, connectionPool) {
-      connectionPool.connections.forEach(({ connection, rpcUrl }) => {
-          console.log(`Setting up balance change listener for node: ${rpcUrl.slice(0,33)}`);
-          connection.onAccountChange(new PublicKey(publicKey), (accountInfo) => {
-              const newBalance = accountInfo.lamports;
-              if (latestLoggedBalance !== newBalance) {
-                  const now = new Date();
-                  const dateTimeString = now.toISOString();
-                  console.log(`[${dateTimeString}] Balance change detected on node: ${rpcUrl.slice(0,33)}`);
-                  console.log(`[${dateTimeString}] New balance: ${newBalance} lamports`);
-                  console.log("======================================================================");
-                  latestLoggedBalance = newBalance;
-              }
-          }, 'confirmed');
-      });
-  }
-  ```
-</CodeGroup>
-
-This function sets up listeners for balance changes on a specified public key across all connections in the provided `connectionPool`. Each connection attempts to establish a listener that triggers on account changes, capturing new balance amounts. It logs the balance change along with a timestamp, ensuring only new changes are considered, thanks to the shared state tracking the latest balance.
+- `@solana/web3.js` registers a **callback**: `connection.onAccountChange(publicKey, (accountInfo) => { ... }, 'confirmed')`, where `accountInfo.lamports` is a `number`.
+- `@solana/kit` opens an **async iterable**: `await rpcSubscriptions.accountNotifications(account, { commitment: 'confirmed' }).subscribe({ abortSignal })`, then consumes it with `for await (const notification of notifications)`. Each `notification.value.lamports` is a `bigint`. Running one subscription per endpoint under `Promise.all` keeps them all listening concurrently, and the shared `abortSignal` tears them all down cleanly.
 
 ### Main execution flow
 
-<CodeGroup>
-  ```jsx jsx
-  (async () => {
-      const nodeEndpoints = [
-          { rpc: process.env.SOLANA_RPC_NODE_1, wss: process.env.SOLANA_WSS_NODE_1 },
-          { rpc: process.env.SOLANA_RPC_NODE_2, wss: process.env.SOLANA_WSS_NODE_2 },
-          { rpc: process.env.SOLANA_RPC_NODE_3, wss: process.env.SOLANA_WSS_NODE_3 },
-      ];
-
-      const connectionPool = new ConnectionPool(nodeEndpoints);
-      const publicKey = "G98hD3T33SiJa8WcWgJ9coT5fz1F3ciwJjKnecxxd3Bi";
-
-      listenForBalanceChanges(publicKey, connectionPool);
-  })();
-  ```
-</CodeGroup>
-
-In the script's main execution flow, it first defines RPC and WebSocket endpoints as environment variables, then creates a `ConnectionPool` with these endpoints. It specifies a public key to monitor and invokes `listenForBalanceChanges` to monitor balance updates across the network. It demonstrates a practical use case for real-time balance tracking on the Solana blockchain.
+Both define the endpoints from environment variables, build the pool, choose a public key to watch, and start listening. The `@solana/kit` version additionally creates an `AbortController` and awaits the listeners; call `abortController.abort()` to stop every subscription at once.
 
 ## Run the script
 
