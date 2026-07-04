@@ -50,13 +50,99 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 
 ## Prerequisites
 
+The examples are shown in both Solana JavaScript libraries — both are actively maintained, so use whichever fits your project. `@solana/kit` is the newer, tree-shakable, functional SDK; `@solana/web3.js` is the classic `Connection`/`PublicKey` API.
+
+<Tabs>
+  <Tab title="@solana/kit">
 ```bash
-npm install @solana/web3.js dotenv
+npm install @solana/kit @solana-program/system dotenv
 ```
+  </Tab>
+  <Tab title="@solana/web3.js (classic)">
+```bash
+npm install @solana/web3.js bs58 dotenv
+```
+  </Tab>
+</Tabs>
 
 ## Create a nonce account
 
-<CodeGroup>
+<Tabs>
+  <Tab title="@solana/kit">
+```typescript TypeScript
+import {
+  createSolanaRpc,
+  createSolanaRpcSubscriptions,
+  createKeyPairSignerFromBytes,
+  getBase58Encoder,
+  generateKeyPairSigner,
+  pipe,
+  createTransactionMessage,
+  setTransactionMessageFeePayerSigner,
+  setTransactionMessageLifetimeUsingBlockhash,
+  appendTransactionMessageInstructions,
+  signTransactionMessageWithSigners,
+  sendAndConfirmTransactionFactory,
+  getSignatureFromTransaction,
+} from "@solana/kit";
+import {
+  getCreateAccountInstruction,
+  getInitializeNonceAccountInstruction,
+  getNonceSize,
+  fetchNonce,
+  SYSTEM_PROGRAM_ADDRESS,
+} from "@solana-program/system";
+import "dotenv/config";
+
+const rpc = createSolanaRpc(process.env.SOLANA_RPC!);
+const rpcSubscriptions = createSolanaRpcSubscriptions(process.env.SOLANA_WSS!);
+// @solana/kit decodes base58, so no separate bs58 package is needed
+const payer = await createKeyPairSignerFromBytes(
+  getBase58Encoder().encode(process.env.PRIVATE_KEY!)
+);
+
+async function createNonceAccount() {
+  const nonceAccount = await generateKeyPairSigner();
+  const space = BigInt(getNonceSize()); // nonce accounts are 80 bytes
+  const lamports = await rpc.getMinimumBalanceForRentExemption(space).send();
+
+  const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+
+  const message = pipe(
+    createTransactionMessage({ version: 0 }),
+    (m) => setTransactionMessageFeePayerSigner(payer, m),
+    (m) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
+    (m) => appendTransactionMessageInstructions([
+      getCreateAccountInstruction({
+        payer,
+        newAccount: nonceAccount,
+        lamports,
+        space,
+        programAddress: SYSTEM_PROGRAM_ADDRESS,
+      }),
+      getInitializeNonceAccountInstruction({
+        nonceAccount: nonceAccount.address,
+        nonceAuthority: payer.address, // nonce authority
+      }),
+    ], m),
+  );
+
+  const signedTx = await signTransactionMessageWithSigners(message);
+  await sendAndConfirmTransactionFactory({ rpc, rpcSubscriptions })(signedTx, {
+    commitment: "confirmed",
+  });
+  console.log("Nonce account:", nonceAccount.address);
+  console.log("Transaction:", getSignatureFromTransaction(signedTx));
+
+  // Fetch the nonce value
+  const nonce = await fetchNonce(rpc, nonceAccount.address);
+  console.log("Nonce value:", nonce.data.blockhash);
+}
+
+createNonceAccount();
+```
+  </Tab>
+  <Tab title="@solana/web3.js (classic)">
 ```typescript TypeScript
 import {
   Connection,
@@ -106,11 +192,77 @@ async function createNonceAccount() {
 
 createNonceAccount();
 ```
-</CodeGroup>
+  </Tab>
+</Tabs>
 
 ## Build and sign a transaction with a durable nonce
 
-<CodeGroup>
+<Tabs>
+  <Tab title="@solana/kit">
+```typescript TypeScript
+import {
+  createSolanaRpc,
+  createKeyPairSignerFromBytes,
+  getBase58Encoder,
+  address,
+  pipe,
+  createTransactionMessage,
+  setTransactionMessageFeePayerSigner,
+  setTransactionMessageLifetimeUsingDurableNonce,
+  appendTransactionMessageInstructions,
+  signTransactionMessageWithSigners,
+  getBase64EncodedWireTransaction,
+  lamports,
+} from "@solana/kit";
+import { getTransferSolInstruction, fetchNonce } from "@solana-program/system";
+import "dotenv/config";
+
+const rpc = createSolanaRpc(process.env.SOLANA_RPC!);
+const payer = await createKeyPairSignerFromBytes(
+  getBase58Encoder().encode(process.env.PRIVATE_KEY!)
+);
+
+const NONCE_ACCOUNT = address("YOUR_NONCE_ACCOUNT_ADDRESS");
+
+async function buildNonceTransaction() {
+  // Fetch the current nonce value
+  const nonce = await fetchNonce(rpc, NONCE_ACCOUNT);
+
+  // setTransactionMessageLifetimeUsingDurableNonce prepends the required
+  // AdvanceNonceAccount instruction as the first instruction automatically.
+  const message = pipe(
+    createTransactionMessage({ version: 0 }),
+    (m) => setTransactionMessageFeePayerSigner(payer, m),
+    (m) => setTransactionMessageLifetimeUsingDurableNonce({
+      nonce: nonce.data.blockhash,
+      nonceAccountAddress: NONCE_ACCOUNT,
+      nonceAuthorityAddress: payer.address,
+    }, m),
+    (m) => appendTransactionMessageInstructions([
+      // Your actual instruction(s)
+      getTransferSolInstruction({
+        source: payer,
+        destination: payer.address,
+        amount: lamports(1000n),
+      }),
+    ], m),
+  );
+
+  // Sign — this can be done offline
+  const signedTx = await signTransactionMessageWithSigners(message);
+
+  // Serialize for later submission
+  const base64Tx = getBase64EncodedWireTransaction(signedTx);
+  console.log("Signed transaction (base64):", base64Tx);
+  console.log("This transaction will not expire. Submit it whenever ready.");
+
+  return base64Tx;
+}
+
+buildNonceTransaction();
+```
+  </Tab>
+  <Tab title="@solana/web3.js (classic)">
 ```typescript TypeScript
 import {
   Connection,
@@ -167,11 +319,44 @@ async function buildNonceTransaction() {
 
 buildNonceTransaction();
 ```
-</CodeGroup>
+  </Tab>
+</Tabs>
 
 ## Submit the transaction later
 
-<CodeGroup>
+<Tabs>
+  <Tab title="@solana/kit">
+```typescript TypeScript
+import { createSolanaRpc } from "@solana/kit";
+import "dotenv/config";
+
+const rpc = createSolanaRpc(process.env.SOLANA_RPC!);
+
+async function submitNonceTransaction(base64Tx: string) {
+  // Broadcast the stored, serialized transaction as-is
+  const signature = await rpc
+    .sendTransaction(base64Tx, { encoding: "base64", preflightCommitment: "confirmed" })
+    .send();
+  console.log("Submitted:", signature);
+
+  // Poll until the transaction is confirmed. A durable-nonce transaction is
+  // valid until the nonce is advanced, so there is no blockhash to expire.
+  while (true) {
+    const { value } = await rpc.getSignatureStatuses([signature]).send();
+    const status = value[0];
+    if (status?.confirmationStatus === "confirmed" || status?.confirmationStatus === "finalized") {
+      console.log("Confirmed:", status.err ? "FAILED" : "SUCCESS");
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+}
+
+// Paste the base64 from the previous step
+submitNonceTransaction("YOUR_BASE64_TX_HERE");
+```
+  </Tab>
+  <Tab title="@solana/web3.js (classic)">
 ```typescript TypeScript
 import { Connection, PublicKey } from "@solana/web3.js";
 import "dotenv/config";
@@ -199,7 +384,8 @@ async function submitNonceTransaction(base64Tx: string) {
 // Paste the base64 from the previous step
 submitNonceTransaction("YOUR_BASE64_TX_HERE");
 ```
-</CodeGroup>
+  </Tab>
+</Tabs>
 
 ## Failure behavior
 
