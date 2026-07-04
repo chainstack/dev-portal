@@ -3,11 +3,13 @@ title: "Solana: Estimate priority fees with RPC methods"
 description: Estimate Solana transaction priority fees using getRecentPrioritizationFees to calculate compute unit prices for faster confirmation on Chainstack.
 ---
 
+> **Part of the [How to land transactions on Solana](/docs/solana-how-to-land-transactions) guide.**
+
 **TLDR:**
 * The `getRecentPrioritizationFees` method provides real-time insights into recent priority fee data on Solana.
 * It helps you dynamically gauge how much extra fee (in micro-lamports/Compute Unit) others are paying.
 * You can then set your transaction priority fee accordingly, balancing costs with faster confirmation needs.
-* This guide shows how to implement and analyze recent prioritization fees using TypeScript and Solana web3.js.
+* This guide shows how to implement and analyze recent prioritization fees using TypeScript, with side-by-side examples for both `@solana/kit` and the classic `@solana/web3.js`.
 
 ## Main article
 
@@ -15,7 +17,7 @@ Within blockchain technology, transaction processing efficiency is a cornerstone
 
 Recognizing the importance of this aspect, Solana has introduced the `getRecentPrioritizationFees` method provides users with up-to-date information about these fees, allowing them to have an idea of the current fees attached to successful transactions and to estimate the priority fee to attach to transactions dynamically.
 
-In this guide, we’ll explore the `getRecentPrioritizationFees` method, its operational mechanics, and its role in enhancing transaction efficiency. We will also discuss practical applications, demonstrating how to integrate this method into your decentralized applications (DApps) using the `solana/web3.js` library and TypeScript.
+In this guide, we’ll explore the `getRecentPrioritizationFees` method, its operational mechanics, and its role in enhancing transaction efficiency. We will also discuss practical applications, demonstrating how to integrate this method into your decentralized applications (DApps) with TypeScript. Examples are shown for both Solana JavaScript libraries — `@solana/kit` (the newer, tree-shakable, functional SDK, formerly `@solana/web3.js` v2) and the classic `@solana/web3.js` (the `Connection`/`PublicKey` API) — both of which are actively maintained.
 
 ## What are Priority Fees on Solana?
 
@@ -60,7 +62,7 @@ Do not pass program IDs (Jupiter, Raydium, pump.fun, etc.) to this method. Progr
 </Warning>
 
 <CodeGroup>
-  ```solidity solidity
+  ```shell Shell
   curl --request POST \
        --url YOUR_SOLANA_ENDPOINT \
        --header 'accept: application/json' \
@@ -131,7 +133,7 @@ Before working on the code, we need to set up a TypeScript project. This will pr
 
 This will create a `package.json` file, which is used to manage project dependencies.
 
-**Install TypeScript and type definitions**: Next, we must install TypeScript and the type definitions for the Solana Web3.js library. Run the following command:
+**Install TypeScript and type definitions**: Next, we must install TypeScript and the Node.js type definitions. Both `@solana/kit` and `@solana/web3.js` ship their own TypeScript types, so no separate SDK types package is needed. Run the following command:
 
 <CodeGroup>
   ```bash Bash
@@ -159,42 +161,45 @@ This will create a `tsconfig.json` file with default settings. You can customize
 
 ### Install required packages
 
-We must install several packages to interact with the Solana blockchain and work with SPL tokens. These packages will provide the necessary functionality to connect to a Solana node, manage wallets, and perform token transfers.
+We must install a package to interact with the Solana blockchain, plus `dotenv` to load environment variables. This guide shows two Solana JavaScript libraries side by side — **both are actively maintained**, so pick whichever fits your project:
 
-Follow these steps to install the required packages:
+- **`@solana/kit`** — the newer, tree-shakable, functional SDK (formerly `@solana/web3.js` v2). Its maintainers recommend it for new code.
+- **`@solana/web3.js`** — the classic object-oriented API (`Connection`, `PublicKey`) used across most existing Solana codebases.
 
-**Install the Solana Web3.js library and the SPL Token library**:
+The `dotenv` package (used by both) loads environment variables from a `.env` file, which helps store sensitive information like private keys.
 
-<CodeGroup>
-  ```bash Bash
-  npm install @solana/web3.js
-  ```
-</CodeGroup>
+<Tabs>
+  <Tab title="@solana/kit">
+    ```bash Bash
+    npm install @solana/kit dotenv
+    ```
 
-* The `@solana/web3.js` package is the official Solana Web3 library, which provides a JavaScript API for interacting with the Solana blockchain.
+    Your `package.json` should then include:
 
-**Install additional dependencies**:
+    ```json JSON
+    "dependencies": {
+      "@solana/kit": "^7.0.0",
+      "dotenv": "^16.4.5"
+    }
+    ```
+  </Tab>
+  <Tab title="@solana/web3.js (classic)">
+    ```bash Bash
+    npm install @solana/web3.js dotenv
+    ```
 
-<CodeGroup>
-  ```bash Bash
-  npm install dotenv
-  ```
-</CodeGroup>
+    Your `package.json` should then include:
 
-* The `dotenv` package allows us to load environment variables from a `.env` file, which helps store sensitive information like private keys.
+    ```json JSON
+    "dependencies": {
+      "@solana/web3.js": "^1.98.4",
+      "dotenv": "^16.4.5"
+    }
+    ```
+  </Tab>
+</Tabs>
 
-After running these commands, your `package.json` file should have the following dependencies:
-
-<CodeGroup>
-  ```Json JSON
-  "dependencies": {
-    "@solana/web3.js": "^1.90.1",
-    "dotenv": "^16.4.5"
-  }
-  ```
-</CodeGroup>
-
-With these packages installed, you'll have the tools to connect to a Solana node, manage wallets, and perform blockchain calls using TypeScript.
+With these packages installed, you'll have the tools to connect to a Solana node and read recent prioritization fees using TypeScript.
 
 In the next section, we'll start coding.
 
@@ -218,7 +223,7 @@ SOLANA_RPC="YOUR_HTTPS_CHAINSTACK_URL"
 Once the `.env` file is set up, you can load environment variables in your TypeScript code (e.g., `main.ts`), import the `dotenv` package, and load the environment variables at the beginning of your script:
 
 <CodeGroup>
-  ```tsx tsx
+  ```typescript TypeScript
   import "dotenv/config";
   ```
 </CodeGroup>
@@ -228,7 +233,7 @@ This will load the environment variables from the `.env` file into the `process.
 **Access environment variables**: You can now access the environment variables in your code like this:
 
 <CodeGroup>
-  ```tsx tsx
+  ```typescript TypeScript
   const rpcUrl = process.env.SOLANA_RPC;
   ```
 </CodeGroup>
@@ -248,122 +253,199 @@ Now that we have set up the project, installed the required packages, and config
 1. Open the `main.ts` file you created earlier in your preferred code editor.
 2. Paste the following code into the `main.ts` file:
 
-<CodeGroup>
-  ```solidity solidity
-  import { Connection, PublicKey } from '@solana/web3.js';
-  import 'dotenv/config';
+<Tabs>
+  <Tab title="@solana/kit">
+```typescript TypeScript
+import { createSolanaRpc, address } from "@solana/kit";
+import "dotenv/config";
 
-  // Strongly type the environment variable getter
-  function getEnvVariable(key: string): string {
-      const value = process.env[key];
-      if (!value) {
-          throw new Error(`Environment variable ${key} is not set.`);
-      }
-      return value;
-  }
+// Strongly type the environment variable getter
+function getEnvVariable(key: string): string {
+    const value = process.env[key];
+    if (!value) {
+        throw new Error(`Environment variable ${key} is not set.`);
+    }
+    return value;
+}
 
-  // Define interfaces for more explicit typing
-  interface PrioritizationFeeObject {
-      slot: number;
-      prioritizationFee: number;
-  }
+const getPrioritizationFees = async () => {
+    try {
+        const rpc = createSolanaRpc(getEnvVariable("SOLANA_RPC"));
 
-  interface Config {
-      lockedWritableAccounts: PublicKey[];
-  }
+        // Orca Whirlpool SOL-USDC pool state — a writable account swap transactions lock.
+        const writableAccount = address("HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ");
 
-  const getPrioritizationFees = async () => {
-      try {
-          const SOLANA_RPC = getEnvVariable('SOLANA_RPC');
-          const connection = new Connection(SOLANA_RPC);
+        const prioritizationFeeObjects = await rpc
+            .getRecentPrioritizationFees([writableAccount])
+            .send();
 
-          const publicKey = new PublicKey('HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ');
+        if (prioritizationFeeObjects.length === 0) {
+            console.log("No prioritization fee data available.");
+            return;
+        }
 
-          const config: Config = {
-              lockedWritableAccounts: [publicKey]
-          };
+        // @solana/kit returns slot and prioritizationFee as bigint, so coerce to
+        // number before doing arithmetic — mixing bigint and number throws.
+        const fees = prioritizationFeeObjects.map((f) => Number(f.prioritizationFee));
+        const slots = prioritizationFeeObjects.map((f) => Number(f.slot)).sort((a, b) => a - b);
 
-          const prioritizationFeeObjects = await connection.getRecentPrioritizationFees(config) as PrioritizationFeeObject[];
+        // Extract slots range
+        const slotsRangeStart = slots[0];
+        const slotsRangeEnd = slots[slots.length - 1];
 
-          if (prioritizationFeeObjects.length === 0) {
-              console.log('No prioritization fee data available.');
-              return;
-          }
+        // Calculate the average including zero fees
+        const averageFeeIncludingZeros = fees.length > 0
+            ? Math.floor(fees.reduce((acc, fee) => acc + fee, 0) / fees.length)
+            : 0;
 
-          // Extract slots and sort them
-          const slots = prioritizationFeeObjects.map(feeObject => feeObject.slot).sort((a, b) => a - b);
+        // Filter out prioritization fees that are equal to 0 for other calculations
+        const nonZeroFees = fees.filter((fee) => fee !== 0);
 
-          // Extract slots range
-          const slotsRangeStart = slots[0];
-          const slotsRangeEnd = slots[slots.length - 1];
+        // Calculate the average of the non-zero fees
+        const averageFeeExcludingZeros = nonZeroFees.length > 0
+            ? Math.floor(nonZeroFees.reduce((acc, fee) => acc + fee, 0) / nonZeroFees.length)
+            : 0;
 
-          // Calculate the average including zero fees
-          const averageFeeIncludingZeros = prioritizationFeeObjects.length > 0
-              ? Math.floor(prioritizationFeeObjects.reduce((acc, feeObject) => acc + feeObject.prioritizationFee, 0) / prioritizationFeeObjects.length)
-              : 0;
+        // Calculate the median of the non-zero fees
+        const sortedFees = nonZeroFees.sort((a, b) => a - b);
+        let medianFee = 0;
+        if (sortedFees.length > 0) {
+            const midIndex = Math.floor(sortedFees.length / 2);
+            medianFee = sortedFees.length % 2 !== 0
+                ? sortedFees[midIndex]
+                : Math.floor((sortedFees[midIndex - 1] + sortedFees[midIndex]) / 2);
+        }
 
-          // Filter out prioritization fees that are equal to 0 for other calculations
-          const nonZeroFees = prioritizationFeeObjects
-              .map(feeObject => feeObject.prioritizationFee)
-              .filter(fee => fee !== 0);
+        console.log(`Slots examined for priority fees: ${prioritizationFeeObjects.length}`)
+        console.log(`Slots range examined from ${slotsRangeStart} to ${slotsRangeEnd}`);
+        console.log('====================================================================================')
 
-          // Calculate the average of the non-zero fees
-          const averageFeeExcludingZeros = nonZeroFees.length > 0
-              ? Math.floor(nonZeroFees.reduce((acc, fee) => acc + fee, 0) / nonZeroFees.length )
-              : 0;
+        // You can use averageFeeIncludingZeros, averageFeeExcludingZeros, and medianFee in your transactions script
+        console.log(` 💰 Average Prioritization Fee (including slots with zero fees): ${averageFeeIncludingZeros} micro-lamports.`);
+        console.log(` 💰 Average Prioritization Fee (excluding slots with zero fees): ${averageFeeExcludingZeros} micro-lamports.`);
+        console.log(` 💰 Median Prioritization Fee (excluding slots with zero fees): ${medianFee} micro-lamports.`);
+    } catch (error) {
+        console.error('Error fetching prioritization fees:', error);
+    }
+};
 
-          // Calculate the median of the non-zero fees
-          const sortedFees = nonZeroFees.sort((a, b) => a - b);
-          let medianFee = 0;
-          if (sortedFees.length > 0) {
-              const midIndex = Math.floor(sortedFees.length / 2);
-              medianFee = sortedFees.length % 2 !== 0
-                  ? sortedFees[midIndex]
-                  : Math.floor((sortedFees[midIndex - 1] + sortedFees[midIndex]) / 2);
-          }
+getPrioritizationFees();
+```
+  </Tab>
+  <Tab title="@solana/web3.js (classic)">
+```typescript TypeScript
+import { Connection, PublicKey } from '@solana/web3.js';
+import 'dotenv/config';
 
-          console.log(`Slots examined for priority fees: ${prioritizationFeeObjects.length}`)
-          console.log(`Slots range examined from ${slotsRangeStart} to ${slotsRangeEnd}`);
-          console.log('====================================================================================')
+// Strongly type the environment variable getter
+function getEnvVariable(key: string): string {
+    const value = process.env[key];
+    if (!value) {
+        throw new Error(`Environment variable ${key} is not set.`);
+    }
+    return value;
+}
 
-          // You can use averageFeeIncludingZeros, averageFeeExcludingZeros, and medianFee in your transactions script
-          console.log(` 💰 Average Prioritization Fee (including slots with zero fees): ${averageFeeIncludingZeros} micro-lamports.`);
-          console.log(` 💰 Average Prioritization Fee (excluding slots with zero fees): ${averageFeeExcludingZeros} micro-lamports.`);
-          console.log(` 💰 Median Prioritization Fee (excluding slots with zero fees): ${medianFee} micro-lamports.`);
-      } catch (error) {
-          console.error('Error fetching prioritization fees:', error);
-      }
-  };
+// Define interfaces for more explicit typing
+interface PrioritizationFeeObject {
+    slot: number;
+    prioritizationFee: number;
+}
 
-  getPrioritizationFees();
-  ```
-</CodeGroup>
+interface Config {
+    lockedWritableAccounts: PublicKey[];
+}
+
+const getPrioritizationFees = async () => {
+    try {
+        const SOLANA_RPC = getEnvVariable('SOLANA_RPC');
+        const connection = new Connection(SOLANA_RPC);
+
+        const publicKey = new PublicKey('HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ');
+
+        const config: Config = {
+            lockedWritableAccounts: [publicKey]
+        };
+
+        const prioritizationFeeObjects = await connection.getRecentPrioritizationFees(config) as PrioritizationFeeObject[];
+
+        if (prioritizationFeeObjects.length === 0) {
+            console.log('No prioritization fee data available.');
+            return;
+        }
+
+        // Extract slots and sort them
+        const slots = prioritizationFeeObjects.map(feeObject => feeObject.slot).sort((a, b) => a - b);
+
+        // Extract slots range
+        const slotsRangeStart = slots[0];
+        const slotsRangeEnd = slots[slots.length - 1];
+
+        // Calculate the average including zero fees
+        const averageFeeIncludingZeros = prioritizationFeeObjects.length > 0
+            ? Math.floor(prioritizationFeeObjects.reduce((acc, feeObject) => acc + feeObject.prioritizationFee, 0) / prioritizationFeeObjects.length)
+            : 0;
+
+        // Filter out prioritization fees that are equal to 0 for other calculations
+        const nonZeroFees = prioritizationFeeObjects
+            .map(feeObject => feeObject.prioritizationFee)
+            .filter(fee => fee !== 0);
+
+        // Calculate the average of the non-zero fees
+        const averageFeeExcludingZeros = nonZeroFees.length > 0
+            ? Math.floor(nonZeroFees.reduce((acc, fee) => acc + fee, 0) / nonZeroFees.length )
+            : 0;
+
+        // Calculate the median of the non-zero fees
+        const sortedFees = nonZeroFees.sort((a, b) => a - b);
+        let medianFee = 0;
+        if (sortedFees.length > 0) {
+            const midIndex = Math.floor(sortedFees.length / 2);
+            medianFee = sortedFees.length % 2 !== 0
+                ? sortedFees[midIndex]
+                : Math.floor((sortedFees[midIndex - 1] + sortedFees[midIndex]) / 2);
+        }
+
+        console.log(`Slots examined for priority fees: ${prioritizationFeeObjects.length}`)
+        console.log(`Slots range examined from ${slotsRangeStart} to ${slotsRangeEnd}`);
+        console.log('====================================================================================')
+
+        // You can use averageFeeIncludingZeros, averageFeeExcludingZeros, and medianFee in your transactions script
+        console.log(` 💰 Average Prioritization Fee (including slots with zero fees): ${averageFeeIncludingZeros} micro-lamports.`);
+        console.log(` 💰 Average Prioritization Fee (excluding slots with zero fees): ${averageFeeExcludingZeros} micro-lamports.`);
+        console.log(` 💰 Median Prioritization Fee (excluding slots with zero fees): ${medianFee} micro-lamports.`);
+    } catch (error) {
+        console.error('Error fetching prioritization fees:', error);
+    }
+};
+
+getPrioritizationFees();
+```
+  </Tab>
+</Tabs>
 
 This script is a practical application designed for Solana blockchain developers to fetch and analyze recent prioritization fees, aiding in informed decision-making for transaction fee settings.
 
 Here's a breakdown of its components and how each part contributes to the overall functionality:
 
+Both versions do the same work; they differ only in how you open the connection and call the method.
+
 ### Import dependencies and setup
 
-* **Solana Web3.js**: Imports the `Connection` and `PublicKey` modules from the Solana web3.js library, enabling interaction with the Solana blockchain and handling public key addresses.
+* **Solana SDK**: The `@solana/kit` version imports `createSolanaRpc` and `address`; the `@solana/web3.js` version imports `Connection` and `PublicKey`. Both interact with the Solana blockchain and handle public key addresses.
 * **Dotenv**: Imports configuration for environment variables, allowing the script to securely access the Solana RPC endpoint specified in your environment.
 
 ### Utility function
 
 * **`getEnvVariable`**: A utility function that retrieves environment variables securely. It throws an error if the specified environment variable is not found, ensuring the script has all the necessary configurations.
 
-### Interface definitions
-
-* **`PrioritizationFeeObject`**: Defines the structure for objects containing prioritization fee data, including the slot number and the fee amount.
-* **`Config`**: Defines the configuration object structure, specifying which accounts' prioritization fees will be fetched.
-
 ### Main async `getPrioritizationFees` function
 
-* **Initialize connection**: Establishes a connection to the Solana blockchain using the RPC endpoint specified in your environment variables.
+* **Initialize the connection**: `@solana/kit` creates an RPC client with `createSolanaRpc`; `@solana/web3.js` creates a `new Connection`. Both use the RPC endpoint from your environment variables.
 
-* **Define public key and config**: Specifies the public key(s) for which the prioritization fees will be fetched and sets up the configuration object accordingly.
+* **Define the writable account**: Specifies the writable account(s) for which the prioritization fees will be fetched — `address(...)` in `@solana/kit`, `new PublicKey(...)` in `@solana/web3.js`.
 
-* **Fetch prioritization fees**: This method calls the `getRecentPrioritizationFees` method with the defined config, retrieving an array of `PrioritizationFeeObject`s containing recent fee data.
+* **Fetch prioritization fees**: Retrieves an array of fee objects with recent fee data. In `@solana/kit` you call `getRecentPrioritizationFees([writableAccount]).send()` (RPC methods return a request object dispatched with `.send()`) and the `slot`/`prioritizationFee` fields come back as `bigint`, so coerce them with `Number()` before arithmetic. In `@solana/web3.js` you call `connection.getRecentPrioritizationFees({ lockedWritableAccounts: [...] })` and the fields are already `number`.
 
 * **Handle no data case**: Checks if no prioritization fee data was returned and logs a message indicating the absence of data.
 
@@ -384,17 +466,28 @@ Here's a breakdown of its components and how each part contributes to the overal
 
 ### Run the script
 
-Now that we have the code and understand how it works, it’s time to run it. You can edit the reference addresses in the config:
+Now that we have the code and understand how it works, it’s time to run it. You can edit the writable account(s) you pass to the method:
 
-<CodeGroup>
-  ```typescript TypeScript
-  const publicKey = new PublicKey('HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ');
+<Tabs>
+  <Tab title="@solana/kit">
+```typescript TypeScript
+const writableAccount = address("HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ");
 
-  const config: Config = {
-      lockedWritableAccounts: [publicKey]
-  };
-  ```
-</CodeGroup>
+const prioritizationFeeObjects = await rpc
+    .getRecentPrioritizationFees([writableAccount])
+    .send();
+```
+  </Tab>
+  <Tab title="@solana/web3.js (classic)">
+```typescript TypeScript
+const publicKey = new PublicKey('HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ');
+
+const config: Config = {
+    lockedWritableAccounts: [publicKey]
+};
+```
+  </Tab>
+</Tabs>
 
 To run the code after you configured the parameters, run the following command in the terminal:
 

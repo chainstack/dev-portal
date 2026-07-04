@@ -63,44 +63,33 @@ Tips for storage classes:
 
 ## Blockchain node requirements
 
-Resource requirements vary by protocol and node configuration. Below are the requirements for currently supported configurations.
+Resource requirements vary by protocol, network, and client. The full per-deployment breakdown — clients, versions, vCPU, RAM, storage, and exposed ports — lives in [Supported deployments](/docs/self-hosted/supported-clients-and-protocols).
 
-### Ethereum Mainnet full node (Reth + Prysm)
+The table below summarizes the standard preset totals by architecture family. Use it to size a host, then see the catalog for the exact figures per network.
 
-| Resource | Minimum | Recommended |
-|----------|---------|-------------|
-| CPU | 4 cores | 6+ cores |
-| RAM | 16 GB | 32 GB |
-| Storage (steady state) | 2 TB NVMe SSD | 4 TB NVMe SSD |
-| Storage (during deploy) | 4 TB NVMe SSD | 4 TB NVMe SSD |
+| Family | Example deployments | vCPU | RAM | Storage (steady state) |
+|--------|---------------------|------|-----|------------------------|
+| EVM Layer 1 (execution + consensus) | Ethereum Mainnet, Sepolia, Hoodi | 8 | 32 GiB | 250 GB–2 TB |
+| EVM Layer 2 — OP Stack | Optimism, Base, Unichain, Zora | 12 | 48 GiB | 2–3.5 TB |
+| Starknet | Starknet Mainnet | 8 | 32 GiB | ~1 TB |
+| TRON | TRON Mainnet | 8 | 32 GiB | ~3 TB |
+| Bitcoin | Bitcoin Mainnet | 4 | 8 GiB | ~1 TB |
 
-### Ethereum Sepolia testnet full node (Reth + Prysm)
+<Note>
+vCPU and RAM are split across the clients in multi-client families. Ethereum networks also ship a Light preset at half the CPU and RAM with the same storage. See [Supported deployments](/docs/self-hosted/supported-clients-and-protocols) for per-network figures.
+</Note>
 
-| Resource | Minimum | Recommended |
-|----------|---------|-------------|
-| CPU | 4 cores | 6+ cores |
-| RAM | 16 GB | 32 GB |
-| Storage (steady state) | 1.5 TB NVMe SSD | 2 TB NVMe SSD |
-| Storage (during deploy) | 3 TB NVMe SSD | 3 TB NVMe SSD |
-
-### Ethereum Hoodi testnet full node (Reth + Prysm)
-
-| Resource | Minimum | Recommended |
-|----------|---------|-------------|
-| CPU | 4 cores | 6+ cores |
-| RAM | 16 GB | 32 GB |
-| Storage (steady state) | 250 GB NVMe SSD | 500 GB NVMe SSD |
-| Storage (during deploy) | 500 GB NVMe SSD | 500 GB NVMe SSD |
+### Snapshot bootstrap and storage headroom
 
 <Warning>
-The **during deploy** row reflects the 2× peak required by snapshot bootstrap: the node downloads the snapshot archive and then extracts it into the chain data directory, so both copies coexist on disk until extraction completes. Provision the node's persistent volume at this peak; you can keep it sized for headroom afterward.
+Deployments that bootstrap from a pre-built snapshot — currently Ethereum (all networks) and Optimism Mainnet — temporarily require about **2× the steady-state storage**. The node downloads the snapshot archive and then extracts it into the chain data directory, so both copies coexist on disk until extraction completes. Provision the node's persistent volume at this peak; you can keep it sized for headroom afterward. Deployments that sync without a snapshot do not have this peak.
 </Warning>
 
 ### Storage considerations
 
-- **SSD type** — TLC NVMe drives are strongly recommended. Avoid QLC drives due to lower write endurance and performance
-- **Storage growth** — the Ethereum chain grows approximately 1 TB per year. Plan for 4 TB to ensure several years of headroom
-- **IOPS** — high random read/write performance is critical. Target drives with sustained write speeds of 1+ GB/s
+- **SSD type** — TLC NVMe drives are strongly recommended. Avoid QLC drives due to lower write endurance and performance.
+- **Storage growth** — chain data grows over time, so provision headroom beyond the steady-state figure. Ethereum Mainnet, for example, grows approximately 1 TB per year.
+- **IOPS and throughput** — high random read/write IOPS are critical for block processing. Target NVMe drives with sustained write throughput of 1+ GB/s.
 
 For a deep dive on SSD selection for Ethereum nodes, see [yorickdowne's SSD guide](https://gist.github.com/yorickdowne/f3a3e79a573bf35767cd002cc977b038).
 
@@ -112,7 +101,7 @@ For a deep dive on SSD selection for Ethereum nodes, see [yorickdowne's SSD guid
 
 ### Initial sync time
 
-Nodes bootstrap from a pre-built chain snapshot rather than syncing from genesis. Initial bootstrap completes in minutes to hours depending on network conditions; the node then catches up to the chain head in the background. See [Initial sync times](/docs/self-hosted/deploying-nodes#initial-sync-times) for the breakdown.
+Snapshot-bootstrapped deployments (Ethereum and Optimism Mainnet) start from a pre-built chain snapshot rather than syncing from genesis. Initial bootstrap completes in minutes to hours depending on network conditions; the node then catches up to the chain head in the background. Other deployments sync conventionally and reach the chain head over a longer period. See [Initial sync times](/docs/self-hosted/deploying-nodes#initial-sync-times) for the breakdown.
 
 ## Network requirements
 
@@ -151,28 +140,20 @@ Either service can be exposed using:
 
 The UI service port (default 80) and the deployments API port (default 8081) must both be reachable from clients that will access the Control Panel through a browser. All other Control Panel services communicate internally inside the cluster.
 
-For blockchain nodes, the required ports depend on the protocol:
-
-### Ethereum nodes
-
-| Port | Protocol | Purpose |
-|------|----------|---------|
-| 8546 | TCP/UDP | Execution client WSS |
-| 8545 | TCP | Execution client HTTP |
-| 5052 | TCP/UDP | Consensus client HTTP |
+For blockchain nodes, the exposed ports depend on the client. Each deployment's exposed ports are listed per family in [Supported deployments](/docs/self-hosted/supported-clients-and-protocols). For example, EVM execution clients expose 8545 (HTTP JSON-RPC) and 8546 (WS JSON-RPC), and Prysm exposes 5052 (Beacon API). Internal ports — engine auth, P2P, and gRPC — are not exposed.
 
 ## Combined infrastructure example
 
-For a complete deployment running the Control Panel plus one Ethereum Mainnet full node (Light preset):
+Size a host by adding the Control Panel baseline to the deployment you pick from [Supported deployments](/docs/self-hosted/supported-clients-and-protocols). As a worked example, the Control Panel plus one Ethereum Mainnet full node:
 
-| Resource | Control Panel | Ethereum Node (Light) | Total |
-|----------|---------------|------------------------|-------|
-| CPU | 5 cores | 4 cores | 9 cores |
-| RAM | 6 GiB | 16 GiB | 22 GiB |
-| Storage (steady state) | 15 GB | 2 TB | ~2 TB |
-| Storage (during deploy) | 15 GB | 4 TB | ~4 TB |
+| Resource | Control Panel | Ethereum Mainnet (Light) | Ethereum Mainnet (standard) |
+|----------|---------------|--------------------------|-----------------------------|
+| CPU | 5 cores | + 4 cores = 9 cores | + 8 cores = 13 cores |
+| RAM | 6 GiB | + 16 GiB = 22 GiB | + 32 GiB = 38 GiB |
+| Storage (steady state) | 15 GB | + ~2 TB | + ~2 TB |
+| Storage (during deploy) | 15 GB | + ~4 TB | + ~4 TB |
 
-For the Mainnet **standard** preset (8 cores / 32 GiB per node), the combined total is **13 cores / 38 GiB / ~2 TB steady state (~4 TB during deploy)**.
+For other deployments, substitute the totals from the catalog and apply the 2× storage peak only to snapshot-bootstrapped deployments (see above).
 
 ### Example server configurations
 
@@ -194,6 +175,7 @@ Chainstack Self-Hosted works on any compatible infrastructure you provision your
 
 | Partner | | Promo |
 |---------|--|-------|
+| Vultr | [Deploy on Vultr](https://www.vultr.com/marketplace/apps/chainstack-self-hosted#general-information?utm_source=chainstack&utm_campaign=docs) | — |
 | Hostkey | [Deploy on Hostkey](https://hostkey.com/apps/developer-tools/chainstack/?utm_source=chainstack&utm_campaign=docs) | — |
 | Velia | [Deploy on Velia](https://checkout.velia.net/order/product/1e96d298-537d-4ed6-868c-84e120637085/?bcm=1&utm_source=chainstack&utm_campaign=docs) | Promocode `ChainstackSH80` — 80% off your first month on all Chainstack products |
 | Serverside | [Deploy on Serverside](https://serverside.com/en-gb/partners/chainstack?utm_source=chainstack&utm_campaign=docs) | 10% off — applied automatically via the link |

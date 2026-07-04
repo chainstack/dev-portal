@@ -1,6 +1,6 @@
 ---
 title: "validatorL1Stream | Hyperliquid exchange"
-openapi: /openapi/hyperliquid_node_api/exchange_validator_l1_stream.json post /exchange
+openapi: /openapi/hyperliquid_node_api/hypercore_exchange/exchange_validator_l1_stream.json post /exchange
 description: "Submits a validator L1 stream action for processing consensus-layer events. validatorL1Stream on Hyperliquid exchange via Chainstack."
 ---
 
@@ -14,6 +14,7 @@ This endpoint requires signature authentication. See our comprehensive [Authenti
 
 Submits a validator L1 stream action for processing consensus-layer events.
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -21,6 +22,7 @@ Submits a validator L1 stream action for processing consensus-layer events.
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 ## Parameters
 
@@ -45,6 +47,8 @@ Returns an object with the action status:
 
 ## Example request
 
+<CodeGroup>
+
 ```shell cURL
 curl -X POST https://api.hyperliquid.xyz/exchange \
   -H "Content-Type: application/json" \
@@ -54,6 +58,48 @@ curl -X POST https://api.hyperliquid.xyz/exchange \
     "signature": {...}
   }'
 ```
+
+```python Python (hyperliquid-python-sdk)
+# hyperliquid-python-sdk has no typed validatorL1Stream wrapper, so build and
+# sign the L1 action with the same primitives its typed methods use internally.
+import eth_account
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+from hyperliquid.utils.signing import sign_l1_action, get_timestamp_ms
+
+wallet = eth_account.Account.from_key("0x...")  # your validator key
+exchange = Exchange(wallet, constants.MAINNET_API_URL)
+
+action = {"type": "validatorL1Stream", "riskFreeRate": "0.05"}
+nonce = get_timestamp_ms()
+signature = sign_l1_action(
+    wallet,
+    action,
+    None,  # vault_address
+    nonce,
+    None,  # expires_after
+    exchange.base_url == constants.MAINNET_API_URL,
+)
+
+result = exchange._post_action(action, signature, nonce)
+print(result)
+```
+
+```typescript TypeScript (@nktkas/hyperliquid)
+import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { privateKeyToAccount } from "viem/accounts";
+
+const wallet = privateKeyToAccount("0x..."); // your validator key
+const transport = new HttpTransport(); // public mainnet
+const exchange = new ExchangeClient({ transport, wallet });
+
+const result = await exchange.validatorL1Stream({
+  riskFreeRate: "0.05",
+});
+console.log(result);
+```
+
+</CodeGroup>
 
 ## Use case
 

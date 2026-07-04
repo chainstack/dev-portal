@@ -1,6 +1,6 @@
 ---
 title: "twapCancel | Hyperliquid exchange"
-openapi: /openapi/hyperliquid_node_api/exchange_twap_cancel.json post /exchange
+openapi: /openapi/hyperliquid_node_api/hypercore_exchange/exchange_twap_cancel.json post /exchange
 description: "Cancels an active TWAP order by its ID. twapCancel JSON-RPC method available on the Hyperliquid exchange blockchain via Chainstack."
 ---
 
@@ -14,6 +14,7 @@ This endpoint requires signature authentication. See our comprehensive [Authenti
 
 Cancels an active TWAP order by its ID.
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -21,6 +22,7 @@ Cancels an active TWAP order by its ID.
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 ## Parameters
 
@@ -46,6 +48,8 @@ Returns an object with the action status:
 
 ## Example request
 
+<CodeGroup>
+
 ```shell cURL
 curl -X POST https://api.hyperliquid.xyz/exchange \
   -H "Content-Type: application/json" \
@@ -55,6 +59,56 @@ curl -X POST https://api.hyperliquid.xyz/exchange \
     "signature": {...}
   }'
 ```
+
+```typescript TypeScript (@nktkas/hyperliquid)
+import * as hl from "@nktkas/hyperliquid";
+import { privateKeyToAccount } from "viem/accounts";
+
+// Public Hyperliquid mainnet endpoint (default transport)
+const wallet = privateKeyToAccount("0x..."); // viem or ethers account
+const transport = new hl.HttpTransport();
+const client = new hl.ExchangeClient({ transport, wallet });
+
+// Cancel an active TWAP order by asset ID (a) and TWAP order ID (t)
+const result = await client.twapCancel({
+  a: 0, // asset index
+  t: 1, // TWAP order ID to cancel
+});
+
+console.log(result);
+```
+
+```python Python (hyperliquid-python-sdk)
+# Note: the official hyperliquid-python-sdk does not expose a twapCancel
+# helper yet, so build and post the signed action directly.
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+from hyperliquid.utils.signing import sign_l1_action, get_timestamp_ms
+import eth_account
+
+# Public Hyperliquid mainnet endpoint
+wallet = eth_account.Account.from_key("0x...")  # your private key
+exchange = Exchange(wallet, constants.MAINNET_API_URL)
+
+timestamp = get_timestamp_ms()
+action = {
+    "type": "twapCancel",
+    "a": 0,  # asset index
+    "t": 1,  # TWAP order ID to cancel
+}
+signature = sign_l1_action(
+    wallet,
+    action,
+    None,  # vault_address
+    timestamp,
+    None,  # expires_after
+    exchange.base_url == constants.MAINNET_API_URL,
+)
+result = exchange._post_action(action, signature, timestamp)
+print(result)
+```
+
+</CodeGroup>
 
 ## Use case
 

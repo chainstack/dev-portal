@@ -1,6 +1,6 @@
 ---
 title: "reserveRequestWeight | Hyperliquid exchange"
-openapi: /openapi/hyperliquid_node_api/exchange_reserve_request_weight.json post /exchange
+openapi: /openapi/hyperliquid_node_api/hypercore_exchange/exchange_reserve_request_weight.json post /exchange
 description: "Reserves rate limit weight for upcoming requests. Useful for high-frequency trading applications that need guaranteed request capacity."
 ---
 
@@ -14,6 +14,7 @@ This endpoint requires signature authentication. See our comprehensive [Authenti
 
 Reserves rate limit weight for upcoming requests. Useful for high-frequency trading applications that need guaranteed request capacity.
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -21,6 +22,7 @@ Reserves rate limit weight for upcoming requests. Useful for high-frequency trad
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 ## Parameters
 
@@ -45,6 +47,8 @@ Returns an object with the action status:
 
 ## Example request
 
+<CodeGroup>
+
 ```shell cURL
 curl -X POST https://api.hyperliquid.xyz/exchange \
   -H "Content-Type: application/json" \
@@ -54,6 +58,47 @@ curl -X POST https://api.hyperliquid.xyz/exchange \
     "signature": {...}
   }'
 ```
+
+```python Python (hyperliquid-python-sdk)
+# The hyperliquid-python-sdk does not expose a dedicated reserveRequestWeight
+# method, so build and sign the L1 action with the SDK signing primitives.
+from eth_account import Account
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+from hyperliquid.utils.signing import sign_l1_action, get_timestamp_ms
+
+wallet = Account.from_key("0x...")  # your API wallet private key
+exchange = Exchange(wallet, constants.MAINNET_API_URL)
+
+action = {"type": "reserveRequestWeight", "weight": 10}
+nonce = get_timestamp_ms()
+
+signature = sign_l1_action(
+    wallet,
+    action,
+    exchange.vault_address,
+    nonce,
+    exchange.expires_after,
+    exchange.base_url == constants.MAINNET_API_URL,
+)
+
+result = exchange._post_action(action, signature, nonce)
+print(result)
+```
+
+```typescript TypeScript (@nktkas/hyperliquid)
+import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { privateKeyToAccount } from "viem/accounts";
+
+const wallet = privateKeyToAccount("0x..."); // your API wallet private key
+const transport = new HttpTransport(); // default public Hyperliquid API
+const exchange = new ExchangeClient({ transport, wallet });
+
+const result = await exchange.reserveRequestWeight({ weight: 10 });
+console.log(result);
+```
+
+</CodeGroup>
 
 ## Use case
 

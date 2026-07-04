@@ -9,6 +9,7 @@ This method is available on Chainstack. Not all Hyperliquid methods are availabl
 
 The `eth_subscribe("logs")` JSON-RPC method allows developers to subscribe to real-time updates about new event logs on the Hyperliquid EVM blockchain. The application will receive notifications whenever new logs matching the filter are emitted, making it essential for monitoring smart contract events and building reactive dApps.
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -16,6 +17,7 @@ The `eth_subscribe("logs")` JSON-RPC method allows developers to subscribe to re
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 ## Parameters
 
@@ -251,6 +253,79 @@ const monitorNFTTransfers = async (nftContract, fromAddress = null, toAddress = 
   });
 };
 ```
+
+## Example request
+
+`eth_subscribe` is a WebSocket-only method, so every example connects over a WebSocket endpoint.
+
+<CodeGroup>
+
+```shell wscat
+$ wscat -c wss://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/evm
+# Wait for the connection to be established
+
+Connected (press CTRL+C to quit)
+
+# Subscribe to all logs from a specific contract
+> {"id":1,"jsonrpc":"2.0","method":"eth_subscribe","params":["logs",{"address":"0x5555555555555555555555555555555555555555"}]}
+< {"jsonrpc":"2.0","id":1,"result":"0x1234567890abcdef"}
+
+# Log notifications will stream in as events are emitted:
+< {"jsonrpc":"2.0","method":"eth_subscription","params":{"subscription":"0x1234567890abcdef","result":{"address":"0x5555555555555555555555555555555555555555","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"data":"0x00000000000000000000000000000000000000000000000000000000000186a0","blockNumber":"0x1234","transactionHash":"0x...","transactionIndex":"0x0","blockHash":"0x...","logIndex":"0x0","removed":false}}}
+```
+
+```python Python (web3.py)
+import asyncio
+from web3 import AsyncWeb3
+from web3.providers.persistent import WebSocketProvider
+
+# eth_subscribe requires a WebSocket connection.
+async def main():
+    async with AsyncWeb3(WebSocketProvider("YOUR_CHAINSTACK_ENDPOINT")) as w3:
+        # subscribe("logs", ...) maps to eth_subscribe("logs", ...).
+        sub_id = await w3.eth.subscribe("logs", {
+            "address": "0x5555555555555555555555555555555555555555",
+        })
+        print(sub_id)
+
+        async for message in w3.socket.process_subscriptions():
+            print(message)
+
+asyncio.run(main())
+```
+
+```javascript JavaScript (ethers.js)
+import { WebSocketProvider } from "ethers";
+
+// eth_subscribe requires a WebSocket connection.
+const provider = new WebSocketProvider("YOUR_CHAINSTACK_ENDPOINT");
+
+// A log filter subscription maps to eth_subscribe("logs", ...).
+const filter = { address: "0x5555555555555555555555555555555555555555" };
+provider.on(filter, (log) => {
+  console.log(log);
+});
+```
+
+```typescript TypeScript (viem)
+import { createPublicClient, webSocket } from "viem";
+
+// Over a WebSocket transport, watchEvent uses eth_subscribe("logs", ...).
+const client = createPublicClient({
+  transport: webSocket("YOUR_CHAINSTACK_ENDPOINT"),
+});
+
+const unwatch = client.watchEvent({
+  address: "0x5555555555555555555555555555555555555555",
+  onLogs: (logs) => console.log(logs),
+});
+```
+
+</CodeGroup>
+
+<Note>
+**Use your own endpoint in your code.** The code examples use a placeholder Chainstack endpoint (YOUR_CHAINSTACK_ENDPOINT) — replace it with your own Hyperliquid node endpoint from the [Chainstack console](https://console.chainstack.com/). The curl above uses a shared public endpoint for quick checks only; do not use it in production.
+</Note>
 
 ## Use cases
 

@@ -10,6 +10,7 @@ Ethereum API method that traces the execution of [eth\_call](/reference/ethereum
 Learn how to [deploy a node](/docs/debug-and-trace-apis#ethereum) with the debug and trace API methods enabled.
 </Note>
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -17,6 +18,7 @@ Learn how to [deploy a node](/docs/debug-and-trace-apis#ethereum) with the debug
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 
 ## Parameters
@@ -157,47 +159,6 @@ const traceCall = async () => {
 traceCall();
 ```
 
-```javascript web3.js
-const { Web3, Web3PluginBase } = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
-
-// Define the TraceBlockPlugin class
-class TraceBlockPlugin extends Web3PluginBase {
-    pluginNamespace = 'trace';
-
-    async traceCall(call, txHash, tracer) {
-        return this.requestManager.send({
-            method: 'debug_traceCall',
-            params: [call, txHash, tracer],
-        });
-    }
-}
-
-// Register the plugin
-web3.registerPlugin(new TraceBlockPlugin());
-
-async function traceCall() {
-
-    const call = {
-      from: '0xae2Fc483527B8EF99EB5D9B44875F005ba1FaE13',
-      to: '0xc2edad668740f1aa35e4d8f227fb8e17dca888cd',
-      gas: '0x1E9EF',
-      gasPrice: '0x72AC5BA54E',
-      data: '0x441a3e70000000000000000000000000000000000000000000000000000000000000010300000000000000000000000000000000000000000000000000c6c3eca729cb9e'
-    }
-  
-    const block = 'latest'
-  
-    // Specify the type of tracer: 4byteTracer, callTracer, prestateTracer, or muxTracer. Leave empty {} for Struct/opcode logger.
-    const tracer = {'tracer' : '4byteTracer'};
-    const result = await web3.trace.traceCall(call, block, tracer);
-    console.log(result);
-  }
-  
-  traceCall();
-```
-
 ```python web3.py
 from web3 import Web3  
 node_url = "CHAINSTACK_NODE_URL" 
@@ -230,27 +191,13 @@ Read [Deploying a deterministic smart contract on Ethereum](https://chainstack.c
 </Note>
 
 
-The following code is an implementation of the logic to inspect internal transactions using web3.js:
+The following code is an implementation of the logic to inspect internal transactions using ethers.js:
 
 ```javascript index.js
-const { Web3, Web3PluginBase } = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
+const ethers = require("ethers");
 
-// Define the TraceBlockPlugin class
-class TraceBlockPlugin extends Web3PluginBase {
-    pluginNamespace = 'trace';
-
-    async traceCall(call, txHash, tracer) {
-        return this.requestManager.send({
-            method: 'debug_traceCall',
-            params: [call, txHash, tracer],
-        });
-    }
-}
-
-// Register the plugin
-web3.registerPlugin(new TraceBlockPlugin());
+// Create a ChainstackProvider instance for Ethereum mainnet
+const provider = new ethers.ChainstackProvider("mainnet");
 
 async function traceCall(call, block) {
     try {
@@ -259,7 +206,7 @@ async function traceCall(call, block) {
       const tracer = { tracer: 'callTracer' };
   
       // Trace the call
-      const result = await web3.trace.traceCall(call, block, tracer);
+      const result = await provider.send("debug_traceCall", [call, block, tracer]);
       const calls = result.calls;
   
       console.log(`===== Internal Calls =====`);
@@ -310,7 +257,7 @@ The `traceCall` function is an asynchronous function that takes two parameters: 
 
 The function first creates a tracer object that specifies the type of tracer to be used. In this case, it's set to `callTracer`, which means that the function will trace all the internal calls made by the smart contract during the execution of the specified call.
 
-The function then calls the `web3.debug.traceCall` function (which was previously created using `web3.extend`) with the `call`, `block`, and `tracer` parameters. This function returns an object that contains information about the internal calls made by the smart contract during the execution of the specified call.
+The function then calls `provider.send` with the `debug_traceCall` method and the `call`, `block`, and `tracer` parameters. This function returns an object that contains information about the internal calls made by the smart contract during the execution of the specified call.
 
 The function then loops through the array of calls in the `result` object and extracts the `from`, `to`, and `calls` properties of each call object. The `from` property is the address of the sender of the call, the `to` property is the address of the smart contract being called, and the `calls` property is an array of objects that represent the internal calls made by the smart contract during the execution of the call.
 

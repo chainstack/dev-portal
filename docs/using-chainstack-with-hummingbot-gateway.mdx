@@ -1,0 +1,155 @@
+---
+title: "Using Chainstack as a Hummingbot Gateway RPC provider"
+description: "Configure Chainstack as the RPC provider for Hummingbot Gateway. One Platform API key auto-discovers your deployed Solana and EVM nodes, with no manual endpoint URLs."
+---
+
+**TLDR:**
+* Hummingbot Gateway v2.15 adds Chainstack as a built-in RPC provider for both Solana and EVM networks.
+* You set `rpcProvider: chainstack` and add one Platform API key. Gateway calls the Chainstack Platform API and routes to a node you already deployed, so there are no per-chain endpoint URLs to paste or rotate.
+* It is the only Gateway provider that spans Solana and all nine supported EVM chains from a single key.
+* This guide covers deploying nodes, configuring the provider, and verifying live swap quotes on Solana and Ethereum.
+
+## What this integration does
+
+[Hummingbot](https://hummingbot.org/) is an open-source framework for building market-making and arbitrage bots. [Gateway](https://hummingbot.org/gateway/) is its standalone API server that connects those bots to DEXs such as Jupiter, Meteora, Raydium, Orca, and Uniswap. Every quote, swap, and liquidity action Gateway performs runs through an RPC node.
+
+By default Gateway points at public RPC endpoints, which rate-limit and drop requests under trading load. As of v2.15 you can route Gateway through your Chainstack nodes instead, for lower latency and more reliable execution.
+
+<Info>
+**What makes Chainstack different here**
+
+Other providers want a manually configured endpoint per network. Chainstack uses the [Chainstack Platform API](/reference/platform-api-getting-started) to discover and configure your deployed nodes automatically. One key covers both Solana and EVM, with no endpoint URLs to manage.
+</Info>
+
+<Visibility for="humans">
+<Check>
+  ### Run Solana and EVM nodes on Chainstack
+
+  You can run [global](/docs/global-elastic-node), [regional](/docs/trader-node), or [warp transaction](/docs/warp-transactions) nodes with Chainstack. Warp routes your sends through a faster propagation path, made for latency-sensitive trades like arbitrage.
+
+  [Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required. You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+</Visibility>
+
+## Prerequisites
+
+Before starting, ensure you have:
+
+- A [Chainstack account](https://console.chainstack.com/) with at least one deployed node for the chain you trade on.
+- A [Chainstack Platform API key](/reference/platform-api-getting-started#create-api-key).
+- Hummingbot with Gateway v2.15 or later.
+
+The key here is the **Platform API key**, not a node endpoint authorization key. The Platform API key is what lets Gateway discover your nodes automatically.
+
+## Supported networks
+
+Chainstack discovery in Gateway covers:
+
+- EVM — Ethereum, Arbitrum, Polygon, Optimism, Base, Avalanche, BNB Smart Chain, Celo, and Ethereum Sepolia.
+- Solana — mainnet-beta and devnet.
+
+## Configure Gateway
+
+<Steps>
+  <Step title="Deploy your nodes">
+    Deploy a node for each network your bot trades on. For production market making and arbitrage, use [Trader Nodes](/docs/trader-node) — dedicated resources keep latency low and avoid the rate limits of shared endpoints.
+
+    For example, deploy a Solana mainnet node and an Ethereum mainnet node in the same project.
+  </Step>
+
+  <Step title="Create a Platform API key">
+    On your [Chainstack account](https://console.chainstack.com/), navigate to **Settings** > **API keys** > **Create key**. Give it a descriptive name, such as `Hummingbot Gateway`, and copy the generated key.
+
+    See [Chainstack Platform API: getting started](/reference/platform-api-getting-started#create-api-key) for details.
+  </Step>
+
+  <Step title="Add the key to apiKeys.yml">
+    In your Gateway `conf/apiKeys.yml`, set the `chainstack` field to your Platform API key:
+
+    <CodeGroup>
+    ```yaml conf/apiKeys.yml
+    chainstack: 'YOUR_CHAINSTACK_PLATFORM_API_KEY'
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Set the RPC provider per chain">
+    In the chain configuration files, set `rpcProvider` to `chainstack`. There are no endpoint URLs to add — Gateway resolves them from your account.
+
+    <CodeGroup>
+    ```yaml conf/chains/solana.yml
+    defaultNetwork: mainnet-beta
+    rpcProvider: chainstack
+    ```
+
+    ```yaml conf/chains/ethereum.yml
+    defaultNetwork: mainnet
+    rpcProvider: chainstack
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Start Gateway and verify">
+    Start Gateway as you normally would (see the [Hummingbot Gateway docs](https://hummingbot.org/gateway/)). On startup, each configured chain discovers its node:
+
+    ```text
+    Chainstack API key configured
+    Chainstack service initialized: node ND-123-456-789 (solana/solana-mainnet) for solana/mainnet-beta
+    Solana (defaultNetwork: mainnet-beta): Block #427,223,441
+    Chainstack service initialized: node ND-987-654-321 (ethereum/ethereum-mainnet) for ethereum/mainnet
+    Ethereum (defaultNetwork: mainnet): Block #25,342,330
+    ```
+
+    Confirm a chain is live with a status call:
+
+    <CodeGroup>
+    ```bash
+    curl "http://localhost:15888/chains/solana/status?network=mainnet-beta"
+    ```
+    </CodeGroup>
+
+    Then pull a read-only swap quote through a connector to confirm the full path works. The quote is routed through your Chainstack node:
+
+    <CodeGroup>
+    ```bash Solana (Jupiter)
+    curl "http://localhost:15888/connectors/jupiter/router/quote-swap?network=mainnet-beta&baseToken=SOL&quoteToken=USDC&amount=1&side=SELL"
+    ```
+
+    ```bash Ethereum (Uniswap)
+    curl "http://localhost:15888/connectors/uniswap/router/quote-swap?network=mainnet&baseToken=WETH&quoteToken=USDC&amount=1&side=SELL&walletAddress=YOUR_WALLET_ADDRESS"
+    ```
+    </CodeGroup>
+
+    <Check>
+      A successful quote returns the output amount, route, and price impact — confirming Gateway is reading chain state through your Chainstack node.
+    </Check>
+  </Step>
+</Steps>
+
+## How auto-discovery works
+
+When Gateway initializes a chain with `rpcProvider: chainstack`, it calls the Chainstack Platform API, finds the running node that matches the chain and network, and uses that node's endpoint for all RPC. You never paste a node URL.
+
+<Tip>
+Gateway selects the first running node that matches the chain and network. For predictable selection, keep one node per network in the project tied to your API key.
+</Tip>
+
+## Use a paid node for production trading
+
+Free Developer-plan nodes are rate-limited and restrict some Solana methods. In particular, `getProgramAccounts` and `getTokenAccountsByOwner` — used for SPL token balances — require a paid plan, so token-balance and some swap operations fail on the free tier.
+
+For live trading, run a paid [Trader Node](/docs/trader-node). It serves these methods and gives you dedicated throughput. See [pricing](https://chainstack.com/pricing/) for plan limits.
+
+## Troubleshooting
+
+### No running Chainstack node found
+
+Gateway could not match a running node to the chain and network. Check that the node exists in the account tied to your Platform API key, that it is running, and that its network matches the Gateway `defaultNetwork` (for example, a `solana-mainnet` node for `mainnet-beta`).
+
+### Chainstack API key is missing or invalid
+
+Confirm the `chainstack` field in `conf/apiKeys.yml` holds a **Platform API key** from **Settings** > **API keys**, not a node endpoint authorization key.
+
+### Method requires plan upgrade
+
+The node is on the free Developer plan and the connector called a paid-only method, such as `getProgramAccounts` on Solana. Move to a paid [Trader Node](/docs/trader-node).

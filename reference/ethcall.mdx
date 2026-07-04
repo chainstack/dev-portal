@@ -16,6 +16,7 @@ The interactive example in this page uses `eth_call` to call the `lpToken` metho
 When called against a block older than the latest ~128 blocks, this method is treated as an archive request (2 RUs instead of 1 RU). See [request units](/docs/request-units#archive-state-methods).
 </Note>
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -23,6 +24,7 @@ When called against a block older than the latest ~128 blocks, this method is tr
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 
 ## Parameters
@@ -55,43 +57,6 @@ See the [default block parameter](https://eth.wiki/json-rpc/API#the-default-bloc
 The following code snippets provide a clear demonstration of how to simulate a standard MATIC transfer between two accounts. Note that when using `eth_call` to simulate a transfer or a smart contract transaction, the sender account must have a sufficient balance to cover the associated gas fee.
 
 <CodeGroup>
-```javascript web3.js
-const Web3 = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
-
-async function simulateTransfer() {
-    try {
-        // Define the accounts to transfer between
-        const fromAddress = "0xAd80f9fcc2a315aBB6007F6fd6cCEC74C1168b9a";
-        const toAddress = "0x19e7e376e7c213b7e7e7e46cc70a5dd086daff2a";
-
-        // Define the value to transfer (converted to Wei)
-        const value = web3.utils.toWei("100", "ether");
-
-        // Build transaction object
-        const transactionObject = {
-            from: fromAddress,
-            to: toAddress,
-            gas: 21000, // 21000 is the standard for a regular tranfer
-            value: value,
-            data: ""
-        }
-
-        // Use eth_call to simulate the transfer on the latest block
-        const result = await web3.eth.call({
-            transactionObject
-        }, "latest");
-
-        console.log(`Transaction hash: ${result}`);
-    } catch (error) {
-        console.error(`Error: ${error.message}`);
-    }
-}
-
-simulateTransfer();
-```
-
 ```javascript ethers.js
 const ethers = require('ethers');
 const NODE_URL = "CHAINSTACK_NODE_URL";
@@ -162,12 +127,12 @@ Executing this code will produce a return value of `0x`, indicating a successful
 
 A common use case for `eth_call` is calling smart contract functions. For example, interact with an ERC-20 token smart contract deployed on the Polygon network and retrieve the balance of a specific account.
 
-The following code uses the web3.js library to call the `balanceOf` function of the [APE token smart contract](https://polygonscan.com/token/0xB7b31a6BC18e48888545CE79e83E06003bE70930#code) on the Polygon network.
+The following code uses the ethers.js library to call the `balanceOf` function of the [APE token smart contract](https://polygonscan.com/token/0xB7b31a6BC18e48888545CE79e83E06003bE70930#code) on the Polygon network.
 
 ```javascript index.js
-const Web3 = require("web3");
+const ethers = require("ethers");
 const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
+const provider = new ethers.JsonRpcProvider(NODE_URL);
 
 
 // Contract address and ABI for the token
@@ -198,13 +163,13 @@ const ABI = [
 async function getAccountBalance(address) {
   try {
     // Create a new contract instance
-    const contract = new web3.eth.Contract(ABI, CONTRACT_ADDRESS);
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, provider);
 
     // Call the balanceOf function to retrieve the account balance in wei using eth_call
-    const balanceInWei = await contract.methods.balanceOf(address).call();
+    const balanceInWei = await contract.balanceOf(address);
 
     // Convert the balance from wei to ethers
-    const balanceInEth = web3.utils.fromWei(balanceInWei, "ether");
+    const balanceInEth = ethers.formatEther(balanceInWei);
 
     // Log the account balance in ethers to the console
     console.log(`The account balance for address ${address} is: ${balanceInEth} APE`);
@@ -219,6 +184,6 @@ getAccountBalance("0xf07f7da6381fa11a4b47ea31164828a1bb9cdeaf");
 ```
 
 
-The `getAccountBalance` function is called with the address of the account whose balance we want to retrieve. This function creates a new contract instance, calls the `balanceOf` function of the smart contract with the provided address, and retrieves the account balance in Wei. The balance is then converted to the ethers unit using the `fromWei` function of the `web3.utils` object.
+The `getAccountBalance` function is called with the address of the account whose balance we want to retrieve. This function creates a new contract instance, calls the `balanceOf` function of the smart contract with the provided address, and retrieves the account balance in Wei. The balance is then converted to the ethers unit using the `formatEther` function of the `ethers` object.
 
 Finally, the account balance is printed to the console for easy viewing.

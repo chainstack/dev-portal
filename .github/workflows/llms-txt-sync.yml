@@ -1,0 +1,100 @@
+# Daily sync of the custom nested llms.txt to docs.json.
+#
+# The custom llms.txt overrides Mintlify's auto one, so it does NOT self-update when pages
+# change. This job regenerates it daily and lands the result on main via an auto-merging PR.
+#
+# Flow: regenerate -> validation guards -> (if drift) open/refresh a PR -> enable auto-merge.
+# GitHub merges the PR automatically once the required "Mintlify Deployment" check passes.
+#
+# Permissions: this org allows GITHUB_TOKEN to push branches AND create PRs (granted via
+# HD-270). It does NOT allow Actions to push straight to main (the org ruleset on main
+# requires the Mintlify check), so we go through a PR. Auto-merge needs the repo setting
+# "Allow auto-merge" (Settings -> General) ON; until it is, the PR is simply left open for a
+# one-click manual merge (the workflow does not fail).
+name: Sync llms.txt
+
+on:
+  schedule:
+    - cron: "55 6 * * *"     # 06:55 UTC = 14:55 SGT, daily
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: llms-txt-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Regenerate llms.txt and run validation guards
+        run: |
+          set -euo pipefail
+          out=$(python3 scripts/generate_llms_txt.py)
+          echo "$out"
+
+          # Guard 1: root llms.txt must stay small (AFDocs llms-txt-size pass threshold).
+          root=$(wc -c < llms.txt)
+          [ "$root" -lt 50000 ] || { echo "::error::root llms.txt ${root}B >= 50K — aborting"; exit 1; }
+
+          # Guard 2: every sub-index is well-formed (non-empty, heading + Pages section) and < 50K.
+          fail=0
+          while IFS= read -r f; do
+            [ "$f" = "./llms.txt" ] && continue
+            if [ ! -s "$f" ] || ! head -1 "$f" | grep -q '^# ' || ! grep -q '^## Pages' "$f"; then
+              echo "::error::malformed sub-index: $f"; fail=1
+            fi
+            sz=$(wc -c < "$f")
+            [ "$sz" -lt 50000 ] || { echo "::error::sub-index $f ${sz}B >= 50K"; fail=1; }
+          done < <(find . -name llms.txt -not -path './node_modules/*')
+          [ "$fail" -eq 0 ] || exit 1
+
+          # Guard 3: page count must not have cratered (a corrupt/truncated docs.json).
+          pages=$(printf '%s\n' "$out" | grep -oE 'pages: [0-9]+' | grep -oE '[0-9]+' | head -1)
+          [ "${pages:-0}" -ge 1500 ] || { echo "::error::page count cratered (${pages:-0} < 1500) — aborting"; exit 1; }
+
+          echo "guards OK — root=${root}B pages=${pages}"
+
+      - name: Open/refresh PR and enable auto-merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No llms.txt drift — nothing to do."
+            exit 0
+          fi
+
+          BR="auto/llms-txt-sync"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BR"
+          git add -A
+          git commit -m "chore: sync nested llms.txt to docs.json"
+          git push -f origin "$BR"
+
+          # Create the PR if none is open; otherwise the force-push already updated it.
+          if ! gh pr view "$BR" --json state --jq .state 2>/dev/null | grep -q OPEN; then
+            gh pr create --base main --head "$BR" \
+              --assignee akegaviar \
+              --title "chore: sync llms.txt" \
+              --body "Automated regeneration of the nested llms.txt from docs.json (\`scripts/generate_llms_txt.py\`). Passed size/parse/page-count guards. Auto-merges once the Mintlify Deployment check passes."
+          fi
+
+          # Ensure the PR is assigned (so the assignee is notified even if the PR
+          # already existed and was only refreshed by the force-push above).
+          gh pr edit "$BR" --add-assignee akegaviar \
+            || echo "::warning::Could not assign the PR to akegaviar."
+
+          # Enable auto-merge. If the repo setting "Allow auto-merge" is off, this is a no-op
+          # warning and the PR stays open for a manual one-click merge — the workflow still succeeds.
+          gh pr merge "$BR" --squash --auto \
+            || echo "::warning::Could not enable auto-merge (is 'Allow auto-merge' enabled in repo settings?). PR left open for manual merge."

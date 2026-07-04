@@ -1,6 +1,6 @@
 ---
 title: "cWithdraw | Hyperliquid exchange"
-openapi: /openapi/hyperliquid_node_api/exchange_c_withdraw.json post /exchange
+openapi: /openapi/hyperliquid_node_api/hypercore_exchange/exchange_c_withdraw.json post /exchange
 description: "Withdraws tokens from the consensus layer. cWithdraw JSON-RPC method available on the Hyperliquid exchange blockchain via Chainstack."
 ---
 
@@ -14,6 +14,7 @@ This endpoint requires signature authentication. See our comprehensive [Authenti
 
 Withdraws tokens from the consensus layer.
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -21,6 +22,7 @@ Withdraws tokens from the consensus layer.
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 ## Parameters
 
@@ -45,6 +47,8 @@ Returns an object with the action status:
 
 ## Example request
 
+<CodeGroup>
+
 ```shell cURL
 curl -X POST https://api.hyperliquid.xyz/exchange \
   -H "Content-Type: application/json" \
@@ -54,6 +58,56 @@ curl -X POST https://api.hyperliquid.xyz/exchange \
     "signature": {...}
   }'
 ```
+
+```python Python (hyperliquid-python-sdk)
+import eth_account
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+from hyperliquid.utils.signing import get_timestamp_ms, sign_user_signed_action
+
+# EIP-712 types for the cWithdraw action (withdraw from staking).
+CWITHDRAW_TYPES = [
+    {"name": "hyperliquidChain", "type": "string"},
+    {"name": "wei", "type": "uint64"},
+    {"name": "nonce", "type": "uint64"},
+]
+
+wallet = eth_account.Account.from_key("0x...")
+exchange = Exchange(wallet, constants.MAINNET_API_URL)
+
+# Amount of wei to withdraw from the staking balance (float * 1e8).
+nonce = get_timestamp_ms()
+action = {"type": "cWithdraw", "wei": int(1 * 1e8), "nonce": nonce}
+
+# The Python SDK exposes no dedicated cWithdraw helper, so sign the
+# user-signed action directly with the generic signer.
+signature = sign_user_signed_action(
+    wallet,
+    action,
+    CWITHDRAW_TYPES,
+    "HyperliquidTransaction:CWithdraw",
+    is_mainnet=True,
+)
+
+result = exchange._post_action(action, signature, nonce)
+print(result)
+```
+
+```typescript TypeScript (@nktkas/hyperliquid)
+import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { privateKeyToAccount } from "viem/accounts";
+
+const wallet = privateKeyToAccount("0x..."); // viem or ethers
+
+const transport = new HttpTransport(); // public Hyperliquid API
+const client = new ExchangeClient({ transport, wallet });
+
+// Amount of wei to withdraw from staking into the spot account (float * 1e8).
+const result = await client.cWithdraw({ wei: 1 * 1e8 });
+console.log(result);
+```
+
+</CodeGroup>
 
 ## Use case
 

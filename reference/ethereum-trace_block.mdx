@@ -6,6 +6,7 @@ description: "Ethereum API method that returns traces for all the transactions w
 
 Ethereum API method that returns traces for all the transactions within a specific block. Developers can use the `trace_block` method to gain insight into the behavior of smart contracts within a block, analyze gas usage, and optimize their contracts accordingly. This method is only available on an Erigon instance.
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -13,6 +14,7 @@ Ethereum API method that returns traces for all the transactions within a specif
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 
 ## Parameters
@@ -73,34 +75,6 @@ const traceBlock = async (block) => {
 traceBlock("latest");
 ```
 
-```javascript web3.js
-const { Web3, Web3PluginBase } = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
-
-// Define the TraceBlockPlugin class
-class TraceBlockPlugin extends Web3PluginBase {
-    pluginNamespace = 'erigon';
-
-    async traceBlock(blockId) {
-        return this.requestManager.send({
-            method: 'trace_block',
-            params: [blockId],
-        });
-    }
-}
-
-// Register the plugin
-web3.registerPlugin(new TraceBlockPlugin());
-
-async function traceBlock(block) {
-    const result = await web3.erigon.traceBlock(block);
-    console.log(result);
-}
-
-traceBlock("latest");
-```
-
 ```python web3.py
 from web3 import Web3  
 node_url = "CHAINSTACK_NODE_URL" 
@@ -118,32 +92,18 @@ print(traces)
 
 A practical use case for the `trace_block` method on Ethereum can be to conduct an analysis of the most recent block on the network. For example, by examining the amount of gas supplied by all the transactions and the actual amount of gas utilized, developers can gain valuable insights into the block's behavior. This can be the first step to developing a chain explorer.
 
-The following code is an implementation of this idea using web3.js:
+The following code is an implementation of this idea using ethers.js:
 
 ```javascript index.js
-const { Web3, Web3PluginBase } = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
+const ethers = require("ethers");
 
-// Define the TraceBlockPlugin class
-class TraceBlockPlugin extends Web3PluginBase {
-    pluginNamespace = 'erigon';
-
-    async traceBlock(blockId) {
-        return this.requestManager.send({
-            method: 'trace_block',
-            params: [blockId],
-        });
-    }
-}
-
-// Register the plugin
-web3.registerPlugin(new TraceBlockPlugin());
+// Create a ChainstackProvider instance for Ethereum mainnet
+const chainstack = new ethers.ChainstackProvider("mainnet");
 
 // A function that returns an array of result and gas fields for each transaction in a block
 async function traceBlock(block) {
     try {
-      const traces = await web3.erigon.traceBlock(block);
+      const traces = await chainstack.send("trace_block", [block]);
       const resultFields = [];
       const gasFields = [];
   
@@ -163,8 +123,7 @@ async function traceBlock(block) {
   function returnGasUsed(results) {
     const totalGasUsed = results.reduce((total, result) => {
       if (result !== null && result.gasUsed !== undefined) {
-        const decimalValue = web3.utils.hexToNumberString(result.gasUsed);
-        total += Number(decimalValue);
+        total += Number(result.gasUsed);
       }
       return total;
     }, 0);
@@ -175,8 +134,7 @@ async function traceBlock(block) {
   function returnTotalGas(gasArray) {
     const totalGas = gasArray.reduce((total, gas) => {
       if (gas !== undefined) {
-        const decimalValue = web3.utils.hexToNumberString(gas);
-        total += Number(decimalValue);
+        total += Number(gas);
       }
       return total;
     }, 0);

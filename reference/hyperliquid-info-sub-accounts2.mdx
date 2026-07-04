@@ -1,0 +1,98 @@
+---
+title: subAccounts2 | Hyperliquid info
+openapi: /openapi/hyperliquid_node_api/hypercore_info/info_sub_accounts2.json post /4f8d8f4040bdacd1577bff8058438274/info
+description: "The info endpoint with type: \"subAccounts2\" returns a user's sub-accounts (V2), including each sub-account's per-DEX clearinghouse state and spot state."
+---
+
+<Info>
+This method is available on Chainstack. Not all Hyperliquid methods are available on Chainstack, as the open-source node implementation does not support them yet — see [Hyperliquid methods](/docs/hyperliquid-methods) for the full availability breakdown.
+</Info>
+
+The `info` endpoint with `type: "subAccounts2"` returns the sub-accounts owned by a user (the V2 response), including each sub-account's per-DEX clearinghouse state and spot state. Use it to enumerate and inspect the sub-accounts under a master account.
+
+<Visibility for="humans">
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+</Visibility>
+
+## Parameters
+
+### Request body
+
+* `type` (string, required) — The request type. Must be `"subAccounts2"`.
+* `user` (string, required) — Master account address in 42-character hexadecimal format.
+
+## Response
+
+Returns an array of the user's sub-accounts, or `null` if the user has none. Each sub-account contains:
+
+* `name` (string) — The sub-account name.
+* `subAccountUser` (string) — The sub-account address.
+* `master` (string) — The master account address.
+* `dexToClearinghouseState` (array) — `[dex, state]` tuples mapping each DEX (empty string for the main DEX) to its clearinghouse state.
+* `spotState` (object) — The sub-account's spot clearinghouse state.
+
+## Example request
+
+<CodeGroup>
+
+```shell Shell
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"type": "subAccounts2", "user": "0x1442ad477ded1b0028b57621aa7b6f7eadb8f568"}' \
+  https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/info
+```
+
+```python Python (hyperliquid-python-sdk)
+from hyperliquid.info import Info
+
+# skip_ws=True avoids opening a WebSocket connection for this REST call
+info = Info("YOUR_CHAINSTACK_ENDPOINT", skip_ws=True)
+
+# The SDK has no dedicated subAccounts2 helper, so post the request directly.
+sub_accounts = info.post("/info", {
+    "type": "subAccounts2",
+    "user": "0x1442ad477ded1b0028b57621aa7b6f7eadb8f568",
+})
+print(sub_accounts)
+```
+
+```typescript TypeScript (@nktkas/hyperliquid)
+import { HttpTransport, InfoClient } from "@nktkas/hyperliquid";
+
+// apiUrl points the transport at a custom server (your Chainstack endpoint)
+const transport = new HttpTransport({ apiUrl: "YOUR_CHAINSTACK_ENDPOINT" });
+const info = new InfoClient({ transport });
+
+const subAccounts = await info.subAccounts2({
+  user: "0x1442ad477ded1b0028b57621aa7b6f7eadb8f568",
+});
+console.log(subAccounts);
+```
+
+</CodeGroup>
+
+<Note>
+**Use your own endpoint in your code.** The code examples use a placeholder Chainstack endpoint (YOUR_CHAINSTACK_ENDPOINT) — replace it with your own Hyperliquid node endpoint from the [Chainstack console](https://console.chainstack.com/). The curl above uses a shared public endpoint for quick checks only; do not use it in production.
+</Note>
+
+## Example response
+
+```json
+null
+```
+
+The example returns `null` because the queried address has no sub-accounts. An account with sub-accounts returns an array of sub-account objects as described above.
+
+## Use cases
+
+The `info` endpoint with `type: "subAccounts2"` is useful for:
+
+* Enumerating the sub-accounts under a master account
+* Building dashboards that aggregate positions across sub-accounts
+* Portfolio tooling that needs each sub-account's clearinghouse and spot state

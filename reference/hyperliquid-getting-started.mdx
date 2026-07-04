@@ -1,21 +1,27 @@
 ---
 title: "Hyperliquid API reference: HyperCore and HyperEVM RPC"
-description: "Use the Hyperliquid API on Chainstack to access HyperCore order books and HyperEVM JSON-RPC for perpetuals, spot trading, and smart contracts."
+description: "Use the Hyperliquid API on Chainstack to access HyperCore order books and HyperEVM JSON-RPC for perpetuals, spot trading, and smart contracts. Chain ID 999, 129 methods served, archive and debug & trace on mainnet and testnet."
 ---
 
-## What is the Hyperliquid protocol
+The Hyperliquid API gives developers programmatic access to two execution layers on one chain: HyperCore, the on-chain order book for perpetuals and spot trading, and HyperEVM, the Ethereum-compatible smart contract layer. Chainstack serves both through a single Hyperliquid node endpoint.
 
-Hyperliquid is a high-performance Layer 1 blockchain that focuses on providing a deep liquidity DEX for spot trading and for perpetual trading. The Hyperliquid founder calls it [the AWS of liquidity](https://mobile.x.com/chameleon_jeff/status/1841392573199585291).
+## Hyperliquid API at a glance
 
-Hyperliquid uses a custom consensus algorithm called HyperBFT, which is inspired by Hotstuff and its successors.
+| Property | Value |
+| --- | --- |
+| Chain | Hyperliquid — Layer 1, HyperBFT consensus (HotStuff lineage) |
+| Execution layers | HyperCore (Rust order book) and HyperEVM (EVM smart contracts) |
+| HyperEVM chain ID | `999` (mainnet), `998` (testnet) |
+| HyperCore throughput | 200,000 orders per second, one-block finality |
+| API endpoints | `/info` and `/exchange` (HyperCore), `/evm` and `/nanoreth` (HyperEVM) |
+| Methods served by Chainstack | 129 — all 83 HyperEVM JSON-RPC methods + 46 HyperCore `/info` queries |
+| Methods via public Hyperliquid API | 83 — 30 HyperCore `/info` + 53 HyperCore `/exchange` |
+| Real-time data | WebSocket `eth_subscribe` (newHeads, logs, syncing) on HyperEVM |
+| Debug & trace | `debug_*`, `trace_*`, `erigon_*`, and Otterscan `ots_*` namespaces |
+| Networks | Mainnet and testnet, full and archive nodes |
+| Request units | 1 RU per full request, 2 RUs per archive request |
 
-Hyperliquid state execution operates through two main components:
-
-- HyperCore — provides fully onchain perpetual futures and spot order books with one-block finality. HyperCore supports 200,000 orders per second, with throughput continuously improving through node software optimization.
-- HyperEVM — brings Ethereum-compatible smart contract functionality to Hyperliquid. This component makes HyperCore's liquidity and financial primitives available as permissionless building blocks for developers.
-
-Chainstack supports both HyperCore and HyperEVM. For the full list of methods and the available endpoints, see [Hyperliquid methods](/docs/hyperliquid-methods).
-
+<Visibility for="humans">
 <Check>
 ### Get your own node endpoint today
 
@@ -23,38 +29,169 @@ Chainstack supports both HyperCore and HyperEVM. For the full list of methods an
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
+
+## What is the Hyperliquid protocol
+
+Hyperliquid is a high-performance Layer 1 blockchain that focuses on providing a deep liquidity DEX for spot trading and for perpetual trading. The Hyperliquid founder calls it [the AWS of liquidity](https://mobile.x.com/chameleon_jeff/status/1841392573199585291).
+
+Hyperliquid uses a custom consensus algorithm called HyperBFT, which is inspired by HotStuff and its successors. State execution operates through two components that share consensus and produce interleaved blocks:
+
+- HyperCore — provides fully on-chain perpetual futures and spot order books with one-block finality. HyperCore supports 200,000 orders per second, with throughput continuously improving through node software optimization. Order matching, margin, and position management run natively in Rust with zero gas fees.
+- HyperEVM — brings Ethereum-compatible smart contract functionality to Hyperliquid. It runs on chain ID `999` (mainnet) and `998` (testnet), and makes HyperCore's liquidity and financial primitives available as permissionless building blocks for developers.
+
+The two layers are tightly integrated. HyperEVM contracts read HyperCore order book prices, positions, and balances directly through precompiles — no external oracles — and write actions back to HyperCore through the CoreWriter system contract. See the [CoreWriter guide](/docs/hyperliquid-corewriter) and the [infrastructure FAQ](/docs/hyperliquid-infrastructure-faq) for the full architecture.
 
 ## What is the Hyperliquid API
 
-The Hyperliquid API allows developers to interact with the Hyperliquid DEX to build trading applications, analytics tools, and portfolio management systems.
+The Hyperliquid API lets developers build trading applications, analytics tools, and portfolio management systems. To read market data and execute trades, an application connects to a Hyperliquid node endpoint, then calls the layer it needs:
 
-To read market data and execute trades on Hyperliquid, an application must connect to a Hyperliquid node endpoint.
+- HyperCore exposes `/info` for queries (market data, account state) and `/exchange` for trading actions (orders, cancels, transfers).
+- HyperEVM exposes a standard JSON-RPC interface, plus WebSocket subscriptions for real-time data streaming.
 
-The Hyperliquid API implements both REST endpoints and WebSocket connections for real-time data streaming, providing comprehensive access to trading functionality, market data, and account management.
+## HyperCore and HyperEVM API surface
 
-## Limits
+The platform exposes distinct surfaces for each layer. The table below shows what runs where, and which surfaces Chainstack serves directly versus which route through the official Hyperliquid public API.
 
-Some endpoint methods can only be used on the official Hyperliquid public API. These endpoints are not available through Chainstack, as the open-source node implementation does not support them yet.
+| API surface | Endpoint path | Engine | Mainnet | Testnet | Served by |
+| --- | --- | --- | --- | --- | --- |
+| HyperEVM JSON-RPC | `/evm`, `/nanoreth` | HyperEVM | Yes | Yes | Chainstack |
+| HyperEVM WebSocket | `/evm` (WSS) | HyperEVM | Yes | Yes | Chainstack |
+| HyperEVM debug & trace | `/evm` | HyperEVM | Yes | Yes | Chainstack |
+| HyperCore info — queries | `/info` | HyperCore | Yes | Yes | Chainstack (46 methods) + public API (30) |
+| HyperCore exchange — trading | `/exchange` | HyperCore | Yes | Yes | Public Hyperliquid API only |
 
-Endpoints that are only available through the official Hyperliquid API are marked with a note in this Hyperliquid API reference.
+<Note>
+Chainstack serves HyperEVM on two paths that exist by default on every node: `/evm` (hl-node-compliant — system transactions stripped from block-shaped responses) and `/nanoreth` (system transactions included). Append the path you need to your endpoint URL. See [Hyperliquid node configuration](/docs/hyperliquid-node-configuration).
+</Note>
+
+### What you can build
+
+With a Chainstack Hyperliquid endpoint you can:
+
+- Query HyperEVM chain state — balances, blocks, logs, receipts, and gas — through the standard Ethereum JSON-RPC interface, compatible with web3.js, ethers, viem, and web3.py.
+- Deploy and call Solidity contracts on HyperEVM with Hardhat, Foundry, and Remix, and read HyperCore state from those contracts through precompiles.
+- Debug and trace transactions with `debug_traceTransaction`, `trace_block`, and the Otterscan `ots_*` namespace on archive nodes.
+- Stream real-time data over WebSocket with `eth_subscribe` for `newHeads`, `logs`, and `syncing`.
+- Read HyperCore market and account state — `meta`, `clearinghouseState`, `openOrders`, `l2Book`, `candleSnapshot`, `fundingHistory`, and more — through `/info`.
+- Place, cancel, and modify orders and run transfers, staking, and vault actions through `/exchange` on the public Hyperliquid API.
+
+## Methods
+
+Chainstack documents 212 Hyperliquid methods across the two layers:
+
+| Engine | Endpoint | Methods | Availability |
+| --- | --- | --- | --- |
+| HyperEVM | `/evm` | 83 | All served by Chainstack |
+| HyperCore | `/info` | 76 | 46 served by Chainstack, 30 on the public Hyperliquid API |
+| HyperCore | `/exchange` | 53 | Public Hyperliquid API (routed to validators) |
+
+For the complete, per-method availability matrix, see [Hyperliquid methods](/docs/hyperliquid-methods).
+
+<Note>
+Methods marked "Hyperliquid public RPC" are proprietary to the Hyperliquid DEX and have not been open sourced, so they are only available on the public Hyperliquid infrastructure. If you receive `Failed to deserialize the JSON body into the target type`, switch that call to the public Hyperliquid RPC.
+</Note>
 
 ## How to start using the Hyperliquid API
 
-To use the Hyperliquid API, you need access to a Hyperliquid node endpoint.
-
-Follow these steps to sign up on Chainstack, deploy a Hyperliquid node, and find your endpoint credentials:
+To use the Hyperliquid API, you need access to a Hyperliquid node endpoint. Follow these steps to sign up, deploy a node, and find your credentials:
 
 1. [Sign up with Chainstack](https://console.chainstack.com/user/account/create).
 2. [Deploy a node](/docs/manage-your-networks).
 3. [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
 
-Now you are ready to connect to the Hyperliquid blockchain and use the Hyperliquid API to build trading applications.
+Now you are ready to connect to the Hyperliquid blockchain and build trading applications.
+
+## SDKs and tooling
+
+You can call the API directly over HTTP and WebSocket, or use a maintained SDK:
+
+- Python — the official [hyperliquid-python-sdk](https://github.com/hyperliquid-dex/hyperliquid-python-sdk) (`pip install hyperliquid-python-sdk`).
+- TypeScript — the community [@nktkas/hyperliquid](https://github.com/nktkas/hyperliquid) SDK with full type safety (`npm install @nktkas/hyperliquid`).
+- Rust — the official [hyperliquid-rust-sdk](https://github.com/hyperliquid-dex/hyperliquid-rust-sdk) (`cargo add hyperliquid_rust_sdk`).
+
+Point any SDK at your Chainstack endpoint. See [Hyperliquid tooling](/docs/hyperliquid-tooling) for setup and the [nktkas TypeScript SDK guide](/docs/hyperliquid-typescript-sdk-nktkas) for end-to-end examples.
+
+## Rate limits
+
+The limits below apply to the public Hyperliquid infrastructure. A Chainstack private node removes the HyperEVM request ceiling and gives you dedicated bandwidth and geographic routing.
+
+| Surface | Public infrastructure limit |
+| --- | --- |
+| HyperEVM (`/evm`) | 100 requests/min |
+| REST API (`/info`, `/exchange`) | 1,200 weight/min |
+| WebSocket connections | 100 simultaneous |
+| WebSocket subscriptions | 1,000 across all connections |
+| WebSocket messages | 2,000 messages/min |
+
+<Tip>
+Private RPC becomes necessary for applications above 100 HyperEVM requests per minute, or that need SLA guarantees, event indexing, or high-frequency trading. For the full weight table and address-based action limits, see the [infrastructure FAQ](/docs/hyperliquid-infrastructure-faq#public-infrastructure-rate-limiting).
+</Tip>
 
 ## Networks
 
-Chainstack supports both Hyperliquid mainnet and testnet with full and archive node modes, WebSocket connections, and debug & trace APIs.
+Chainstack supports both Hyperliquid mainnet and testnet, with full and archive node modes, WebSocket connections, and debug & trace APIs.
+
+| Feature | Mainnet | Testnet |
+| --- | --- | --- |
+| HyperEVM chain ID | `999` | `998` |
+| Full nodes | Yes | Yes |
+| Archive nodes | Yes | Yes |
+| WebSocket | Yes | Yes |
+| Debug & trace APIs | Yes | Yes |
 
 <Note>
 On testnet, archive data is available starting from block `34112653`. Queries for blocks before this height will not return historical state.
 </Note>
 
+## Frequently asked questions
+
+### What is the difference between HyperCore and HyperEVM?
+
+HyperCore is Hyperliquid's native, Rust-based trading layer — it runs the perpetual and spot order books on-chain with one-block finality and zero gas fees. HyperEVM is the Ethereum-compatible smart contract layer (chain ID `999`) where you deploy Solidity contracts. Both share HyperBFT consensus, and HyperEVM contracts can read HyperCore state through precompiles.
+
+### What is the HyperEVM chain ID?
+
+`999` on mainnet and `998` on testnet. Use the standard JSON-RPC interface at the `/evm` path of your Chainstack endpoint.
+
+### Can I place trades through Chainstack?
+
+Trading actions on the HyperCore `/exchange` endpoint are available only on validator nodes, so they route through the official Hyperliquid API at `api.hyperliquid.xyz`. Chainstack serves all 83 HyperEVM JSON-RPC methods and 46 HyperCore `/info` query methods directly, which covers market data, account state, smart contract calls, and HyperEVM transaction submission.
+
+### Which Hyperliquid methods are available on Chainstack?
+
+129 of 212 documented methods run directly on Chainstack nodes: all 83 HyperEVM JSON-RPC methods and 46 HyperCore `/info` queries. The remaining 83 (30 proprietary `/info` methods and 53 `/exchange` actions) are only available on the public Hyperliquid infrastructure. See the [methods reference](/docs/hyperliquid-methods) for the per-method breakdown.
+
+### Does Hyperliquid support archive data and tracing?
+
+Yes. Chainstack offers full and archive Hyperliquid nodes on both mainnet and testnet, with `debug_*`, `trace_*`, `erigon_*`, and Otterscan `ots_*` methods for transaction tracing and smart contract debugging. On testnet, archive history starts at block `34112653`.
+
+### What are the Hyperliquid API rate limits?
+
+The public Hyperliquid infrastructure caps HyperEVM at 100 requests/min and REST (`/info`, `/exchange`) at 1,200 weight/min. A Chainstack private node removes the 100 requests/min HyperEVM ceiling. See the [infrastructure FAQ](/docs/hyperliquid-infrastructure-faq#public-infrastructure-rate-limiting) for the full weight and address-based limits.
+
+### What is the difference between the `/evm` and `/nanoreth` paths?
+
+Both serve HyperEVM JSON-RPC and exist by default on every node. `/evm` is hl-node-compliant and strips HyperCore ↔ HyperEVM system transactions from block-shaped responses; `/nanoreth` includes them. See [Hyperliquid node configuration](/docs/hyperliquid-node-configuration).
+
+## Related Hyperliquid resources
+
+- [Hyperliquid methods](/docs/hyperliquid-methods) — complete per-method availability reference
+- [Hyperliquid development](/docs/hyperliquid-development) — build overview and quickstart
+- [Hyperliquid tooling](/docs/hyperliquid-tooling) — SDKs and development setup
+- [nktkas TypeScript SDK](/docs/hyperliquid-typescript-sdk-nktkas) — end-to-end TypeScript examples
+- [Hyperliquid node configuration](/docs/hyperliquid-node-configuration) — `/evm` vs `/nanoreth`, system transactions
+- [Infrastructure FAQ](/docs/hyperliquid-infrastructure-faq) — architecture, node types, and rate limits
+- [CoreWriter guide](/docs/hyperliquid-corewriter) — write to HyperCore from HyperEVM contracts
+- [Bridging USDC](/docs/hyperliquid-bridging-usdc) — move USDC between HyperCore and HyperEVM
+- [Forking HyperEVM with Foundry](/docs/hyperliquid-forking-evm-foundry) — local mainnet fork testing
+- [Signing overview](/docs/hyperliquid-signing-overview) — authentication and action signing
+- [L1 action signing](/docs/hyperliquid-l1-action-signing) — sign HyperCore exchange actions
+- [User-signed actions](/docs/hyperliquid-user-signed-actions) — transfers and account actions
+- [Authentication guide](/docs/hyperliquid-authentication-guide) — authenticate with the exchange API
+- [Debugging signature errors](/docs/hyperliquid-debugging-signature-errors) — fix common signing issues
+- [Order precision](/docs/hyperliquid-order-precision) — tick and lot sizing rules
+- [TWAP orders](/docs/hyperliquid-twap-orders) — time-weighted average price execution
+- [Funding rate arbitrage](/docs/hyperliquid-funding-rate-arbitrage) — funding strategy walkthrough
+- [Copy trading over WebSocket](/docs/hyperliquid-copy-trading-websocket) — real-time fill streaming
+- [HIP-4 outcome markets](/docs/hyperliquid-hip4-outcome-markets-trading) — trade prediction markets

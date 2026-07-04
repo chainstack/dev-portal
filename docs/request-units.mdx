@@ -22,12 +22,13 @@ For each protocol, here's what counts as a **full request (1 RU)** and what coun
 
 | Protocols | Classification |
 | --- | --- |
-| Ethereum, Polygon, BNB Smart Chain, Arbitrum, Base, Optimism, Avalanche, Linea, Mantle, Berachain, Scroll, Zora, Sonic, Unichain, Monad, Hyperliquid (HyperEVM), Plasma, Kaia, Cronos, Gnosis Chain, Celo, Moonbeam, MegaETH, Ronin, Fantom, zkSync Era, Polygon zkEVM, Blast, Tempo | Less than 127 blocks behind the tip is **full**; 127 or more blocks behind is **archive** |
+| Ethereum, Polygon, BNB Smart Chain, Arbitrum, Base, Optimism, Avalanche, Linea, Mantle, Berachain, Scroll, Zora, Sonic, Unichain, Monad, Hyperliquid (HyperEVM), Plasma, Kaia, Cronos, Gnosis Chain, Celo, Moonbeam, MegaETH, Ronin, Fantom, zkSync Era, Blast, Tempo | Less than 127 blocks behind the tip is **full**; 127 or more blocks behind is **archive** |
 | Solana | **Archive** billing applies to specific methods when fetching historical slots. See [Solana method scope](#solana-method-scope) below. |
 | TON | Most requests are **full**. `getTransactions` and `getTransactionsStd` are always **archive**; block/seqno methods are **archive** when the requested seqno is more than 128 behind the tip. See [TON method scope](#ton-method-scope) below. |
 | Aptos | Most requests are **full**. `/v1/accounts/{address}/transactions` is always **archive**; block-height methods are **archive** when the requested height is more than 128 behind the tip, and ledger-version methods when the requested version is more than 256 behind. See [Aptos method scope](#aptos-method-scope) below. |
 | Starknet | Most requests are **full**. Trace methods are always **2 RUs**; block-scoped methods are **archive** when the requested block is more than 128 behind the tip. See [Starknet method scope](#starknet-method-scope) below. |
-| Bitcoin, Sui, Polkadot, TRON, opBNB, Harmony | No archive split — every request is billed as full |
+| Polkadot | Most requests are **full**. Sidecar trace endpoints are always **2 RUs**; `chain_getBlockHash` and block-scoped Sidecar endpoints are **archive** when the requested block is more than 128 behind the tip. See [Polkadot method scope](#polkadot-method-scope) below. |
+| Bitcoin, Sui, TRON, opBNB, Harmony | No archive split — every request is billed as full |
 
 ## Always 2 RUs
 
@@ -204,6 +205,33 @@ Starknet requests are billed as full (1 RU) by default. Three cases are billed a
 **Archive when the event range is historical** — `starknet_getEvents` is billed as archive (2 RUs) when its `from_block` or `to_block` is more than 128 behind the tip, and full (1 RU) otherwise. This parallels the `eth_getLogs` rule in the EVM section.
 
 All other Starknet methods are billed as full (1 RU) regardless of the block they target.
+
+## Polkadot method scope
+
+Polkadot is served over two transports — the Substrate node JSON-RPC and the [Sidecar](https://github.com/paritytech/substrate-api-sidecar) REST API. Both are billed as full (1 RU) by default. Three cases are billed at 2 RUs.
+
+**Always 2 RUs** — these Sidecar trace endpoints are billed at the trace rate (2 RUs) regardless of block age, the same as the EVM `debug_*`/`trace_*` rule:
+
+- `/experimental/blocks/head/traces`
+- `/experimental/blocks/{number}/traces`
+- `/experimental/blocks/{number}/traces/operations`
+- `/experimental/blocks/head/traces/operations`
+
+**Archive when targeting a historical block (JSON-RPC)** — billed as archive (2 RUs) when the requested block is more than 128 behind the chain tip, and full (1 RU) otherwise (recent block, or no block parameter):
+
+- `chain_getBlockHash`
+
+**Archive when targeting a historical block (Sidecar REST)** — a Sidecar request that reads a historical block is billed as archive (2 RUs) when that block is more than 128 behind the chain tip, and full (1 RU) otherwise (recent block, the chain head, or no block specified). The block is taken from the path on these endpoints:
+
+- `/blocks/{number}`
+- `/blocks/{number}/header`
+- `/blocks/{blockId}/extrinsics/{extrinsicIndex}`
+- `/blocks/{blockId}/extrinsics-raw`
+- `/blocks/{blockId}/para-inclusions`
+
+…or from the `at` query parameter on any other Sidecar endpoint.
+
+All other Polkadot methods and Sidecar endpoints — including requests that target the chain head or omit a block — are billed as full (1 RU).
 
 ## HTTP requests vs WebSocket subscriptions
 

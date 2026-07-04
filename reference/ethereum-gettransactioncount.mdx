@@ -11,6 +11,7 @@ Ethereum API method that returns the number of transactions sent from an address
 When called against a block older than the latest ~128 blocks, this method is treated as an archive request (2 RUs instead of 1 RU). See [request units](/docs/request-units#archive-state-methods).
 </Note>
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -18,6 +19,7 @@ When called against a block older than the latest ~128 blocks, this method is tr
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 
 ## Parameters
@@ -68,19 +70,6 @@ const getNonce = async (address, blockId) => {
 getNonce("0xCb6Ed7E78d27FDff28127F9CbD61d861F09a2324", "latest");
 ```
 
-```javascript web3.js
-const { Web3 } = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
-
-async function getTransactionsCount(address, blockId) {
-  const count = await web3.eth.getTransactionCount(address, blockId)
-  console.log(count);
-}
-
-getTransactionsCount("0xCb6Ed7E78d27FDff28127F9CbD61d861F09a2324", 'latest')
-```
-
 ```python web3.py
 from web3 import Web3  
 node_url = "CHAINSTACK_NODE_URL" 
@@ -95,7 +84,7 @@ print(web3.eth.get_transaction_count("0xCb6Ed7E78d27FDff28127F9CbD61d861F09a2324
 
 One of the most common use cases for `eth_getTransactionCount`is to create the transaction object built in a script designed to send a transaction. The nonce field is required, and it is retrieved using the `eth_getTransactionCount` method.
 
-The following code shows how to build a `rawTransction` using web3.js.
+The following code shows how to build and send a transaction using ethers.js.
 
 <Warning>
 **Security notice**
@@ -106,13 +95,14 @@ On a side note, the private key in this case must be imported with '0x' at the b
 </Warning>
 
 ```javascript index.js
-const { Web3 } = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
+const ethers = require("ethers");
+
+// Create a ChainstackProvider instance for Ethereum mainnet
+const chainstack = new ethers.ChainstackProvider("mainnet");
 
 // Function to get the transaction count (nonce)
 async function getTransactionsCount(address) {
-    return await web3.eth.getTransactionCount(address, 'latest');
+    return await chainstack.getTransactionCount(address, "latest");
 }
 
 // Function to perform the transaction
@@ -121,30 +111,32 @@ async function sendEther() {
         // Add your private key here (ideally from an environment variable)
         const privateKey = "0xPRIVATE_KEY";
 
-        // Add the wallet to Web3
-        const wallet = web3.eth.accounts.wallet.add(privateKey);
+        // Create a wallet connected to the provider
+        const wallet = new ethers.Wallet(privateKey, chainstack);
 
         // Retrieve the nonce for the sender's address
-        const nonce = await getTransactionsCount(wallet[0].address);
+        const nonce = await getTransactionsCount(wallet.address);
 
         // Transaction parameters
-        const toAddress = '0xae2Fc483527B8EF99EB5D9B44875F005ba1FaE13'; // Replace with the receiver's address
-        const value = web3.utils.toWei('1', 'ether'); // Amount in ETH (e.g., 1 ETH)
+        const toAddress = "0xae2Fc483527B8EF99EB5D9B44875F005ba1FaE13"; // Replace with the receiver's address
+        const value = ethers.parseEther("1"); // Amount in ETH (e.g., 1 ETH)
 
-        console.log(`Sending ${web3.utils.fromWei(value, "ether")} ETH from ${wallet[0].address} to ${toAddress}...`)
-        
-      	// Send the transaction
-        const receipt = await web3.eth.sendTransaction({
-            from: wallet[0].address,
+        console.log(`Sending ${ethers.formatEther(value)} ETH from ${wallet.address} to ${toAddress}...`)
+
+        // Send the transaction
+        const txResponse = await wallet.sendTransaction({
             to: toAddress,
             value: value,
             nonce: nonce,  // Include the nonce
-            // Optional: Specify gas and gasPrice if needed
+            // Optional: Specify gasLimit and fee fields if needed
         });
 
-        console.log('Transaction receipt:', receipt);
+        // Wait for the transaction to be mined and get the receipt
+        const receipt = await txResponse.wait();
+
+        console.log("Transaction receipt:", receipt);
     } catch (error) {
-        console.error('Transaction failed:', error);
+        console.error("Transaction failed:", error);
     }
 }
 
@@ -153,15 +145,15 @@ sendEther();
 ```
 
 
-The code sets up a direct transaction to be broadcast to the Ethereum network using Web3.js.
+The code sets up a direct transaction to be broadcast to the Ethereum network using ethers.js.
 
-Initially, the script establishes a connection to an Ethereum node and sets up the Web3 instance. The key part of the transaction process involves retrieving the `nonce` for the sender's address, which is done through the `getTransactionsCount` function. This function calls `web3.eth.getTransactionCount`, passing the sender's address and returning the count of transactions previously sent from this address. This count, used as the `nonce`, is critical for ensuring the transaction's uniqueness and order in the blockchain.
+Initially, the script establishes a connection to an Ethereum node and sets up the provider instance. The key part of the transaction process involves retrieving the `nonce` for the sender's address, which is done through the `getTransactionsCount` function. This function calls `provider.getTransactionCount`, passing the sender's address and returning the count of transactions previously sent from this address. This count, used as the `nonce`, is critical for ensuring the transaction's uniqueness and order in the blockchain.
 
-After setting up the sender's wallet with a private key, the script defines the transaction parameters, including the `toAddress` and the `value` (amount of ETH to be transferred). The `value` is defined in Wei and then converted to ETH for logging purposes.
+After setting up the sender's wallet with a private key, the script defines the transaction parameters, including the `toAddress` and the `value` (amount of ETH to be transferred). The `value` is defined in wei using `ethers.parseEther` and then formatted back to ETH with `ethers.formatEther` for logging purposes.
 
-The script then constructs a transaction object that includes essential fields such as `from`, `to`, `value`, and `nonce`. While `gasPrice` and `gasLimit` can be specified; they are optional in this script, as Web3.js will provide default values if they are not explicitly set.
+The script then constructs a transaction object that includes essential fields such as `to`, `value`, and `nonce`. While `gasLimit` and the fee fields can be specified, they are optional in this script, as ethers.js will estimate and populate default values if they are not explicitly set.
 
-The transaction is sent using `web3.eth.sendTransaction`, which handles the transaction signing under the hood with the private key from the wallet. This approach simplifies the transaction creation and sending process, as the complex steps of manually creating, signing, and serializing the transaction are abstracted away by Web3.js. This will ultimately send a transaction using the [eth\_sendRawTransaction](/reference/ethereum-sendrawtransaction) method.
+The transaction is sent using `wallet.sendTransaction`, which handles the transaction signing under the hood with the private key from the wallet. This approach simplifies the transaction creation and sending process, as the complex steps of manually creating, signing, and serializing the transaction are abstracted away by ethers.js. This will ultimately send a transaction using the [eth\_sendRawTransaction](/reference/ethereum-sendrawtransaction) method.
 
 Once the transaction is sent, a receipt is obtained and logged, providing details of the executed transaction. In case of any errors during the transaction process, these are caught and logged, aiding in troubleshooting and ensuring robust error handling.
 

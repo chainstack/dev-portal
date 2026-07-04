@@ -1,13 +1,17 @@
 ---
-title: "Solana: Listening to pump.fun migrations to Raydium"
-description: Track pump.fun token migrations to Raydium liquidity pools in real time using Solana WebSocket subscriptions and log parsing through Chainstack nodes.
+title: "Solana: Listening to pump.fun migrations to PumpSwap"
+description: Track pump.fun token graduations to the PumpSwap AMM (formerly Raydium) in real time using Solana WebSocket subscriptions and on-chain event parsing through Chainstack nodes.
 ---
 
 **TLDR:**
-* pump.fun tokens start on a bonding curve and later migrate to Raydium for traditional AMM trading.
-* Use the `check_boding_curve_status.py` script to see if a token’s curve is still active or completed.
-* Use the `listen_to_raydium_migration.py` script to track live migration events by decoding relevant on-chain transactions.
-* These tools help you adapt trading strategies when tokens move from pump.fun’s bonding curve to Raydium liquidity pools.
+* pump.fun tokens start on a bonding curve and, once it completes, **graduate to PumpSwap** — pump.fun's own AMM (program `pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA`).
+* Before March 2025, graduated tokens migrated to Raydium. pump.fun launched PumpSwap on Mar 20, 2025, and graduations have gone there ever since — Raydium is now a rare legacy path.
+* Use `get_bonding_curve_status.py` to check whether a token's curve is still active or completed.
+* Use `listen_logsubscribe.py` (logsSubscribe on the migration program) or `listen_programsubscribe.py` (programSubscribe on the PumpSwap program) to track live graduations.
+
+<Warning>
+This guide previously covered migration to **Raydium**. On **March 20, 2025** pump.fun launched its own AMM, [PumpSwap](https://x.com/pumpdotfun/status/1902762309950292010), and graduated tokens now migrate to PumpSwap instead of Raydium. The bonding-curve mechanics and the migration program are the same; only the destination AMM changed. The old Raydium listener is kept in the repository as `listen_blocksubscribe_old_raydium.py` for reference.
+</Warning>
 
 ## Main article
 
@@ -15,17 +19,20 @@ For the full pump.fun bot, see [Solana: Creating a trading and sniping pump.fun 
 
 See also [Solana: Listening to pump.fun token mint using only logsSubscribe](/docs/solana-listening-to-pumpfun-token-mint-using-only-logssubscribe).
 
-This article is an add-on for two scripts:
+This article is an add-on for these scripts in the [pump-fun-bot repository](https://github.com/chainstacklabs/pump-fun-bot):
 
 <CardGroup>
   <Card title="get_bonding_curve_status.py" href="https://github.com/chainstacklabs/pump-fun-bot/blob/main/learning-examples/bonding-curve-progress/get_bonding_curve_status.py" icon="angle-right" horizontal />
   <Card title="listen_logsubscribe.py" href="https://github.com/chainstacklabs/pump-fun-bot/blob/main/learning-examples/listen-migrations/listen_logsubscribe.py" icon="angle-right" horizontal />
+  <Card title="listen_programsubscribe.py" href="https://github.com/chainstacklabs/pump-fun-bot/blob/main/learning-examples/listen-migrations/listen_programsubscribe.py" icon="angle-right" horizontal />
+  <Card title="compare_migration_listeners.py" href="https://github.com/chainstacklabs/pump-fun-bot/blob/main/learning-examples/listen-migrations/compare_migration_listeners.py" icon="angle-right" horizontal />
 </CardGroup>
 
-This guide shows you how to track the lifecycle of pump.fun tokens from their initial bonding curve state through migration to Raydium using Python scripts.
+This guide shows you how to track the lifecycle of pump.fun tokens from their initial bonding curve state through graduation to PumpSwap using Python scripts.
 
 ## Prerequisites
 
+<Visibility for="humans">
 <Check>
   ### Get your own reliable Solana RPC endpoint today
 
@@ -35,37 +42,46 @@ This guide shows you how to track the lifecycle of pump.fun tokens from their in
 
   You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 * Clone the [pump-fun-bot GitHub repository](https://github.com/chainstacklabs/pump-fun-bot/)
 * Install the requirements `pip install -r requirements.txt`
-* Provide the node HTTP and WebSocket endpoints in `config.py`
+* Provide the node HTTP and WebSocket endpoints in your `.env` file
 
-## Understanding pump.fun token migration
+## Understanding pump.fun token graduation
 
-Tokens on pump.fun start trading against a bonding curve—a mathematical formula that determines the token's price based on supply and demand. However, once certain conditions are met, the token "graduates" and migrates its liquidity to Raydium DEX.
+Tokens on pump.fun start trading against a bonding curve—a mathematical formula that determines the token's price based on supply and demand. Once the curve's `complete` flag flips to true, the token "graduates" and its liquidity migrates to an AMM.
 
-A token migrates to Raydium when:
+A token graduates when:
 
 1. The bonding curve reaches completion status (tracked by the `complete` flag in the curve's state)
-2. The token has accumulated sufficient liquidity and trading volume
+2. The accumulated SOL in the curve reaches the graduation threshold
 3. The migration transaction is executed by the protocol
 
-After migration, trading moves from the bonding curve mechanism to Raydium's traditional AMM (Automated Market Maker) model. This transition is significant because:
+**Where the liquidity goes:** since March 20, 2025, graduated tokens migrate to **PumpSwap** (also called Pump AMM), pump.fun's native AMM, program `pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA`. Migration is now handled by a permissionless `migrate` instruction that creates a PumpSwap pool and burns the LP tokens (locking the liquidity). Before PumpSwap launched, graduations went to Raydium; that path is effectively retired.
+
+After graduation, trading moves from the bonding curve to PumpSwap's constant-product AMM:
 
 * Trading mechanics change from bonding curve to AMM
-* Liquidity becomes more flexible and can be added/removed by users
-* The token becomes accessible to the broader Raydium ecosystem
+* Liquidity is held in a PumpSwap pool
+* The token becomes tradable through the PumpSwap program and any aggregator that routes to it
 
 ## Monitoring tools
 
-This guide covers two essential scripts for tracking this migration process:
+This guide covers the scripts for tracking graduation:
 
-1. `get_bonding_curve_status.py` — checks if a token is still on the bonding curve or ready for migration
-2. `listen_logsubscribe.py` — monitors real-time migrations to Raydium
+1. `get_bonding_curve_status.py` — checks whether a token is still on the bonding curve or has completed and graduated
+2. `listen_logsubscribe.py` — monitors real-time graduations by listening to the migration program's events
+3. `listen_programsubscribe.py` — monitors real-time graduations by watching for new PumpSwap pool accounts
+4. `compare_migration_listeners.py` — runs both listeners side by side to compare detection latency
 
 ### Checking bonding curve status
 
-The `get_bonding_curve_status.py` script lets you check if a token's bonding curve is still active or has completed and is ready for Raydium migration.
+The `get_bonding_curve_status.py` script lets you check whether a token's bonding curve is still active or has completed and graduated. It derives the bonding curve address from the token mint and makes a [getAccountInfo | Solana](/reference/solana-getaccountinfo) call to read the curve state from the pump.fun program (`6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P`).
+
+<Note>
+The bonding curve account layout has evolved. The current state includes a `creator` field (and an `is_mayhem_mode` flag), so make sure your decoder matches the latest account struct in the repository's `get_bonding_curve_status.py`. The `complete` flag itself is unchanged.
+</Note>
 
 #### Usage
 
@@ -75,96 +91,87 @@ The `get_bonding_curve_status.py` script lets you check if a token's bonding cur
   ```
 </CodeGroup>
 
-Replace `TOKEN_ADDRESS` with the Solana address of the token you want to check. The script derives the associated bonding curve address from the token address that you provide and then makes a [getAccountInfo | Solana](/reference/solana-getaccountinfo) call to the bonding curve.
+Replace `TOKEN_ADDRESS` with the Solana address of the token you want to check.
 
 #### Example output
 
-For an active bonding curve:
+For a completed (graduated) bonding curve:
 
 ```
-Token Status:
+Token status:
 --------------------------------------------------
-Token Mint:              TokenAddressHere...
-Associated Bonding Curve: BondingCurveAddressHere...
-Bump Seed:               255
+Token mint:              TokenAddressHere...
+Bonding curve:           BondingCurveAddressHere...
+Bump seed:               255
 --------------------------------------------------
 
-Bonding Curve Status:
+Bonding curve status:
 --------------------------------------------------
-Completion Status: Not Completed
+Creator:             CreatorAddressHere...
+Completed:           ✅ Migrated
 --------------------------------------------------
+
+Note: This bonding curve has completed and liquidity has migrated to PumpSwap.
 ```
 
-For a completed bonding curve:
+### Monitoring graduations in real time
 
-<CodeGroup>
-  ```shell Shell
-  Token Status:
-  --------------------------------------------------
-  Token Mint:              TokenAddressHere...
-  Associated Bonding Curve: BondingCurveAddressHere...
-  Bump Seed:               255
-  --------------------------------------------------
+There are two reliable ways to detect a graduation, and the repository ships a script for each.
 
-  Bonding Curve Status:
-  --------------------------------------------------
-  Completion Status: Completed
+**Option 1 — listen to the migration program (logsSubscribe).** The migration wrapper program [39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg](https://solscan.io/account/39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg) emits a `Migrate` event when a token graduates. `listen_logsubscribe.py` subscribes with [logsSubscribe | Solana](/reference/logssubscribe-solana), parses the event, and prints the migration signature, the token mint, and the new PumpSwap pool address. The event carries the `baseMint`, `quoteMint`, decimals, and the base/quote amounts deposited into the pool.
 
-  Note: This bonding curve has completed and liquidity has been migrated to Raydium.
-  --------------------------------------------------
-  ```
-</CodeGroup>
+<Warning>
+`logsSubscribe` skips transactions with truncated logs (no `Program data` field), so a small number of migrations can be missed. To cover those, follow up with a `getTransaction` call or run the programSubscribe listener below in parallel.
+</Warning>
 
-### Monitoring Raydium migrations
+**Option 2 — watch for new PumpSwap pools (programSubscribe).** `listen_programsubscribe.py` subscribes to the PumpSwap program `pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA` and detects new pool (market) accounts as they are created, filtering by the pool account discriminator and length. This catches every new pool, but consumes a high volume of WebSocket messages.
 
-The `listen_logsubscribe.py` script uses WebSocket subscriptions to monitor real-time migrations of tokens from pump.fun to Raydium DEX.
-
-The pump.fun migration account is [39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg](https://solscan.io/account/39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg).
-
-This is the account that—on the token bonding curve completion status—adds the token to a Raydium's AMM pool with the token's liquidity. This essentially constitutes token migration from pump.fun to Raydium.
-
-Our script uses the [blockSubscribe | Solana](/reference/blocksubscribe-solana) method over WebSocket by listening to all the transactions involving the migration account `39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg`, then decodes the transactions using the Raydium IDL `raydium_amm_idl.json` that's also in our [pump-fun-bot repository](https://github.com/chainstacklabs/pump-fun-bot) . After decoding the data, it prints what we actually need—the address of the pump.fun token that migrated and the new liquidity pool address for this token on Raydium.
-
-<Note>
-  **Important for production:** The `blockSubscribe` method can experience stability issues with high-traffic programs like Raydium, including connection errors and data skipping. For production monitoring of Raydium migrations, consider using [Geyser as recommended by the Solana team](https://github.com/anza-xyz/agave/issues/3879#issuecomment-2519700883) for more reliable streaming. Learn more about [Yellowstone Geyser](/docs/yellowstone-grpc-geyser-plugin).
-</Note>
+Run `compare_migration_listeners.py` to run both at once and measure which detects a given graduation first across your RPC providers.
 
 #### Usage
 
 <CodeGroup>
   ```shell Shell
+  # Listen via the migration program's events
   python listen_logsubscribe.py
+
+  # Or watch for new PumpSwap pool accounts
+  python listen_programsubscribe.py
   ```
 </CodeGroup>
 
 #### Example output
 
-When a migration occurs:
+When a graduation occurs:
 
 <CodeGroup>
   ```shell Shell
-  Found initialize2 instruction!
+  Migrate detected!
 
   Signature: 5KtPn3...
-  Token Address: TokenAddressHere...
-  Liquidity Address: LiquidityPoolAddressHere...
+  Token (base mint): TokenAddressHere...
+  PumpSwap pool:     PoolAddressHere...
   ==================================================
   ```
 </CodeGroup>
+
+<Note>
+  **Important for production:** `logsSubscribe` and `programSubscribe` can experience stability issues and dropped messages with high-traffic programs, including connection errors and data skipping. For production monitoring, consider using [Geyser as recommended by the Solana team](https://github.com/anza-xyz/agave/issues/3879#issuecomment-2519700883) for more reliable streaming. Learn more about [Yellowstone Geyser](/docs/yellowstone-grpc-geyser-plugin).
+</Note>
 
 ## Use cases
 
 These monitoring tools are particularly useful for:
 
-* Traders who need to adjust their strategies when trading moves to Raydium
+* Traders who need to adjust their strategies when trading moves to PumpSwap
 * Arbitrage bots that operate differently on bonding curves vs AMMs
-* Market makers looking to provide liquidity as soon as tokens migrate
-* Sniping successful tokens on Raydium early
+* Market makers looking to provide liquidity as soon as tokens graduate
+* Sniping successful tokens on PumpSwap early
 * Analytics tools tracking the pump.fun ecosystem
 
 ## Conclusion
 
-Understanding and monitoring the token migration process from pump.fun to Raydium is crucial for trading strategies. These tools help you stay informed about the state and location of token liquidity, allowing you to adapt your trading approach accordingly.
+Understanding and monitoring the token graduation process from pump.fun to PumpSwap is crucial for trading strategies. These tools help you stay informed about the state and location of token liquidity, allowing you to adapt your trading approach accordingly.
 
 For the complete trading bot implementation, see [Creating a pump.fun trading bot](/docs/solana-creating-a-pumpfun-bot).
 

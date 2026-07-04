@@ -421,6 +421,7 @@ Note: This requires USDC already on HyperCore, not HyperEVM
 
 from web3 import Web3
 from eth_account import Account
+from eth_abi import encode
 import json
 
 # CoreWriter system contract address
@@ -460,15 +461,13 @@ def transfer_between_spot_perps(amount: float, to_perp: bool = True):
     # Amount in raw units (USDC has 6 decimals on HyperCore for this action)
     amount_raw = int(amount * 1e6)
 
-    # Encode usdClassTransfer action
-    # Action code: 0x010007 for usdClassTransfer
-    # Format: action_code (3 bytes) + amount (8 bytes) + toPerp (1 byte) + subAccount (20 bytes, zeros)
-    action_code = bytes.fromhex("010007")
-    amount_bytes = amount_raw.to_bytes(8, 'big')
-    to_perp_byte = b'\x01' if to_perp else b'\x00'
-    sub_account = bytes(20)  # Zero address for no subaccount
+    # Encode the usdClassTransfer action (action ID 7).
+    # Header: version byte (0x01) + 3-byte big-endian action ID -> 0x01000007
+    # Payload: the raw ABI encoding of the action's Solidity types, abi.encode(uint64 ntl, bool toPerp).
+    header = bytes([1]) + (7).to_bytes(3, "big")
+    payload = encode(["uint64", "bool"], [amount_raw, to_perp])
 
-    data = action_code + amount_bytes + to_perp_byte + sub_account
+    data = header + payload
 
     core_writer = w3.eth.contract(address=CORE_WRITER, abi=CORE_WRITER_ABI)
 
@@ -505,7 +504,7 @@ The CoreWriter contract (`0x3333333333333333333333333333333333333333`) is an eve
 </Warning>
 
 <Note>
-For simple spot/perps transfers, you can also use the Python SDK's `usd_class_transfer()` method which handles the encoding automatically. The CoreWriter approach is useful when building smart contracts that need to interact with HyperCore.
+For simple spot/perps transfers, you can also use the Python SDK's `usd_class_transfer()` method which handles the encoding automatically. The CoreWriter approach is useful when building smart contracts that need to interact with HyperCore—see [Write to HyperCore from a contract with CoreWriter](/docs/hyperliquid-corewriter) for the full contract pattern, the complete action table, and the prerequisites that keep actions from being silently dropped.
 </Note>
 
 ## Token linking

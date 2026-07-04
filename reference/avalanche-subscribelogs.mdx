@@ -3,8 +3,9 @@ title: 'subscribe ("logs") | Avalanche'
 description: "Reference for the subscribe (\"logs\") JSON-RPC method on the Avalanche blockchain via Chainstack nodes. Parameters, response, and examples included."
 ---
 
-web3.js subscription equivalent to [eth\_newFilter](/reference/avalanche-newfilter). `subscribe("logs")` allows developers to subscribe to real-time updates about new event logs on the Avalanche blockchain; the application will receive notifications whenever new logs matching the filter are emitted.
+Subscription equivalent to [eth\_newFilter](/reference/avalanche-newfilter). `subscribe("logs")` allows developers to subscribe to real-time updates about new event logs on the Avalanche blockchain; the application will receive notifications whenever new logs matching the filter are emitted.
 
+<Visibility for="humans">
 <Check>
   ### Get your own node endpoint today
 
@@ -12,6 +13,7 @@ web3.js subscription equivalent to [eth\_newFilter](/reference/avalanche-newfilt
 
   You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 ## Parameters
 
@@ -42,21 +44,21 @@ web3.js subscription equivalent to [eth\_newFilter](/reference/avalanche-newfilt
 ## `subscribe("logs")` code example
 
 <Info>
-  Note that web3.js subscriptions require a WebSocket connection.
+  Note that log subscriptions require a WebSocket connection.
 </Info>
 
-Use the [event emitter instances](https://web3js.readthedocs.io/en/v1.2.11/web3-eth-subscribe.html#eth-subscription-return) to attach event listeners to the subscription object:
+Use the [`ethers.WebSocketProvider`](https://docs.ethers.org/v6/api/providers/#WebSocketProvider) `provider.on` method to attach a listener to the log filter:
 
-* `data` — activates for each new syncing event.
-* `error` — activates if an error is detected during the subscription.
-* `connected` — activates after the subscription is successfully connected and returns the subscription ID.
-* `unsubscribe` — unsubscribes the subscription and returns `true` if successful.
+* The listener fires for each new log matching the filter.
+* `provider.websocket.on("error", ...)` activates if an error is detected during the subscription.
+* `provider.websocket.on("open", ...)` activates after the connection is successfully established.
+* `provider.off(filter)` removes the listener and stops receiving updates.
 
 <CodeGroup>
   ```javascript index.js
-  const Web3 = require("web3");
+  const ethers = require("ethers");
   const NODE_URL = "CHAINSTACK_WSS_URL";
-  const web3 = new Web3(NODE_URL);
+  const provider = new ethers.WebSocketProvider(NODE_URL);
 
   // Only log transfer events from the WETH smart contract.
   const logsFilter = {
@@ -66,13 +68,12 @@ Use the [event emitter instances](https://web3js.readthedocs.io/en/v1.2.11/web3-
 
   async function subscribeToLogs() {
       try {
-          // Create a new subscription to the 'pendingTransactions' event
-          const subscription = await web3.eth.subscribe('logs', logsFilter);
+          // React to connection and error events on the underlying WebSocket
+          provider.websocket.on('open', handleConnected);
+          provider.websocket.on('error', handleError);
 
-          // Attach event listeners to the subscription object
-          subscription.on('connected', handleConnected);
-          subscription.on('data', handleLogs);
-          subscription.on('error', handleError);
+          // Create a new subscription to the logs matching the filter
+          provider.on(logsFilter, handleLogs);
       } catch (error) {
           console.error(`Error subscribing to new logs: ${error}`);
       }
@@ -81,8 +82,8 @@ Use the [event emitter instances](https://web3js.readthedocs.io/en/v1.2.11/web3-
   /* Fallback functions to react to the different events */
 
   // Event listener that logs a message when the subscription is connected
-  function handleConnected(subscriptionId) {
-      console.log(`New subscription: ${subscriptionId}`);
+  function handleConnected() {
+      console.log(`New subscription connected`);
   }
 
   // Event listener that logs the filtered events
@@ -103,7 +104,7 @@ Use the [event emitter instances](https://web3js.readthedocs.io/en/v1.2.11/web3-
 
 A practical use case for `subscribe("logs")` is a DApp that continuously listens for new specific event logs and isolates certain fields for analytics purposes. This is useful, for example, to only track events about a specific ERC-721 token.
 
-The following is an implementation of this concept using web3.js subscriptions; this program will only track the `Transfer` event from the [FunnelHeads collection](https://snowtrace.io/token/0x5378d068001d7e53d6c0a7ef539fbe213b5eb075#code) smart contract.
+The following is an implementation of this concept using ethers.js subscriptions; this program will only track the `Transfer` event from the [FunnelHeads collection](https://snowtrace.io/token/0x5378d068001d7e53d6c0a7ef539fbe213b5eb075#code) smart contract.
 
 The `Tranfer` event looks like this in the smart contract:
 
@@ -117,9 +118,9 @@ The following code will log all of the new `Transfer` events and extract the blo
 
 <CodeGroup>
   ```javascript index.js
-  const Web3 = require("web3");
+  const ethers = require("ethers");
   const NODE_URL = "CHAINSTACK_WSS_URL";
-  const web3 = new Web3(NODE_URL);
+  const provider = new ethers.WebSocketProvider(NODE_URL);
 
   // Only log Tranfer events from the Avalanche FunnelHeads smart contract.
   const logsFilter = {
@@ -129,13 +130,12 @@ The following code will log all of the new `Transfer` events and extract the blo
 
   async function subscribeToLogs() {
       try {
-          // Create a new subscription to the 'pendingTransactions' event
-          const subscription = await web3.eth.subscribe('logs', logsFilter);
+          // React to connection and error events on the underlying WebSocket
+          provider.websocket.on('open', handleConnected);
+          provider.websocket.on('error', handleError);
 
-          // Attach event listeners to the subscription object
-          subscription.on('connected', handleConnected);
-          subscription.on('data', handleLogs);
-          subscription.on('error', handleError);
+          // Create a new subscription to the logs matching the filter
+          provider.on(logsFilter, handleLogs);
       } catch (error) {
           console.error(`Error subscribing to new blocks: ${error}`);
       }
@@ -143,17 +143,16 @@ The following code will log all of the new `Transfer` events and extract the blo
 
   // Use this function to unsuscribe and exit the program
   function unsubscribe() {
-      subscription.unsubscribe(function(error, success) {
-          if (success) console.log("Successfully unsubscribed!");
-          return process.exit(1)
-      });
+      provider.off(logsFilter);
+      console.log("Successfully unsubscribed!");
+      return process.exit(1)
   }
 
   /* Fallback functions to react to the different events */
 
   // Event listener that logs a message when the subscription is connected
-  function handleConnected(subscriptionId) {
-      console.log(`New subscription: ${subscriptionId}`);
+  function handleConnected() {
+      console.log(`New subscription connected`);
   }
 
   // Event listener that logs the filtered events
@@ -171,9 +170,9 @@ The following code will log all of the new `Transfer` events and extract the blo
   ```
 </CodeGroup>
 
-This code creates a new subscription to the `logs` event using the `web3.eth.subscribe` method. This method returns a subscription object that can be used to attach event listeners to the subscription.
+This code creates a new subscription to the logs matching the filter using the `provider.on` method. This method attaches a listener that fires every time a new log matching the filter is emitted.
 
-The code defines three event listener functions that are attached to the subscription object: `handleConnected`, `handleLogs`, and `handleError`. The `handleConnected` function is called when the subscription is connected, and it logs a message with the subscription ID. The `handleLogs` function is called when a new log matching the filter is emitted, then extracts the block number field and logs it to the console.
+The code defines three event listener functions: `handleConnected`, `handleLogs`, and `handleError`. The `handleConnected` function is called when the WebSocket connection opens, and it logs a message. The `handleLogs` function is called when a new log matching the filter is emitted, then extracts the block number field and logs it to the console.
 
 The `handleError` function is called when an error occurs, and it logs an error message.
 

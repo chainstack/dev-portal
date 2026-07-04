@@ -10,6 +10,7 @@ Polygon API method that traces the execution of a block. This method can be used
 Learn how to [deploy a node](/docs/debug-and-trace-apis#polygon) with the debug and trace API methods enabled.
 </Note>
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -17,6 +18,7 @@ Learn how to [deploy a node](/docs/debug-and-trace-apis#polygon) with the debug 
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 
 ## Parameters
@@ -59,34 +61,6 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 ## `debug_traceBlockByHash` code examples
 
 <CodeGroup>
-```javascript web3.js
-const Web3 = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
-
-// Define the debug_traceBlockByHash custom method
-web3.extend({
-  property: 'eth',
-  methods: [{
-    name: 'traceBlockByHash',
-    call: 'debug_traceBlockByHash',
-    params: 2,
-    inputFormatter: [web3.extend.formatters.inputBlockNumberFormatter, web3.extend.formatters.inputCallFormatter],
-    outputFormatter: web3.extend.formatters.outputCallFormatter
-  }]
-});
-
-async function traceBlockByHash(blockHash) {
-
-    // Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer
-    const tracer = { tracer: '4byteTracer' };
-    const result = await web3.eth.traceBlockByHash(blockHash, tracer);
-    console.log(result);
-}
-
-traceBlockByHash("0x22507441629262af0d44bfadebe086470df5936827bc482300b5183b4b8ac8bd");
-```
-
 ```javascript ethers.js
 const ethers = require('ethers');
 const NODE_URL = "CHAINSTACK_NODE_URL";
@@ -124,30 +98,18 @@ One practical use case for `debug_traceBlockByHash` with the `4byteTracer` trace
 
 For example, if there are token contracts on the blockchain and the transfer function of these contracts is used to send tokens between users, a developer could use the `debug_traceBlockByHash` method with the `4byteTracer` tracer to trace the transactions in a given block and count how many times the transfer function was called.
 
-The following is an implementation of this logic using web3.js:
+The following is an implementation of this logic using ethers.js:
 
 ```javascript index.js
-const Web3 = require("web3");
+const ethers = require("ethers");
 const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
-
-// Define the debug_traceBlockByHash custom method
-web3.extend({
-  property: 'eth',
-  methods: [{
-    name: 'traceBlockByHash',
-    call: 'debug_traceBlockByHash',
-    params: 2,
-    inputFormatter: [web3.extend.formatters.inputBlockNumberFormatter, web3.extend.formatters.inputCallFormatter],
-    outputFormatter: web3.extend.formatters.outputCallFormatter
-  }]
-});
+const provider = new ethers.JsonRpcProvider(NODE_URL);
 
 async function traceTransferFunction(blockHash) {
   try {
     // Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer
     const tracer = { tracer: '4byteTracer' };
-    const response = await web3.eth.traceBlockByHash(blockHash, tracer);
+    const response = await provider.send("debug_traceBlockByHash", [blockHash, tracer]);
     
     let sum = 0;
     for (let obj of response) {
@@ -174,7 +136,7 @@ traceTransferFunction("0x18adf6d008688c0958e51d96597d265ae02aa46c764538ee4d73990
 ```
 
 
-This code is defining a custom method called `traceBlockByHash` which is not available by default using web3.js, and it uses the `debug_traceBlockByHash` function to trace a block. This method uses the `4byteTracer` to identify the functions called in the block.
+This code uses `provider.send` to call the `debug_traceBlockByHash` method, which is not exposed as a dedicated ethers.js helper, to trace a block. This method uses the `4byteTracer` to identify the functions called in the block.
 
 Then, the `traceTransferFunction` function is defined, which takes a block hash as an argument. This function calls the `traceBlockByHash` method with the provided block hash and uses a loop to iterate over the results.
 

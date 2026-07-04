@@ -10,6 +10,7 @@ Polygon API method that enables the tracing of the execution of a specific block
 Learn how to [deploy a node](/docs/debug-and-trace-apis#polygon) with the debug and trace API methods enabled.
 </Note>
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -17,6 +18,7 @@ Learn how to [deploy a node](/docs/debug-and-trace-apis#polygon) with the debug 
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 
 ## Parameters
@@ -69,34 +71,6 @@ See the [default block parameter](https://ethereum.org/en/developers/docs/apis/j
 ## `debug_traceBlockByNumber` code examples
 
 <CodeGroup>
-```javascript web3.js
-const Web3 = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
-
-// Define the debug_traceBlockByNumber custom method
-web3.extend({
-  property: 'eth',
-  methods: [{
-    name: 'traceBlockByNumber',
-    call: 'debug_traceBlockByNumber',
-    params: 2,
-    inputFormatter: [web3.extend.formatters.inputBlockNumberFormatter, web3.extend.formatters.inputCallFormatter],
-    outputFormatter: web3.extend.formatters.outputCallFormatter
-  }]
-});
-
-async function traceBlockByNumber(block) {
-
-    // Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer
-    const tracer = { tracer: 'callTracer' };
-    const result = await web3.eth.traceBlockByNumber(block, tracer);
-    console.log(result);
-}
-
-traceBlockByNumber("latest");
-```
-
 ```javascript ethers.js
 const ethers = require('ethers');
 const NODE_URL = "CHAINSTACK_NODE_URL";
@@ -134,35 +108,23 @@ One use case for `traceBlockByNumber` would be to trace a block, calculate how m
 
 To accomplish this, you can use `traceBlockByNumber` to retrieve the trace of each transaction in the block and then iterate over the transactions to count the total number of transactions and calculate the total gas used. Once you have this information, you can divide the total gas used by the total number of transactions to get the average gas used.
 
-Here is an implementation of this idea using web3.js:
+Here is an implementation of this idea using ethers.js:
 
 ```javascript index.js
-const Web3 = require("web3");
+const ethers = require("ethers");
 const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
-
-// Define the debug_traceBlockByNumber custom method
-web3.extend({
-  property: 'eth',
-  methods: [{
-    name: 'traceBlockByNumber',
-    call: 'debug_traceBlockByNumber',
-    params: 2,
-    inputFormatter: [web3.extend.formatters.inputBlockNumberFormatter, web3.extend.formatters.inputCallFormatter],
-    outputFormatter: web3.extend.formatters.outputCallFormatter
-  }]
-});
+const provider = new ethers.JsonRpcProvider(NODE_URL);
 
 async function getAverageGasUsed(block) {
 
     const tracer = { tracer: 'callTracer' };
-    const traceResult = await web3.eth.traceBlockByNumber(block, tracer);
+    const traceResult = await provider.send("debug_traceBlockByNumber", [block, tracer]);
     let totalGasUsed = 0;
     let transactionCount = 0;
 
     for (let obj of traceResult) {
       const gasUsed = obj.result.gasUsed;
-      const decimalGas = web3.utils.hexToNumber(gasUsed);
+      const decimalGas = Number(gasUsed);
       totalGasUsed += decimalGas;
       transactionCount++;
     }
@@ -181,6 +143,6 @@ First, the code defines a custom method called `traceBlockByNumber` that allows 
 
 Inside the function, we define a tracer object with the value of `callTracer`, which will help us get more detailed information about the block. Then, we call the `traceBlockByNumber` RPC method, passing in the block number and the tracer object as parameters. This returns an array of objects containing information about each transaction in the block.
 
-We then declare two variables to keep track of the total gas used and the number of transactions in the block. We loop through each transaction in the block using a `for...of` loop and extract the `gasUsed` property of each transaction's result object. We convert this value from hexadecimal to decimal using the `web3.utils.hexToNumber` method and add it to the `totalGasUsed` variable. We also increment the `transactionCount` variable to keep track of how many transactions there are in the block.
+We then declare two variables to keep track of the total gas used and the number of transactions in the block. We loop through each transaction in the block using a `for...of` loop and extract the `gasUsed` property of each transaction's result object. We convert this value from hexadecimal to decimal using the `Number` function and add it to the `totalGasUsed` variable. We also increment the `transactionCount` variable to keep track of how many transactions there are in the block.
 
 Finally, we calculate the `averageGasUsed` by dividing the `totalGasUsed` by the `transactionCount` and displaying the result. We use the `Math.round()` method to round the result to the nearest integer for readability. When we call the function, we pass in the string `"latest"` to get the average gas used for the latest block.

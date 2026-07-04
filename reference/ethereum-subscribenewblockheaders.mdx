@@ -3,8 +3,9 @@ title: 'subscribe ("newBlockHeaders") | Ethereum'
 description: "Reference docs for the subscribe (\"newBlockHeaders\") JSON-RPC method on the Ethereum blockchain, available via Chainstack JSON-RPC nodes."
 ---
 
-web3.js subscription equivalent to [eth\_newBlockFilter](/reference/ethereum-newblockfilter). `subscribe("newBlockHeaders")` allows developers to subscribe to real-time updates about new block headers on the Ethereum blockchain; the application will receive notifications whenever a new block is added to the blockchain. The notification will include information about the new block, such as its block number, hash, and timestamp.
+Subscription equivalent to [eth\_newBlockFilter](/reference/ethereum-newblockfilter). `subscribe("newBlockHeaders")` allows developers to subscribe to real-time updates about new block headers on the Ethereum blockchain; the application will receive notifications whenever a new block is added to the blockchain. The notification will include information about the new block, such as its block number, hash, and timestamp.
 
+<Visibility for="humans">
 <Check>
 ### Get your own node endpoint today
 
@@ -12,11 +13,12 @@ web3.js subscription equivalent to [eth\_newBlockFilter](/reference/ethereum-new
 
   You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 ## Parameters
 
-* `string` — a keyword identifying the type of event to subscribe to, `newBlockHeaders` in this case.
-* `function` — (optional) a callback function that will be called every time a new event of the specified type is received. This function takes two parameters: `error` and `result`. The error parameter contains any error that occurred while subscribing to the event, and the result parameter contains the data for the event that was received.
+* `string` — a keyword identifying the type of event to subscribe to, `newBlockHeaders` in this case. In ethers.js v6 this maps to the `"block"` event on a `WebSocketProvider`.
+* `function` — a listener function that will be called every time a new block is received. With ethers.js v6, the listener receives the block number of the newly added block.
 
 ## Response
 
@@ -45,47 +47,44 @@ web3.js subscription equivalent to [eth\_newBlockFilter](/reference/ethereum-new
 ## `subscribe("newBlockHeaders")` code example
 
 <Info>
-  Note that web3.js subscriptions require a WebSocket connection.
+  Note that subscriptions require a WebSocket connection. Use a `WebSocketProvider` in ethers.js v6.
 </Info>
 
-Use the [event emitter instances](https://web3js.readthedocs.io/en/v1.2.11/web3-eth-subscribe.html#eth-subscription-return) to attach event listeners to the subscription object:
+Use the provider event API to attach listeners to the provider:
 
-* `data` — activates for each new syncing event:
-* `error` — activates if an error is detected during the subscription.
-* `connected` — activates after the subscription is successfully connected and returns the subscription ID.
-* `unsubscribe` — unsubscribes the subscription and returns `true` if successful.
+* `provider.on("block", listener)` — fires for each new block and passes the block number to the listener.
+* `provider.on("error", listener)` — fires if an error is detected on the connection.
+* `provider.off("block", listener)` — removes a single listener for the `"block"` event.
+* `provider.removeAllListeners()` — removes every listener, which effectively unsubscribes.
 
 <CodeGroup>
   ```javascript index.js
-  const { Web3 } = require("web3");
+  const { ethers } = require("ethers");
 
-  const NODE_URL ="CHAINSTACK_WSS_ENDPOINT";
-  const web3 = new Web3(NODE_URL);
+  const NODE_URL = "CHAINSTACK_WSS_ENDPOINT";
+  const provider = new ethers.WebSocketProvider(NODE_URL);
 
   async function subscribeToNewBlocks() {
     try {
-      // Create a new subscription to the 'newBlockHeaders' event
-      const event = "newBlockHeaders";
-      const subscription = await web3.eth.subscribe(event); // Changed to 'newHeads'
+      // Subscribe to new blocks by listening for the 'block' event
+      provider.on("block", handleNewBlock);
+      provider.on("error", handleError);
 
-      console.log(`Connected to ${event}, Subscription ID: ${subscription.id}`);
-
-      // Attach event listeners to the subscription object for 'data' and 'error'
-      subscription.on("data", handleNewBlock);
-      subscription.on("error", handleError);
+      console.log("Connected to the 'block' event");
     } catch (error) {
       console.error(`Error subscribing to new blocks: ${error}`);
     }
   }
 
-  // Fallback functions to react to the different events
+  // Listener functions to react to the different events
 
-  // Event listener that logs the received block header data
-  function handleNewBlock(blockHeader) {
+  // Listener that fetches and logs the full block for each new block number
+  async function handleNewBlock(blockNumber) {
+    const blockHeader = await provider.getBlock(blockNumber);
     console.log("New block header:", blockHeader);
   }
 
-  // Event listener that logs any errors that occur
+  // Listener that logs any errors that occur
   function handleError(error) {
     console.error("Error when subscribing to new block header:", error);
   }
@@ -98,43 +97,39 @@ Use the [event emitter instances](https://web3js.readthedocs.io/en/v1.2.11/web3-
 
 A practical use case for `subscribe("newBlockHeaders")` is a DApp that continuously listens for new block headers, then isolates the block number and `baseFeePerGas` for analytics purposes.
 
-The following is an implementation of this concept using web3.js subscriptions:
+The following is an implementation of this concept using ethers.js v6 subscriptions:
 
 <CodeGroup>
   ```javascript index.js
-  const Web3 = require("web3");
+  const { ethers } = require("ethers");
   const NODE_URL = "CHAINSTACK_WSS_URL";
-  const web3 = new Web3(NODE_URL);
+  const provider = new ethers.WebSocketProvider(NODE_URL);
 
-  let subscription;
   let blockCount = 0;
 
   async function subscribeToNewBlocks() {
     try {
-      // Create a new subscription to the 'newHeads' event
-      subscription = await web3.eth.subscribe("newBlockHeaders");
-      console.log(`Subscription ID: ${subscription.id}`);
-      // Attach event listeners to the subscription object
-      subscription.on("data", handleNewBlock);
-      subscription.on("error", handleError);
+      // Subscribe to new blocks by listening for the 'block' event
+      provider.on("block", handleNewBlock);
+      provider.on("error", handleError);
+      console.log("Subscribed to the 'block' event");
     } catch (error) {
       console.error(`Error subscribing to new blocks: ${error}`);
     }
   }
 
   async function unsubscribeFromNewBlocks() {
-    const ids = await web3.eth.clearSubscriptions();
-    if (ids) console.log(`Successfully unsubscribed from ${ids[0]}`);
+    await provider.removeAllListeners();
+    console.log("Successfully unsubscribed from new blocks");
     return process.exit(1);
   }
 
-  /* Fallback functions to react to the different events */
+  /* Listener functions to react to the different events */
 
-  // Event listener that extracts block number and base fee per gas from the received block header data
-  function handleNewBlock(blockHeader) {
-    const blockNumber = blockHeader.number;
-    const baseFeePerGas = web3.utils.fromWei(blockHeader.baseFeePerGas, "Gwei");
-    //const baseFeeGwei = web3.utils.fromWei(baseFeePerGas, "Gwei");
+  // Listener that extracts block number and base fee per gas from the received block
+  async function handleNewBlock(blockNumber) {
+    const blockHeader = await provider.getBlock(blockNumber);
+    const baseFeePerGas = ethers.formatUnits(blockHeader.baseFeePerGas, "gwei");
 
     blockCount++;
     console.log(
@@ -145,7 +140,7 @@ The following is an implementation of this concept using web3.js subscriptions:
     }
   }
 
-  // Event listener that logs any errors that occur
+  // Listener that logs any errors that occur
   function handleError(error) {
     console.error(`Error receiving new blocks: ${error}`);
   }
@@ -154,10 +149,10 @@ The following is an implementation of this concept using web3.js subscriptions:
   ```
 </CodeGroup>
 
-This code creates a new subscription to the `newBlockHeaders` event using the `web3.eth.subscribe` method. This method returns a subscription object that can be used to attach event listeners to the subscription.
+This code subscribes to new blocks by listening for the `"block"` event on a `WebSocketProvider`. Attaching a listener with `provider.on("block", ...)` starts the subscription and invokes the listener for every new block.
 
-The code defines two event listener functions that are attached to the subscription object: `handleNewBlock` and `handleError`. The `handleNewBlock` function is called when a new block header is received, and it extracts the block number and base fee per gas from the block header data using the `web3.utils methods`. The `handleError` function is called when an error occurs, and it logs an error message.
+The code defines two listener functions that are attached to the provider: `handleNewBlock` and `handleError`. The `handleNewBlock` function is called when a new block is received; it fetches the full block with `provider.getBlock` and extracts the block number and base fee per gas, formatting the latter to gwei with `ethers.formatUnits`. The `handleError` function is called when an error occurs, and it logs an error message.
 
-This code includes an `unsubscribeFromNewBlocks` function which unsubscribes from the `newBlockHeaders` subscription and quit the program using `return process.exit(1)` after it received 100 new blocks. This is to demonstrate its use.
+This code includes an `unsubscribeFromNewBlocks` function which removes the listeners with `provider.removeAllListeners` and quits the program using `return process.exit(1)` after it received 100 new blocks. This is to demonstrate its use.
 
 Finally, the code calls the `subscribeToNewBlocks` function, which creates the subscription and attaches the event listeners. When a new block header is received, the `handleNewBlock` function is called to extract the block data and log it to the console.

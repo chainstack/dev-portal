@@ -1,0 +1,379 @@
+---
+title: "Solana: Associating transactions with block and block time using Yellowstone gRPC"
+description: "Join Solana transactions to their block and block time in a single Yellowstone gRPC stream, without a second stream or a per-block getBlockTime call."
+---
+
+> **Part of the [How to land transactions on Solana](/docs/solana-how-to-land-transactions) guide.**
+
+**TLDR:**
+* A Yellowstone gRPC transaction update carries the `slot`, but not the block time. Block time arrives only on a block-metadata update.
+* Subscribe to `transactions`, `blocks_meta`, and `slots` on one stream, then join on `slot`: buffer transactions by slot, and stamp them with the block time when that slot's `block_meta` arrives.
+* This is far cheaper than the alternatives — a second full-block stream re-sends every transaction, and a per-block `getBlockTime` adds an RPC round trip to every slot.
+* Run at `confirmed` commitment, drop dead and skipped slots so the buffer can't leak, and answer the server's pings.
+
+## The problem
+
+If you stream Solana transactions over [Yellowstone gRPC Geyser](/docs/yellowstone-grpc-geyser-plugin), each transaction update tells you which `slot` it landed in, but it does not include the block's timestamp. The transaction message simply has no block-time field — this is by design.
+
+That leaves a common question: how do you attach a block time to every transaction without either committing a second stream to block data or calling `getBlockTime` once per block? Both work, and both are expensive. There is a cheaper way that uses a single stream and no extra RPC calls.
+
+## The approach
+
+A single `SubscribeRequest` can carry several filters at once, and the server multiplexes all of their updates onto one stream. You subscribe to three filters:
+
+- `transactions` — the transactions you care about. Each update carries the `slot` and the transaction, but no block time.
+- `blocks_meta` — one small message per block that *does* carry `block_time`, along with `blockhash`, `block_height`, `parent_slot`, and `executed_transaction_count`. It does not carry the transactions, so it stays tiny.
+- `slots` — the slot lifecycle, so you can tell when a slot is dead or skipped and will never produce a block.
+
+The join key is `slot`. A block-metadata update for slot N normally arrives *after* all of slot N's transactions, because the validator emits block metadata when the slot finishes replaying. That ordering is convenient, but it is best-effort rather than a contractual guarantee — so instead of assuming it, correlate by `slot` in both directions:
+
+1. Keep two maps keyed by `slot`: transactions waiting for their block time, and block metadata waiting for late transactions.
+2. When a transaction arrives, stamp and emit it if its `block_meta` is already cached; otherwise buffer it.
+3. When the `block_meta` for slot N arrives, cache it and flush every transaction buffered for slot N.
+4. Evict a slot from both maps once it goes `SLOT_DEAD` or the confirmed tip passes it (a skipped slot).
+
+<Tip>
+  This pattern uses one filter each of three different types on a single connection, well within the Geyser add-on's limit of five concurrent filters of the same type per connection. See [Yellowstone gRPC Geyser plugin](/docs/yellowstone-grpc-geyser-plugin) for the full limits.
+</Tip>
+
+## Why not the alternatives
+
+| Approach | Latency | Bandwidth and cost | When to use it |
+| --- | --- | --- | --- |
+| `transactions` + `blocks_meta` join (this guide) | Lowest — block time trails the transactions by less than a slot | Minimal — one small `block_meta` per block, plus your filtered transactions | Real-time pipelines that need a block time on each transaction |
+| Full `blocks` filter | Atomic, but waits for server-side block reconstruction | Heavy — full transaction bodies are re-sent, megabytes per busy block | You need whole blocks (transactions, accounts, and entries) in one message |
+| `getBlock` or `getBlockTime` per block | A synchronous round trip per slot | Extra RPC calls, credits, and rate-limit exposure | History older than the replay window, or one-off lookups |
+
+The full `blocks` filter is the only update type that bundles transactions and block time atomically, but it re-transports every transaction body, so it wastes bandwidth if you already receive transactions from the `transactions` filter. A per-block `getBlockTime` call defeats the purpose of a push stream. For historical data, `getBlock` returns the block time together with the transactions in a single call — see [Solana: optimize your getBlock performance](/docs/solana-optimize-your-getblock-performance).
+
+## Prerequisites
+
+<Check>
+  Geyser is a paid add-on available from the Growth plan, and it runs on Solana mainnet only. See [Yellowstone gRPC Geyser plugin](/docs/yellowstone-grpc-geyser-plugin) to enable it on your node.
+</Check>
+
+Install the client libraries and generate the Python stubs from the Yellowstone proto definitions:
+
+```bash
+pip install grpcio grpcio-tools base58 requests
+
+# fetch the proto definitions
+curl -O https://raw.githubusercontent.com/rpcpool/yellowstone-grpc/master/yellowstone-grpc-proto/proto/geyser.proto
+curl -O https://raw.githubusercontent.com/rpcpool/yellowstone-grpc/master/yellowstone-grpc-proto/proto/solana-storage.proto
+
+# generate geyser_pb2.py and geyser_pb2_grpc.py
+python -m grpc_tools.protoc -I. \
+  --python_out=. --grpc_python_out=. \
+  geyser.proto solana-storage.proto
+```
+
+You authenticate with an `x-token` metadata header. Take the Geyser endpoint and token from your node's details on Chainstack.
+
+## Build the subscription
+
+Set the commitment to `confirmed`, add the three filters, and exclude votes and failed transactions to cut the volume you process:
+
+```python
+import geyser_pb2 as pb
+
+
+def build_request(from_slot=None):
+    req = pb.SubscribeRequest()
+    req.commitment = pb.CONFIRMED
+
+    # transactions: at least one constraint is required (see the warning below)
+    txs = req.transactions["txs"]
+    txs.vote = False
+    txs.failed = False
+    # to track specific programs, add: txs.account_include.append("<program id>")
+
+    # block metadata: an empty filter means every block
+    req.blocks_meta["meta"].SetInParent()
+
+    # slot lifecycle: filter_by_commitment=False delivers every status, incl. dead
+    req.slots["slots"].filter_by_commitment = False
+
+    if from_slot is not None:
+        req.from_slot = from_slot
+    return req
+```
+
+Chainstack's Yellowstone rejects an unconstrained transactions filter. A filter with no `vote`, `failed`, `account_include`, `account_exclude`, `account_required`, or `signature` constraint returns:
+
+```text
+failed to create filter: Subscribe on full stream with `any` is not allowed, at least one filter required
+```
+
+Setting `vote = False` already satisfies this.
+
+## Join transactions to block time
+
+Open the stream and run the buffer-and-flush loop. Buffer each transaction by `slot`, and flush when that slot's `block_meta` arrives:
+
+```python
+import queue
+
+import base58
+import grpc
+
+import geyser_pb2 as pb
+import geyser_pb2_grpc as pb_grpc
+
+ENDPOINT = "yellowstone-solana-mainnet.core.chainstack.com:443"
+X_TOKEN = "YOUR_X_TOKEN"
+SKIP_MARGIN = 50  # slots
+
+
+def requests(initial, outbox):
+    # keep the send half-stream open so we can answer the server's pings
+    yield initial
+    while True:
+        item = outbox.get()
+        if item is None:
+            return
+        yield item
+
+
+def emit(sig, slot, block_time, blockhash):
+    print(f"{sig}  slot={slot}  block_time={block_time}  block={blockhash[:8]}")
+
+
+channel = grpc.secure_channel(
+    ENDPOINT,
+    grpc.ssl_channel_credentials(),
+    options=[
+        ("grpc.max_receive_message_length", 64 * 1024 * 1024),  # lift the 4 MB default
+        ("grpc.keepalive_time_ms", 30_000),
+    ],
+)
+stub = pb_grpc.GeyserStub(channel)
+outbox = queue.Queue()
+responses = stub.Subscribe(
+    requests(build_request(), outbox), metadata=(("x-token", X_TOKEN),)
+)
+
+buffer = {}        # slot -> [signature, ...] awaiting block_meta
+meta_by_slot = {}  # slot -> block_meta, cached so late transactions still get stamped
+hi_confirmed = 0   # highest confirmed slot seen
+
+for update in responses:
+    kind = update.WhichOneof("update_oneof")
+
+    if kind == "transaction":
+        slot = update.transaction.slot
+        sig = base58.b58encode(bytes(update.transaction.transaction.signature)).decode()
+        meta = meta_by_slot.get(slot)
+        if meta is not None:                     # block_meta already arrived: stamp now
+            block_time = meta.block_time.timestamp if meta.HasField("block_time") else None
+            emit(sig, slot, block_time, meta.blockhash)
+        else:
+            buffer.setdefault(slot, []).append(sig)
+
+    elif kind == "block_meta":
+        meta = update.block_meta
+        meta_by_slot[meta.slot] = meta           # cache for any later transactions
+        block_time = meta.block_time.timestamp if meta.HasField("block_time") else None
+        for sig in buffer.pop(meta.slot, []):
+            emit(sig, meta.slot, block_time, meta.blockhash)
+
+    elif kind == "slot":
+        s = update.slot
+        if s.status == pb.SLOT_DEAD:             # no block will ever be produced
+            buffer.pop(s.slot, None)
+            meta_by_slot.pop(s.slot, None)
+        elif s.status == pb.SLOT_CONFIRMED:
+            hi_confirmed = max(hi_confirmed, s.slot)
+        # evict slots the confirmed tip has passed: skipped txs and stale cached metas
+        for slot in [k for k in buffer if k + SKIP_MARGIN < hi_confirmed]:
+            buffer.pop(slot, None)
+        for slot in [k for k in meta_by_slot if k + SKIP_MARGIN < hi_confirmed]:
+            meta_by_slot.pop(slot, None)
+
+    elif kind == "ping":
+        outbox.put(pb.SubscribeRequest(ping=pb.SubscribeRequestPing(id=1)))
+```
+
+Every transaction is now emitted with the `block_time` and `blockhash` of the block it landed in, from a single stream and with no extra RPC calls.
+
+## Getting it right
+
+### Choose the right commitment
+
+Run the association at `confirmed`. At `processed`, both the transaction and its block metadata can be delivered on a fork that the cluster later abandons, so the pairing you compute may belong to a dropped block. At `confirmed`, the slot has been voted on by a supermajority of stake, which makes the pairing reliable. Use `processed` only when you need the lowest possible latency and can treat associations as provisional.
+
+### Drop dead and skipped slots
+
+A buffered slot that never receives a `block_meta` would otherwise sit in memory forever. Two cases cause this:
+
+- Dead slots — the `slots` filter delivers a `SLOT_DEAD` status. Discard anything buffered or cached for that slot.
+- Skipped slots — no block is produced and no status pinpoints the gap, so evict the slot from both maps once the confirmed tip moves past it by a safe margin (`slot + SKIP_MARGIN < hi_confirmed` in the loop above).
+
+For why slots and blocks diverge, see [Solana: understanding the difference between blocks and slots](/docs/understanding-the-difference-between-blocks-and-slots-on-solana).
+
+### Completeness and executed_transaction_count
+
+`block_meta.executed_transaction_count` is the validator's total count of executed transactions for the block, and it includes vote and failed transactions. On Solana, vote transactions alone are roughly three-quarters of block activity, so if you stream with `vote = False` (or filter any other way), your received count will be far lower than `executed_transaction_count`. Use the count as a completeness check only against an unfiltered set. In practice, the arrival of `block_meta` is itself the signal that the slot is sealed.
+
+<Note>
+  The `entries_count` field is present on block metadata but is unreliable on standard validators, so do not use it as a completeness signal.
+</Note>
+
+## Harden and recover
+
+### Answer pings and lift the message cap
+
+The server sends periodic pings; reply with a `SubscribeRequestPing` on the same stream so that an idle load balancer does not drop the connection. That is why the example keeps the send half-stream open with a queue. Raise the gRPC receive limit above its 4 MB default to avoid truncation on busy slots. Chainstack Solana nodes have Jito ShredStream enabled by default, which improves tail latency and consistency for Geyser streaming.
+
+### Recover after a disconnect with from_slot
+
+Track the last slot you cleanly flushed. On reconnect, set `from_slot` to that slot to replay the gap, then de-duplicate the overlap by signature and slot. The replay buffer is a reconnection-recovery mechanism, not a historical backfill: on Global Nodes it holds approximately the last 100 slots (around a minute). Requesting an older slot returns:
+
+```text
+broadcast from <slot> is not available, last available: <slot>
+```
+
+For a deeper replay window, [Dedicated Nodes](/docs/dedicated-node) can be configured with a larger buffer. For data older than the buffer, fall back to `getBlock`, which returns the block time together with the transactions in one call. See [Replay depth with from_slot](/docs/yellowstone-grpc-geyser-plugin#replay-depth-with-from_slot).
+
+## Verify the join
+
+You can confirm the block time you stamped over gRPC is correct by cross-checking a captured slot against JSON-RPC. Call `getBlock` for the slot and compare:
+
+```python
+import requests
+
+def get_block(rpc_url, slot):
+    payload = {
+        "jsonrpc": "2.0", "id": 1, "method": "getBlock",
+        "params": [slot, {
+            "encoding": "json", "transactionDetails": "signatures",
+            "rewards": False, "maxSupportedTransactionVersion": 0,
+            "commitment": "confirmed",
+        }],
+    }
+    return requests.post(rpc_url, json=payload, timeout=30).json()["result"]
+```
+
+For a correctly joined slot, `getBlock`'s `blockTime` equals the `block_time` you received on `block_meta`, its `blockhash` matches, and the length of its `signatures` list equals `executed_transaction_count` — which confirms the count includes votes and failed transactions.
+
+## Caveats
+
+- `block_time` is an estimate. Solana derives it from a stake-weighted mean of validator-submitted timestamps, with capped drift, so treat it as accurate to the second rather than as an exact or security-critical clock. See [Solana: understanding block time](/docs/solana-understanding-block-time).
+- The [Alpenglow consensus upgrade](/docs/solana-alpenglow-consensus) is on the horizon. It collapses the commitment levels and changes how the cluster clock is derived — and it moves votes off-chain, which would reshape the `executed_transaction_count` math above. The stream mechanism in this guide — block time on `block_meta`, joined by `slot` — is expected to carry over, but revisit the block-time derivation when Alpenglow reaches mainnet.
+
+## Full example
+
+<Accordion title="Complete join.py">
+  ```python
+  import queue
+
+  import base58
+  import grpc
+
+  import geyser_pb2 as pb
+  import geyser_pb2_grpc as pb_grpc
+
+  ENDPOINT = "yellowstone-solana-mainnet.core.chainstack.com:443"
+  X_TOKEN = "YOUR_X_TOKEN"
+  SKIP_MARGIN = 50  # slots
+
+
+  def build_request(from_slot=None):
+      req = pb.SubscribeRequest()
+      req.commitment = pb.CONFIRMED
+      txs = req.transactions["txs"]
+      txs.vote = False
+      txs.failed = False
+      req.blocks_meta["meta"].SetInParent()
+      req.slots["slots"].filter_by_commitment = False
+      if from_slot is not None:
+          req.from_slot = from_slot
+      return req
+
+
+  def requests(initial, outbox):
+      yield initial
+      while True:
+          item = outbox.get()
+          if item is None:
+              return
+          yield item
+
+
+  def emit(sig, slot, block_time, blockhash):
+      print(f"{sig}  slot={slot}  block_time={block_time}  block={blockhash[:8]}")
+
+
+  def main():
+      channel = grpc.secure_channel(
+          ENDPOINT,
+          grpc.ssl_channel_credentials(),
+          options=[
+              ("grpc.max_receive_message_length", 64 * 1024 * 1024),
+              ("grpc.keepalive_time_ms", 30_000),
+          ],
+      )
+      stub = pb_grpc.GeyserStub(channel)
+      outbox = queue.Queue()
+      responses = stub.Subscribe(
+          requests(build_request(), outbox), metadata=(("x-token", X_TOKEN),)
+      )
+
+      buffer = {}
+      meta_by_slot = {}
+      hi_confirmed = 0
+
+      for update in responses:
+          kind = update.WhichOneof("update_oneof")
+
+          if kind == "transaction":
+              slot = update.transaction.slot
+              sig = base58.b58encode(
+                  bytes(update.transaction.transaction.signature)
+              ).decode()
+              meta = meta_by_slot.get(slot)
+              if meta is not None:
+                  block_time = (
+                      meta.block_time.timestamp if meta.HasField("block_time") else None
+                  )
+                  emit(sig, slot, block_time, meta.blockhash)
+              else:
+                  buffer.setdefault(slot, []).append(sig)
+
+          elif kind == "block_meta":
+              meta = update.block_meta
+              meta_by_slot[meta.slot] = meta
+              block_time = (
+                  meta.block_time.timestamp if meta.HasField("block_time") else None
+              )
+              for sig in buffer.pop(meta.slot, []):
+                  emit(sig, meta.slot, block_time, meta.blockhash)
+
+          elif kind == "slot":
+              s = update.slot
+              if s.status == pb.SLOT_DEAD:
+                  buffer.pop(s.slot, None)
+                  meta_by_slot.pop(s.slot, None)
+              elif s.status == pb.SLOT_CONFIRMED:
+                  hi_confirmed = max(hi_confirmed, s.slot)
+              for slot in [k for k in buffer if k + SKIP_MARGIN < hi_confirmed]:
+                  buffer.pop(slot, None)
+              for slot in [k for k in meta_by_slot if k + SKIP_MARGIN < hi_confirmed]:
+                  meta_by_slot.pop(slot, None)
+
+          elif kind == "ping":
+              outbox.put(pb.SubscribeRequest(ping=pb.SubscribeRequestPing(id=1)))
+
+
+  if __name__ == "__main__":
+      main()
+  ```
+</Accordion>
+
+## Related
+
+- [Yellowstone gRPC Geyser plugin](/docs/yellowstone-grpc-geyser-plugin) — enable the add-on, limits, and replay depth
+- [Solana: understanding block time](/docs/solana-understanding-block-time) — how block time is derived and its drift rules
+- [Solana: understanding the difference between blocks and slots](/docs/understanding-the-difference-between-blocks-and-slots-on-solana)
+- [Solana: optimize your getBlock performance](/docs/solana-optimize-your-getblock-performance)
+- [Solana: listening to programs using Geyser and Yellowstone gRPC (Node.js)](/docs/solana-listening-to-programs-using-geyser-and-yellowstone-grpc-node-js) — the Node.js counterpart
+- [Solana Geyser Python tutorial](https://github.com/chainstacklabs/grpc-geyser-tutorial) and the [Yellowstone repository](https://github.com/rpcpool/yellowstone-grpc)

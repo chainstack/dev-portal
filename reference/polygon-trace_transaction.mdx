@@ -6,6 +6,7 @@ description: "Polygon API method that traces a specific transaction. trace_trans
 
 Polygon API method that traces a specific transaction. It provides a detailed record of all the steps taken by the Ethereum Virtual Machine (EVM) during the execution, including all the operations performed and the changes made to the blockchain state. This method is available on Erigon only.
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -13,6 +14,7 @@ Polygon API method that traces a specific transaction. It provides a detailed re
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 
 ## Parameters
@@ -43,31 +45,6 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 ## `trace_transaction` code examples
 
 <CodeGroup>
-```javascript web3.js
-const Web3 = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
-
-// Define the trace_transaction custom method
-web3.extend({
-  property: 'debug',
-  methods: [{
-    name: 'traceTransaction',
-    call: 'trace_transaction',
-    params: 1,
-    inputFormatter: [web3.extend.formatters.inputHashFormatter],
-    outputFormatter: web3.extend.formatters.outputCallFormatter
-  }]
-});
-
-async function traceTransaction(txHash) {
-    const result = await web3.debug.traceTransaction(txHash);
-    console.log(result);
-}
-
-traceTransaction("0x9c43baea5c33916b282707506db6d4e79e9e13d96fec1028493bd2ec2da66fd0");
-```
-
 ```javascript ethers.js
 const ethers = require('ethers');
 const NODE_URL = "CHAINSTACK_NODE_URL";
@@ -98,36 +75,22 @@ print(traces)
 
 A practical use case of the `trace_transaction` method can be in inspecting NFT transfers, allowing you to identify internal transactions, the sender and receiver, and the amounts transferred. This can be especially useful when analyzing an ERC-721 token purchase on a marketplace like Opensea, where the transfer of funds is not always straightforward due to multiple internal calls for transferring funds to the NFT owner, paying royalties to the creator, and other factors. By using `trace_transaction`, you can gain a more comprehensive understanding of the transaction flow.
 
-The following is an implementation of the logic using web3.js inspecting an [ERC-721 transfer from Opensea on Polygon](https://polygonscan.com/tx/0xe2eb8be0ea71220bc298e48ba58034d49efb2d311ca45dfe228cb564cd8a3fb5):
+The following is an implementation of the logic using ethers.js inspecting an [ERC-721 transfer from Opensea on Polygon](https://polygonscan.com/tx/0xe2eb8be0ea71220bc298e48ba58034d49efb2d311ca45dfe228cb564cd8a3fb5):
 
 ```javascript index.js
-const Web3 = require("web3");
+const ethers = require("ethers");
 const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
+const provider = new ethers.JsonRpcProvider(NODE_URL);
 
-// Define the trace_transaction custom method
-web3.extend({
-  property: 'debug',
-  methods: [{
-    name: 'traceTransaction',
-    call: 'trace_transaction',
-    params: 1,
-    inputFormatter: [web3.extend.formatters.inputHashFormatter],
-    outputFormatter: web3.extend.formatters.outputCallFormatter
-  }]
-});
-
-// Trace a transaction using the web3.debug.traceTransaction method
+// Trace a transaction using the trace_transaction RPC method
 async function traceTransaction(txHash) {
-  const result = await web3.debug.traceTransaction(txHash);
+  const result = await provider.send("trace_transaction", [txHash]);
   return result.map(({ action }) => action);
 }
 
 // Parse a value in wei to ether
 function parseValue(wei) {
-  const bigNumber = web3.utils.toBN(wei);
-  const decimalString = bigNumber.toString();
-  const etherValue = web3.utils.fromWei(decimalString);
+  const etherValue = ethers.formatEther(wei);
   return etherValue;
 }
 

@@ -1,0 +1,289 @@
+---
+title: "Write to HyperCore from a contract with CoreWriter"
+description: Use the CoreWriter system contract to send HyperCore actions—orders, transfers, staking—from a HyperEVM smart contract, with a complete Solidity example and the prerequisites that stop actions from being silently dropped.
+---
+
+CoreWriter is the bridge that lets a HyperEVM smart contract act on HyperCore. Your contract places orders, moves funds between accounts, stakes, and delegates—the same actions a trader sends to the `/exchange` endpoint—directly from Solidity. This guide explains how CoreWriter encodes those actions, walks through a contract you can deploy on a Chainstack HyperEVM endpoint, and covers the account prerequisites that decide whether your actions actually land.
+
+<Info>
+**Prerequisites**
+
+- [Foundry](https://book.getfoundry.sh/getting-started/installation) installed (`forge` and `cast`)
+- A [reliable Hyperliquid RPC endpoint](https://chainstack.com/build-better-with-hyperliquid/) from Chainstack ([sign up for free](https://console.chainstack.com/))
+- A HyperEVM account funded with HYPE for gas
+- For the production path: [`hyper-evm-lib`](https://github.com/hyperliquid-dev/hyper-evm-lib) (`forge install hyperliquid-dev/hyper-evm-lib`)
+- Basic Solidity and Foundry knowledge
+</Info>
+
+## Two directions: read precompiles and CoreWriter
+
+HyperEVM and HyperCore are two execution environments on the same chain, and contracts move data between them in two directions:
+
+- **Read** — HyperCore exposes read precompiles starting at `0x0000000000000000000000000000000000000800`. A contract calls them to query perp positions, spot balances, oracle prices, staking delegations, and the L1 block number. The returned values match HyperCore state at the time the EVM block is built.
+- **Write** — the CoreWriter system contract at `0x3333333333333333333333333333333333333333` sends actions *to* HyperCore. This guide covers the write direction.
+
+This split mirrors the API: read precompiles are the on-chain equivalent of `/info` queries, and CoreWriter is the on-chain equivalent of signed `/exchange` actions. The difference is that CoreWriter actions are authored *by the calling contract's own address*—the contract is the HyperCore actor, so no off-chain signature is involved.
+
+<Note>
+CoreWriter actions are submitted as ordinary HyperEVM transactions, so deploying the contract and calling CoreWriter both run against your Chainstack HyperEVM (`/evm`) endpoint—a contract drives HyperCore orders and transfers without the signed `/exchange` API. Chainstack also serves the `/info` reads used to verify results (`clearinghouseState`, `spotClearinghouseState`, `openOrders`). The one step that needs Hyperliquid's public `/exchange` endpoint is the big-block toggle below. See [Hyperliquid methods](/docs/hyperliquid-methods) for the full endpoint matrix.
+</Note>
+
+## How CoreWriter works
+
+CoreWriter exposes a single function:
+
+```solidity
+interface ICoreWriter {
+    function sendRawAction(bytes calldata data) external;
+}
+```
+
+When you call `sendRawAction`, the contract burns roughly 25,000 gas and emits a log that HyperCore picks up and processes as an action. A basic call costs around 47,000 gas in total. The action runs as the caller's HyperCore user—the contract address that invoked `sendRawAction`.
+
+### Action encoding
+
+The `data` argument is a byte string with a fixed 4-byte header followed by an ABI-encoded payload:
+
+| Bytes | Meaning |
+| --- | --- |
+| Byte 1 | Encoding version. Only version `1` is supported today; the version byte keeps the format upgradeable. |
+| Bytes 2–4 | Action ID, as a big-endian unsigned integer. |
+| Remaining bytes | The action payload—the raw ABI encoding of a sequence of Solidity types specific to the action. |
+
+In Solidity this is exactly `abi.encodePacked(uint8(1), uint24(actionId), abi.encode(...fields))`: the `uint8` is the version byte, the `uint24` is the 3-byte big-endian action ID, and `abi.encode` produces the payload.
+
+### Supported actions
+
+CoreWriter supports the following actions. The fields are ABI-encoded in the order shown. Action ID `14` is intentionally absent.
+
+| ID | Action | Fields | Solidity types |
+| --- | --- | --- | --- |
+| 1 | Limit order | (asset, isBuy, limitPx, sz, reduceOnly, encodedTif, cloid) | (uint32, bool, uint64, uint64, bool, uint8, uint128) |
+| 2 | Vault transfer | (vault, isDeposit, usd) | (address, bool, uint64) |
+| 3 | Token delegate | (validator, wei, isUndelegate) | (address, uint64, bool) |
+| 4 | Staking deposit | wei | uint64 |
+| 5 | Staking withdraw | wei | uint64 |
+| 6 | Spot send | (destination, token, wei) | (address, uint64, uint64) |
+| 7 | USD class transfer | (ntl, toPerp) | (uint64, bool) |
+| 8 | Finalize EVM contract | (token, encodedFinalizeEvmContractVariant, createNonce) | (uint64, uint8, uint64) |
+| 9 | Add API wallet | (apiWalletAddress, apiWalletName) | (address, string) |
+| 10 | Cancel order by oid | (asset, oid) | (uint32, uint64) |
+| 11 | Cancel order by cloid | (asset, cloid) | (uint32, uint128) |
+| 12 | Approve builder fee | (maxFeeRate, builder) | (uint64, address) |
+| 13 | Send asset | (destination, subAccount, sourceDex, destinationDex, token, wei) | (address, address, uint32, uint32, uint64, uint64) |
+| 15 | Borrow lend operation | (encodedOperation, token, wei) | (uint8, uint64, uint64) |
+| 16 | Set abstraction | (user, abstraction) | (address, uint8) |
+
+A few encoding conventions are easy to get wrong:
+
+- **Limit order** — `encodedTif` is `1` for Alo, `2` for Gtc, `3` for Ioc. `cloid` of `0` means no client order ID; any other value is used as the cloid. `limitPx` and `sz` are sent as 10^8 times the human-readable value, and `sz` must respect the asset's `szDecimals` (see [Make sure your action lands](#make-sure-your-action-lands)).
+- **Finalize EVM contract** — `encodedFinalizeEvmContractVariant` is `1` for Create, `2` for FirstStorageSlot, `3` for CustomStorageSlot. `createNonce` is only used with the Create variant.
+- **Add API wallet** — an empty `apiWalletName` makes this the main API wallet (agent).
+- **Approve builder fee** — `maxFeeRate` is in decibps. To approve a 0.01% fee, pass `10`.
+- **Send asset** — if `subAccount` is not the zero address, the transfer comes from that sub-account. Use `uint32` max for `sourceDex` or `destinationDex` to mean spot.
+- **Borrow lend operation** — `encodedOperation` is `0` for Supply, `1` for Withdraw. A `wei` of `0` applies the operation maximally (for example, withdraw the full reserve balance).
+- **Set abstraction** — `abstraction` is `1` for disabled (standard), `2` for unifiedAccount, `3` for portfolioMargin. `user` can be the master user or a sub-account.
+
+## Encode an action yourself
+
+The contract below wraps two actions—a USD class transfer (move USDC between the perp and spot wallets) and a limit order—and exposes a generic `sendRawAction` passthrough for any action you encode yourself. It depends on nothing but the CoreWriter interface.
+
+```solidity CoreWriterCaller.sol
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.19;
+
+interface ICoreWriter {
+    function sendRawAction(bytes calldata data) external;
+}
+
+contract CoreWriterCaller {
+    ICoreWriter constant CORE_WRITER =
+        ICoreWriter(0x3333333333333333333333333333333333333333);
+
+    // Action 7: move USDC between this contract's spot and perp balances.
+    // ntl is the amount in perp units (USDC has 6 decimals on the perp side).
+    function usdClassTransfer(uint64 ntl, bool toPerp) external {
+        bytes memory action =
+            abi.encodePacked(uint8(1), uint24(7), abi.encode(ntl, toPerp));
+        CORE_WRITER.sendRawAction(action);
+    }
+
+    // Action 1: place a limit order.
+    // limitPx and sz are 10^8 * the human-readable value; sz must respect the
+    // asset's szDecimals. encodedTif: 1 = Alo, 2 = Gtc, 3 = Ioc. cloid 0 = none.
+    function limitOrder(
+        uint32 asset,
+        bool isBuy,
+        uint64 limitPx,
+        uint64 sz,
+        bool reduceOnly,
+        uint8 encodedTif,
+        uint128 cloid
+    ) external {
+        bytes memory action = abi.encodePacked(
+            uint8(1),
+            uint24(1),
+            abi.encode(asset, isBuy, limitPx, sz, reduceOnly, encodedTif, cloid)
+        );
+        CORE_WRITER.sendRawAction(action);
+    }
+
+    // Escape hatch: send any action by ID with a pre-encoded payload.
+    function sendRawAction(uint24 actionId, bytes calldata payload) external {
+        CORE_WRITER.sendRawAction(abi.encodePacked(uint8(1), actionId, payload));
+    }
+}
+```
+
+`abi.encodePacked(uint8(1), uint24(actionId), ...)` lays the header out exactly as the encoding table describes: the `uint8` occupies one byte, the `uint24` occupies three big-endian bytes, and the ABI-encoded payload follows. Building the action this way keeps the contract self-contained, so callers pass plain arguments instead of pre-formatted byte strings.
+
+## Use hyper-evm-lib in production
+
+Encoding actions by hand is useful for understanding the wire format, but most builders use [`hyper-evm-lib`](https://github.com/hyperliquid-dev/hyper-evm-lib)—an MIT-licensed, actively maintained Solidity library (under the `hyperliquid-dev` org) that wraps every CoreWriter action and read precompile with typed helpers, handles the EVM↔Core decimal conversions, and ships a Foundry test engine that simulates HyperCore locally so you can test contracts without deploying to testnet.
+
+Install it with Foundry:
+
+```bash
+forge install hyperliquid-dev/hyper-evm-lib
+```
+
+The same two actions, plus an on-chain readiness check, with the library:
+
+```solidity TraderVault.sol
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.19;
+
+import {CoreWriterLib} from "hyper-evm-lib/src/CoreWriterLib.sol";
+import {PrecompileLib} from "hyper-evm-lib/src/PrecompileLib.sol";
+
+contract TraderVault {
+    using CoreWriterLib for *;
+
+    // Move USDC from spot to perp, then place a GTC limit order.
+    // Call only after this contract's HyperCore account exists and holds USDC.
+    function openPosition(
+        uint32 asset,
+        bool isBuy,
+        uint64 limitPx,
+        uint64 sz,
+        uint64 perpUsdc
+    ) external {
+        CoreWriterLib.transferUsdClass(perpUsdc, true); // spot -> perp
+        CoreWriterLib.placeLimitOrder(asset, isBuy, limitPx, sz, false, 2, 0);
+    }
+
+    // Confirm on-chain that this contract is a HyperCore user before acting.
+    function isReady() external view returns (bool) {
+        return PrecompileLib.coreUserExists(address(this));
+    }
+}
+```
+
+`CoreWriterLib` exposes named helpers for the full action set—`placeLimitOrder`, `transferUsdClass`, `spotSend`, `delegateToken`, `vaultTransfer`, `setAbstraction`, `bridgeToCore`, and more—each of which encodes the action exactly as the table above describes. `PrecompileLib` mirrors the read precompiles, including `coreUserExists` and `perpAssetInfo` (which returns `szDecimals`).
+
+## Make sure your action lands
+
+CoreWriter actions are fire-and-forget. `sendRawAction` emits its log and the EVM transaction succeeds **whether or not HyperCore accepts the action**. If the action is malformed or the account is not set up, HyperCore drops it silently—no EVM revert, no error event, and the order simply never appears in `openOrders`. This is the single most common source of confusion, so check the following before concluding that CoreWriter is broken.
+
+### The account must exist on HyperCore first
+
+A CoreWriter action runs as the *contract's* HyperCore user, and that user must already exist on HyperCore **before the EVM block is built**. An address becomes a HyperCore user once it receives a Core asset such as USDC.
+
+<Warning>
+Initializing the account with a HyperEVM-to-HyperCore transfer *in the same block* as the action does not work—the action is still rejected. Fund the contract's HyperCore account in an earlier block, then send actions.
+</Warning>
+
+Send a small amount of USDC to the contract's address on HyperCore in a separate, earlier transaction. You can confirm the account exists on-chain by calling the core-user-exists precompile at `0x0000000000000000000000000000000000000810` (`PrecompileLib.coreUserExists(address)` in `hyper-evm-lib`) before sending the action.
+
+### Perp orders need USDC on the perp side
+
+Bridging USDC from HyperEVM lands it in the contract's **spot** balance. A perp limit order draws on the **perp** balance, so a freshly funded contract can hold plenty of USDC and still have its orders dropped. Move funds to the perp side first with a USD class transfer (action 7, `toPerp: true`)—that is why the `TraderVault` example calls `transferUsdClass(perpUsdc, true)` before `placeLimitOrder`.
+
+<Note>
+Setting the account abstraction mode (action 16) is **not** required to place an order—a new account places orders fine in the default mode. You only need `setAbstraction` to change how margin works, or to put a builder-fee address into standard mode, which is required for builder-fee accrual.
+</Note>
+
+### Respect tick and lot size
+
+`limitPx` and `sz` are scaled by 10^8, but they must also conform to the asset's tick and lot size. Sizes must be rounded to the asset's `szDecimals`: if `szDecimals` is `3`, then `1.001` is valid but `1.0001` is not. A size or price with too many decimals is rejected by HyperCore—again, silently. Read `szDecimals` from the perp-asset-info precompile at `0x000000000000000000000000000000000000080a` (`PrecompileLib.perpAssetInfo(asset).szDecimals`).
+
+### Wait for the action to process
+
+Order actions are delayed on-chain by a few seconds (see [Action timing](#action-timing)). Do not check `openOrders` in the same block and conclude the order was dropped—give it at least one block confirmation first.
+
+## Deploy and call the contract
+
+### Compile
+
+Save the contract in a Foundry project and compile it:
+
+```bash
+forge build
+```
+
+### Deploy through a Chainstack endpoint
+
+HyperEVM uses a [dual-block architecture](/docs/hyperliquid-development): fast 1-second small blocks with a 3M gas limit, and slow 1-minute big blocks with a 30M gas limit. The example contracts here deploy comfortably in small blocks. Larger contracts need big blocks, which you opt into with the HyperCore action `{"type": "evmUserModify", "usingBigBlocks": true}`. That is an `/exchange` action, so—unlike the deploy and contract calls, which use your Chainstack endpoint—it goes to Hyperliquid's public endpoint (`https://api.hyperliquid.xyz/exchange`); Chainstack does not serve `/exchange` (see [Hyperliquid methods](/docs/hyperliquid-methods)).
+
+Deploy with `forge create`, pointing at your Chainstack HyperEVM endpoint:
+
+```bash
+forge create src/CoreWriterCaller.sol:CoreWriterCaller \
+  --rpc-url YOUR_CHAINSTACK_HYPERLIQUID_ENDPOINT \
+  --private-key 0xYOUR_PRIVATE_KEY \
+  --broadcast
+```
+
+<Note>
+Replace `YOUR_CHAINSTACK_HYPERLIQUID_ENDPOINT` with your Chainstack HyperEVM endpoint. The Hyperliquid HyperEVM mainnet uses chain ID 999.
+</Note>
+
+### Send an action
+
+Once the contract is deployed and its HyperCore account exists (see [Make sure your action lands](#make-sure-your-action-lands)), call an action with `cast`. This moves 5 USDC (5,000,000 in perp units) from the contract's spot wallet to its perp wallet:
+
+```bash
+cast send YOUR_CONTRACT_ADDRESS \
+  "usdClassTransfer(uint64,bool)" 5000000 true \
+  --rpc-url YOUR_CHAINSTACK_HYPERLIQUID_ENDPOINT \
+  --private-key 0xYOUR_PRIVATE_KEY
+```
+
+To place a limit buy for `0.1` units of asset `0` at a price of `1000`, with Gtc time-in-force and no client order ID:
+
+```bash
+cast send YOUR_CONTRACT_ADDRESS \
+  "limitOrder(uint32,bool,uint64,uint64,bool,uint8,uint128)" \
+  0 true 100000000000 10000000 false 2 0 \
+  --rpc-url YOUR_CHAINSTACK_HYPERLIQUID_ENDPOINT \
+  --private-key 0xYOUR_PRIVATE_KEY
+```
+
+Here `100000000000` is `1000 * 10^8` (the price) and `10000000` is `0.1 * 10^8` (the size).
+
+## Action timing
+
+CoreWriter actions are not applied the instant the EVM transaction lands. On an L1 block that produces a HyperEVM block, the order of operations is:
+
+1. The L1 block is built.
+2. The EVM block is built.
+3. EVM-to-Core transfers are processed.
+4. CoreWriter actions are processed.
+
+To prevent latency advantages from bypassing the L1 mempool, order actions and vault transfers sent through CoreWriter are delayed on-chain for a few seconds. This has no practical effect on user experience because the user already waits for at least one block confirmation. These delayed actions appear twice in the L1 explorer: first as an enqueuing, then as the HyperCore execution.
+
+## Verify the result
+
+CoreWriter does not return a value to the caller—`sendRawAction` only emits a log. To confirm an action took effect, read HyperCore state:
+
+- Query the API `/info` endpoint (for example, `clearinghouseState` for perp balances or `spotClearinghouseState` for spot balances) for the contract address.
+- Read it on-chain through the HyperCore read precompiles at `0x0800` and above.
+- Watch the L1 explorer for the enqueuing and execution entries described above.
+
+If an action does not appear, work through [Make sure your action lands](#make-sure-your-action-lands): an uninitialized HyperCore account, funds on the wrong (spot vs perp) side, a size that violates `szDecimals`, or checking before the action delay elapses.
+
+## Next steps
+
+- Read the [Hyperliquid methods reference](/docs/hyperliquid-methods) for the full set of HyperCore actions and queries.
+- [Fork Hyperliquid EVM with Foundry](/docs/hyperliquid-forking-evm-foundry) to test CoreWriter calls against live state locally.
+- Explore [Hyperliquid smart contract development](/docs/hyperliquid-development) for the dual-block model and HyperEVM tooling.

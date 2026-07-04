@@ -1,6 +1,6 @@
 ---
 title: "sendToEvmWithData | Hyperliquid exchange"
-openapi: /openapi/hyperliquid_node_api/exchange_send_to_evm_with_data.json post /exchange
+openapi: /openapi/hyperliquid_node_api/hypercore_exchange/exchange_send_to_evm_with_data.json post /exchange
 description: "Sends assets from Hyperliquid L1 to a HyperEVM address with optional calldata. Enables programmatic interactions between L1 and HyperEVM."
 ---
 
@@ -14,6 +14,7 @@ This endpoint requires signature authentication. See our comprehensive [Authenti
 
 Sends assets from Hyperliquid L1 to a HyperEVM address with optional calldata. Enables programmatic interactions between L1 and HyperEVM.
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -21,6 +22,7 @@ Sends assets from Hyperliquid L1 to a HyperEVM address with optional calldata. E
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 ## Parameters
 
@@ -48,6 +50,8 @@ Returns an object with the action status:
 
 ## Example request
 
+<CodeGroup>
+
 ```shell cURL
 curl -X POST https://api.hyperliquid.xyz/exchange \
   -H "Content-Type: application/json" \
@@ -57,6 +61,85 @@ curl -X POST https://api.hyperliquid.xyz/exchange \
     "signature": {...}
   }'
 ```
+
+```typescript TypeScript (@nktkas/hyperliquid)
+import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { privateKeyToAccount } from "viem/accounts";
+
+// Public Hyperliquid mainnet API (default transport)
+const wallet = privateKeyToAccount("0x..."); // viem or ethers
+const transport = new HttpTransport();
+const exchange = new ExchangeClient({ transport, wallet });
+
+// SDK signs the EIP-712 action and posts it to /exchange
+const result = await exchange.sendToEvmWithData({
+  token: "USDC",
+  amount: "1",
+  sourceDex: "spot",
+  destinationRecipient: "0x...",
+  addressEncoding: "hex",
+  destinationChainId: 42161,
+  gasLimit: 200000,
+  data: "0x",
+});
+
+console.log(result);
+```
+
+```python Python (hyperliquid-python-sdk)
+# Note: hyperliquid-python-sdk does not expose a sendToEvmWithData helper.
+# Build, sign, and post the action manually against the public mainnet API.
+import time
+import requests
+from hyperliquid.utils import constants
+from hyperliquid.utils.signing import sign_user_signed_action
+
+# Your wallet (e.g. from eth_account.Account)
+wallet = ...  # LocalAccount
+
+action = {
+    "type": "sendToEvmWithData",
+    "signatureChainId": "0xa4b1",
+    "hyperliquidChain": "Mainnet",
+    "token": "USDC",
+    "amount": "1",
+    "sourceDex": "spot",
+    "destinationRecipient": "0x...",
+    "addressEncoding": "hex",
+    "destinationChainId": 42161,
+    "gasLimit": 200000,
+    "data": "0x",
+    "nonce": int(time.time() * 1000),
+}
+
+# EIP-712 sign (payload_types must match the action fields)
+signature = sign_user_signed_action(
+    wallet,
+    action,
+    payload_types=[
+        {"name": "hyperliquidChain", "type": "string"},
+        {"name": "token", "type": "string"},
+        {"name": "amount", "type": "string"},
+        {"name": "sourceDex", "type": "string"},
+        {"name": "destinationRecipient", "type": "string"},
+        {"name": "addressEncoding", "type": "string"},
+        {"name": "destinationChainId", "type": "uint64"},
+        {"name": "gasLimit", "type": "uint64"},
+        {"name": "data", "type": "bytes"},
+        {"name": "nonce", "type": "uint64"},
+    ],
+    primary_type="HyperliquidTransaction:SendToEvmWithData",
+    is_mainnet=True,
+)
+
+resp = requests.post(
+    f"{constants.MAINNET_API_URL}/exchange",
+    json={"action": action, "nonce": action["nonce"], "signature": signature},
+)
+print(resp.json())
+```
+
+</CodeGroup>
 
 ## Use case
 

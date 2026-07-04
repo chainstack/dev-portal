@@ -3,38 +3,22 @@ title: "TRON tooling"
 description: "TRON blockchain development tools guide. Use TronWeb.js, gRPC, web3.py, Hardhat, and Foundry with Chainstack TRON nodes and endpoints."
 ---
 
-<Info>
-  ### `/jsonrpc`, `/wallet`, `/walletsolidity`, and gRPC support
+Chainstack TRON nodes expose four API surfaces over a single node endpoint. Get started with a [reliable TRON RPC endpoint](https://chainstack.com/build-better-with-tron/), and see the official [TRON API reference](https://developers.tron.network/reference/) for the full method list.
 
-  Chainstack supports all TRON API endpoints:
+| API | Endpoint | Use it for |
+| --- | --- | --- |
+| JSON-RPC | `/jsonrpc` | Ethereum-compatible read operations |
+| Wallet | `/wallet` | TRON HTTP API — full node operations, including transactions |
+| Solidity | `/walletsolidity` | TRON HTTP API — confirmed (solidified) data |
+| gRPC | host on port `443` | High-performance binary protocol — see [available services](#available-services) |
 
-  * `/jsonrpc` — Ethereum-compatible JSON-RPC (read-only operations)
-  * `/wallet` — TRON HTTP API (full node operations including transactions)
-  * `/walletsolidity` — TRON HTTP API (confirmed data from solidity node)
-  * **gRPC** — high-performance binary protocol for efficient data access (see [available services](#available-services))
+TRON nodes run in archive mode, which for TRON means the complete block and transaction history from genesis rather than historical state — see [Historical data availability](#historical-data-availability).
 
-  TRON nodes are deployed in archive mode — for TRON, this means the complete block and transaction history from genesis, not historical state. See [Historical data availability](#historical-data-availability).
-</Info>
+## Tooling compatibility
 
-Get started with a [reliable TRON RPC endpoint](https://chainstack.com/build-better-with-tron/) to use the tools below.
+TRON's `/jsonrpc` endpoint provides limited Ethereum compatibility for read operations only — the methods required for transaction submission (`eth_sendRawTransaction`, `eth_getTransactionCount`) are not available. Ethereum-native tools like Foundry, Hardhat, and web3.py can read from a TRON node, but they cannot deploy contracts or send transactions directly. For writes, use [TronWeb.js](#tronwebjs) with the `/wallet` endpoint, or compile and test with Foundry or Hardhat and deploy through the [hybrid workflow](#hybrid-workflow).
 
-For the full API reference, see the official [TRON API Reference](https://developers.tron.network/reference/).
-
-<Warning>
-  ### Ethereum tooling limitations
-
-  TRON's `/jsonrpc` endpoint provides limited Ethereum compatibility for **read operations only**. Methods required for transaction submission (`eth_sendRawTransaction`, `eth_getTransactionCount`) are not available.
-
-  This means Ethereum-native tools like **Foundry**, **Hardhat**, and **web3.py** cannot deploy contracts or send transactions to TRON directly. For write operations, use **TronWeb.js** with the `/wallet` endpoint.
-
-  You can still use Foundry or Hardhat for **compilation and testing**, then deploy with TronWeb.js. See the [hybrid workflow](#hybrid-workflow) section.
-</Warning>
-
-<Note>
-  ### WebSocket event subscription not available
-
-  TRON nodes currently do not support WebSocket connections for event subscriptions. If you need to subscribe to events, please vote and follow the feature request at [TRON event plugin support](https://ideas.chainstack.com/p/implement-tron-event-plugin).
-</Note>
+TRON nodes don't support WebSocket connections for event subscriptions. To track that capability, follow the feature request for [TRON event plugin support](https://ideas.chainstack.com/p/implement-tron-event-plugin).
 
 ## Historical data availability
 
@@ -66,9 +50,7 @@ gRPC endpoints use x-token authentication. Pass your token in the request metada
 
 - **x-token** — your authentication token from the Chainstack console
 
-<Info>
-  Find your gRPC endpoint and x-token in the Chainstack console under your TRON node's **Access and credentials** section.
-</Info>
+Find your gRPC endpoint and x-token in the Chainstack console under your TRON node's **Access and credentials** section.
 
 ### Available services
 
@@ -78,17 +60,22 @@ The TRON proto files define several gRPC services. Here's what a Chainstack TRON
 | --- | --- |
 | `protocol.Wallet` | Available — the full node API: accounts, blocks, contracts, and transaction operations |
 | `protocol.Database` | Available — block metadata helpers |
-| `protocol.WalletSolidity` | Not available yet |
+| `protocol.WalletSolidity` | Available — the solidity node API: read-only access to solidified (confirmed) data |
 | `protocol.WalletExtension` | Not available yet |
 | `protocol.Monitor` | Not available yet |
 
-Calling a service that isn't currently served returns the gRPC `UNIMPLEMENTED` status (`Method not found`). Note that this is different from setups that expose a separate solidity gRPC port (for example, port `50061` on a self-hosted java-tron node) — on Chainstack, use the `Wallet` stub in your generated client. For solidified (confirmed) data, use the HTTP `/walletsolidity` API on the same node endpoint — see [TRON methods](/docs/tron-methods) for availability.
+Both `protocol.Wallet` and `protocol.WalletSolidity` run on the same endpoint and port. Select the one you need by the service (stub) in your generated client, not by a different URL:
 
-<Warning>
-  ### Reflection advertises more than is served
+- `Wallet` — the latest state and all write operations
+- `WalletSolidity` — solidified (confirmed), read-only data
 
-  The endpoint supports gRPC server reflection, and the reflection list includes every service from the TRON protos, including services that are not yet served. Don't infer availability from reflection or from the proto definitions; the table above reflects actual behavior.
-</Warning>
+This differs from self-hosted java-tron, which splits the two across separate gRPC ports (`50051` for the full node and `50061` for the solidity node); Chainstack routes both through the single `:443` endpoint.
+
+Calling a service that isn't served — `protocol.WalletExtension` or `protocol.Monitor` — returns the gRPC `UNIMPLEMENTED` status (`Method not found`). The same solidified data is also available over the HTTP `/walletsolidity` API — see [TRON methods](/docs/tron-methods).
+
+<Note>
+  The endpoint supports gRPC server reflection, but the reflection list includes every service in the TRON protos — including ones that aren't served, such as `protocol.WalletExtension` and `protocol.Monitor`. Don't infer availability from reflection or the proto definitions; the table above reflects actual behavior.
+</Note>
 
 ### Proto files
 
@@ -396,9 +383,7 @@ See also [node access details](/docs/manage-your-node#view-node-access-and-crede
 
 ## web3.py
 
-<Note>
-  web3.py can only perform **read operations** on TRON through the `/jsonrpc` endpoint. For contract deployment and transactions, use [TronWeb.js](#tronwebjs).
-</Note>
+web3.py performs read operations on TRON through the `/jsonrpc` endpoint. For contract deployment and transactions, use [TronWeb.js](#tronwebjs).
 
 Build DApps using [web3.py](https://github.com/ethereum/web3.py) and TRON nodes deployed with Chainstack.
 
@@ -432,9 +417,7 @@ See also [node access details](/docs/manage-your-node#view-node-access-and-crede
 
 ## Hardhat
 
-<Note>
-  Hardhat can only perform **read operations** on TRON through the `/jsonrpc` endpoint. For contract deployment, use the [hybrid workflow](#hybrid-workflow) or [TronWeb.js](#tronwebjs) directly.
-</Note>
+Hardhat performs read operations on TRON through the `/jsonrpc` endpoint. For contract deployment, use the [hybrid workflow](#hybrid-workflow) or [TronWeb.js](#tronwebjs) directly.
 
 Configure [Hardhat](https://hardhat.org/) to compile contracts and perform read operations through your TRON nodes.
 
@@ -461,9 +444,7 @@ Configure [Hardhat](https://hardhat.org/) to compile contracts and perform read 
 
 ## Foundry
 
-<Note>
-  Foundry can only perform **read operations** on TRON through the `/jsonrpc` endpoint. For contract deployment, use the [hybrid workflow](#hybrid-workflow) below.
-</Note>
+Foundry performs read operations on TRON through the `/jsonrpc` endpoint. For contract deployment, use the [hybrid workflow](#hybrid-workflow) below.
 
 1. Install [Foundry](https://getfoundry.sh/).
 

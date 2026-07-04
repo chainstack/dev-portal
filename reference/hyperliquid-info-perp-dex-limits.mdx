@@ -1,6 +1,6 @@
 ---
 title: "perpDexLimits | Hyperliquid info"
-openapi: /openapi/hyperliquid_node_api/info_perp_dex_limits.json post /4f8d8f4040bdacd1577bff8058438274/info
+openapi: /openapi/hyperliquid_node_api/hypercore_info/info_perp_dex_limits.json post /4f8d8f4040bdacd1577bff8058438274/info
 description: "Reference for the perpDexLimits JSON-RPC method on the Hyperliquid info blockchain via Chainstack nodes. Parameters, response, and examples included."
 ---
 
@@ -8,8 +8,9 @@ description: "Reference for the perpDexLimits JSON-RPC method on the Hyperliquid
 This method is available on Chainstack. Not all Hyperliquid methods are available on Chainstack, as the open-source node implementation does not support them yet — see [Hyperliquid methods](/docs/hyperliquid-methods) for the full availability breakdown.
 </Info>
 
-The `info` endpoint with `type: "perpDexLimits"` retrieves the configuration limits for perpetual DEXes on Hyperliquid, including maximum number of assets and other deployment constraints.
+The `info` endpoint with `type: "perpDexLimits"` retrieves the market limits for a builder-deployed perpetual DEX on Hyperliquid — the total open interest cap, the per-perpetual open interest size cap, the maximum transfer notional, and the per-asset open interest caps.
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -17,36 +18,82 @@ The `info` endpoint with `type: "perpDexLimits"` retrieves the configuration lim
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 ## Parameters
 
 ### Request body
 
 * `type` (string, required) — The request type. Must be `"perpDexLimits"`.
+* `dex` (string, required) — The name of the builder-deployed perp DEX, for example `"xyz"`. The empty string is not allowed. Use [perpDexs](/reference/hyperliquid-info-perpdexs) to list deployed perp DEX names.
 
 ## Response
 
-The response contains the perp DEX deployment limits and configuration constraints.
+Returns a perp DEX limits object, or `null` if the DEX has no configured limits.
+
+* `totalOiCap` (string) — Total open interest cap across the DEX.
+* `oiSzCapPerPerp` (string) — Open interest size cap per perpetual.
+* `maxTransferNtl` (string) — Maximum transfer notional amount.
+* `coinToOiCap` (array) — Array of `[coin, oiCap]` tuples giving the open interest cap per asset.
 
 ## Example request
+
+<CodeGroup>
 
 ```shell Shell
 curl -X POST \
   -H "Content-Type: application/json" \
-  -d '{"type": "perpDexLimits"}' \
+  -d '{"type": "perpDexLimits", "dex": "xyz"}' \
   https://hyperliquid-mainnet.core.chainstack.com/4f8d8f4040bdacd1577bff8058438274/info
 ```
+
+```python Python (hyperliquid-python-sdk)
+from hyperliquid.info import Info
+
+# skip_ws=True avoids opening a WebSocket connection for this REST call
+info = Info("YOUR_CHAINSTACK_ENDPOINT", skip_ws=True)
+
+# The SDK has no dedicated perpDexLimits helper, so post the request directly.
+perp_dex_limits = info.post("/info", {"type": "perpDexLimits", "dex": "xyz"})
+print(perp_dex_limits)
+```
+
+```typescript TypeScript (@nktkas/hyperliquid)
+import { HttpTransport, InfoClient } from "@nktkas/hyperliquid";
+
+// apiUrl points the transport at a custom server (your Chainstack endpoint)
+const transport = new HttpTransport({ apiUrl: "YOUR_CHAINSTACK_ENDPOINT" });
+const info = new InfoClient({ transport });
+
+const perpDexLimits = await info.perpDexLimits({ dex: "xyz" });
+console.log(perpDexLimits);
+```
+
+</CodeGroup>
+
+<Note>
+**Use your own endpoint in your code.** The code examples use a placeholder Chainstack endpoint (YOUR_CHAINSTACK_ENDPOINT) — replace it with your own Hyperliquid node endpoint from the [Chainstack console](https://console.chainstack.com/). The curl above uses a shared public endpoint for quick checks only; do not use it in production.
+</Note>
 
 ## Example response
 
 ```json
-null
+{
+  "totalOiCap": "7000000000.0",
+  "oiSzCapPerPerp": "20000000000.0",
+  "maxTransferNtl": "3000000000.0",
+  "coinToOiCap": [
+    ["xyz:AAPL", "100000000.0"],
+    ["xyz:ALUMINIUM", "25000000.0"],
+    ["xyz:AMD", "100000000.0"]
+  ]
+}
 ```
 
 ## Use case
 
 The `info` endpoint with `type: "perpDexLimits"` is useful for:
 
-* Checking deployment constraints before deploying a new perp DEX
-* Understanding the maximum number of assets allowed per DEX
-* Building deployment tools that validate against current limits
+* Checking the open interest caps of a builder-deployed perp DEX before opening positions
+* Monitoring per-asset open interest caps on a perp DEX
+* Building risk and deployment tools that validate against current market limits

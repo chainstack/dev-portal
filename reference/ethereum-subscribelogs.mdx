@@ -3,8 +3,9 @@ title: 'subscribe ("logs") | Ethereum'
 description: "Reference for the subscribe (\"logs\") JSON-RPC method on the Ethereum blockchain via Chainstack nodes. Parameters, response, and examples included."
 ---
 
-web3.js subscription equivalent to [eth\_newFilter](/reference/ethereum-newfilter). `subscribe("logs")` allows developers to subscribe to real-time updates about new event logs on the Ethereum blockchain; the application will receive notifications whenever new logs matching the filter are emitted.
+Subscription equivalent to [eth\_newFilter](/reference/ethereum-newfilter). `subscribe("logs")` allows developers to subscribe to real-time updates about new event logs on the Ethereum blockchain; the application will receive notifications whenever new logs matching the filter are emitted.
 
+<Visibility for="humans">
 <Check>
 ### Get your own node endpoint today
 
@@ -12,6 +13,7 @@ web3.js subscription equivalent to [eth\_newFilter](/reference/ethereum-newfilte
 
   You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 ## Parameters
 
@@ -41,21 +43,21 @@ web3.js subscription equivalent to [eth\_newFilter](/reference/ethereum-newfilte
 ## `subscribe("logs")` code example
 
 <Info>
-  Note that web3.js subscriptions require a WebSocket connection.
+  Note that log subscriptions require a WebSocket connection.
 </Info>
 
-Use the event emitter instances to attach event listeners to the subscription object:
+Use the provider's event listeners to react to subscription events:
 
-* `data` — activates for each new syncing event:
-* `error` — activates if an error is detected during the subscription.
-* `unsubscribe` — unsubscribes the subscription and returns `true` if successful.
+* `provider.on(filter, listener)` — registers a listener that fires for each new log matching the filter.
+* the `listener` receives the log object emitted by the contract.
+* `provider.off(filter)` — removes the listeners and stops the subscription.
 
 <CodeGroup>
   ```javascript index.js
-  const { Web3 } = require("web3");
+  const ethers = require("ethers");
 
   const NODE_URL = "CHAINSTACK_WSS_ENDPOINT";
-  const web3 = new Web3(NODE_URL);
+  const provider = new ethers.WebSocketProvider(NODE_URL);
 
   // Filter for WETH transfer events
   const logsFilter = {
@@ -66,27 +68,23 @@ Use the event emitter instances to attach event listeners to the subscription ob
   async function subscribeToLogs() {
     try {
       // Create a new subscription to logs with the specified filter
-      const subscription = await web3.eth.subscribe('logs', logsFilter);
+      provider.on(logsFilter, handleLogs);
 
-      console.log(`Subscription created with ID: ${subscription.id}`);
-
-      // Attach event listeners to the subscription object for 'data' and 'error'
-      subscription.on("data", handleLogs);
-      subscription.on("error", handleError);
+      console.log("Subscription created for the specified logs filter");
     } catch (error) {
       console.error(`Error subscribing to new logs: ${error}`);
     }
   }
 
-  // Event listener that logs the received log data
+  // Listener that logs the received log data
   function handleLogs(log) {
     console.log("New log received:", log);
   }
 
-  // Event listener that logs any errors that occur
-  function handleError(error) {
+  // Surface any provider-level errors
+  provider.on("error", (error) => {
     console.error("Error when subscribing to new logs:", error);
-  }
+  });
 
   subscribeToLogs();
   ```
@@ -96,7 +94,7 @@ Use the event emitter instances to attach event listeners to the subscription ob
 
 A practical use case for `subscribe("logs")` is a DApp that continuously listens for new specific event logs and isolates certain fields for analytics purposes. This is useful, for example, to only track events about a specific ERC-721 token.
 
-The following is an implementation of this concept using `Web3.js` subscriptions, this program will only track the `Transfer` event from the [MutantApeYachtClub collection](https://etherscan.io/token/0x60e4d786628fea6478f785a6d7e704777c86a7c6) smart contract.
+The following is an implementation of this concept using `ethers.js` subscriptions, this program will only track the `Transfer` event from the [MutantApeYachtClub collection](https://etherscan.io/token/0x60e4d786628fea6478f785a6d7e704777c86a7c6) smart contract.
 
 The `Transfer` event looks like this in the smart contract:
 
@@ -114,9 +112,9 @@ The following code will log all of the new `Transfer` events, and extract the bl
 
 <CodeGroup>
   ```javascript index.js
-  const {Web3} = require("web3");
+  const ethers = require("ethers");
   const NODE_URL = "CHAINSTACK_WSS_ENDPOINT";
-  const web3 = new Web3(NODE_URL);
+  const provider = new ethers.WebSocketProvider(NODE_URL);
 
   // Filter for Transfer events from the MAYC smart contract
   const logsFilter = {
@@ -124,18 +122,12 @@ The following code will log all of the new `Transfer` events, and extract the bl
       topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'] // Transfer event signature
   };
 
-  let subscription; // Declare subscription at a higher scope to allow access in unsubscribe function
-
   async function subscribeToLogs() {
       try {
           // Create a new subscription to logs with the specified filter
-          subscription = await web3.eth.subscribe('logs', logsFilter);
+          provider.on(logsFilter, handleLogs);
 
-          console.log(`Subscription created with ID: ${subscription.id}`);
-
-          // Attach event listeners to the subscription object
-          subscription.on('data', handleLogs);
-          subscription.on('error', handleError);
+          console.log("Subscription created for the specified logs filter");
       } catch (error) {
           console.error(`Error subscribing to logs: ${error}`);
       }
@@ -143,25 +135,25 @@ The following code will log all of the new `Transfer` events, and extract the bl
 
   /* Fallback functions to react to the different events */
 
-  // Event listener that logs the filtered events
+  // Listener that logs the filtered events
   function handleLogs(log) {
       const block = log.blockNumber;
       console.log(`A Mutant Ape was transferred in this block: ${block}`);
   }
 
-  // Event listener that logs any errors that occur
-  function handleError(error) {
+  // Surface any provider-level errors
+  provider.on("error", (error) => {
       console.error(`Error receiving logs: ${error}`);
-  }
+  });
 
   subscribeToLogs();
   ```
 </CodeGroup>
 
-This code creates a new subscription to the `logs` event using the `web3.eth.subscribe` method. This method returns a subscription object that can attach event listeners to the subscription.
+This code creates a new subscription to the `logs` event by passing the filter to the `provider.on` method. This method registers a listener that fires every time a new log matching the filter is emitted.
 
-The code defines two event listener functions that are attached to the subscription object: `handleLogs` and `handleError`. The `handleLogs` function is called when a new log matching the filter is emitted, then extracts the block number field and logs it to the console.
+The code defines a listener function that is attached to the provider: `handleLogs`. The `handleLogs` function is called when a new log matching the filter is emitted, then extracts the block number field and logs it to the console.
 
-The `handleError` function is called when an error occurs, and it logs an error message.
+A separate `error` listener is attached to the provider, and it logs an error message when an error occurs.
 
-Finally, the code calls the `subscribeToLogs` function, which creates the subscription and attaches the event listeners. When a new event log is received, the `handleLogs` function is called to extract and log the data to the console.
+Finally, the code calls the `subscribeToLogs` function, which creates the subscription and attaches the listener. When a new event log is received, the `handleLogs` function is called to extract and log the data to the console.

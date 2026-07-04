@@ -1,13 +1,25 @@
 ---
 title: "TRON API reference: HTTP and JSON-RPC quickstart"
-description: "Use the TRON API on Chainstack to query the DPoS blockchain, send transactions, work with TRC-20 tokens, and build DApps with low-fee throughput."
+description: "Use the TRON API on Chainstack to query the DPoS blockchain, send transactions, work with TRC-20 tokens, and build DApps with low-fee throughput. 168 methods across HTTP wallet, walletsolidity, Ethereum-compatible JSON-RPC, and gRPC, at 1 RU per request."
 ---
-## What is the TRON protocol?
 
-TRON is a decentralized blockchain platform designed to build a free, global digital content entertainment system with distributed storage technology. TRON enables cost-effective sharing of digital content and supports smart contracts, various kinds of blockchain systems, and decentralized applications (DApps). The platform uses a Delegated Proof of Stake (DPoS) consensus mechanism for high throughput and scalability.
+The TRON API gives developers programmatic access to the TRON blockchain across four surfaces on one node endpoint: the HTTP `/wallet` and `/walletsolidity` APIs, an Ethereum-compatible JSON-RPC interface, and gRPC. Chainstack serves all four through a single TRON endpoint at a flat 1 RU per request.
 
-Find useful TRON tools in the [TRON tooling](/docs/tron-tooling) section.
+## TRON API at a glance
 
+| Property | Value |
+| --- | --- |
+| Chain | TRON — Layer 1, Delegated Proof of Stake (DPoS) consensus |
+| Resource model | Energy and bandwidth, obtained by staking TRX (no per-call gas in TRX for resourced accounts) |
+| API surfaces | HTTP `/wallet`, HTTP `/walletsolidity`, Ethereum-compatible JSON-RPC, and gRPC |
+| JSON-RPC chain ID | `0x2b6653dc` (728126428) mainnet, `0xcd8690dc` (3448148188) Nile testnet |
+| Methods served by Chainstack | 168 — 101 `/wallet`, 34 `/walletsolidity`, 33 JSON-RPC |
+| Token standards | TRC-20, TRC-10, and shielded TRC-20 |
+| Networks | Mainnet and Nile testnet |
+| Real-time data | Polling — TRON nodes do not serve WebSocket event subscriptions |
+| Request units | 1 RU per request, no archive split |
+
+<Visibility for="humans">
 <Check>
   ### Get your own node endpoint today
 
@@ -15,28 +27,79 @@ Find useful TRON tools in the [TRON tooling](/docs/tron-tooling) section.
 
   You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
+
+## What is the TRON protocol
+
+TRON is a decentralized Layer 1 blockchain platform designed to build a free, global digital content entertainment system with distributed storage technology. TRON enables cost-effective sharing of digital content and supports smart contracts, various kinds of blockchain systems, and decentralized applications (DApps).
+
+TRON uses a Delegated Proof of Stake (DPoS) consensus mechanism for high throughput and scalability. Token holders stake TRX to vote for super representatives, who produce blocks on the network. Instead of charging gas in TRX on every call, TRON meters execution through two stakeable resources:
+
+- Bandwidth — consumed by transaction byte size, and used for transfers and most non-contract operations.
+- Energy — consumed by smart contract execution. You obtain energy by staking TRX, which makes contract calls effectively free once an account is resourced.
+
+This resource model is what lets TRON sustain low-cost, high-frequency transactions. For a hands-on walkthrough, see [managing energy and bandwidth with Python](/docs/tron-mastering-energy-bandwidth-with-python-and-chainstack).
 
 ## What is the TRON API
 
-The TRON API allows developers to interact with the TRON blockchain network to build applications. It provides comprehensive functionality for managing accounts, transactions, smart contracts, and blockchain data.
+The TRON API lets developers interact with the TRON blockchain to build applications. It provides functionality for managing accounts, transactions, smart contracts, and blockchain data.
 
-The TRON API supports HTTP API endpoints, JSON-RPC methods compatible with Ethereum, and gRPC for high-performance access—making it easy for developers to work with TRON using their preferred protocol.
+To read data and submit transactions, an application connects to a TRON node endpoint, then calls the surface it needs:
 
-## Key features
+- The HTTP `/wallet` API exposes the full node — accounts, blocks, contracts, resource staking, and transaction creation and broadcasting.
+- The HTTP `/walletsolidity` API serves solidified (confirmed) data, read-only.
+- The JSON-RPC interface offers Ethereum-compatible read methods, so Ethereum-native tooling can query a TRON node.
+- The gRPC interface uses HTTP/2 and Protocol Buffers for high-performance, high-throughput access and indexing.
 
-- **Account Management** — create and manage TRON accounts with full control over permissions and resources
-- **Transaction Processing** — broadcast and track transactions on the TRON network
-- **Smart Contract Interaction** — deploy and interact with smart contracts including TRC20 tokens
-- **Resource Management** — manage bandwidth and energy resources through staking mechanisms
-- **Shielded Transactions** — support for privacy-preserving shielded TRC20 transactions
-- **Governance Participation** — participate in network governance through witness voting and proposals
-- **gRPC Support** — high-performance binary protocol for efficient data access and indexing
+## API surfaces
+
+Chainstack exposes all four surfaces over a single node endpoint. Append the path you need to your endpoint URL, except for gRPC, which connects to a dedicated host on port `443`.
+
+| API surface | Endpoint path | Use it for | Served by |
+| --- | --- | --- | --- |
+| HTTP wallet | `/wallet` | Full node — accounts, blocks, contracts, transactions | Chainstack |
+| HTTP walletsolidity | `/walletsolidity` | Confirmed (solidified) read-only data | Chainstack |
+| Ethereum JSON-RPC | `/jsonrpc` | Ethereum-compatible read operations | Chainstack |
+| gRPC | host on port `443` | High-performance binary access and indexing | Chainstack |
+
+<Note>
+TRON's JSON-RPC is read-only by design. The methods required for transaction submission, such as `eth_sendRawTransaction` and `eth_getTransactionCount`, are not available — use the native `/wallet` API or [TronWeb.js](/docs/tron-tooling#tronwebjs) for writes. See [TRON tooling](/docs/tron-tooling#tooling-compatibility) for the full compatibility notes.
+</Note>
+
+### What you can build
+
+With a Chainstack TRON endpoint you can:
+
+- Create and manage accounts, set multi-signature permissions, and validate addresses through the `/wallet` API.
+- Build, sign, and broadcast transactions, and track them with `gettransactioninfobyid`, `gettransactionbyid`, and the JSON-RPC `eth_getTransactionReceipt`.
+- Transfer and interact with TRC-20 and TRC-10 tokens, and run privacy-preserving shielded TRC-20 operations.
+- Deploy and call smart contracts with `deploycontract`, `triggersmartcontract`, and `triggerconstantcontract`.
+- Manage energy and bandwidth — freeze and stake TRX, delegate resources, and query account resources with `freezebalancev2`, `delegateresource`, and `getaccountresource`.
+- Participate in governance — vote for witnesses, and create, approve, and query proposals.
+- Read chain state through Ethereum-compatible JSON-RPC, compatible with web3.py, Foundry, and Hardhat for read operations.
+- Poll for token transfers and new blocks — see [polling for TRC-20 transfers in Node.js](/docs/tron-polling-for-trc20-transfers).
+
+## Methods
+
+Chainstack serves 168 TRON methods across the four surfaces:
+
+| API surface | Endpoint | Methods | Availability |
+| --- | --- | --- | --- |
+| HTTP wallet | `/wallet` | 101 | All served by Chainstack |
+| HTTP walletsolidity | `/walletsolidity` | 34 | All served by Chainstack |
+| Ethereum JSON-RPC | `/jsonrpc` | 33 | All served by Chainstack |
+
+The 33 JSON-RPC methods cover 27 `eth_*` read methods, plus `net_*`, `web3_*`, and `buildTransaction`. gRPC exposes the `protocol.Wallet`, `protocol.Database`, and `protocol.WalletSolidity` services on the same endpoint.
+
+For the complete, per-method list, see [TRON methods](/docs/tron-methods).
+
+<Note>
+TRON pricing is simple: 1 RU per request, with no archive split. TRON nodes run in archive mode — which for TRON means the complete block and transaction history from genesis, not historical state — and every request is billed as full. See [Request units](/docs/request-units#full-vs-archive-by-protocol).
+</Note>
 
 ## How to start using the TRON API
 
-You need access to a TRON RPC node to use the TRON API.
-
-Follow these steps to sign up on Chainstack, deploy a TRON RPC node, and find your endpoint credentials:
+To use the TRON API, you need access to a TRON node endpoint. Follow these steps to sign up, deploy a node, and find your credentials:
 
 <Steps>
 <Step>
@@ -49,23 +112,71 @@ Follow these steps to sign up on Chainstack, deploy a TRON RPC node, and find yo
 [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
 </Step>
 </Steps>
-Now, you can connect to the TRON blockchain and use the TRON API to build.
 
-## API categories
+Now you are ready to connect to the TRON blockchain and build.
 
-The TRON API is organized into several categories:
+## SDKs and tooling
 
-- **Wallet operations** — core wallet functions for address validation, transaction creation, and broadcasting
-- **Account management** — account creation, updates, and permission management
-- **Resource management** — bandwidth and energy staking, delegation, and withdrawal
-- **Block operations** — retrieve block information and monitor the blockchain
-- **Transaction operations** — query and track transactions
-- **Smart contracts** — deploy and interact with smart contracts
-- **Shielded contracts** — privacy-preserving shielded TRC20 operations
-- **Witness and governance** — network governance and witness management
-- **Assets and exchanges** — TRC10 token operations and decentralized exchange functions
-- **JSON-RPC** — Ethereum-compatible JSON-RPC endpoints for read operations (note: transaction submission methods like `eth_sendRawTransaction` are not supported; use the native wallet API instead)
-- **gRPC** — high-performance binary protocol using HTTP/2 and Protocol Buffers; see [TRON tooling](/docs/tron-tooling#grpc-api) for setup and usage
+You can call the API directly over HTTP and gRPC, or use a maintained library:
+
+- TronWeb.js — the official [TronWeb](https://tronweb.network/) JavaScript library. It supports all TRON operations, including contract deployment and transactions, through the `/wallet` API.
+- web3.py and Ethereum tooling — [web3.py](https://github.com/ethereum/web3.py), Foundry, and Hardhat can run read operations against the `/jsonrpc` endpoint, but cannot deploy or send transactions directly. Compile and test with Foundry or Hardhat, then deploy with TronWeb.js in a hybrid workflow.
+- gRPC clients — generate typed clients from the [TRON protocol buffer definitions](https://github.com/tronprotocol/protocol) for Python, Node.js, or Go.
+
+Point any tool at your Chainstack endpoint. See [TRON tooling](/docs/tron-tooling) for setup, the [gRPC API section](/docs/tron-tooling#grpc-api) for generating clients, and the [hybrid workflow](/docs/tron-tooling#hybrid-workflow) for deploying compiled contracts.
+
+## Networks
+
+Chainstack supports TRON mainnet and Nile testnet as Global Nodes. TRON nodes run in archive mode, which for TRON means the complete block and transaction history from genesis rather than historical state — there is no separate full versus archive split.
+
+| Feature | Mainnet | Nile testnet |
+| --- | --- | --- |
+| JSON-RPC chain ID | `0x2b6653dc` (728126428) | `0xcd8690dc` (3448148188) |
+| Block and transaction history | From genesis | From genesis |
+| gRPC endpoint | `tron-mainnet.core.chainstack.com:443` | `tron-nile.core.chainstack.com:443` |
+| Faucet | N/A | [Nile faucet](https://nileex.io/join/getJoinPage) |
+
+<Note>
+TRON archive means full block and transaction history, not historical state. java-tron has no state-at-block queries — `eth_getBalance`, `eth_call`, `eth_getCode`, and `eth_getStorageAt` accept only the `latest` block. This is a protocol limitation ([java-tron#6289](https://github.com/tronprotocol/java-tron/issues/6289)), not a Chainstack one. See [Historical data availability](/docs/tron-tooling#historical-data-availability).
+</Note>
+
+## Frequently asked questions
+
+### What API surfaces does TRON expose on Chainstack?
+
+Four, all on one node endpoint: the HTTP `/wallet` API (full node), the HTTP `/walletsolidity` API (confirmed read-only data), an Ethereum-compatible JSON-RPC interface at `/jsonrpc`, and gRPC on port `443`. Chainstack serves 168 methods across the three HTTP and JSON-RPC surfaces.
+
+### Is TRON's JSON-RPC fully Ethereum-compatible?
+
+No. TRON's JSON-RPC provides Ethereum-compatible methods for read operations only. The methods required to submit transactions, such as `eth_sendRawTransaction` and `eth_getTransactionCount`, are not available. For writes, use the native `/wallet` API or TronWeb.js. The JSON-RPC chain ID is `0x2b6653dc` (728126428) on mainnet.
+
+### What is the difference between energy and bandwidth?
+
+Both are stakeable resources that meter execution instead of charging gas in TRX on every call. Bandwidth is consumed by transaction byte size and covers transfers and most non-contract operations. Energy is consumed by smart contract execution. You obtain both by staking TRX with `freezebalancev2`, which makes operations effectively free once an account is resourced. See [managing energy and bandwidth](/docs/tron-mastering-energy-bandwidth-with-python-and-chainstack).
+
+### How do I work with TRC-20 tokens?
+
+Use the `/wallet` API and TronWeb.js to transfer and call TRC-20 contracts with `triggersmartcontract` and `triggerconstantcontract`. TRON also supports the TRC-10 native token standard and privacy-preserving shielded TRC-20 operations. To monitor transfers, poll the chain — see [polling for TRC-20 transfers in Node.js](/docs/tron-polling-for-trc20-transfers).
+
+### Does TRON support WebSocket subscriptions?
+
+No. TRON nodes do not serve WebSocket connections for event subscriptions, so track on-chain activity by polling block and transaction methods. To follow this capability, see the feature request for [TRON event plugin support](https://ideas.chainstack.com/p/implement-tron-event-plugin).
+
+### Why is there no archive versus full pricing for TRON?
+
+TRON pricing is a flat 1 RU per request, with no archive split. TRON nodes run in archive mode, but for TRON that means the complete block and transaction history from genesis rather than historical state — java-tron has no state-at-block queries. Billing is independent of node mode, so every request is billed as full. See [Request units](/docs/request-units#full-vs-archive-by-protocol).
+
+### When should I use gRPC instead of HTTP?
+
+Use gRPC for high-throughput applications and data indexing, where its HTTP/2 transport and binary Protocol Buffers serialization are more efficient than HTTP. Chainstack serves the `protocol.Wallet`, `protocol.Database`, and `protocol.WalletSolidity` services on the same `:443` endpoint. See the [gRPC API section](/docs/tron-tooling#grpc-api).
+
+## Related TRON resources
+
+- [TRON methods](/docs/tron-methods) — complete per-surface method reference
+- [TRON tooling](/docs/tron-tooling) — TronWeb.js, gRPC, web3.py, Foundry, and Hardhat setup
+- [Managing energy and bandwidth with Python](/docs/tron-mastering-energy-bandwidth-with-python-and-chainstack) — TRON's resource and fee model
+- [Polling for TRC-20 transfers in Node.js](/docs/tron-polling-for-trc20-transfers) — monitor token transfers without WebSocket
+- [Request units](/docs/request-units#full-vs-archive-by-protocol) — how TRON requests are billed
 
 <Info>
   **See also**

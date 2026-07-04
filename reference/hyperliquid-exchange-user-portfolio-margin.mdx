@@ -1,0 +1,142 @@
+---
+title: User portfolio margin | Hyperliquid exchange
+openapi: /openapi/hyperliquid_node_api/hypercore_exchange/exchange_user_portfolio_margin.json post /exchange
+description: "Enable or disable portfolio margin for a Hyperliquid account. On Hyperliquid exchange."
+---
+
+<Info>
+You can only use this endpoint on the official Hyperliquid public API. It is not available through Chainstack, as the open-source node implementation does not support it yet. See [Hyperliquid methods](/docs/hyperliquid-methods) for the full availability breakdown.
+</Info>
+
+<Note>
+This endpoint requires signature authentication. See our comprehensive [Authentication via Signatures guide](/docs/hyperliquid-authentication-guide) for implementation details.
+</Note>
+
+The `userPortfolioMargin` action enables or disables portfolio margin for an account. This is a user-signed EIP-712 action.
+
+<Visibility for="humans">
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+</Visibility>
+
+## Parameters
+
+### Required parameters
+
+* `action` (object, required) — The portfolio-margin action:
+  * `type` (string) — Must be `"userPortfolioMargin"`.
+  * `signatureChainId` (string) — Chain ID in hex used for EIP-712 signing.
+  * `hyperliquidChain` (string) — `"Mainnet"` or `"Testnet"`.
+  * `user` (string) — The user address.
+  * `enabled` (boolean) — `true` to enable portfolio margin, `false` to disable it.
+  * `nonce` (number) — Timestamp in milliseconds, equal to the envelope nonce.
+* `nonce` (number, required) — Current timestamp in milliseconds.
+* `signature` (object, required) — EIP-712 signature of the action.
+
+## Returns
+
+Returns an object with the action status:
+
+* `status` — `"ok"` if the request was processed.
+* `response` — Contains operation details, with `type` `"default"`.
+
+## Example request
+
+<CodeGroup>
+
+```shell cURL
+curl -X POST https://api.hyperliquid.xyz/exchange \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": {
+      "type": "userPortfolioMargin",
+      "signatureChainId": "0x66eee",
+      "hyperliquidChain": "Mainnet",
+      "user": "0x0000000000000000000000000000000000000000",
+      "enabled": true,
+      "nonce": 1234567890123
+    },
+    "nonce": 1234567890123,
+    "signature": {...}
+  }'
+```
+
+```python Python (hyperliquid-python-sdk)
+# Note: the official hyperliquid-python-sdk does not expose a userPortfolioMargin
+# helper yet. This is a user-signed (EIP-712) action, so supply its typed-data
+# fields and primary type when signing.
+from hyperliquid.exchange import Exchange
+from hyperliquid.utils import constants
+from hyperliquid.utils.signing import sign_user_signed_action, get_timestamp_ms
+import eth_account
+
+# Public Hyperliquid mainnet endpoint
+wallet = eth_account.Account.from_key("0x...")  # your private key
+exchange = Exchange(wallet, constants.MAINNET_API_URL)
+
+timestamp = get_timestamp_ms()
+action = {
+    "type": "userPortfolioMargin",
+    "signatureChainId": "0x66eee",
+    "hyperliquidChain": "Mainnet",
+    "user": "0x0000000000000000000000000000000000000000",
+    "enabled": True,
+    "nonce": timestamp,
+}
+payload_types = [
+    {"name": "hyperliquidChain", "type": "string"},
+    {"name": "user", "type": "address"},
+    {"name": "enabled", "type": "bool"},
+    {"name": "nonce", "type": "uint64"},
+]
+signature = sign_user_signed_action(
+    wallet,
+    action,
+    payload_types,
+    "HyperliquidTransaction:UserPortfolioMargin",
+    exchange.base_url == constants.MAINNET_API_URL,
+)
+result = exchange._post_action(action, signature, timestamp)
+print(result)
+```
+
+```typescript TypeScript (@nktkas/hyperliquid)
+import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { privateKeyToAccount } from "viem/accounts";
+
+// Public Hyperliquid mainnet endpoint (default transport)
+const wallet = privateKeyToAccount("0x..."); // viem or ethers account
+const transport = new HttpTransport();
+const exchange = new ExchangeClient({ transport, wallet });
+
+const result = await exchange.userPortfolioMargin({
+  user: "0x0000000000000000000000000000000000000000",
+  enabled: true,
+});
+
+console.log(result);
+```
+
+</CodeGroup>
+
+## Response example
+
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "default"
+  }
+}
+```
+
+## Use cases
+
+* **Enable portfolio margin** — Margin across the whole portfolio rather than per-position
+* **Toggle margin mode** — Switch portfolio margin on or off
+* **Capital efficiency** — Optimize margin usage for diversified portfolios

@@ -11,6 +11,7 @@ Ethereum API method that traces the execution of a block. This method can be use
 Learn how to [deploy a node](/docs/debug-and-trace-apis#ethereum) with the debug and trace API methods enabled.
 </Note>
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -18,6 +19,7 @@ Learn how to [deploy a node](/docs/debug-and-trace-apis#ethereum) with the debug
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 
 ## Parameters
@@ -88,41 +90,6 @@ traceBlockByHash(
 );
 ```
 
-```javascript web3.js
-const { Web3, Web3PluginBase } = require('web3');
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
-
-// Define the TraceBlockPlugin class
-class TraceBlockPlugin extends Web3PluginBase {
-    pluginNamespace = 'trace';
-
-    async traceBlockByHash(blockHash, tracer) {
-        return this.requestManager.send({
-            method: 'debug_traceBlockByHash',
-            params: [blockHash, tracer],
-        });
-    }
-}
-
-// Register the plugin
-web3.registerPlugin(new TraceBlockPlugin());
-
-// Function to trace block by hash using the custom plugin
-async function traceBlockByHash(blockHash) {
-    const tracer = { tracer: '4byteTracer' }; // Or any other tracer you want to use
-    try {
-        const result = await web3.trace.traceBlockByHash(blockHash, tracer);
-        console.log(result);
-    } catch (error) {
-        console.error("Error tracing block by hash:", error);
-    }
-}
-
-// Call the function with a specific block hash
-traceBlockByHash("0x4725335feac695de65deb8662235f52692522d4f623a81468cc6479b43dc9782");
-```
-
 ```python web3.py
 from web3 import Web3  
 node_url = "CHAINSTACK_NODE_URL" 
@@ -144,62 +111,51 @@ One practical use case for `debug_traceBlockByHash` with the `4byteTracer` trace
 
 For example, if there are token contracts on the blockchain and the transfer function of these contracts is used to send tokens between users, a developer could use the `debug_traceBlockByHash` method with the `4byteTracer` tracer to trace the transactions in a given block and count how many times the transfer function was called.
 
-The following is an implementation of this logic using web3.js:
+The following is an implementation of this logic using ethers.js:
 
 ```javascript index.js
-const { Web3, Web3PluginBase } = require('web3');
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
+const ethers = require("ethers");
 
-// Define the TraceBlockPlugin class
-class TraceBlockPlugin extends Web3PluginBase {
-    pluginNamespace = 'trace';
-
-    async traceBlockByHash(blockHash, tracer) {
-        return this.requestManager.send({
-            method: 'debug_traceBlockByHash',
-            params: [blockHash, tracer],
-        });
-    }
-}
-
-// Register the plugin
-web3.registerPlugin(new TraceBlockPlugin());
+// Create a ChainstackProvider instance for Ethereum mainnet
+const chainstack = new ethers.ChainstackProvider("mainnet");
 
 async function traceTransferFunction(blockHash) {
     try {
       // Specify the type of tracer: 4byteTracer, callTracer, prestateTracer, or muxTracer
-      const tracer = { tracer: '4byteTracer' };
-      const response = await web3.trace.traceBlockByHash(blockHash, tracer);
-      
+      const tracer = { tracer: "4byteTracer" };
+      const response = await chainstack.send("debug_traceBlockByHash", [
+        blockHash,
+        tracer,
+      ]);
+
       let sum = 0;
       for (let obj of response) {
-  
+
         for (let key in obj.result) {
-  
+
           const signature = key.split('-')[0];
-  
+
           // Look for transfer function signatures
           if (signature === "0xa9059cbb") {
             const timesCalled = obj.result[key]
-            sum += timesCalled 
+            sum += timesCalled
           }
         }
       }
-      
+
       console.log(`In this block the transfer function was called ${sum} times!`)
     } catch (err) {
       console.error(`Error in traceBlockByHash: ${err.message}`);
     }
   }
-  
+
   traceTransferFunction("0x4725335feac695de65deb8662235f52692522d4f623a81468cc6479b43dc9782");
 ```
 
 
-This code is defining a custom method called `traceBlockByHash` which is not available by default using web3.js, and it uses the `debug_traceBlockByHash` function to trace a block. This method uses the `4byteTracer` to identify the functions called in the block.
+This code calls the `debug_traceBlockByHash` method directly through the provider's `send` method to trace a block, since ethers.js does not expose a dedicated helper for it. The call uses the `4byteTracer` to identify the functions called in the block.
 
-Then, the `traceTransferFunction` function is defined, which takes a block hash as an argument. This function calls the `traceBlockByHash` method with the provided block hash and uses a loop to iterate over the results.
+Then, the `traceTransferFunction` function is defined, which takes a block hash as an argument. This function sends the `debug_traceBlockByHash` request with the provided block hash and uses a loop to iterate over the results.
 
 Inside the loop, the function checks for the `transfer` function from the ERC-20 standard with signature `0xa9059cbb` and counts how many times it was called in that block by adding up the times it was called in each trace.
 

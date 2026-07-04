@@ -10,6 +10,7 @@ Gnosis Chain API method that returns the data stored at a specific storage slot 
 When called against a block older than the latest ~128 blocks, this method is treated as an archive request (2 RUs instead of 1 RU). See [request units](/docs/request-units#archive-state-methods).
 </Note>
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -17,6 +18,7 @@ When called against a block older than the latest ~128 blocks, this method is tr
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 
 ## Parameters
@@ -52,19 +54,6 @@ For example, block number `14000000` will be `0xD59F80`.
 </Note>
 
 <CodeGroup>
-```javascript web3.js
-const Web3 = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
-
-async function getstorage(address, slot, block) {
-  const storage = await web3.eth.getStorageAt(address, slot, block)
-  console.log(storage)
- }
- 
- getstorage("0xDDAfbb505ad214D7b80b1f830fcCc89B60fb7A83", 7, "latest" )
-```
-
 ```javascript ethers.js
 const ethers = require('ethers');
 const NODE_URL = "CHAINSTACK_NODE_URL";
@@ -92,16 +81,16 @@ print(web3.to_hex(storage))
 
 One use case for `eth_getStorageAt` is analyzing how the value stored at a specific storage slot of a smart contract changes over time. For example, a developer may want to track the change in a specific variable of a smart contract, such as the total supply of a token, and perform some analysis on it.
 
-Here's an example implementation of this use case using web3.js.
+Here's an example implementation of this use case using ethers.js.
 
 The following program analyzes the [Matic token](https://gnosisscan.io/token/0x7122d7661c4564b7c6cd4878b06766489a6028a2#readProxyContract) smart contract on the Gnosis Chain to track how the total supply changes over time.
 
-Here's an example implementation of this use case using web3.js:
+Here's an example implementation of this use case using ethers.js:
 
 ```javascript index.js
-const Web3 = require("web3");
+const ethers = require("ethers");
 const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
+const provider = new ethers.JsonRpcProvider(NODE_URL);
 
 // You need an archive node is going more than 127 blocks in the past.
 
@@ -115,22 +104,22 @@ async function getStorageValueOverTime() {
 
   // The range of blocks to analyze
   const startBlock = 16000000;
-  const endBlock = await web3.eth.getBlockNumber();
+  const endBlock = await provider.getBlockNumber();
 
   for (let blockNumber = startBlock; blockNumber <= endBlock; blockNumber++) {
 
     // Retrieve the name and total supply from the smart contract storage at each block
     const [name, supply] = await Promise.all([
-      web3.eth.getStorageAt(address, nameSlot, blockNumber),
-      web3.eth.getStorageAt(address, totalSupplySlot, blockNumber)
+      provider.getStorage(address, nameSlot, blockNumber),
+      provider.getStorage(address, totalSupplySlot, blockNumber)
     ]);
 
     // Decode the name and total supply from hexadecimal format to their original values
-    const decodedName = web3.utils.hexToUtf8(name);
-    const decodedSupply = web3.utils.toBN(supply);
+    const decodedName = ethers.toUtf8String(name.replace(/(00)+$/, ""));
+    const decodedSupply = BigInt(supply);
 
-    // Convert the total supply from Wei to Ether and round to 4 decimal places
-    const convertedSupply = web3.utils.fromWei(decodedSupply, 'ether');
+    // Convert the total supply from wei to ether and round to 4 decimal places
+    const convertedSupply = ethers.formatEther(decodedSupply);
     const adjustedSupply = Number(convertedSupply).toFixed(4);
 
     // Output the block number, name, and total supply for each block
@@ -156,12 +145,12 @@ The `getStorageValueOverTime` function retrieves and outputs the name and total 
 
 The function begins by declaring constants for the Matic contract address, the storage slot indices for the name and total supply data, the starting block height, and the current block height.
 
-Next, the function enters a `for` loop that iterates over every block between the start block and the current block height. Within the loop, the function retrieves the name and total supply from the smart contract storage at the current block height using the `web3.eth.getStorageAt` method.
+Next, the function enters a `for` loop that iterates over every block between the start block and the current block height. Within the loop, the function retrieves the name and total supply from the smart contract storage at the current block height using the `provider.getStorage` method.
 
-The `Promise.all` method is used to retrieve the name and total supply in parallel for improved efficiency. The `web3.utils.hexToUtf8` method is then used to convert the name from hexadecimal format to its original string value.
+The `Promise.all` method is used to retrieve the name and total supply in parallel for improved efficiency. The `ethers.toUtf8String` method is then used to convert the name from hexadecimal format to its original string value.
 
-The `web3.utils.toBN` method is used to convert the total supply from hexadecimal format to a `BigNumber object`, which can be used for mathematical operations. The `web3.utils.fromWei` method is then used to convert the total supply from Wei to ether.
+The `BigInt` function is used to convert the total supply from hexadecimal format to a native `bigint` value, which can be used for mathematical operations. The `ethers.formatEther` method is then used to convert the total supply from wei to ether.
 
-Finally, the `Number` and `toFixed` methods are used to round the total supply to four decimal places and output the block number, name, and total supply for each block; note that this is for readability, and you should use the raw Wei data to make calculations.
+Finally, the `Number` and `toFixed` methods are used to round the total supply to four decimal places and output the block number, name, and total supply for each block; note that this is for readability, and you should use the raw wei data to make calculations.
 
 Overall, the `getStorageValueOverTime` function provides a way to monitor changes in the state of a smart contract over time, which can be useful for understanding the contract's behavior and performance.

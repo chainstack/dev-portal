@@ -1,6 +1,6 @@
 ---
 title: Batch modify orders | Hyperliquid exchange
-openapi: /openapi/hyperliquid_node_api/exchange_batch_modify.json post /exchange
+openapi: /openapi/hyperliquid_node_api/hypercore_exchange/exchange_batch_modify.json post /exchange
 description: "Modifies multiple existing orders in a single atomic request on the Hyperliquid exchange. Chainstack Hyperliquid exchange reference."
 ---
 
@@ -14,6 +14,7 @@ This endpoint requires signature authentication. See our comprehensive [Authenti
 
 Modifies multiple existing orders in a single atomic request on the Hyperliquid exchange. This is more efficient than sending individual modify requests for each order.
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -21,6 +22,7 @@ Modifies multiple existing orders in a single atomic request on the Hyperliquid 
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 ## Parameters
 
@@ -98,37 +100,83 @@ curl -X POST https://api.hyperliquid.xyz/exchange \
   }'
 ```
 
-```python Python
+```python Python (hyperliquid-python-sdk)
 from hyperliquid.exchange import Exchange
 from hyperliquid.utils import constants
 import eth_account
 
-# Initialize with your private key
+# Initialize with your private key (public Hyperliquid API)
 account = eth_account.Account.from_key("0x...")
 exchange = Exchange(account, constants.MAINNET_API_URL)
 
 # Modify multiple orders at once
-modifications = [
+modifies = [
     {
         "oid": 77738308,
-        "coin": "BTC",
-        "is_buy": True,
-        "sz": 0.02,
-        "limit_px": 51000,
-        "order_type": {"limit": {"tif": "Gtc"}}
+        "order": {
+            "coin": "BTC",
+            "is_buy": True,
+            "sz": 0.02,
+            "limit_px": 51000,
+            "order_type": {"limit": {"tif": "Gtc"}},
+            "reduce_only": False,
+        },
     },
     {
         "oid": 77738309,
-        "coin": "ETH",
-        "is_buy": False,
-        "sz": 0.5,
-        "limit_px": 3200,
-        "order_type": {"limit": {"tif": "Gtc"}}
-    }
+        "order": {
+            "coin": "ETH",
+            "is_buy": False,
+            "sz": 0.5,
+            "limit_px": 3200,
+            "order_type": {"limit": {"tif": "Gtc"}},
+            "reduce_only": False,
+        },
+    },
 ]
 
-batch_result = exchange.batch_modify_orders(modifications)
+batch_result = exchange.bulk_modify_orders_new(modifies)
 print(batch_result)
+```
+
+```typescript TypeScript (@nktkas/hyperliquid)
+import { ExchangeClient, HttpTransport } from "@nktkas/hyperliquid";
+import { privateKeyToAccount } from "viem/accounts";
+
+// Initialize with your private key (public Hyperliquid API)
+const wallet = privateKeyToAccount("0x...");
+const transport = new HttpTransport();
+const exchange = new ExchangeClient({ transport, wallet });
+
+// Modify multiple orders at once
+const result = await exchange.batchModify({
+  modifies: [
+    {
+      oid: 77738308,
+      order: {
+        a: 0,
+        b: true,
+        p: "51000",
+        s: "0.02",
+        r: false,
+        t: { limit: { tif: "Gtc" } },
+      },
+    },
+    {
+      oid: 77738309,
+      order: {
+        a: 1,
+        b: false,
+        p: "3200",
+        s: "0.5",
+        r: false,
+        t: { limit: { tif: "Gtc" } },
+      },
+    },
+  ],
+});
+
+console.log(result);
 ```
 
 </CodeGroup>

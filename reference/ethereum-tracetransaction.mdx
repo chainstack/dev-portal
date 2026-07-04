@@ -11,6 +11,7 @@ Ethereum API method that returns a transaction's traces by replaying it. This me
 Learn how to [deploy a node](/docs/debug-and-trace-apis#ethereum) with the debug and trace API methods enabled.
 </Note>
 
+<Visibility for="humans">
 <Check>
 **Get your own node endpoint today**
 
@@ -18,6 +19,7 @@ Learn how to [deploy a node](/docs/debug-and-trace-apis#ethereum) with the debug
 
 You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
 
 
 ## Parameters
@@ -129,37 +131,6 @@ traceTransaction(
 );
 ```
 
-```javascript web3.js
-const { Web3, Web3PluginBase } = require("web3");
-const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
-
-// Define the TraceBlockPlugin class
-class TraceBlockPlugin extends Web3PluginBase {
-    pluginNamespace = 'trace';
-
-    async traceTransaction(txHash, tracer) {
-        return this.requestManager.send({
-            method: 'debug_traceTransaction',
-            params: [txHash, tracer],
-        });
-    }
-}
-
-// Register the plugin
-web3.registerPlugin(new TraceBlockPlugin());
-
-async function traceTransaction(txHash) {
-
-    // Specify the type of tracer: 4byteTracer, callTracer, prestateTracer, or muxTracer. Leave empty {} for Struct/opcode logger.
-    const tracer = { tracer: 'callTracer' };
-    const result = await web3.trace.traceTransaction(txHash, tracer);
-    console.log(result);
-}
-
-traceTransaction("0x61ec8f42d408a4351a7aa1e341a7421bd42594d7752fb79962667614d6d12730");
-```
-
 ```python web3.py
 from web3 import Web3  
 node_url = "CHAINSTACK_NODE_URL" 
@@ -179,38 +150,23 @@ print(tx_traces)
 
 A potential use case for the `debug_traceTransaction` method is to inspect failed transactions on the Ethereum blockchain by using the built-in `callTracer` tracer to extract the error and reason. By creating a script that analyzes the latest block's transactions and selectively extracts data only from the failed ones, you can effectively utilize this feature.
 
-Below is an example implementation of this logic using the web3.js library:
+Below is an example implementation of this logic using the ethers.js library:
 
 ```javascript index.js
-const { Web3, Web3PluginBase } = require("web3");
+const ethers = require("ethers");
 const NODE_URL = "CHAINSTACK_NODE_URL";
-const web3 = new Web3(NODE_URL);
-
-// Define the TraceBlockPlugin class
-class TraceBlockPlugin extends Web3PluginBase {
-    pluginNamespace = 'trace';
-
-    async traceTransaction(txHash, tracer) {
-        return this.requestManager.send({
-            method: 'debug_traceTransaction',
-            params: [txHash, tracer],
-        });
-    }
-}
-
-// Register the plugin
-web3.registerPlugin(new TraceBlockPlugin());
+const provider = new ethers.JsonRpcProvider(NODE_URL);
 
 // Trace a failed transaction using the callTracer
 async function traceTransaction(txHash) {
   const tracer = { tracer: 'callTracer' };
-  const result = await web3.trace.traceTransaction(txHash, tracer);
+  const result = await provider.send("debug_traceTransaction", [txHash, tracer]);
   return result;
 }
 
 // Get all transactions from the specified block number
 async function getTransactionsFromBlock(blockNumber) {
-  const block = await web3.eth.getBlock(blockNumber, false);
+  const block = await provider.getBlock(blockNumber);
   const txArray = block.transactions;
   return txArray;
 }
@@ -222,12 +178,12 @@ async function main() {
 
       for (let i = 0; i < transactions.length; i++) {
           const txHash = transactions[i];
-          const tx = await web3.eth.getTransactionReceipt(txHash);
+          const tx = await provider.getTransactionReceipt(txHash);
           //console.log(tx)
           const txStatus = tx.status;
 
           // If transaction failed, extract data using traceTransaction method
-          if (txStatus === 0n) { // 0 means failed
+          if (txStatus === 0) { // 0 means failed
               console.log(`Transaction ${txHash} failed!`);
               const traces = await traceTransaction(txHash);
               const error = traces.error;
@@ -246,9 +202,9 @@ main();
 ```
 
 
-The code is a JavaScript implementation that utilizes the web3.js library to extract error and revert reason data from failed transactions on the Ethereum blockchain. The code defines a custom method (as it is not available in web3.js by default) called `debug_traceTransaction` using Web3 extension, which allows for tracing of transactions with built-in tracers such as `callTracer`.
+The code is a JavaScript implementation that utilizes the ethers.js library to extract error and revert reason data from failed transactions on the Ethereum blockchain. The code calls the `debug_traceTransaction` method directly through `provider.send` (as it is not exposed as a dedicated helper in ethers.js by default), which allows for tracing of transactions with built-in tracers such as `callTracer`.
 
-The `traceTransaction` function in the code is responsible for using the `debug_traceTransaction` method to extract error and revert reason data from a failed transaction. The function takes in a transaction hash as a parameter and specifies the `callTracer` tracer type, and calls the `traceTransaction` method. The resulting data is then returned to the caller.
+The `traceTransaction` function in the code is responsible for using the `debug_traceTransaction` method to extract error and revert reason data from a failed transaction. The function takes in a transaction hash as a parameter and specifies the `callTracer` tracer type, and calls the `debug_traceTransaction` method. The resulting data is then returned to the caller.
 
 The `getTransactionsFromBlock` function retrieves all the transactions from a specified block number and returns an array of transaction hashes. The `main` function in the code is the main entry point, which first calls the `getTransactionsFromBlock` function to retrieve all transactions from the latest block on the Ethereum blockchain. It then iterates through the array of transactions and calls `traceTransaction` for each failed transaction, extracting the error and reverting reason data.
 

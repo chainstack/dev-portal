@@ -1,16 +1,26 @@
 ---
 title: "Solana API reference: JSON-RPC and WebSocket quickstart"
-description: "Use the Solana JSON-RPC and WebSocket APIs on Chainstack to query accounts, send transactions, and build apps on the high-throughput PoH chain."
+description: "Use the Solana JSON-RPC and WebSocket APIs on Chainstack to query accounts, send transactions, and build apps on the high-throughput PoH chain. 67 methods, mainnet and devnet, archive, WebSocket subscriptions, and Yellowstone gRPC Geyser."
 ---
 
-## What is the Solana protocol
+The Solana API gives developers programmatic access to the Solana blockchain over JSON-RPC and WebSocket. Chainstack serves it across mainnet and devnet, with archive data, real-time subscriptions, and the Yellowstone gRPC Geyser plugin for low-latency streaming. Solana is not EVM — it has no chain ID. Instead, you point your application at a cluster (mainnet or devnet) through a node endpoint.
 
-Solana is a permissionless network protocol with the parallel smart contract processing functionality. For consensus, Solana uses a combination of proof-of-stake to secure the network and the proof-of-history mechanism to synchronize the network state.
+## Solana API at a glance
 
-Validators on the network stake SOL to get the right to confirm blocks in assigned time slots.
+| Property | Value |
+| --- | --- |
+| Chain | Solana — Layer 1, proof-of-history plus proof-of-stake |
+| Network model | Clusters, not chain IDs — mainnet and devnet |
+| Slot interval | ~400 ms scheduled slots; blocks are produced only when a slot succeeds |
+| API protocols | JSON-RPC over HTTPS and WebSocket subscriptions over WSS |
+| Methods served by Chainstack | 67 — 51 HTTP JSON-RPC methods and 16 WebSocket subscription methods |
+| Real-time streaming | WebSocket `*Subscribe` methods, plus the Yellowstone gRPC Geyser add-on |
+| Geyser gRPC | Yellowstone gRPC Geyser, mainnet only, paid add-on from the Growth plan |
+| Networks | Mainnet and devnet, full and archive nodes |
+| Transaction sending | `sendTransaction` forwarded over QUIC to the current and next leaders |
+| Request units | 1 RU per full request, 2 RUs per archive request |
 
-To get an assigned time slot, validator nodes use the sequence of hashed events that each of them maintains, which is called proof of history.
-
+<Visibility for="humans">
 <Check>
   ### Get your own node endpoint today
 
@@ -18,28 +28,51 @@ To get an assigned time slot, validator nodes use the sequence of hashed events 
 
   You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
+</Visibility>
+
+## What is the Solana protocol
+
+Solana is a permissionless network protocol with parallel smart contract processing. For consensus, Solana uses a combination of proof-of-stake to secure the network and the proof-of-history mechanism to synchronize the network state.
+
+Validators on the network stake SOL to get the right to confirm blocks in assigned time slots. To get an assigned time slot, validator nodes use the sequence of hashed events that each of them maintains, which is called proof of history.
+
+Solana measures time in slots — scheduled intervals of roughly 400 ms each, designated for validators to attempt block production. Not every slot produces a block, so slot numbers and block heights diverge over time. See [Solana: Understanding block time](/docs/solana-understanding-block-time) for how this affects confirmation latency.
 
 ## What is the Solana API
 
-The Solana API allows developers to communicate with the Solana blockchain to build applications.
+The Solana API allows developers to communicate with the Solana blockchain to build applications. To read data from and send transactions to the Solana blockchain, an application must connect to a Solana RPC node.
 
-To read data from and send transactions to the Solana blockchain, an application must connect to a Solana RPC node.
-
-When communicating with a Solana RPC node, the Solana client implements a JSON-RPC specification, a communication protocol allowing one to make remote calls and execute them as if they were made locally.
+When communicating with a Solana RPC node, the Solana client implements a JSON-RPC specification — a communication protocol that lets one make remote calls and execute them as if they were made locally. For real-time data, the same node exposes WebSocket subscriptions, and Chainstack offers the Yellowstone gRPC Geyser plugin for the lowest-latency streaming.
 
 <Info>
 Chainstack Solana nodes include Jito ShredStream by default, providing faster slot reception and improved reliability. This is especially beneficial when using the [Yellowstone gRPC Geyser plugin](/docs/yellowstone-grpc-geyser-plugin).
 </Info>
 
-## Method limits
+## Solana API surface
 
-See [Limits](/docs/limits).
+Chainstack serves 67 Solana methods across two protocols on the same node — JSON-RPC over HTTPS for queries and transactions, and WebSocket subscriptions over WSS for real-time updates.
+
+| API surface | Protocol | Methods | What it covers |
+| --- | --- | --- | --- |
+| Solana JSON-RPC | HTTPS | 51 | Account and token reads, block and slot queries, transaction lookups, network and validator info, sending and simulating transactions |
+| WebSocket subscriptions | WSS | 16 | 8 subscribe and 8 unsubscribe methods — `accountSubscribe`, `blockSubscribe`, `logsSubscribe`, `programSubscribe`, `signatureSubscribe`, `slotSubscribe`, `rootSubscribe`, `slotsUpdatesSubscribe` |
+
+For the complete, per-method availability matrix, including per-method rate limits and archive support, see [Solana methods](/docs/solana-methods).
+
+### What you can build
+
+With a Chainstack Solana endpoint you can:
+
+- Read account and program state — fetch one account with `getAccountInfo`, batch with `getMultipleAccounts`, and scan a program's accounts with `getProgramAccounts` using `dataSize` or `memcmp` filters.
+- Query SPL token data — balances, supply, and largest holders through `getTokenAccountBalance`, `getTokenAccountsByOwner`, `getTokenSupply`, and `getTokenLargestAccounts`.
+- Read blocks, slots, and history — `getBlock`, `getSlot`, `getBlockTime`, and `getLatestBlockhash`, with archive nodes and `getSignaturesForAddress` for transaction history.
+- Send and simulate transactions — submit with `sendTransaction` (forwarded over QUIC to the current and next leaders), preflight with `simulateTransaction`, and estimate cost with `getFeeForMessage`.
+- Set priority fees — sample recent network fees with `getRecentPrioritizationFees` to land transactions under contention.
+- Stream in real time — subscribe to accounts, programs, logs, slots, and signatures over WebSocket, or use the Yellowstone gRPC Geyser plugin for protobuf streaming straight from validator memory.
 
 ## How to start using the Solana API
 
-To use the Solana API, you need access to a Solana RPC node.
-
-Follow these steps to sign up on Chainstack, deploy a Solana RPC node, and find your endpoint credentials:
+To use the Solana API, you need access to a Solana RPC node. Follow these steps to sign up on Chainstack, deploy a Solana RPC node, and find your endpoint credentials:
 
 <Steps>
 <Step>
@@ -52,9 +85,84 @@ Follow these steps to sign up on Chainstack, deploy a Solana RPC node, and find 
 [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
 </Step>
 </Steps>
+
 Now you are ready to connect to the Solana blockchain and use the Solana API to build.
 
-<Info>
-  **See also**
-  [Build better with Solana](https://chainstack.com/build-better-with-solana/)
-</Info>
+## SDKs and tooling
+
+You can call the API directly over HTTP and WebSocket, or use a maintained SDK:
+
+- JavaScript and TypeScript — [`@solana/kit`](https://github.com/anza-xyz/kit), the modern tree-shakeable successor to `@solana/web3.js` v1 (`npm install @solana/kit`).
+- Python — [Solana.py](https://github.com/michaelhly/solana-py), built on the [solders](https://github.com/kevinheavey/solders) core types (`pip install solana`).
+- Programs — [Anchor 1.0](https://www.anchor-lang.com), the Rust framework for Solana programs, installed through the Anchor Version Manager.
+- Local testing — [LiteSVM](/docs/solana-litesvm-testing) for fast in-process unit tests and [Surfpool](/docs/solana-surfpool) for a full RPC server with a mainnet fork.
+- CLI — the Agave [Solana CLI](https://docs.anza.xyz/cli), pointed at your endpoint with `solana config set --url`.
+
+Point any SDK at your Chainstack endpoint. See [Solana tooling](/docs/solana-tooling) for setup, the modern stack, and end-to-end examples.
+
+<Note>
+This applies to **Trader Nodes** only. Their HTTPS and WebSocket endpoints are on different hosts — `nd-….p2pify.com` for HTTPS and `ws-nd-….p2pify.com` for WSS — so `solana config set` cannot derive the WebSocket URL from the HTTPS one by swapping the protocol alone. Set it explicitly with `solana config set --ws YOUR_CHAINSTACK_WSS_ENDPOINT`. On **Global Nodes**, HTTPS and WebSocket share the same host (for example, `solana-mainnet.core.chainstack.com`), so the derived WebSocket URL is correct and no `--ws` flag is needed.
+</Note>
+
+## Networks
+
+Chainstack supports Solana mainnet and devnet, with full and archive node modes and WebSocket connections. Solana has no debug and trace namespace, and the Yellowstone gRPC Geyser plugin is available on mainnet only.
+
+| Feature | Mainnet | Devnet |
+| --- | --- | --- |
+| Full nodes | Yes | Yes |
+| Archive nodes | Yes | Yes |
+| WebSocket | Yes | Yes |
+| Yellowstone gRPC Geyser | Yes (paid add-on) | No |
+| Warp transactions (Trader Nodes) | Yes | Yes |
+
+<Note>
+A full Solana node keeps recent state — roughly the first block available on the node, about 1.5 days' worth. An archive node adds all historical state. For historical reads such as old transactions or balances at a past block, use an archive node. See [Solana archive nodes](/docs/solana-archive-nodes-the-backbone-of-solanas-data-availability-and-developer-tooling).
+</Note>
+
+## Frequently asked questions
+
+### Which Solana clusters does Chainstack support?
+
+Chainstack supports Solana mainnet and devnet. Solana is not EVM, so there is no chain ID — you select a cluster when you deploy a node and connect your application to that node's endpoint. Both clusters offer full and archive nodes with WebSocket connections.
+
+### Does Solana have a chain ID?
+
+No. Chain IDs are an EVM concept. Solana uses clusters — mainnet and devnet — and a genesis hash to distinguish networks. Point your application at the endpoint for the cluster you want; you do not set a numeric chain ID.
+
+### What is the difference between a full and an archive Solana node?
+
+A full node keeps recent state — about the first block available on the node, roughly 1.5 days' worth. An archive node retains all historical state. Use an archive node for historical queries such as `getSignaturesForAddress` over old ranges or `getBlock` for old slots. On Chainstack, archive requests bill at 2 RUs versus 1 RU for a full request.
+
+### How does getProgramAccounts work on Chainstack?
+
+`getProgramAccounts` is available on paid plans and requires a `dataSize` or `memcmp` filter, which keeps the scan bounded. For individual accounts, prefer `getAccountInfo` or batch with `getMultipleAccounts`. See [Solana: getAccountInfo vs getMultipleAccounts](/docs/solana-getaccountinfo-getmultipleaccounts).
+
+### When should I use WebSocket subscriptions versus Yellowstone gRPC?
+
+WebSocket subscriptions (`accountSubscribe`, `programSubscribe`, `logsSubscribe`, and others) are built into every node and are ideal for reacting to specific accounts, programs, or signatures without polling. Yellowstone gRPC Geyser streams live data directly from validator memory with lower latency and protobuf payloads — better for high-throughput indexing, analytics, and trading. It is a paid add-on available on mainnet from the Growth plan. See [Yellowstone gRPC Geyser plugin](/docs/yellowstone-grpc-geyser-plugin).
+
+### How do I land transactions reliably and set priority fees?
+
+`sendTransaction` on a Chainstack Solana node forwards over QUIC to the current and next leaders, with no client configuration required. To prioritize under contention, sample recent fees with `getRecentPrioritizationFees` and add a compute-budget priority fee. For the highest landing rate, [Solana Trader Nodes](/docs/solana-trader-nodes) route `sendTransaction` through bloXroute's staked Trader API. See [Solana: Priority fees for faster transactions](/docs/solana-how-to-priority-fees-faster-transactions).
+
+### Which SDK should I use?
+
+For JavaScript and TypeScript, use `@solana/kit` — the modern, tree-shakeable successor to `@solana/web3.js` v1, which is now on a maintenance branch. For Python, use Solana.py, which is built on the solders core types. For on-chain programs, use Anchor 1.0. See [Solana tooling](/docs/solana-tooling) for the full modern stack.
+
+## Related Solana resources
+
+- [Solana methods](/docs/solana-methods) — complete per-method availability and rate-limit reference
+- [Mastering Solana](/docs/solana-development) — development overview and quickstart
+- [Solana tooling](/docs/solana-tooling) — the modern SDK and testing stack
+- [Yellowstone gRPC Geyser plugin](/docs/yellowstone-grpc-geyser-plugin) — low-latency streaming from validator memory
+- [Solana Trader Nodes with Warp transactions](/docs/solana-trader-nodes) — staked transaction routing for high landing rates
+- [Solana: Priority fees for faster transactions](/docs/solana-how-to-priority-fees-faster-transactions) — land transactions under contention
+- [Solana: Estimate priority fees with RPC methods](/docs/solana-estimate-priority-fees-getrecentprioritizationfees) — size your priority fee from network data
+- [Solana: getAccountInfo vs getMultipleAccounts](/docs/solana-getaccountinfo-getmultipleaccounts) — choose the right account-read method
+- [Solana: PDAs and cross-program invocations](/docs/solana-program-derived-addresses-and-cross-program-invocations) — program-derived addresses and CPIs
+- [Solana: Anchor development](/docs/solana-anchor-development) — build and test programs with Anchor
+- [Solana: Fast unit testing with LiteSVM](/docs/solana-litesvm-testing) — in-process program tests
+- [Solana: Understanding block time](/docs/solana-understanding-block-time) — slots, blocks, and confirmation latency
+- [Solana archive nodes](/docs/solana-archive-nodes-the-backbone-of-solanas-data-availability-and-developer-tooling) — historical data and tooling
+- [Solana MCP server](/docs/solana-mcp-server) — drive a Solana node from an AI agent

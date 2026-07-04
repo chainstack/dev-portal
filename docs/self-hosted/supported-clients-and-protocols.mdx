@@ -1,18 +1,139 @@
 ---
-title: "Supported clients and protocols"
-description: View all blockchain protocols, execution clients, and network configurations available for deployment in your Chainstack Self-Hosted environment.
+title: "Supported deployments"
+description: All blockchain protocols, networks, clients, and resource requirements available for deployment in Chainstack Self-Hosted, grouped by architecture family.
 ---
 
-This page lists the node clients, blockchain protocols, and networks currently supported by Chainstack Self-Hosted.
+This page is the canonical catalog of every deployment available in Chainstack Self-Hosted — the protocols, networks, clients, client versions, resource requirements, and exposed ports. The [System requirements](/docs/self-hosted/requirements) and [Deploying nodes](/docs/self-hosted/deploying-nodes) pages link here for the per-deployment details.
 
-## Available configurations
+## Available deployments
 
-| Protocol | Network | Client | Node type |
-|----------|---------|--------|-----------|
-| Ethereum | Mainnet | Reth + Prysm | Full node |
-| Ethereum | Sepolia | Reth + Prysm | Full node |
-| Ethereum | Hoodi | Reth + Prysm | Full node |
+| Protocol | Network | Clients | vCPU | RAM | Storage |
+|----------|---------|---------|------|-----|---------|
+| Ethereum | Mainnet | Reth v2.2.0 + Prysm v7.1.3 | 8 | 32 GiB | ~2 TB |
+| Ethereum | Sepolia | Reth v2.2.0 + Prysm v7.1.3 | 8 | 32 GiB | ~1.3 TB |
+| Ethereum | Hoodi | Reth v2.2.0 + Prysm v7.1.3 | 8 | 32 GiB | 250 GB |
+| Optimism | Mainnet | OP-Reth v2.3.1 + OP-Node v1.19.0 | 12 | 48 GiB | ~2 TB |
+| Base | Mainnet | Base-Reth v1.1.0 + Base-Node v1.1.0 | 12 | 48 GiB | ~3.5 TB |
+| Unichain | Mainnet | OP-Reth v2.3.1 + OP-Node v1.19.0 | 12 | 48 GiB | ~2 TB |
+| Zora | Mainnet | OP-Reth v2.3.1 + OP-Node v1.19.0 | 12 | 48 GiB | ~2 TB |
+| Starknet | Mainnet | Pathfinder v0.22.5 | 8 | 32 GiB | ~1 TB |
+| TRON | Mainnet | Java-Tron GreatVoyage-v4.8.1.1 | 8 | 32 GiB | ~3 TB |
+| Bitcoin | Mainnet | Bitcoin Core 31 | 4 | 8 GiB | ~1 TB |
 
 <Note>
-Additional protocols and networks are planned for future releases. See the [FAQ](/docs/self-hosted/faq) for the roadmap.
+vCPU and RAM figures are the standard preset totals. Ethereum networks also ship a **Light** preset that uses half the CPU and RAM with the same storage — see [EVM Layer 1](#evm-layer-1-execution-consensus) below.
 </Note>
+
+The sections below group these deployments by architecture family. Each family shares the same client topology, networking guidance, and operational caveats.
+
+## EVM Layer 1 (execution + consensus)
+
+Runs a paired execution client and consensus client. vCPU and RAM are split evenly across the two clients.
+
+These deployments bootstrap from a pre-built chain snapshot rather than syncing from genesis. Snapshot bootstrap temporarily requires about **2× the steady-state storage** while the archive is downloaded and extracted — provision the node's volume at the peak. See [Initial sync times](/docs/self-hosted/deploying-nodes#initial-sync-times).
+
+| Network | Chain ID | Block explorer |
+|---------|----------|----------------|
+| Ethereum Mainnet | 1 | [etherscan.io](https://etherscan.io) |
+| Ethereum Sepolia | 11155111 | [sepolia.etherscan.io](https://sepolia.etherscan.io) |
+| Ethereum Hoodi | 560048 | [hoodi.etherscan.io](https://hoodi.etherscan.io) |
+
+Each Ethereum network offers two preset tiers:
+
+- Standard — 8 vCPU / 32 GiB total, for production.
+- Light — 4 vCPU / 16 GiB total with the same storage, for evaluation. You can move between tiers without resizing disks.
+
+### Exposed ports
+
+| Client | Port | Protocol | Purpose |
+|--------|------|----------|---------|
+| Reth | 8545 | TCP | HTTP JSON-RPC |
+| Reth | 8546 | TCP | WS JSON-RPC |
+| Prysm | 5052 | TCP | Beacon API (HTTP) |
+
+The execution client's auth RPC port (8551) and the consensus client's P2P port (13000) are used internally between clients and are not exposed.
+
+## EVM Layer 2 — OP Stack
+
+Runs a paired execution client and rollup (consensus) client. vCPU and RAM are split across the two clients.
+
+<Warning>
+OP Stack deployments require an Ethereum Layer 1 **RPC endpoint** and a **Beacon API endpoint** that you supply. The node uses them to derive Layer 2 state from Layer 1.
+</Warning>
+
+| Network | Chain ID | Clients | Block explorer |
+|---------|----------|---------|----------------|
+| Optimism Mainnet | 10 | OP-Reth + OP-Node | [optimistic.etherscan.io](https://optimistic.etherscan.io) |
+| Base Mainnet | 8453 | Base-Reth + Base-Node | [basescan.org](https://basescan.org) |
+| Unichain Mainnet | 130 | OP-Reth + OP-Node | [uniscan.xyz](https://uniscan.xyz) |
+| Zora Mainnet | 7777777 | OP-Reth + OP-Node | [explorer.zora.energy](https://explorer.zora.energy) |
+
+Optimism Mainnet bootstraps from a pre-built snapshot (plan for ~2× storage during deploy). Base, Unichain, and Zora sync without a snapshot.
+
+### Exposed ports
+
+| Client | Port | Protocol | Purpose |
+|--------|------|----------|---------|
+| OP-Reth / Base-Reth | 8545 | TCP | HTTP JSON-RPC |
+| OP-Reth / Base-Reth | 8546 | TCP | WS JSON-RPC |
+| OP-Node / Base-Node | 9545 | TCP | Rollup HTTP RPC |
+
+The execution client's auth RPC port (8551) is used internally between clients and is not exposed.
+
+## Starknet
+
+Runs a single full node client (Pathfinder v0.22.5).
+
+<Warning>
+Starknet requires an Ethereum Layer 1 **RPC endpoint** that you supply.
+</Warning>
+
+| Network | Block explorer |
+|---------|----------------|
+| Starknet Mainnet | [starkscan.co](https://starkscan.co) |
+
+### Exposed ports
+
+| Client | Port | Protocol | Purpose |
+|--------|------|----------|---------|
+| Pathfinder | 9545 | TCP | HTTP RPC and WS (`/ws`) |
+
+## TRON
+
+Runs a single full node client (Java-Tron GreatVoyage-v4.8.1.1).
+
+| Network | Block explorer |
+|---------|----------------|
+| TRON Mainnet | [tronscan.org](https://tronscan.org) |
+
+### Exposed ports
+
+| Client | Port | Protocol | Purpose |
+|--------|------|----------|---------|
+| Java-Tron | 8090 | TCP | HTTP JSON-RPC |
+
+The gRPC API port (50051) is used internally and is not exposed.
+
+## Bitcoin
+
+Runs a single full node client (Bitcoin Core 31) with the transaction index (`txindex`) enabled.
+
+| Network | Block explorer |
+|---------|----------------|
+| Bitcoin Mainnet | [blockstream.info](https://blockstream.info) |
+
+### Exposed ports
+
+| Client | Port | Protocol | Purpose |
+|--------|------|----------|---------|
+| Bitcoin Core | 8332 | TCP | HTTP JSON-RPC |
+
+The P2P port (8333) is used internally and is not exposed.
+
+## Coming soon
+
+| Protocol | Network | Client |
+|----------|---------|--------|
+| Solana | Mainnet, Devnet | Agave |
+
+See the [FAQ](/docs/self-hosted/faq) for the roadmap.
