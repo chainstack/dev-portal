@@ -6,7 +6,7 @@ description: Deploy a Dutch auction NFT contract on Cronos Mainnet using Hardhat
 **TLDR:**
 * This tutorial shows how to create and deploy a Dutch auction NFT contract on Cronos Mainnet using Hardhat.
 * The price starts high and lowers at fixed intervals; buyers can mint an NFT once the price is acceptable.
-* You’ll set up Hardhat, code and compile the contract, then verify and interact with it using Cronoscan.
+* You’ll set up Hardhat, code and compile the contract, then verify and interact with it using the Cronos Explorer.
 * Because this deploys to Cronos Mainnet, deployment and minting spend real CRO — fund your wallet with a small amount to start.
 
 ## Main article
@@ -45,7 +45,7 @@ To get from zero to deploying your own Dutch auction smart contract on Cronos Ma
 
 7. With Hardhat, deploy your Dutch auction contract.
 
-8. With [Cronoscan](https://cronoscan.com/), interact with your Dutch auction contract.
+8. With the [Cronos Explorer](https://explorer.cronos.com/), interact with your Dutch auction contract.
 
 ## Step-by-step
 
@@ -89,13 +89,7 @@ The [dotenv library](https://github.com/motdotla/dotenv) allows you to export an
   ```
 </CodeGroup>
 
-The [hardhat-etherscan](https://hardhat.org/hardhat-runner/plugins/nomiclabs-hardhat-etherscan) and [hardhat-cronoscan](https://docs.cronos.com/for-dapp-developers/cronos-smart-contract/contract-verification) plugins allow you to verify your contracts on Cronos Mainnet. To install them, run:
-
-<CodeGroup>
-  ```bash Shell
-  npm i --save-dev @nomiclabs/hardhat-etherscan@^3.1.0 @cronos-labs/hardhat-cronoscan
-  ```
-</CodeGroup>
+Contract verification uses [`@nomicfoundation/hardhat-verify`](https://hardhat.org/hardhat-runner/plugins/nomicfoundation-hardhat-verify), which is already bundled in the `@nomicfoundation/hardhat-toolbox` the sample project installed — no separate verification plugin is needed. You point it at the Cronos Explorer in the Hardhat config below.
 
 You need to create an environment file to store your sensitive data with the project. To create it, in your project directory, run:
 
@@ -192,7 +186,7 @@ To deploy your smart contract on Cronos Mainnet, the deploying wallet needs CRO 
 
    * `RPC_URL` — your Cronos node HTTPS endpoint deployed with Chainstack. See also [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
    * `PRIVATE_KEY` — the private key of your MetaMask wallet, funded with enough CRO to cover deployment gas.
-   * `API_KEY` — a Cronos API key to verify the deployed smart contract using the Cronoscan and Etherscan plugins. Create an API key in the [Cronos blockchain explorer](https://docs.cronos.org/block-explorers/block-explorer-and-api-keys#creating-api-keys-on-cronoscan).
+   * `API_KEY` — a Cronos Explorer API key used to verify the deployed contract. Create one in the [Cronos Explorer](https://explorer.cronos.com/) (see [Block explorer and API keys](https://docs.cronos.com/block-explorers/block-explorer-and-api-keys)).
 
    Example of the environment file data:
 
@@ -210,24 +204,31 @@ To deploy your smart contract on Cronos Mainnet, the deploying wallet needs CRO 
      ```js JavaScript
      require("@nomicfoundation/hardhat-toolbox");
      require('dotenv').config();
-     require("@nomiclabs/hardhat-etherscan");
-     require("@cronos-labs/hardhat-cronoscan");
 
      module.exports = {
        solidity: "0.8.10",
        networks: {
          cronos: {
-             url: `${process.env.RPC_URL}`,
-             chainId: 25,
-             accounts: [process.env.PRIVATE_KEY]
+           url: `${process.env.RPC_URL}`,
+           chainId: 25,
+           accounts: [process.env.PRIVATE_KEY]
          },
-     },
-
-         etherscan: {
-             apiKey: {
-              cronos: `${process.env.API_KEY}`,
        },
-     },
+       etherscan: {
+         apiKey: {
+           cronos: `${process.env.API_KEY}`
+         },
+         customChains: [
+           {
+             network: "cronos",
+             chainId: 25,
+             urls: {
+               apiURL: `https://explorer-api.cronos.org/mainnet/api/v1/hardhat/contract?apikey=${process.env.API_KEY}`,
+               browserURL: "https://explorer.cronos.com"
+             }
+           }
+         ]
+       }
      };
      ```
    </CodeGroup>
@@ -238,7 +239,7 @@ To deploy your smart contract on Cronos Mainnet, the deploying wallet needs CRO 
    * `cronos` — the Cronos Mainnet network to deploy the contract to
    * `url` — your Cronos node HTTPS endpoint imported from the environment file
    * `accounts` — your MetaMask wallet private key imported from the environment file
-   * `etherscan` — your Cronos API key imported from the environment file to verify your contract
+   * `etherscan` — Cronos Explorer verification settings: your API key plus the `customChains` entry that points `hardhat-verify` at the Cronos Explorer
 
 ### Deploy the Dutch auction contract
 
@@ -292,11 +293,11 @@ where CONTRACT\_ADDRESS your contract address returned at the previous step
 
 ### Interact with the contract
 
-Now that your contract is verified, Cronoscan is effectively a front-end instance for your contract.
+Now that your contract is verified, the [Cronos Explorer](https://explorer.cronos.com/) is effectively a front-end instance for your contract.
 
 ## Conclusion
 
-This tutorial guided you through the basics of using Hardhat to deploy a Dutch auction smart contract to Cronos Mainnet, and verify it using the Etherscan and Cronoscan plugins.
+This tutorial guided you through the basics of using Hardhat to deploy a Dutch auction smart contract to Cronos Mainnet, and verify it against the Cronos Explorer with `hardhat-verify`.
 
 Because this deploys to Cronos Mainnet, every deployment and mint spends real CRO — keep amounts small while you experiment.
 
