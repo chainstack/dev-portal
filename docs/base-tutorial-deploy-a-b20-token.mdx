@@ -13,13 +13,13 @@ description: "Deploy a B20 token on Base through a Chainstack node — create an
 
 [B20](/docs/base-b20-token-standard) is Base's native token standard, introduced with the Beryl upgrade. Instead of writing and deploying an ERC-20 contract, you create a token by calling the singleton B20 factory precompile — roles, supply caps, pausing, transfer policies, memos, and `permit` are built into the chain.
 
-This tutorial creates an Asset token, mints its initial supply, and verifies the balance, all through a Chainstack Base node. It targets Base Sepolia, where the B20 precompiles are active. The same flow works on Base mainnet after the June 25, 2026 Beryl activation.
+This tutorial creates an Asset token, mints its initial supply, and verifies the balance, all through a Chainstack Base node. It supports Base mainnet and Base Sepolia. Start on Base Sepolia to test the full flow without risking real funds, then use the same factory call on mainnet.
 
 ## Prerequisites
 
-* A [Chainstack account](https://console.chainstack.com/) and a Base Sepolia node — see [deploy a node](/docs/manage-your-networks). Copy the node's HTTPS endpoint from its access and credentials.
+* A [Chainstack account](https://console.chainstack.com/) and a Base node for your target network — see [deploy a node](/docs/manage-your-networks). Copy the node's HTTPS endpoint from its access and credentials.
 * [Base's Foundry build](https://github.com/base/base-anvil) (`base-forge`, `base-cast`). Standard `forge` can't simulate the B20 precompiles locally and aborts with `call to non-contract address`.
-* Some Base Sepolia ETH — see [Base network faucets](https://docs.base.org/base-chain/network-information/network-faucets).
+* ETH for gas on your target network. For Base Sepolia, see [Base network faucets](https://docs.base.org/base-chain/network-information/network-faucets).
 
 ## Step 1. Install Base's Foundry build
 
@@ -49,16 +49,32 @@ remappings = [
 ]
 ```
 
-## Step 3. Configure your Chainstack endpoint
+## Step 3. Choose a network
 
-Create a `.env` file in the project directory with your Chainstack Base Sepolia endpoint:
+Create a `.env` file in the project directory with the Chainstack endpoint for your target network:
 
+<Tabs>
+  <Tab title="Base mainnet">
+```bash
+export RPC_URL="YOUR_CHAINSTACK_BASE_MAINNET_ENDPOINT"
+export PRIVATE_KEY="0x..."
+export ACCOUNT_ADDRESS="0x..."
+export CHAIN_ID="8453"
+```
+
+<Warning>
+Mainnet transactions spend real ETH and create permanent state. Verify the token name, symbol, admin, roles, supply cap, and salt before broadcasting.
+</Warning>
+  </Tab>
+  <Tab title="Base Sepolia">
 ```bash
 export RPC_URL="YOUR_CHAINSTACK_BASE_SEPOLIA_ENDPOINT"
 export PRIVATE_KEY="0x..."
 export ACCOUNT_ADDRESS="0x..."
 export CHAIN_ID="84532"
 ```
+  </Tab>
+</Tabs>
 
 Confirm the node is reachable and the account is funded:
 
@@ -71,7 +87,23 @@ base-cast balance $ACCOUNT_ADDRESS --rpc-url $RPC_URL
 The command prints a non-zero balance. This account signs the deploy and the mint, and receives the minted supply.
 </Check>
 
-## Step 4. Write the create script
+## Step 4. Verify B20 activation
+
+B20 token creation is gated by the Activation Registry at runtime. Check the Asset feature on the selected network before broadcasting:
+
+```bash
+REGISTRY=0x8453000000000000000000000000000000000001
+ASSET_FEATURE=$(base-cast keccak "base.b20_asset")
+
+base-cast call $REGISTRY "isActivated(bytes32)(bool)" $ASSET_FEATURE --rpc-url $RPC_URL
+# true
+```
+
+<Note>
+For the Stablecoin variant, check `base.b20_stablecoin` instead. A `false` result means a factory call for that variant will revert with `FeatureNotActivated`.
+</Note>
+
+## Step 5. Write the create script
 
 The factory's single entry point is `createB20(variant, salt, params, initCalls)`. Use `B20FactoryLib` to encode `params` and `initCalls` in the canonical form the precompile expects. Create `script/CreateToken.s.sol`:
 
@@ -125,7 +157,7 @@ token = StdPrecompiles.B20_FACTORY.createB20(IB20Factory.B20Variant.STABLECOIN, 
 Roles, supply cap, minting, and verification work identically.
 </Accordion>
 
-## Step 5. Deploy through your Chainstack node
+## Step 6. Deploy through your Chainstack node
 
 ```bash
 source .env
@@ -149,7 +181,7 @@ TOKEN_ADDRESS=$(jq -er '.returns.token.value' \
   && echo "TOKEN_ADDRESS=$TOKEN_ADDRESS"
 ```
 
-## Step 6. Mint and verify
+## Step 7. Mint and verify
 
 Minting requires `MINT_ROLE`, which `initCalls` granted to your account:
 
@@ -162,7 +194,7 @@ base-cast call $TOKEN_ADDRESS "balanceOf(address)(uint256)" $ACCOUNT_ADDRESS --r
 ```
 
 <Check>
-The token holds minted supply on-chain. Search `$TOKEN_ADDRESS` on [sepolia.basescan.org](https://sepolia.basescan.org) to view it.
+The token holds minted supply on-chain. Search `$TOKEN_ADDRESS` on [basescan.org](https://basescan.org) for mainnet or [sepolia.basescan.org](https://sepolia.basescan.org) for Base Sepolia.
 </Check>
 
 ## Alternative: deploy directly with `cast`
