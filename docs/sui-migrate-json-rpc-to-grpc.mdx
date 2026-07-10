@@ -10,9 +10,9 @@ Sui Foundation is shutting down its **public** JSON-RPC endpoints. On Chainstack
 
   - Testnet — week of Jul 6, 2026
   - Mainnet — week of Jul 20, 2026
-  - Full protocol-level deactivation — Jul 31, 2026
+  - Sui Foundation's public JSON-RPC fully retired — Jul 31, 2026
 
-  Any app still calling those public URLs stops working after these dates.
+  Any app still calling those public URLs stops working after these dates. This retires Sui Foundation's free public service — it does not remove JSON-RPC from the node software, so operators like Chainstack keep serving it.
 </Warning>
 
 ## What is actually being deprecated
@@ -41,7 +41,7 @@ Testnet gRPC is `sui-testnet.core.chainstack.com:443`. For every authentication 
 
 ## Method mapping
 
-Sui's gRPC API is organized into services under `sui.rpc.v2`. Most read and write JSON-RPC methods map directly to a gRPC call. A handful of query and metrics methods have no gRPC equivalent — on Chainstack, most of those keep working over JSON-RPC, and a few are not served at all. The tables below give the path for each common JSON-RPC method.
+Sui's gRPC API is organized into services under `sui.rpc.v2`. Most read and write JSON-RPC methods map directly to a gRPC call. A handful of query methods have no gRPC equivalent but keep working on Chainstack's JSON-RPC; a few analytics methods come from Sui's indexer and no full node serves them. The tables below give the path for each common JSON-RPC method.
 
 ### Maps to gRPC
 
@@ -75,7 +75,7 @@ Sui's gRPC API is organized into services under `sui.rpc.v2`. Most read and writ
 
 ### No gRPC equivalent — keep on JSON-RPC
 
-These methods have no gRPC equivalent, but they remain available on your Chainstack JSON-RPC endpoint, which stays up. Keep calling them over JSON-RPC — you do not need GraphQL for them. The last column names Sui's GraphQL equivalent in case you move that workload to Sui's GraphQL service, which Chainstack does not host.
+These methods have no gRPC equivalent, but they keep working on your Chainstack JSON-RPC endpoint — Sui Foundation is retiring its own public endpoints, not removing JSON-RPC from the node software, so Chainstack's JSON-RPC is unaffected. Keep calling these over JSON-RPC; you do not need GraphQL for them. The last column names Sui's GraphQL equivalent in case you move that workload to Sui's GraphQL service, which Chainstack does not host.
 
 | JSON-RPC method | On Chainstack | Sui GraphQL equivalent |
 | --- | --- | --- |
@@ -86,14 +86,14 @@ These methods have no gRPC equivalent, but they remain available on your Chainst
 | `suix_getValidatorsApy` | Keep on JSON-RPC | Compute client-side from validator pool exchange rates |
 | `suix_subscribeEvent`, `suix_subscribeTransaction` | Keep on JSON-RPC (WebSocket) | `events` query (poll), or gRPC `SubscriptionService/SubscribeCheckpoints` and filter client-side |
 
-### Not served by Chainstack
+### Indexer and analytics methods
 
-A few JSON-RPC methods are neither available on Chainstack nor have a gRPC equivalent. Sui provides these through GraphQL RPC or an indexer — both hosted outside Chainstack.
+A few JSON-RPC methods return aggregated analytics that come from Sui's indexer layer, not from a full node. A full node — Sui's or Chainstack's — does not serve them over JSON-RPC or gRPC (calling them on Chainstack returns `-32601 Method not found`). Get the underlying data these way:
 
-| JSON-RPC method | Where to get it |
+| JSON-RPC method | What to use instead |
 | --- | --- |
-| `suix_getEpochs` | Sui GraphQL `epochs` query. For the current epoch only, use gRPC `LedgerService/GetEpoch` or `suix_getLatestSuiSystemState` on Chainstack. |
-| `suix_getNetworkMetrics`, `suix_getAddressMetrics`, `suix_getMoveCallMetrics` | Run an indexer |
+| `suix_getEpochs` | For current epoch data — validators, committee, gas price — call `suix_getLatestSuiSystemState` (JSON-RPC) or `LedgerService/GetEpoch` (gRPC) on Chainstack. For historical epoch enumeration, query Sui's GraphQL `epochs`. |
+| `suix_getNetworkMetrics`, `suix_getAddressMetrics`, `suix_getMoveCallMetrics` | Network analytics (TPS, active addresses, popular calls). Derive them by indexing your Chainstack node's checkpoint stream (gRPC `SubscriptionService/SubscribeCheckpoints`) into your own store, or use a Sui analytics provider. Most applications do not need these. |
 
 <Note>
   Real-time event subscriptions have two paths on Chainstack. Keep using `suix_subscribeEvent` over the JSON-RPC WebSocket endpoint, or subscribe to checkpoints over gRPC with `SubscriptionService/SubscribeCheckpoints` and filter events client-side. gRPC streaming exposes only `SubscribeCheckpoints`, not per-event subscriptions.
