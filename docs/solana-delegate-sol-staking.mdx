@@ -1,0 +1,338 @@
+---
+title: "Solana: Create a stake account and delegate SOL with web3.js"
+description: "Create a stake account and delegate (stake) SOL to a validator on Solana using @solana/web3.js and the StakeProgram, through a Chainstack node."
+---
+
+**TLDR:**
+* Staking SOL natively is a two-step flow: create and initialize a **stake account** you own, then **delegate** it to a validator's vote account.
+* You build both transactions with `@solana/web3.js` (`StakeProgram.createAccount` and `StakeProgram.delegate`) and send them through a Chainstack Solana node.
+* Fund the stake account with the **rent-exempt reserve plus the amount you want to stake**, and stake at least the network minimum — currently **1 SOL** (`getStakeMinimumDelegation`). Delegating less fails with `InsufficientDelegation`.
+* Delegation is not instant: your stake warms up and becomes active at the start of the next epoch, and rewards accrue from then on.
+
+## How delegation works on Solana
+
+Solana uses delegated proof of stake. You do not hand SOL to a validator — instead you create a **stake account** that you fully control, then delegate the SOL held in it to a validator's **vote account**. The validator produces and votes on blocks; you earn a share of the staking rewards, minus the validator's commission.
+
+A stake account is a regular account owned by the Stake program, with three things that matter here:
+
+- Authorities — a **staker** (can delegate, deactivate, and split the stake) and a **withdrawer** (can withdraw the SOL and change either authority). You hold both, so you keep custody the whole time.
+- Rent-exempt reserve — like every Solana account, a stake account must hold a minimum balance to stay rent-exempt. This reserve sits on top of the delegated amount and is not staked.
+- Delegation — once you delegate, the account records the validator's vote account, the delegated amount, and the epoch the stake activates in.
+
+Two limits decide how much SOL the account needs:
+
+- Minimum delegation — the network rejects delegations below `getStakeMinimumDelegation()`, currently **1 SOL** (1,000,000,000 lamports). Delegating less returns the Stake program error `InsufficientDelegation` (custom error `0xc`).
+- Rent exemption — a 200-byte stake account needs **2,282,880 lamports** (about 0.00228288 SOL) to be rent-exempt, from `getMinimumBalanceForRentExemption(StakeProgram.space)`.
+
+So a stake account that delegates the 1 SOL minimum must be funded with `2,282,880 + 1,000,000,000 = 1,002,282,880` lamports (about 1.00228288 SOL), plus a little SOL in your wallet for transaction fees.
+
+<Info>
+**Prerequisites**
+- A [Chainstack account](https://console.chainstack.com) and a deployed Solana node
+- [Node.js](https://nodejs.org/en/download) 18 or above
+- A funded Solana wallet — a bit more than the amount you plan to stake, so around 1.05 SOL to stake the 1 SOL minimum and cover fees
+</Info>
+
+<Warning>
+This tutorial spends real SOL when run against mainnet. Test on devnet first — deploy a Solana devnet node, fund your wallet from a devnet faucet, and run the exact same code. The minimum delegation and rent-exempt reserve are identical on devnet and mainnet.
+</Warning>
+
+## Deploy a Chainstack Solana node
+
+<CardGroup>
+  <Card title="Sign up with Chainstack" href="https://console.chainstack.com/user/account/create" icon="angle-right" horizontal />
+  <Card title="Deploy a node" href="/docs/manage-your-networks" icon="angle-right" horizontal />
+  <Card title="View node access and credentials" href="/docs/manage-your-node#view-node-access-and-credentials" icon="angle-right" horizontal />
+</CardGroup>
+
+Copy the node's HTTPS and WSS endpoints from the **Access and credentials** tab. You pass both to the `Connection` constructor when you connect to your node.
+
+## Set up the project
+
+Create a project directory and install `@solana/web3.js`. Add `bs58` only if you import a base58 secret key (for example, one exported from a wallet like Phantom).
+
+```bash Shell
+mkdir solana-staking && cd solana-staking
+npm init -y
+npm install @solana/web3.js bs58
+```
+
+This tutorial uses CommonJS (`require`). Each step is a fragment that runs inside an `async` function so it can use `await` — the [complete script](#full-script) assembles them into one runnable file. The same calls work unchanged with ES module `import` syntax.
+
+## Connect to your Solana node
+
+Initialize a `Connection` with your Chainstack HTTPS and WSS endpoints and a commitment level. `confirmed` is a good default — it waits for the transaction to be confirmed by the cluster without waiting for full finalization.
+
+Pass the WSS endpoint explicitly. `@solana/web3.js` opens a WebSocket to confirm transactions; with only the HTTPS endpoint it derives a WebSocket URL from that host, which does not match a Chainstack node's separate WSS endpoint, and `sendAndConfirmTransaction` then times out with `TransactionExpiredBlockheightExceededError`.
+
+```javascript connection.js
+const { Connection } = require("@solana/web3.js");
+
+const connection = new Connection("<YOUR_CHAINSTACK_HTTPS_ENDPOINT>", {
+  commitment: "confirmed",
+  wsEndpoint: "<YOUR_CHAINSTACK_WSS_ENDPOINT>",
+});
+```
+
+## Load your wallet
+
+Your wallet pays the transaction fees, funds the stake account, and becomes the stake account's staker and withdrawer authority. Load it with `Keypair.fromSecretKey`.
+
+Pick the form that matches how your key is stored:
+
+```javascript wallet.js
+const { Keypair } = require("@solana/web3.js");
+const bs58 = require("bs58");
+const fs = require("fs");
+
+// Option A — a byte-array key file, e.g. the one the Solana CLI writes to id.json
+const wallet = Keypair.fromSecretKey(
+  new Uint8Array(JSON.parse(fs.readFileSync("/path/to/id.json", "utf8")))
+);
+
+// Option B — a base58 secret key string (for example exported from a wallet),
+// supplied through an environment variable
+const walletFromBase58 = Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY));
+```
+
+<Warning>
+Never hardcode or commit a secret key. Load it from a file outside your repository or from an environment variable, and use a dedicated wallet for testing.
+</Warning>
+
+## Choose a validator
+
+You delegate to a validator's **vote account**, not its identity address. List active validators with `getVoteAccounts` and pick one:
+
+```javascript validators.js
+const { current } = await connection.getVoteAccounts();
+
+// Each entry describes one validator. The fields you care about:
+//   votePubkey      - the vote account you delegate to
+//   nodePubkey      - the validator's identity address
+//   activatedStake  - total stake delegated to it (lamports)
+//   commission      - percentage the validator keeps from rewards
+//   lastVote        - the most recent slot it voted on (liveness)
+console.log(current.length, "active validators");
+console.log(current[0]);
+```
+
+Choose deliberately — weigh commission, current stake, and reliability, and consider spreading stake across smaller validators to support decentralization. Explorers such as Solana Explorer, Solscan, and validators.app list vote accounts and performance history.
+
+## Create the stake account
+
+Creating a stake account is one transaction that both allocates the account and initializes its authorities. `StakeProgram.createAccount` returns a ready-to-send `Transaction` containing two instructions — a System program `createAccount` and a Stake program `Initialize`.
+
+Fund it with the rent-exempt reserve plus the amount you want to stake, and set both authorities to your wallet with `Authorized`. Pass a `Lockup` of `new Lockup(0, 0, PublicKey.default)` for no lockup — a zero timestamp and epoch mean the stake is never locked, and the default custodian address is `11111111111111111111111111111111`.
+
+```javascript create-stake-account.js
+const {
+  Keypair,
+  PublicKey,
+  StakeProgram,
+  Authorized,
+  Lockup,
+  sendAndConfirmTransaction,
+} = require("@solana/web3.js");
+
+// A fresh keypair for the stake account itself.
+const stakeAccount = Keypair.generate();
+
+// Rent-exempt reserve + the amount to delegate (at least the network minimum).
+const rentExempt = await connection.getMinimumBalanceForRentExemption(StakeProgram.space);
+const { value: minDelegation } = await connection.getStakeMinimumDelegation();
+const stakeAmount = minDelegation; // 1 SOL minimum; raise this to stake more
+const lamports = rentExempt + stakeAmount;
+
+const createStakeAccountTx = StakeProgram.createAccount({
+  fromPubkey: wallet.publicKey,
+  stakePubkey: stakeAccount.publicKey,
+  authorized: new Authorized(wallet.publicKey, wallet.publicKey), // staker, withdrawer
+  lockup: new Lockup(0, 0, PublicKey.default), // no lockup
+  lamports,
+});
+
+// A recent blockhash and fee payer make the transaction sendable and give
+// sendAndConfirmTransaction a valid window to confirm within.
+const created = await connection.getLatestBlockhash();
+createStakeAccountTx.recentBlockhash = created.blockhash;
+createStakeAccountTx.lastValidBlockHeight = created.lastValidBlockHeight;
+createStakeAccountTx.feePayer = wallet.publicKey;
+
+// The new stake account must also sign, because it is being created.
+const createSignature = await sendAndConfirmTransaction(
+  connection,
+  createStakeAccountTx,
+  [wallet, stakeAccount]
+);
+console.log("Stake account:", stakeAccount.publicKey.toBase58());
+console.log("Create signature:", createSignature);
+```
+
+## Delegate the stake
+
+With the stake account created and initialized, delegate it to your chosen validator's vote account. `StakeProgram.delegate` returns a `Transaction` with a single Stake program `DelegateStake` instruction, signed by the staker authority — your wallet.
+
+```javascript delegate.js
+const { PublicKey, StakeProgram, sendAndConfirmTransaction } = require("@solana/web3.js");
+
+// The vote account of the validator you chose. Replace with your own selection.
+const votePubkey = new PublicKey("CcaHc2L43ZWjwCHART3oZoJvHLAe9hzT2DJNUpBzoTN1");
+
+const delegateTx = StakeProgram.delegate({
+  stakePubkey: stakeAccount.publicKey,
+  authorizedPubkey: wallet.publicKey,
+  votePubkey,
+});
+
+const delegated = await connection.getLatestBlockhash();
+delegateTx.recentBlockhash = delegated.blockhash;
+delegateTx.lastValidBlockHeight = delegated.lastValidBlockHeight;
+delegateTx.feePayer = wallet.publicKey;
+
+const delegateSignature = await sendAndConfirmTransaction(connection, delegateTx, [wallet]);
+console.log("Delegate signature:", delegateSignature);
+```
+
+<Tip>
+You can combine both instructions into a single transaction — add the `createStakeAccountTx` and `delegateTx` instructions to one `Transaction` — because the runtime processes them in order, so the delegate step runs against the just-initialized account. This tutorial keeps them separate for clarity.
+</Tip>
+
+## Verify the delegation
+
+Read the stake account back with `getParsedAccountInfo`. Right after delegating, the account type is `delegated` and `deactivationEpoch` is `18446744073709551615` (the maximum `u64`, meaning the stake is not scheduled to deactivate).
+
+```javascript verify.js
+const info = await connection.getParsedAccountInfo(stakeAccount.publicKey);
+console.log(JSON.stringify(info.value.data.parsed, null, 2));
+```
+
+The parsed output shows the authorities, the rent-exempt reserve, and the delegation. The example values here come from an existing on-chain stake account — yours will differ:
+
+```json Example output
+{
+  "info": {
+    "meta": {
+      "authorized": {
+        "staker": "9KAQBvu7C8pBTDzt2swuTFsiGmshjdV7BXj71fVxYZ1Z",
+        "withdrawer": "9KAQBvu7C8pBTDzt2swuTFsiGmshjdV7BXj71fVxYZ1Z"
+      },
+      "lockup": {
+        "custodian": "11111111111111111111111111111111",
+        "epoch": 0,
+        "unixTimestamp": 0
+      },
+      "rentExemptReserve": "2282880"
+    },
+    "stake": {
+      "creditsObserved": 2294237959,
+      "delegation": {
+        "activationEpoch": "775",
+        "deactivationEpoch": "18446744073709551615",
+        "stake": "17175076774",
+        "voter": "CcaHc2L43ZWjwCHART3oZoJvHLAe9hzT2DJNUpBzoTN1"
+      }
+    }
+  },
+  "type": "delegated"
+}
+```
+
+Your stake does not earn rewards immediately. It **warms up** and becomes fully active at the start of the epoch after `activationEpoch`. Track the current epoch with `getEpochInfo`. To unstake later, the staker authority calls `StakeProgram.deactivate` (the stake cools down over the next epoch), then the withdrawer calls `StakeProgram.withdraw` to move the SOL back out.
+
+## Full script
+
+The complete flow, ready to run with `node stake.js` after setting your endpoint, key path, and validator vote account:
+
+```javascript stake.js
+const {
+  Connection,
+  Keypair,
+  PublicKey,
+  StakeProgram,
+  Authorized,
+  Lockup,
+  sendAndConfirmTransaction,
+  LAMPORTS_PER_SOL,
+} = require("@solana/web3.js");
+const fs = require("fs");
+
+const connection = new Connection("<YOUR_CHAINSTACK_HTTPS_ENDPOINT>", {
+  commitment: "confirmed",
+  wsEndpoint: "<YOUR_CHAINSTACK_WSS_ENDPOINT>",
+});
+
+// Your funded wallet — pays fees, funds the stake account, and is its authority.
+const wallet = Keypair.fromSecretKey(
+  new Uint8Array(JSON.parse(fs.readFileSync("/path/to/id.json", "utf8")))
+);
+
+// The validator vote account to delegate to. Replace with your own selection.
+const votePubkey = new PublicKey("CcaHc2L43ZWjwCHART3oZoJvHLAe9hzT2DJNUpBzoTN1");
+
+async function main() {
+  // 1. Work out how much SOL the stake account needs.
+  const rentExempt = await connection.getMinimumBalanceForRentExemption(StakeProgram.space);
+  const { value: minDelegation } = await connection.getStakeMinimumDelegation();
+  const stakeAmount = minDelegation; // 1 SOL minimum; raise this to stake more
+  const lamports = rentExempt + stakeAmount;
+  console.log(`Funding stake account with ${lamports / LAMPORTS_PER_SOL} SOL`);
+
+  // 2. Create and initialize the stake account.
+  const stakeAccount = Keypair.generate();
+  const createStakeAccountTx = StakeProgram.createAccount({
+    fromPubkey: wallet.publicKey,
+    stakePubkey: stakeAccount.publicKey,
+    authorized: new Authorized(wallet.publicKey, wallet.publicKey),
+    lockup: new Lockup(0, 0, PublicKey.default),
+    lamports,
+  });
+  let bh = await connection.getLatestBlockhash();
+  createStakeAccountTx.recentBlockhash = bh.blockhash;
+  createStakeAccountTx.lastValidBlockHeight = bh.lastValidBlockHeight;
+  createStakeAccountTx.feePayer = wallet.publicKey;
+  const createSignature = await sendAndConfirmTransaction(
+    connection,
+    createStakeAccountTx,
+    [wallet, stakeAccount]
+  );
+  console.log("Stake account:", stakeAccount.publicKey.toBase58());
+  console.log("Create signature:", createSignature);
+
+  // 3. Delegate the stake to the validator.
+  const delegateTx = StakeProgram.delegate({
+    stakePubkey: stakeAccount.publicKey,
+    authorizedPubkey: wallet.publicKey,
+    votePubkey,
+  });
+  bh = await connection.getLatestBlockhash();
+  delegateTx.recentBlockhash = bh.blockhash;
+  delegateTx.lastValidBlockHeight = bh.lastValidBlockHeight;
+  delegateTx.feePayer = wallet.publicKey;
+  const delegateSignature = await sendAndConfirmTransaction(connection, delegateTx, [wallet]);
+  console.log("Delegate signature:", delegateSignature);
+
+  // 4. Read the delegation back.
+  const info = await connection.getParsedAccountInfo(stakeAccount.publicKey);
+  console.log(JSON.stringify(info.value.data.parsed, null, 2));
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
+```
+
+<Check>
+The script prints two signatures and a `delegated` stake account whose `delegation.voter` matches your chosen validator's vote account. Look either signature up on a Solana explorer to confirm it on-chain.
+</Check>
+
+## What's next
+
+<CardGroup cols={2}>
+  <Card title="Solana tooling" icon="screwdriver-wrench" href="/docs/solana-tooling">
+    Libraries, clients, and tools for building on Solana with Chainstack.
+  </Card>
+  <Card title="Solana API methods" icon="code" href="/docs/solana-methods">
+    The full JSON-RPC method reference, including `getVoteAccounts` and `getEpochInfo`.
+  </Card>
+</CardGroup>

@@ -1,0 +1,341 @@
+---
+title: "Solana: Create and mint an SPL token with web3.js"
+description: "Create an SPL token mint and mint tokens to an account on Solana with @solana/web3.js and @solana/spl-token — createMint, getOrCreateAssociatedTokenAccount, and mintTo."
+---
+
+**TLDR:**
+* Creating an SPL token takes three on-chain steps with `@solana/web3.js` and `@solana/spl-token`: create the mint account that defines the token (`createMint`), create a token account to hold a balance (`getOrCreateAssociatedTokenAccount`), then mint the supply into it (`mintTo`).
+* Pass both your HTTPS and WSS endpoints to `new Connection()`. With the HTTPS endpoint alone, `@solana/web3.js` derives a WebSocket URL that does not match a Chainstack node, and confirmations fail with `TransactionExpiredBlockheightExceededError`.
+* Amounts are integers in base units — with 9 decimals, 1,000 tokens is `1000 * 10^9`.
+* Verified on Solana devnet against a Chainstack node: mint created, 1,000 tokens minted, and the balance read back.
+
+<Note>
+This tutorial uses `@solana/web3.js` with `@solana/spl-token` — the maintained classic Solana JavaScript stack. A `@solana/kit` version will follow once the Kit SPL client (`@solana-program/token`) supports kit v7.
+</Note>
+
+## How minting an SPL token works
+
+An SPL token lives in two kinds of account: one **mint account** that defines the token — its decimals, current supply, and the authorities allowed to mint or freeze — and one **token account** per holder that stores that holder's balance. Creating a token and giving someone a balance therefore takes three steps:
+
+1. Create and initialize the mint account with `createMint`. This sets the number of decimals and the mint authority.
+2. Create a token account owned by the recipient with `getOrCreateAssociatedTokenAccount`. The associated token account (ATA) is a deterministic address derived from the owner and the mint.
+3. Mint tokens from the mint into that token account with `mintTo`, signed by the mint authority.
+
+Two details decide whether the code runs:
+
+- Rent — every Solana account must hold enough lamports to be rent-exempt. A mint account is a fixed 82 bytes (`MINT_SIZE`), which costs 1,461,600 lamports (about 0.00146 SOL) to keep alive. The `createMint` helper adds this automatically; if you build the transaction yourself, you supply it with `connection.getMinimumBalanceForRentExemption(MINT_SIZE)`.
+- Base units — token amounts are integers, not decimals. A token with 9 decimals means 1 token equals 1,000,000,000 (`10^9`) base units, so minting 1,000 tokens uses an amount of `1000 * 10^9`.
+
+## Prerequisites
+
+- Node.js 18 or later.
+- A Chainstack Solana node. [Start for free](https://console.chainstack.com/) — no credit card required. This tutorial uses a Solana devnet node so you can mint freely with faucet SOL.
+- The node's HTTPS and WSS endpoints. On Chainstack, open your node and copy both from the **Access and credentials** tab.
+- A funded devnet account to pay for the transactions and act as the mint authority.
+
+Install the dependencies:
+
+```bash
+npm install @solana/web3.js @solana/spl-token bs58 dotenv
+```
+
+The examples use ES modules and `dotenv`. Save each file with a `.mjs` extension (or add `"type": "module"` to your `package.json`) so Node treats it as an ES module, and store your endpoints and secret key in a `.env` file:
+
+```bash .env
+CHAINSTACK_HTTPS_ENDPOINT="YOUR_CHAINSTACK_HTTPS_ENDPOINT"
+CHAINSTACK_WSS_ENDPOINT="YOUR_CHAINSTACK_WSS_ENDPOINT"
+PRIVATE_KEY="YOUR_BASE58_SECRET_KEY"
+```
+
+<Warning>
+Add `.env` to your `.gitignore`. It holds a private key, which grants full control of the account — never commit it or share it.
+</Warning>
+
+## Set up and fund the payer
+
+The payer signs and pays for every transaction and is the mint authority in this tutorial. If you do not already have a devnet keypair, generate one and print its base58 secret key to paste into `.env` as `PRIVATE_KEY`:
+
+```javascript generate-keypair.mjs
+import { Keypair } from "@solana/web3.js";
+import bs58 from "bs58";
+
+const keypair = Keypair.generate();
+console.log("Public key:", keypair.publicKey.toBase58());
+console.log("Secret key (base58):", bs58.encode(keypair.secretKey));
+```
+
+Fund the public key with devnet SOL from the [Chainstack faucet](https://faucet.chainstack.com/), or with the Solana CLI:
+
+```bash
+solana airdrop 1 YOUR_PUBLIC_KEY --url devnet
+```
+
+One SOL is far more than enough — the whole flow costs well under 0.01 SOL in rent and fees.
+
+## Connect to your Chainstack Solana node
+
+Create the connection with both your HTTPS and WSS endpoints. `@solana/web3.js` opens a WebSocket to confirm transactions; if you pass only the HTTPS endpoint, it derives a WebSocket URL from that host, which does not match a Chainstack node's separate WSS endpoint. Confirmations then fall back and time out with `TransactionExpiredBlockheightExceededError`. Passing `wsEndpoint` explicitly avoids this.
+
+```javascript
+import { Connection, Keypair } from "@solana/web3.js";
+import bs58 from "bs58";
+import "dotenv/config";
+
+const connection = new Connection(process.env.CHAINSTACK_HTTPS_ENDPOINT, {
+  commitment: "confirmed",
+  wsEndpoint: process.env.CHAINSTACK_WSS_ENDPOINT,
+});
+
+const payer = Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY));
+```
+
+## Create the mint
+
+`createMint` allocates the mint account, makes it rent-exempt, and initializes it in a single call. The arguments are the connection, the fee payer, the mint authority, the freeze authority (`null` for none), and the number of decimals:
+
+```javascript
+import { createMint } from "@solana/spl-token";
+
+const decimals = 9;
+
+const mint = await createMint(
+  connection,
+  payer, // fee payer
+  payer.publicKey, // mint authority
+  null, // freeze authority (null = none)
+  decimals,
+);
+
+console.log("Mint:", mint.toBase58());
+```
+
+The returned `mint` is the `PublicKey` of the new token. The mint authority you set here is the only account allowed to mint more of this token later.
+
+## Create the associated token account
+
+Balances live in token accounts, not in the mint. `getOrCreateAssociatedTokenAccount` returns the payer's associated token account for this mint, creating it on-chain if it does not exist yet:
+
+```javascript
+import { getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
+
+const tokenAccount = await getOrCreateAssociatedTokenAccount(
+  connection,
+  payer,
+  mint,
+  payer.publicKey, // owner
+);
+
+console.log("Token account:", tokenAccount.address.toBase58());
+```
+
+To mint to someone else, pass their public key as the `owner` argument — the function derives and creates the associated token account they own.
+
+## Mint the tokens
+
+`mintTo` mints new tokens from the mint into a token account. It must be signed by the mint authority. The amount is in base units, so multiply the token count by `10^decimals`:
+
+```javascript
+import { mintTo } from "@solana/spl-token";
+
+const amount = 1000n * 10n ** BigInt(decimals); // 1,000 tokens
+
+const signature = await mintTo(
+  connection,
+  payer,
+  mint,
+  tokenAccount.address, // destination
+  payer.publicKey, // mint authority
+  amount,
+);
+
+console.log("mintTo signature:", signature);
+```
+
+Using a `BigInt` for the amount keeps the math exact for any supply, including tokens with high decimals whose base-unit counts exceed the safe integer range.
+
+## Verify the mint and balance
+
+Read the state back from the chain to confirm the mint succeeded. `getMint` returns the mint's on-chain supply and decimals, and `getAccount` returns the token account's balance:
+
+```javascript
+import { getMint, getAccount } from "@solana/spl-token";
+
+const mintInfo = await getMint(connection, mint);
+const accountInfo = await getAccount(connection, tokenAccount.address);
+
+console.log("Supply:", mintInfo.supply.toString());
+console.log("Balance:", Number(accountInfo.amount) / 10 ** decimals, "tokens");
+```
+
+## Full script
+
+The complete, runnable script combines every step. Save it as `mint-token.mjs` and run it with `node mint-token.mjs`:
+
+```javascript mint-token.mjs
+import { Connection, Keypair } from "@solana/web3.js";
+import {
+  createMint,
+  getOrCreateAssociatedTokenAccount,
+  mintTo,
+  getMint,
+  getAccount,
+} from "@solana/spl-token";
+import bs58 from "bs58";
+import "dotenv/config";
+
+// Connect — pass BOTH the HTTPS and WSS endpoints so confirmations resolve.
+const connection = new Connection(process.env.CHAINSTACK_HTTPS_ENDPOINT, {
+  commitment: "confirmed",
+  wsEndpoint: process.env.CHAINSTACK_WSS_ENDPOINT,
+});
+
+// Load the payer, which is also the mint authority. Fund it with devnet SOL first.
+const payer = Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY));
+
+async function main() {
+  const decimals = 9;
+
+  // 1. Create the mint account.
+  const mint = await createMint(
+    connection,
+    payer, // fee payer
+    payer.publicKey, // mint authority
+    null, // freeze authority (null = none)
+    decimals,
+  );
+  console.log("Mint:", mint.toBase58());
+
+  // 2. Create the payer's associated token account for this mint.
+  const tokenAccount = await getOrCreateAssociatedTokenAccount(
+    connection,
+    payer,
+    mint,
+    payer.publicKey, // owner
+  );
+  console.log("Token account:", tokenAccount.address.toBase58());
+
+  // 3. Mint 1,000 tokens. The amount is in base units: 1000 * 10^decimals.
+  const amount = 1000n * 10n ** BigInt(decimals);
+  const signature = await mintTo(
+    connection,
+    payer,
+    mint,
+    tokenAccount.address, // destination
+    payer.publicKey, // mint authority
+    amount,
+  );
+  console.log("mintTo signature:", signature);
+
+  // 4. Verify: read the mint supply and the token account balance back.
+  const mintInfo = await getMint(connection, mint);
+  const accountInfo = await getAccount(connection, tokenAccount.address);
+  console.log("Supply:", mintInfo.supply.toString());
+  console.log("Balance:", Number(accountInfo.amount) / 10 ** decimals, "tokens");
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
+```
+
+Running it prints the new mint address, the token account, the mint signature, and the confirmed balance. Example output from a devnet run:
+
+```text
+Mint: GHkhSADGmLAtjKUdriGY5VcvhCWdbGZ7oPrXcK2EK9bq
+Token account: HRTknUprTDiR5o5GxeCJdYL7CLiWYTmUq86U9zsCJbZk
+mintTo signature: 3b8dbXKb2jVbzyNqSEyFBBy1soLWQf1qbrrXHGtUpkD4PqgkpmoYhwGrxLxCPBwzgYNrJNcCDi1TzFvEPKm8RQf3
+Supply: 1000000000000
+Balance: 1000 tokens
+```
+
+## Send everything in one transaction
+
+The `createMint`, `getOrCreateAssociatedTokenAccount`, and `mintTo` helpers each send a separate transaction, which is the simplest approach. When you want the mint to be created and funded atomically — all or nothing, in one signature — build the instructions yourself and send them in a single transaction. This is also where you supply the rent-exempt lamports explicitly with `connection.getMinimumBalanceForRentExemption(MINT_SIZE)`:
+
+```javascript mint-token-atomic.mjs
+import {
+  Connection,
+  Keypair,
+  SystemProgram,
+  Transaction,
+  sendAndConfirmTransaction,
+} from "@solana/web3.js";
+import {
+  MINT_SIZE,
+  TOKEN_PROGRAM_ID,
+  createInitializeMintInstruction,
+  getAssociatedTokenAddress,
+  createAssociatedTokenAccountInstruction,
+  createMintToInstruction,
+  getAccount,
+} from "@solana/spl-token";
+import bs58 from "bs58";
+import "dotenv/config";
+
+const connection = new Connection(process.env.CHAINSTACK_HTTPS_ENDPOINT, {
+  commitment: "confirmed",
+  wsEndpoint: process.env.CHAINSTACK_WSS_ENDPOINT,
+});
+const payer = Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY));
+
+async function main() {
+  const decimals = 9;
+  const mint = Keypair.generate();
+
+  // Rent-exempt lamports for the fixed-size (82-byte) mint account.
+  const rent = await connection.getMinimumBalanceForRentExemption(MINT_SIZE);
+
+  // The destination associated token account, derived then created in the same transaction.
+  const ata = await getAssociatedTokenAddress(mint.publicKey, payer.publicKey);
+  const amount = 1000n * 10n ** BigInt(decimals);
+
+  const tx = new Transaction().add(
+    // Allocate and fund the mint account, owned by the Token program.
+    SystemProgram.createAccount({
+      fromPubkey: payer.publicKey,
+      newAccountPubkey: mint.publicKey,
+      space: MINT_SIZE,
+      lamports: rent,
+      programId: TOKEN_PROGRAM_ID,
+    }),
+    // Initialize the account as a mint.
+    createInitializeMintInstruction(mint.publicKey, decimals, payer.publicKey, null),
+    // Create the destination associated token account.
+    createAssociatedTokenAccountInstruction(payer.publicKey, ata, payer.publicKey, mint.publicKey),
+    // Mint tokens into it.
+    createMintToInstruction(mint.publicKey, ata, payer.publicKey, amount),
+  );
+
+  // Both the payer and the new mint account must sign.
+  const signature = await sendAndConfirmTransaction(connection, tx, [payer, mint]);
+  console.log("Signature:", signature);
+  console.log("Mint:", mint.publicKey.toBase58());
+
+  const accountInfo = await getAccount(connection, ata);
+  console.log("Balance:", Number(accountInfo.amount) / 10 ** decimals, "tokens");
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
+```
+
+## Move to mainnet
+
+The code is identical on mainnet — point the connection at a Chainstack Solana mainnet node's HTTPS and WSS endpoints and fund the payer with real SOL. Two authority decisions matter in production:
+
+- Mint authority — whoever holds it can mint more tokens at any time. To cap the supply permanently after your initial mint, revoke it with `setAuthority` using `AuthorityType.MintTokens` and a `null` new authority.
+- Freeze authority — set to `null` at creation (as in this tutorial) if you never want to freeze holder accounts; the choice cannot be added back later.
+
+## Additional resources
+
+- [Transferring SPL tokens on Solana: a step-by-step TypeScript tutorial](/docs/transferring-spl-tokens-on-solana-typescript) — move the tokens you just minted between accounts.
+- [Solana: how to handle the transaction expiry error](/docs/solana-how-to-handle-the-transaction-expiry-error) — more on the confirmation error the WSS endpoint prevents.
+- [Solana: token extensions](/docs/solana-token-extensions) — create tokens with Token-2022 features such as transfer fees and on-chain metadata.
+- [Solana tooling](/docs/solana-tooling) — the libraries, SDKs, and tools for building on Solana with Chainstack.
+
+<Note>
+Verified with `@solana/web3.js` 1.98.4, `@solana/spl-token` 0.4.15, and `bs58` 6.0.0.
+</Note>

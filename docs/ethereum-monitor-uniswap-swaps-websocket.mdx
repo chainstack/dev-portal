@@ -1,0 +1,270 @@
+---
+title: "Monitor Uniswap swaps in real time over WebSocket"
+description: "Stream and decode live Uniswap trades on Ethereum by subscribing to a pool's Swap event logs over a WebSocket endpoint with ethers v6."
+---
+
+**TLDR:**
+- Connect the ethers v6 `WebSocketProvider` to a Chainstack Ethereum WSS endpoint, and pass `staticNetwork` so the log subscription keeps delivering.
+- Attach a `Contract` listener for the pool's `Swap` event — the node pushes each matching log the moment the block lands onchain, with no block scanning or polling.
+- Decode `amount0` and `amount1` from the event: a negative amount is the token the pool paid out (what the trader received), a positive amount is the token it took in (what the trader paid).
+- This tutorial monitors the USDC/WETH 0.05% Uniswap V3 pool `0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640`, whose Swap `topic0` is `0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67`.
+
+## What you'll build
+
+A small Node.js script that opens one WebSocket connection to Ethereum mainnet and prints every swap on a Uniswap pool as it happens — the traded token amounts, the direction of the trade, and the transaction hash. The same pattern works for any Uniswap V3 pool or V2 pair by changing one address and the event definition.
+
+Subscribing to the pool's `Swap` event is the direct way to watch trades. The node streams you only the logs you asked for, so you react the instant a swap is mined instead of pulling full blocks and filtering transactions yourself.
+
+## Prerequisites
+
+- Node.js 18 or later.
+- ethers v6 — install it with `npm install ethers`. This tutorial uses the v6 API (`ethers.WebSocketProvider`), which differs from v5's `ethers.providers.WebSocketProvider`.
+- An Ethereum mainnet WSS endpoint from Chainstack.
+
+## How Uniswap emits swaps
+
+Every Uniswap pool contract emits a `Swap` event log each time a trade settles against it. Watching that one event over a WebSocket connection is the most direct way to track trades in real time: the node pushes each matching log as soon as the block is mined, so you never poll or download whole blocks.
+
+Each event is identified by its `topic0` — the keccak256 hash of the event signature. Filtering a subscription by the pool address and this `topic0` tells the node to send you that pool's swaps and nothing else.
+
+This tutorial uses the USDC/WETH 0.05% Uniswap V3 pool at `0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640`. Its Swap event signature and `topic0` are:
+
+- Signature — `Swap(address,address,int256,int256,uint160,uint128,int24)`
+- topic0 — `0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67`
+
+Uniswap V2 pairs emit a differently shaped `Swap` event with its own `topic0`. To watch a V2 pair, see [Monitor a different pool or a Uniswap V2 pair](#monitor-a-different-pool-or-a-uniswap-v2-pair).
+
+## Get your Ethereum WebSocket endpoint
+
+A WebSocket (WSS) endpoint keeps a single connection open so the node can push new logs to you, which is what makes real-time subscriptions possible. Get one from Chainstack:
+
+<Steps>
+  <Step title="Sign in to Chainstack">
+    Log in to your [Chainstack account](https://console.chainstack.com/).
+  </Step>
+  <Step title="Deploy an Ethereum node">
+    Create a project, then deploy an Ethereum mainnet node. [Global Nodes](/docs/global-elastic-node) deploy instantly and are available on every plan.
+  </Step>
+  <Step title="Copy the WSS endpoint">
+    Open the node and, on the **Access and credentials** tab, copy the **WSS endpoint** — it starts with `wss://`.
+  </Step>
+</Steps>
+
+Keep the endpoint private and out of source control — anyone with it can send requests against your node.
+
+## Subscribe to the pool's Swap events
+
+The script below connects to the pool, reads the two tokens once so it can label and scale the amounts, then listens for `Swap` events and decodes each one. Save it as `monitor.js` and set `WSS_ENDPOINT` to your Chainstack endpoint.
+
+```javascript monitor.js
+const { ethers } = require("ethers");
+
+// Your Ethereum mainnet WebSocket endpoint from Chainstack
+const WSS_ENDPOINT = "YOUR_CHAINSTACK_WSS_ENDPOINT";
+
+// USDC/WETH 0.05% Uniswap V3 pool
+const POOL_ADDRESS = "0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640";
+
+const POOL_ABI = [
+  "function token0() view returns (address)",
+  "function token1() view returns (address)",
+  "event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)",
+];
+const ERC20_ABI = [
+  "function symbol() view returns (string)",
+  "function decimals() view returns (uint8)",
+];
+
+async function main() {
+  // Pin the network so ethers does not re-poll the chain ID on every call.
+  // On a load-balanced endpoint that polling can starve the log subscription.
+  const network = ethers.Network.from("mainnet");
+  const provider = new ethers.WebSocketProvider(WSS_ENDPOINT, network, {
+    staticNetwork: network,
+  });
+
+  const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, provider);
+
+  // Read the two tokens once so we can label and scale the amounts.
+  const [token0, token1] = await Promise.all([pool.token0(), pool.token1()]);
+  const c0 = new ethers.Contract(token0, ERC20_ABI, provider);
+  const c1 = new ethers.Contract(token1, ERC20_ABI, provider);
+  const [sym0, dec0, sym1, dec1] = await Promise.all([
+    c0.symbol(), c0.decimals(), c1.symbol(), c1.decimals(),
+  ]);
+
+  console.log(`Monitoring ${sym0}/${sym1} pool ${POOL_ADDRESS}`);
+  console.log("Waiting for swaps...\n");
+
+  pool.on("Swap", (sender, recipient, amount0, amount1, sqrtPriceX96, liquidity, tick, event) => {
+    // amount0 and amount1 are signed deltas from the pool's point of view:
+    // negative = the pool paid the token out (the trader received it),
+    // positive = the pool took the token in (the trader paid it).
+    const a0 = ethers.formatUnits(amount0, dec0);
+    const a1 = ethers.formatUnits(amount1, dec1);
+    const direction =
+      amount1 < 0n ? `bought ${sym1} with ${sym0}` : `sold ${sym1} for ${sym0}`;
+
+    console.log(`Swap in block ${event.log.blockNumber}`);
+    console.log(`  tx: ${event.log.transactionHash}`);
+    console.log(`  ${sym0}: ${a0}`);
+    console.log(`  ${sym1}: ${a1}`);
+    console.log(`  trader ${direction}, recipient ${recipient}\n`);
+  });
+}
+
+main().catch(console.error);
+```
+
+The `Swap` event reports two signed amounts from the pool's point of view. In one swap, exactly one amount is negative and the other positive — a negative amount is the token the pool paid out (what the trader received), and a positive amount is the token the pool took in (what the trader paid). The code reads `token0` and `token1` from the pool so it can attach the right symbol and scale each amount by that token's decimals with `ethers.formatUnits`. Dividing the two scaled amounts gives the trade's execution price.
+
+The event also carries `sqrtPriceX96`, `liquidity`, and `tick`, which describe the pool state after the swap. This tutorial focuses on the traded amounts.
+
+<Note>
+Passing `staticNetwork` is what keeps the subscription alive. Without it, ethers v6 periodically re-checks the chain ID; on a load-balanced endpoint those checks can reset the connection state and the log subscription silently stops delivering events.
+</Note>
+
+## Run the monitor
+
+Run the script with Node:
+
+```bash
+node monitor.js
+```
+
+It prints a line per swap as trades settle on the pool. A short live run against the USDC/WETH pool produced the following — your output will show whatever swaps happen during your run:
+
+```text
+Monitoring USDC/WETH pool 0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640
+Waiting for swaps...
+
+Swap in block 25498633
+  tx: 0xcfb97eb4cd1accedbf1b40f7c47e71edb71b41baffe09ad4acaece1aae03b3f0
+  USDC: -51098.837883
+  WETH: 29.403937142747500544
+  trader sold WETH for USDC, recipient 0xBdb3ba9ffe392549E1f8658DD2630c141fDF47B6
+
+Swap in block 25498633
+  tx: 0x7eafee6687d32598fe2659d7eb7dae3dd8577699e1fbe184234563d1cf673d29
+  USDC: -3474.837572
+  WETH: 2.0
+  trader sold WETH for USDC, recipient 0x46cec41E8c0f30F84c0A520ACa42D780345f8b0B
+
+Swap in block 25498634
+  tx: 0x7f7dbc41a2c4cc820a32c70f00fb101f1d93558a449e876c7b0ebcd2a57501db
+  USDC: -35445.646081
+  WETH: 20.40471086773936128
+  trader sold WETH for USDC, recipient 0xBdb3ba9ffe392549E1f8658DD2630c141fDF47B6
+
+Swap in block 25498635
+  tx: 0xdb3a7ce4c4df1bad8579590ff58c97fbc15062a8709820882c8464620b482178
+  USDC: -0.008659
+  WETH: 0.000004985410412159
+  trader sold WETH for USDC, recipient 0xA56Bf66fe8C07D8799b50f98477537BCE7c34Cd7
+```
+
+Each line reflects a real settled trade: in the first swap the pool paid out 51,098.84 USDC and took in 29.40 WETH, so the trader sold WETH for USDC at roughly 1,738 USDC per WETH.
+
+## Keep the WebSocket connection alive
+
+WebSocket connections drop — from idle timeouts, network blips, or node restarts. A monitor that must run unattended should recreate the provider when the socket closes. Wrap the setup in a function and reconnect on the `close` event:
+
+```javascript
+const { ethers } = require("ethers");
+
+const WSS_ENDPOINT = "YOUR_CHAINSTACK_WSS_ENDPOINT";
+const POOL_ADDRESS = "0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640";
+const network = ethers.Network.from("mainnet");
+const POOL_ABI = [
+  "event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)",
+];
+
+function startMonitor() {
+  const provider = new ethers.WebSocketProvider(WSS_ENDPOINT, network, {
+    staticNetwork: network,
+  });
+  const pool = new ethers.Contract(POOL_ADDRESS, POOL_ABI, provider);
+
+  pool.on("Swap", (sender, recipient, amount0, amount1, sqrtPriceX96, liquidity, tick, event) => {
+    console.log(`Swap in block ${event.log.blockNumber}: ${event.log.transactionHash}`);
+    // Decode the amounts here, as in monitor.js.
+  });
+
+  // Recreate the provider if the socket drops.
+  provider.websocket.onclose = () => {
+    console.warn("WebSocket closed — reconnecting in 3s");
+    pool.removeAllListeners();
+    setTimeout(startMonitor, 3000);
+  };
+}
+
+startMonitor();
+```
+
+`pool.removeAllListeners()` clears the handlers from the old provider before the new connection re-registers them, which avoids duplicate logging after a reconnect.
+
+## Subscribe with a raw topic filter
+
+If you want to filter by `topic0` directly — without a `Contract` listener, or when you only care about the raw log — subscribe with an event filter. Under the hood ethers issues an `eth_subscribe` for `logs`, and you decode each log with an `Interface`:
+
+```javascript
+const { ethers } = require("ethers");
+
+const WSS_ENDPOINT = "YOUR_CHAINSTACK_WSS_ENDPOINT";
+const POOL_ADDRESS = "0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640";
+
+const iface = new ethers.Interface([
+  "event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)",
+]);
+const swapTopic = iface.getEvent("Swap").topicHash;
+// 0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67
+
+const network = ethers.Network.from("mainnet");
+const provider = new ethers.WebSocketProvider(WSS_ENDPOINT, network, {
+  staticNetwork: network,
+});
+
+provider.on({ address: POOL_ADDRESS, topics: [swapTopic] }, (log) => {
+  const { args } = iface.parseLog(log);
+  console.log(`Swap in block ${log.blockNumber} tx ${log.transactionHash}`);
+  console.log(`  amount0: ${args.amount0}`);
+  console.log(`  amount1: ${args.amount1}`);
+});
+```
+
+Computing `swapTopic` from the event signature — rather than pasting the hash — keeps the filter correct if you change the event. The value it produces is `0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67`.
+
+## Monitor a different pool or a Uniswap V2 pair
+
+To watch another Uniswap V3 pool, change `POOL_ADDRESS` to that pool's contract. Every V3 pool emits the same `Swap` event, so the `topic0` and decoding stay the same — only the token symbols and decimals differ, and the script reads those from the pool. You can find a pool's address on a block explorer or through the Uniswap factory's `getPool(tokenA, tokenB, fee)`.
+
+Uniswap V2 pairs emit a different `Swap` event, so a V2 monitor needs a different definition and `topic0`:
+
+- Signature — `Swap(address,uint256,uint256,uint256,uint256,address)`
+- topic0 — `0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822`
+
+A V2 pair reports four unsigned amounts instead of two signed ones — `amount0In`, `amount1In`, `amount0Out`, and `amount1Out`. The token that flows in has a non-zero `In` amount, and the token that flows out has a non-zero `Out` amount. Swap the event string in the ABI for the V2 shape and read the four fields:
+
+```javascript
+const PAIR_ABI = [
+  "event Swap(address indexed sender, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out, address indexed to)",
+];
+```
+
+## Troubleshooting
+
+**No events arrive, but the script stays connected.** This is almost always the network-detection issue. Construct the provider with a static network — `new ethers.WebSocketProvider(url, network, { staticNetwork: network })` — so ethers stops re-polling the chain ID and the log subscription keeps delivering.
+
+**The connection drops after a while.** WebSocket connections are not permanent. Recreate the provider on the socket's `close` event so the monitor reconnects on its own.
+
+**No swaps show up at all.** Confirm the pool address and `topic0` are correct, and that the pool is actually trading — a low-volume pool can sit quiet for minutes. Check the pool on a block explorer to confirm recent `Swap` events. The USDC/WETH 0.05% pool used here trades many times per minute.
+
+**The amounts look wrong.** Scale each amount by the correct token decimals — USDC uses 6, WETH uses 18 — and make sure you're using the right event shape: Uniswap V3 emits two signed amounts, while Uniswap V2 emits four unsigned ones.
+
+## Next steps
+
+- Track several pools at once by creating a listener per pool on the same provider.
+- Persist each swap to a database, or push large trades to an alerting channel.
+- Compute rolling volume and price from the decoded amounts.
+
+Learn more about the node behind this tutorial in [Global Nodes](/docs/global-elastic-node).
