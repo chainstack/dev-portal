@@ -1,0 +1,249 @@
+---
+title: Monitor an Ethereum address for incoming transactions in real time
+description: Watch an Ethereum address for incoming ETH and ERC-20 transfers in real time with ethers v6 WebSocket subscriptions over a Chainstack WSS endpoint.
+---
+
+This tutorial shows you how to watch an Ethereum address for incoming transfers as they land, using ethers v6 and a Chainstack WebSocket (WSS) endpoint. By the end you have two small Node.js scripts — one that catches incoming Ether (ETH) and one that catches incoming ERC-20 token transfers — that print each transfer the moment it is included in a block.
+
+**TLDR**
+* Subscribe to a Chainstack Ethereum WSS endpoint with ethers v6 to watch an address for incoming transfers in real time.
+* Catch native ETH transfers by subscribing to new blocks (`newHeads`) and scanning each block's transactions for your address.
+* Catch ERC-20 token transfers by subscribing to the token's `Transfer` logs filtered to your address, so the node does the filtering for you.
+* Includes the raw `eth_subscribe` (`newHeads` / `logs`) equivalent for stacks that don't use ethers.
+
+## How real-time address monitoring works
+
+Ethereum gives you two real-time streams over a WebSocket connection, and which one you use depends on the type of transfer you want to catch.
+
+- Native ETH transfers — a plain transaction with a `value` and a `to` field. ETH transfers are not events, so there is no log to filter. You subscribe to new blocks, fetch each block's transactions, and keep the ones whose `to` is your address.
+- ERC-20 token transfers — emitted by the token contract as a `Transfer` event log, not as a transaction addressed to you. You subscribe to the `logs` stream filtered by the token contract and an indexed `to` topic, so the node returns only the transfers addressed to your account.
+
+Both streams need a persistent connection, which is why address monitoring uses a WSS endpoint rather than HTTPS. Learn more about the tradeoff in [Handle real-time data with WebSockets in JS & Python](/docs/handle-real-time-data-using-websockets-with-javascript-and-python).
+
+## Get your Chainstack WebSocket endpoint
+
+You need a WSS endpoint from an Ethereum node. Deploy a node on Chainstack, then copy the WSS endpoint from the node's **Access and credentials** tab.
+
+<CardGroup>
+  <Card title="Sign up with Chainstack" href="https://console.chainstack.com/user/account/create" icon="angle-right" horizontal />
+  <Card title="Deploy a node" href="/docs/manage-your-networks" icon="angle-right" horizontal />
+  <Card title="View node access and credentials" href="/docs/manage-your-node#view-node-access-and-credentials" icon="angle-right" horizontal />
+</CardGroup>
+
+<Info>
+For always-on monitoring, a [Trader Node](/docs/trader-node) gives dedicated resources and regional placement; a [Global Node](/docs/global-elastic-node) works on every plan. See [Ethereum tooling](/docs/ethereum-tooling) for the full library and endpoint reference.
+</Info>
+
+## Set up the project
+
+Create a project directory and install ethers:
+
+```bash Shell
+mkdir eth-monitor && cd eth-monitor
+npm init -y
+npm install ethers
+```
+
+<Warning>
+This tutorial uses **ethers v6**. Confirm your version with `npm ls ethers`. In v6 the provider class is `ethers.WebSocketProvider`; in v5 it was `ethers.providers.WebSocketProvider`. The code here does not run on v5.
+</Warning>
+
+## Monitor incoming ETH transfers
+
+To catch incoming ETH, subscribe to new blocks and, for each block, check every transaction's `to` against your address.
+
+Save the following as `monitor-native.js`, then paste your WSS endpoint into `WSS_ENDPOINT`. The example watches the Wrapped Ether (WETH) contract because it receives ETH constantly, so you see results within seconds — replace it with the address you want to monitor.
+
+```javascript monitor-native.js
+const { ethers } = require("ethers");
+
+const WSS_ENDPOINT = "YOUR_CHAINSTACK_WSS_ENDPOINT";
+const WATCHED_ADDRESS = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"; // replace with the address you monitor
+
+const provider = new ethers.WebSocketProvider(WSS_ENDPOINT);
+const watched = WATCHED_ADDRESS.toLowerCase();
+
+provider.on("block", async (blockNumber) => {
+  try {
+    // getBlock(blockNumber, true) prefetches full transaction objects.
+    const block = await provider.getBlock(blockNumber, true);
+    if (!block) return;
+    const txs = block.prefetchedTransactions;
+    console.log(`Block ${blockNumber} — scanning ${txs.length} transactions`);
+    for (const tx of txs) {
+      if (tx.to && tx.to.toLowerCase() === watched && tx.value > 0n) {
+        console.log("Incoming ETH transfer:");
+        console.log(`  tx:    ${tx.hash}`);
+        console.log(`  from:  ${tx.from}`);
+        console.log(`  value: ${ethers.formatEther(tx.value)} ETH`);
+      }
+    }
+  } catch (err) {
+    if (err.code !== "UNSUPPORTED_OPERATION") console.error("Scan error:", err.message);
+  }
+});
+
+console.log(`Watching ${WATCHED_ADDRESS} for incoming ETH...`);
+
+async function shutdown() {
+  await provider.destroy();
+  process.exit(0);
+}
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+```
+
+How the script works:
+
+- `provider.on("block", ...)` — fires once per new block with the block number. This is the ethers equivalent of a `newHeads` subscription.
+- `getBlock(blockNumber, true)` — the second argument prefetches full transaction objects, exposed as `block.prefetchedTransactions`. Without it you get only transaction hashes.
+- `tx.value` — a `bigint`, so compare it with `0n` and format it with `ethers.formatEther`.
+- `try/catch` — swallows the `UNSUPPORTED_OPERATION` error that an in-flight `getBlock` throws when the provider is shutting down.
+
+Run it:
+
+```bash Shell
+node monitor-native.js
+```
+
+Example output:
+
+```text
+Watching 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2 for incoming ETH...
+Block 25498621 — scanning 890 transactions
+Incoming ETH transfer:
+  tx:    0x36bd59565352d406dc7c4dc87f8eae944fda53e376b9eeccc4219741d69e35fd
+  from:  0xf76A07f67e1F6f9db8EbBa3eE9Acb6B8933F89F0
+  value: 1.0 ETH
+Block 25498622 — scanning 341 transactions
+Block 25498623 — scanning 526 transactions
+```
+
+<Note>
+Block scanning catches direct ETH sends where the transaction's `to` is your address. ETH moved to your address inside a contract call — an internal transfer — is not a top-level transaction and does not show up here; detecting those requires tracing. See [Ethereum tooling](/docs/ethereum-tooling) for trace methods.
+</Note>
+
+## Monitor incoming ERC-20 token transfers
+
+To catch incoming tokens, subscribe to the token's `Transfer` logs with the indexed `to` topic set to your address. The node streams only the matching transfers, so you never scan a full block.
+
+Save the following as `monitor-token.js`. The example watches USDC transfers to an active address so you see results quickly — replace `WATCHED_ADDRESS` with the address you monitor, and set `TOKEN_ADDRESS` and `TOKEN_DECIMALS` for the token you care about.
+
+```javascript monitor-token.js
+const { ethers } = require("ethers");
+
+const WSS_ENDPOINT = "YOUR_CHAINSTACK_WSS_ENDPOINT";
+const WATCHED_ADDRESS = "0x0000000aa232009084Bd71A5797d089AA4Edfad4"; // replace with the address you monitor
+const TOKEN_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"; // USDC
+const TOKEN_DECIMALS = 6;
+
+const provider = new ethers.WebSocketProvider(WSS_ENDPOINT);
+const transferTopic = ethers.id("Transfer(address,address,uint256)");
+
+// Only Transfer events whose indexed `to` equals the watched address.
+const filter = {
+  address: TOKEN_ADDRESS,
+  topics: [transferTopic, null, ethers.zeroPadValue(WATCHED_ADDRESS, 32)],
+};
+
+provider.on(filter, (log) => {
+  const from = ethers.getAddress("0x" + log.topics[1].slice(26));
+  const value = ethers.formatUnits(BigInt(log.data), TOKEN_DECIMALS);
+  console.log("Incoming token transfer:");
+  console.log(`  block: ${log.blockNumber}`);
+  console.log(`  tx:    ${log.transactionHash}`);
+  console.log(`  from:  ${from}`);
+  console.log(`  value: ${value}`);
+});
+
+console.log(`Watching ${WATCHED_ADDRESS} for incoming token transfers...`);
+
+async function shutdown() {
+  await provider.destroy();
+  process.exit(0);
+}
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+```
+
+How the filter works:
+
+- `ethers.id("Transfer(address,address,uint256)")` — the keccak-256 hash of the event signature, which is topic 0 for every ERC-20 `Transfer`.
+- `topics: [transferTopic, null, ethers.zeroPadValue(WATCHED_ADDRESS, 32)]` — position 0 matches the event, `null` matches any sender, and position 2 pins the indexed `to` to your address. Addresses are left-padded to 32 bytes in topics, which is what `zeroPadValue` does.
+- Decoding — the sender is in `log.topics[1]` and the amount is in `log.data`. Recover the address with `ethers.getAddress`, and format the amount with `ethers.formatUnits` and the token's decimals.
+- `TOKEN_DECIMALS` — set this to the token's decimals. USDC uses 6; most ERC-20 tokens use 18.
+
+Run it:
+
+```bash Shell
+node monitor-token.js
+```
+
+Example output:
+
+```text
+Watching 0x0000000aa232009084Bd71A5797d089AA4Edfad4 for incoming token transfers...
+Incoming token transfer:
+  block: 25498602
+  tx:    0x1b2bb56ba54a4554c801bb8d5b070579fa3f24598c0154a2549b20f3f9389574
+  from:  0x000000000004444c5dc75cB358380D2e3dE08A90
+  value: 494.56227
+Incoming token transfer:
+  block: 25498605
+  tx:    0x48c0facc1f08bee72a9215cedc3a488ddfe9d94e147a11ac987344a29739104b
+  from:  0x000000000004444c5dc75cB358380D2e3dE08A90
+  value: 461.309863
+```
+
+<Note>
+This log filter runs on the node, so you receive only the transfers addressed to you — more efficient than scanning every block. To watch several tokens, create one filter per token, or omit the `to` topic to receive every `Transfer` and filter client-side. For a deeper look at logs and topics, see [Ethereum logs and filters](/docs/ethereum-logs-tutorial-series-logs-and-filters).
+</Note>
+
+## Handle disconnections and shut down cleanly
+
+WebSocket connections can drop, so a production monitor needs reconnect logic; and when you stop a monitor, close the provider so the process exits cleanly.
+
+- Reconnects — a dropped socket (codes like `1006`, or `ECONNRESET`) ends the subscription silently. Re-create the `WebSocketProvider` and re-attach your handlers when the socket closes, or use a Trader Node [dedicated gateway](/docs/trader-node#dedicated-gateways). The [WebSockets tutorial](/docs/handle-real-time-data-using-websockets-with-javascript-and-python) has a full reconnect pattern.
+- Clean shutdown — call `await provider.destroy()` to close the socket and detach listeners. Do not call `provider.removeAllListeners()` right before `destroy()` — that races the in-flight `eth_unsubscribe` against the socket teardown and throws `provider destroyed; cancelled request`. Calling `destroy()` on its own is enough.
+
+## Subscribe with raw JSON-RPC (eth_subscribe)
+
+If you are not using ethers, subscribe directly with the `eth_subscribe` method over the WSS connection — `newHeads` for blocks and `logs` for token transfers. This is what the ethers subscriptions do under the hood.
+
+Connect with [wscat](https://github.com/websockets/wscat):
+
+```bash Shell
+npm install -g wscat
+wscat -c YOUR_CHAINSTACK_WSS_ENDPOINT
+```
+
+Subscribe to new block headers:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"eth_subscribe","params":["newHeads"]}
+```
+
+Subscribe to incoming USDC transfers for an address — the third topic is your address left-padded to 32 bytes:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"eth_subscribe","params":["logs",{"address":"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x0000000000000000000000000000000aa232009084bd71a5797d089aa4edfad4"]}]}
+```
+
+The node replies with a subscription id, then pushes an `eth_subscription` message for each new block or matching log. For the full method reference, see [eth_subscribe ("newHeads")](/reference/ethereum-native-subscribe-newheads), [eth_subscribe ("logs")](/reference/ethereum-native-subscribe-logs), and [eth_getLogs](/reference/ethereum-getlogs) for backfilling history.
+
+## What's next
+
+<CardGroup cols={2}>
+  <Card title="Ethereum logs and filters" icon="book" href="/docs/ethereum-logs-tutorial-series-logs-and-filters">
+    Go deeper on event topics, indexed parameters, and log filtering.
+  </Card>
+  <Card title="Tracking Bored Apes: event logs" icon="magnifying-glass" href="/docs/tracking-some-bored-apes-the-ethereum-event-logs-tutorial">
+    A worked example of decoding contract event logs end to end.
+  </Card>
+  <Card title="Real-time data with WebSockets" icon="bolt" href="/docs/handle-real-time-data-using-websockets-with-javascript-and-python">
+    Connection limits and a production reconnect pattern.
+  </Card>
+  <Card title="Ethereum tooling" icon="wrench" href="/docs/ethereum-tooling">
+    Libraries, endpoints, and trace methods for Ethereum development.
+  </Card>
+</CardGroup>

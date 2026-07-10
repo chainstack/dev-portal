@@ -1,0 +1,307 @@
+---
+title: "Simulate a Uniswap swap before broadcasting"
+description: "Preview a Uniswap swap's output amount and confirm the trade would succeed before you send it, using eth_call, Uniswap V2 getAmountsOut, V3 QuoterV2, and eth_simulateV1 with ethers.js v6 on a Chainstack Ethereum node."
+---
+
+**TLDR:**
+- Simulating a swap previews its output and confirms it would succeed before you sign, spend gas, or broadcast anything — it is a read-only `eth_call` against your Ethereum node.
+- For a price, call the Uniswap V2 router `getAmountsOut` or the Uniswap V3 `QuoterV2` `quoteExactInputSingle` — both return the expected output amount for your input.
+- To confirm the exact trade would go through, `eth_call` the router's `swapExactETHForTokens` with your real `amountOutMin` and deadline — a revert such as `UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT` means the real transaction would fail too.
+- To preview exact asset changes or simulate from an account that doesn't hold the funds yet, use `eth_simulateV1` with state overrides and `traceTransfers`.
+- Every example uses ethers.js v6 and a Chainstack Ethereum node, and was verified live against Ethereum mainnet.
+
+## How swap simulation works
+
+Simulating a swap runs the trade against the current chain state and returns what would happen — the output amount and whether it would revert — without a signature, without spending gas, and without broadcasting a transaction. You do it with a single `eth_call` (or `eth_simulateV1`) to your node, so you can check a trade as often as you like at no cost and with no onchain footprint.
+
+A swap simulation answers three separate questions, and each has its own tool:
+
+- How many tokens will I receive — a quote from the Uniswap V2 router `getAmountsOut` or the V3 `QuoterV2`.
+- Will the exact swap succeed with my slippage limit and deadline — an `eth_call` against the router's swap function, which reverts with the same reason a real transaction would.
+- What exactly changes, and can I preview it from an account that doesn't hold the funds yet — `eth_simulateV1` with state overrides and asset-change tracing.
+
+The examples below buy USDC with 1 ETH on Ethereum mainnet. They use these mainnet addresses, all verified onchain:
+
+- WETH — `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2` (18 decimals)
+- USDC — `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` (6 decimals)
+- Uniswap V2 router 02 — `0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D`
+- Uniswap V3 QuoterV2 — `0x61fFE014bA17989E743c5F6cB21bF9697530B21e`
+
+<Note>
+The output amounts shown come from live mainnet runs. Pool reserves change with every block, so your exact numbers will differ.
+</Note>
+
+## Prerequisites
+
+- Node.js 18 or later.
+- The ethers.js v6 library — install it with `npm install ethers`.
+- A Chainstack Ethereum node endpoint — [deploy a node](/docs/manage-your-networks) and copy the HTTPS endpoint from the node's **Access and credentials** tab. See [view node access and credentials](/docs/manage-your-node) for the exact location.
+
+Set the endpoint as `RPC_URL` in each script below. Keep it private — treat it like a password.
+
+## Preview the output with the Uniswap V2 router
+
+The fastest quote is the Uniswap V2 router's `getAmountsOut` — a view function that reads the pool reserves and returns the amount you would receive for a given input along a token path. Calling it is a read-only `eth_call`, so it needs no account, no funds, and no gas.
+
+`getAmountsOut` returns an array of amounts, one per hop in the path. The first element is your input and the last is your output.
+
+```js v2-quote.js
+const { ethers } = require("ethers");
+
+const RPC_URL = "YOUR_CHAINSTACK_ENDPOINT";
+const provider = new ethers.JsonRpcProvider(RPC_URL);
+
+const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+const V2_ROUTER = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
+
+const routerAbi = [
+  "function getAmountsOut(uint256 amountIn, address[] path) view returns (uint256[] amounts)"
+];
+
+async function main() {
+  const router = new ethers.Contract(V2_ROUTER, routerAbi, provider);
+  const amountIn = ethers.parseEther("1"); // 1 WETH, 18 decimals
+  const path = [WETH, USDC];
+
+  const amounts = await router.getAmountsOut(amountIn, path);
+  const amountOut = amounts[amounts.length - 1];
+
+  console.log(`Input:  ${ethers.formatUnits(amounts[0], 18)} WETH`);
+  console.log(`Output: ${ethers.formatUnits(amountOut, 6)} USDC`); // USDC has 6 decimals
+}
+
+main().catch(console.error);
+```
+
+Example output:
+
+```text
+Input:  1.0 WETH
+Output: 1740.067173 USDC
+```
+
+The `router.getAmountsOut(...)` call is an `eth_call` under the hood. By default it runs against the latest block; pass a block tag to simulate against past state — for example `router.getAmountsOut(amountIn, path, { blockTag: 25498586 })`.
+
+<Tip>
+For a route through more than one pool, add the intermediate tokens to `path`, for example `[WETH, USDC, someToken]`. `getAmountsOut` returns the amount after every hop.
+</Tip>
+
+## Preview the output with the Uniswap V3 QuoterV2
+
+For Uniswap V3, the `QuoterV2` contract simulates a swap through the pool's concentrated-liquidity math and returns the output amount plus the resulting price. Unlike a V2 reserve formula, it walks the pool's ticks, so it accounts for how your trade moves the price.
+
+`quoteExactInputSingle` takes a single struct and returns four values — the output amount, the pool price after the swap (`sqrtPriceX96After`), how many initialized ticks the swap crossed, and a gas estimate. It is not a `view` function — it reverts internally to return its result — so call it with `staticCall` to run it through `eth_call`.
+
+Uniswap V3 pools exist at several fee tiers — 100 (0.01%), 500 (0.05%), 3000 (0.3%), and 10000 (1%). WETH/USDC is deepest at 500. Try the tiers you care about and take the best quote.
+
+```js v3-quote.js
+const { ethers } = require("ethers");
+
+const RPC_URL = "YOUR_CHAINSTACK_ENDPOINT";
+const provider = new ethers.JsonRpcProvider(RPC_URL);
+
+const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+const QUOTER_V2 = "0x61fFE014bA17989E743c5F6cB21bF9697530B21e";
+
+const quoterAbi = [
+  "function quoteExactInputSingle((address tokenIn, address tokenOut, uint256 amountIn, uint24 fee, uint160 sqrtPriceLimitX96) params) returns (uint256 amountOut, uint160 sqrtPriceX96After, uint32 initializedTicksCrossed, uint256 gasEstimate)"
+];
+
+async function main() {
+  const quoter = new ethers.Contract(QUOTER_V2, quoterAbi, provider);
+  const amountIn = ethers.parseEther("1"); // 1 WETH
+
+  // QuoterV2 is not a view function, so use staticCall to run it through eth_call.
+  const [amountOut, sqrtPriceX96After, ticksCrossed, gasEstimate] =
+    await quoter.quoteExactInputSingle.staticCall({
+      tokenIn: WETH,
+      tokenOut: USDC,
+      amountIn,
+      fee: 500,             // 0.05% pool
+      sqrtPriceLimitX96: 0n // 0 = no price limit
+    });
+
+  console.log(`Output:         ${ethers.formatUnits(amountOut, 6)} USDC`);
+  console.log(`Ticks crossed:  ${ticksCrossed}`);
+  console.log(`Gas estimate:   ${gasEstimate}`);
+}
+
+main().catch(console.error);
+```
+
+Example output:
+
+```text
+Output:         1740.414231 USDC
+Ticks crossed:  1
+Gas estimate:   90075
+```
+
+## Confirm the swap would succeed with eth_call
+
+A quote tells you the price, but it does not run the swap you are about to send. To confirm the exact transaction would go through — with your slippage guard, deadline, and recipient — simulate the router's swap function itself with `eth_call`. If the call returns, the real transaction would succeed and you get the exact output; if it reverts, the real transaction would revert with the same reason.
+
+This example encodes `swapExactETHForTokens` and sends it through `provider.call`, which is `eth_call`. Because you buy with ETH, `value` carries the input and the path starts with WETH — the router wraps the ETH for you.
+
+```js simulate-swap.js
+const { ethers } = require("ethers");
+
+const RPC_URL = "YOUR_CHAINSTACK_ENDPOINT";
+const provider = new ethers.JsonRpcProvider(RPC_URL);
+
+const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+const V2_ROUTER = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
+
+// The wallet you would swap from.
+const FROM = "0xYourWalletAddress";
+
+const router = new ethers.Interface([
+  "function swapExactETHForTokens(uint256 amountOutMin, address[] path, address to, uint256 deadline) payable returns (uint256[] amounts)"
+]);
+
+async function main() {
+  const amountIn = ethers.parseEther("1"); // 1 ETH in
+  const path = [WETH, USDC];
+  const deadline = Math.floor(Date.now() / 1000) + 1200; // 20 minutes
+
+  // amountOutMin is your slippage guard. Set it to the minimum you will accept,
+  // for example the quote minus 1%: quotedOut * 99n / 100n.
+  const amountOutMin = 0n;
+
+  const data = router.encodeFunctionData("swapExactETHForTokens", [
+    amountOutMin, path, FROM, deadline
+  ]);
+
+  try {
+    const result = await provider.call({
+      from: FROM,
+      to: V2_ROUTER,
+      value: amountIn,
+      data
+    });
+    const [amounts] = router.decodeFunctionResult("swapExactETHForTokens", result);
+    console.log("Simulation succeeded - the swap would go through.");
+    console.log(`Output: ${ethers.formatUnits(amounts[amounts.length - 1], 6)} USDC`);
+  } catch (err) {
+    console.log("Simulation reverted - the swap would fail:");
+    console.log(err.reason ?? err.shortMessage ?? err.message);
+  }
+}
+
+main().catch(console.error);
+```
+
+Example output when the trade is viable:
+
+```text
+Simulation succeeded - the swap would go through.
+Output: 1740.067173 USDC
+```
+
+Set `amountOutMin` above the quote — for example `ethers.parseUnits("999999999", 6)` — and the same call reverts with the reason the real transaction would return:
+
+```text
+Simulation reverted - the swap would fail:
+UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT
+```
+
+`eth_call` runs the swap logic against current state without moving any funds. Whether the `value` must be backed by a real balance depends on your node's configuration, so setting `from` to a funded wallet is the reliable choice. To simulate from an account that does not hold the ETH, override its balance with `eth_simulateV1`.
+
+## Preview asset changes with eth_simulateV1
+
+`eth_simulateV1` runs a full transaction (or a sequence of them) and can override account state first — balances, code, storage — then report every asset movement. Use it to simulate a swap from any address without funding it, and to read the exact amounts that would move.
+
+This example gives a chosen address 10 ETH with a state override, simulates the swap, and reads the USDC received from the transfer logs. `traceTransfers: true` surfaces every asset movement — including native ETH — as a `Transfer` log, so you can total the deltas directly.
+
+```js simulate-v1.js
+const { ethers } = require("ethers");
+
+const RPC_URL = "YOUR_CHAINSTACK_ENDPOINT";
+const provider = new ethers.JsonRpcProvider(RPC_URL);
+
+const WETH = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+const V2_ROUTER = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
+const ME = "0x2222222222222222222222222222222222222222"; // any address you want to simulate as
+
+const iface = new ethers.Interface([
+  "function swapExactETHForTokens(uint256 amountOutMin, address[] path, address to, uint256 deadline) payable returns (uint256[] amounts)"
+]);
+
+async function main() {
+  const amountIn = ethers.parseEther("1");
+  const path = [WETH, USDC];
+  const deadline = Math.floor(Date.now() / 1000) + 1200;
+  const data = iface.encodeFunctionData("swapExactETHForTokens", [0n, path, ME, deadline]);
+
+  const [block] = await provider.send("eth_simulateV1", [
+    {
+      blockStateCalls: [
+        {
+          // Override state: give ME 10 ETH so the call has funds, no signing needed.
+          stateOverrides: {
+            [ME]: { balance: "0x" + ethers.parseEther("10").toString(16) }
+          },
+          calls: [
+            { from: ME, to: V2_ROUTER, value: "0x" + amountIn.toString(16), data }
+          ]
+        }
+      ],
+      traceTransfers: true // include asset movements as logs
+    },
+    "latest"
+  ]);
+
+  const call = block.calls[0];
+  console.log(`Status:   ${call.status === "0x1" ? "success" : "revert"}`);
+  console.log(`Gas used: ${parseInt(call.gasUsed, 16)}`);
+
+  const [amounts] = iface.decodeFunctionResult("swapExactETHForTokens", call.returnData);
+  console.log(`Output:   ${ethers.formatUnits(amounts[amounts.length - 1], 6)} USDC`);
+
+  // traceTransfers surfaces every asset movement as a Transfer log.
+  const TRANSFER = ethers.id("Transfer(address,address,uint256)");
+  for (const log of call.logs) {
+    const isUsdc = log.address.toLowerCase() === USDC.toLowerCase();
+    if (log.topics[0] === TRANSFER && isUsdc) {
+      const to = ethers.getAddress("0x" + log.topics[2].slice(26));
+      if (to.toLowerCase() === ME.toLowerCase()) {
+        console.log(`Asset change: +${ethers.formatUnits(BigInt(log.data), 6)} USDC to ${to}`);
+      }
+    }
+  }
+}
+
+main().catch(console.error);
+```
+
+Example output:
+
+```text
+Status:   success
+Gas used: 113105
+Output:   1739.113587 USDC
+Asset change: +1739.113587 USDC to 0x2222222222222222222222222222222222222222
+```
+
+<Warning>
+If you set `validation: true`, `eth_simulateV1` enforces the base-fee rule, so each call must also carry `maxFeePerGas` and `maxPriorityFeePerGas` — otherwise it returns `max fee per gas less than block base fee`. For a read-only preview, leave validation off (the default).
+</Warning>
+
+## Choose the right method
+
+| Method | Answers | Executes the swap? | Needs funds? |
+| --- | --- | --- | --- |
+| V2 `getAmountsOut` | Expected output for a V2 route | No — reads reserves, applies the V2 formula | No |
+| V3 `quoteExactInputSingle` | Expected output and price impact for a V3 pool | Simulated — reverts internally to return the quote | No |
+| `eth_call` on the swap | Whether the exact swap would succeed, and its output | Yes | Only if your node enforces balances |
+| `eth_simulateV1` | Output and every asset change, from any account | Yes | No — override balances and allowances |
+
+Start with a quote to see the price, then simulate the swap with `eth_call` to confirm it would succeed with your slippage and deadline. Reach for `eth_simulateV1` when you need exact asset changes or want to simulate from an account without first funding it.
+
+## Wrapping up
+
+You now have four ways to inspect a Uniswap trade before committing to it — a V2 quote, a V3 quote, a full `eth_call` execution check, and an `eth_simulateV1` asset-change preview — all read-only against your Chainstack Ethereum node. Compute `amountOutMin` from a fresh quote and your slippage tolerance, confirm the swap with a simulation, and only then sign and broadcast the real transaction.
