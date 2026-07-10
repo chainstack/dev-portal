@@ -1,9 +1,9 @@
 ---
 title: "Migrate Sui from JSON-RPC to gRPC"
-description: "Sui Foundation shuts down its public JSON-RPC endpoints on Jul 31, 2026. Map each JSON-RPC method to its gRPC or GraphQL replacement and keep your Sui app running on Chainstack."
+description: "Sui Foundation shuts down its public JSON-RPC endpoints on Jul 31, 2026. Migrate call by call to gRPC on Chainstack, where JSON-RPC and gRPC run on the same node and JSON-RPC keeps working."
 ---
 
-Sui Foundation is shutting down its **public** JSON-RPC endpoints. Migrate each call to the Sui gRPC API (backends, indexers, streaming) or GraphQL RPC (frontends, analytics, historical queries). Your Chainstack Sui endpoint serves JSON-RPC and gRPC on the **same node**, so you can migrate call by call without switching providers or re-syncing.
+Sui Foundation is shutting down its **public** JSON-RPC endpoints. On Chainstack, your Sui node serves JSON-RPC and gRPC on the **same endpoint**, so you migrate call by call — keep using JSON-RPC while you port each call to gRPC, with no provider switch and no re-sync.
 
 <Warning>
   Sui Foundation's public JSON-RPC endpoints (`fullnode.mainnet.sui.io`, `fullnode.testnet.sui.io`) shut down on this schedule:
@@ -21,11 +21,12 @@ Only Sui Foundation's **public good** JSON-RPC endpoints are being turned off. J
 
 The reason to migrate anyway is that gRPC is the interface Sui invests in going forward. gRPC uses HTTP/2 and Protocol Buffers for binary serialization, which makes payloads smaller and adds server-side streaming — you subscribe to new checkpoints instead of polling for them.
 
-Pick your target by workload:
+On Chainstack, the migration is **JSON-RPC → gRPC**. Chainstack serves Sui over JSON-RPC and gRPC — not GraphQL RPC — so:
 
-- gRPC — backend systems, indexers, typed clients, low-latency lookups, transaction submission, and streaming subscriptions.
-- GraphQL RPC — frontends, dynamic-language clients, and flexible filtered historical queries.
-- Archival store — deep historical reads across the full ledger from genesis, beyond a full node's retention window.
+- Move performance-sensitive and streaming workloads to **gRPC** — backends, indexers, typed clients, low-latency lookups, transaction submission, and checkpoint streaming.
+- Keep everything else on **JSON-RPC**. It stays up on your Chainstack endpoint, and methods that have no gRPC equivalent (event and transaction-block queries, and so on) keep working over it — you do not have to move them.
+
+Sui also offers **GraphQL RPC** (for frontends and flexible historical queries) and an **archival store** (for deep history beyond a full node's retention window) on its own infrastructure. Chainstack does not serve these — if you specifically need GraphQL, query Sui's GraphQL service directly.
 
 ## Chainstack Sui endpoints
 
@@ -40,7 +41,7 @@ Testnet uses the `sui-testnet.core.chainstack.com` host in the same format. Both
 
 ## Method mapping
 
-Sui's gRPC API is organized into services under `sui.rpc.v2`. Most read and write JSON-RPC methods map directly to a gRPC call; a set of query and metrics methods move to GraphQL only. The tables below list the replacement for each common JSON-RPC method.
+Sui's gRPC API is organized into services under `sui.rpc.v2`. Most read and write JSON-RPC methods map directly to a gRPC call. A handful of query and metrics methods have no gRPC equivalent — on Chainstack, most of those keep working over JSON-RPC, and a few are not served at all. The tables below give the path for each common JSON-RPC method.
 
 ### Maps to gRPC
 
@@ -72,23 +73,30 @@ Sui's gRPC API is organized into services under `sui.rpc.v2`. Most read and writ
 | `suix_resolveNameServiceAddress` | `NameService/LookupName` |
 | `suix_resolveNameServiceNames` | `NameService/ReverseLookupName` |
 
-### Moves to GraphQL only
+### No gRPC equivalent — keep on JSON-RPC
 
-These methods have no gRPC equivalent — use GraphQL RPC (or an indexer for the metrics methods).
+These methods have no gRPC equivalent, but they remain available on your Chainstack JSON-RPC endpoint, which stays up. Keep calling them over JSON-RPC — you do not need GraphQL for them. The last column names Sui's GraphQL equivalent in case you move that workload to Sui's GraphQL service, which Chainstack does not host.
 
-| JSON-RPC method | Replacement |
+| JSON-RPC method | On Chainstack | Sui GraphQL equivalent |
+| --- | --- | --- |
+| `suix_queryTransactionBlocks` | Keep on JSON-RPC | `transactions` query |
+| `suix_queryEvents` | Keep on JSON-RPC | `events` query |
+| `sui_getCheckpoints` | Keep on JSON-RPC | `checkpoints` query |
+| `suix_getStakes`, `suix_getStakesByIds` | Keep on JSON-RPC | `address.stakedSuis` query |
+| `suix_getValidatorsApy` | Keep on JSON-RPC | Compute client-side from validator pool exchange rates |
+| `suix_subscribeEvent`, `suix_subscribeTransaction` | Keep on JSON-RPC (WebSocket) | `events` query (poll), or gRPC `SubscriptionService/SubscribeCheckpoints` and filter client-side |
+
+### Not served by Chainstack
+
+A few JSON-RPC methods are neither available on Chainstack nor have a gRPC equivalent. Sui provides these through GraphQL RPC or an indexer — both hosted outside Chainstack.
+
+| JSON-RPC method | Where to get it |
 | --- | --- |
-| `suix_queryTransactionBlocks` | `transactions` GraphQL query |
-| `suix_queryEvents` | `events` GraphQL query |
-| `sui_subscribeEvent`, `sui_subscribeTransaction` | `events` GraphQL query, or gRPC `SubscriptionService/SubscribeCheckpoints` and filter client-side |
-| `sui_getCheckpoints` | `checkpoints` GraphQL query |
-| `suix_getEpochs` | `epochs` GraphQL query |
-| `suix_getStakes` | `address.stakedSuis` GraphQL query |
-| `suix_getValidatorsApy` | No canonical replacement — compute client-side from validator pool exchange rates |
-| `suix_getNetworkMetrics`, `suix_getAddressMetrics`, `suix_getMoveCallMetrics` | Use an indexer |
+| `suix_getEpochs` | Sui GraphQL `epochs` query. For the current epoch only, use gRPC `LedgerService/GetEpoch` or `suix_getLatestSuiSystemState` on Chainstack. |
+| `suix_getNetworkMetrics`, `suix_getAddressMetrics`, `suix_getMoveCallMetrics` | Run an indexer |
 
 <Note>
-  Real-time event subscriptions change shape. gRPC streaming exposes only `SubscribeCheckpoints`, not per-event subscriptions. For event-level streams, query the `events` GraphQL endpoint on an interval, or subscribe to checkpoints over gRPC and filter events client-side.
+  Real-time event subscriptions have two paths on Chainstack. Keep using `suix_subscribeEvent` over the JSON-RPC WebSocket endpoint, or subscribe to checkpoints over gRPC with `SubscriptionService/SubscribeCheckpoints` and filter events client-side. gRPC streaming exposes only `SubscribeCheckpoints`, not per-event subscriptions.
 </Note>
 
 ## gRPC quickstart
