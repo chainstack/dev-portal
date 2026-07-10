@@ -1,0 +1,80 @@
+---
+title: "Sui gRPC endpoint"
+description: "The Chainstack Sui endpoint serves JSON-RPC and gRPC on the same node, with deep checkpoint retention and x-token authentication. Migrate off Sui's public JSON-RPC without switching providers."
+---
+
+The Chainstack Sui endpoint serves both JSON-RPC and gRPC on the **same node**, so you can migrate off Sui Foundation's public JSON-RPC — [shutting down Jul 31, 2026](/docs/sui-migrate-json-rpc-to-grpc) — without re-syncing or switching providers. Keep calling JSON-RPC while you port your code, then move each call to gRPC on the same endpoint.
+
+## What you get
+
+- One node, both interfaces — JSON-RPC over HTTPS and native gRPC over HTTP/2, from a single Chainstack Sui node.
+- Deep checkpoint retention — tens of millions of checkpoints of history for point lookups and backfills.
+- Server reflection enabled on gRPC — explore services and call methods with grpcurl, no proto compilation needed.
+- `x-token` authentication on gRPC and API-key or basic auth on JSON-RPC.
+
+## Endpoints
+
+Find your endpoint and token on Chainstack under your Sui node's **Access and credentials** tab.
+
+| Interface | Endpoint | Authentication |
+| --- | --- | --- |
+| JSON-RPC (HTTPS) | `https://sui-mainnet.core.chainstack.com/YOUR_KEY` | API key in URL |
+| JSON-RPC (HTTPS, basic auth) | `https://sui-mainnet.core.chainstack.com` | username and password |
+| gRPC | `sui-mainnet.core.chainstack.com:443` | `x-token` metadata header |
+
+Testnet uses the `sui-testnet.core.chainstack.com` host in the same format.
+
+## Checkpoint retention
+
+A Sui full node serves a moving window of recent checkpoints rather than the full ledger from genesis. Query the current window with `GetServiceInfo`, which reports the tip (`checkpointHeight`) and the oldest checkpoint the node still holds (`lowestAvailableCheckpoint`):
+
+```bash
+grpcurl -H "x-token: YOUR_X_TOKEN" \
+  sui-mainnet.core.chainstack.com:443 \
+  sui.rpc.v2.LedgerService/GetServiceInfo
+```
+
+```json
+{
+  "chain": "mainnet",
+  "epoch": "1184",
+  "checkpointHeight": "296723264",
+  "lowestAvailableCheckpoint": "253124671",
+  "server": "sui-node/1.74.1-8fc60f1fa966"
+}
+```
+
+In this snapshot from Jul 10, 2026, the node served checkpoints from 253,124,671 to 296,723,264 — about 43.6M checkpoints of history. The window advances as the chain grows; check `lowestAvailableCheckpoint` at runtime for the current floor. For reads older than the window, query an archival store.
+
+## Verify your endpoint
+
+<CodeGroup>
+  ```bash JSON-RPC
+  curl --request POST \
+    --url https://sui-mainnet.core.chainstack.com/YOUR_KEY \
+    --header 'Content-Type: application/json' \
+    --data '{
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "sui_getLatestCheckpointSequenceNumber",
+      "params": []
+    }'
+  ```
+
+  ```bash gRPC
+  grpcurl -H "x-token: YOUR_X_TOKEN" \
+    sui-mainnet.core.chainstack.com:443 \
+    list
+  ```
+</CodeGroup>
+
+The gRPC list returns the available `sui.rpc.v2` services: `LedgerService`, `StateService`, `TransactionExecutionService`, `SubscriptionService`, `MovePackageService`, and `NameService`.
+
+<Info>
+  The official Sui TypeScript SDK (`@mysten/sui`) uses gRPC-Web over HTTPS, which Chainstack Sui endpoints do not serve yet — those requests return HTTP 415. Until gRPC-Web is supported, use native gRPC (Node.js `@grpc/grpc-js`, Python, Go, or grpcurl), or keep using your Chainstack JSON-RPC endpoint, which continues to work.
+</Info>
+
+## Next steps
+
+- [Migrate Sui from JSON-RPC to gRPC](/docs/sui-migrate-json-rpc-to-grpc) — call-by-call method mapping and quickstart.
+- [Sui tooling](/docs/sui-tooling) — SDKs and per-language connection code.

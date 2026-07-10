@@ -1,13 +1,116 @@
 ---
 title: "Sui tooling"
-description: "Sui blockchain development tools guide. Use TypeScript SDK, Rust SDK, Python pysui, Go SDK, and JSON-RPC API for building Sui applications with Chainstack."
+description: "Sui blockchain development tools guide. Use gRPC, JSON-RPC, the TypeScript SDK, Rust SDK, Python pysui, and Go SDK to build Sui applications with Chainstack."
 ---
 
-Get started with a [reliable Sui RPC endpoint](https://chainstack.com/build-better-with-sui/) to use the tools below.
+Get started with a [reliable Sui RPC endpoint](https://chainstack.com/build-better-with-sui/) to use the tools below. Your Chainstack Sui node serves both gRPC and JSON-RPC on the same endpoint.
+
+<Warning>
+  Sui Foundation shuts down its public JSON-RPC endpoints in July 2026 (full deactivation Jul 31, 2026). Chainstack's own JSON-RPC endpoints keep working, but gRPC is the interface Sui invests in going forward. See [Migrate Sui from JSON-RPC to gRPC](/docs/sui-migrate-json-rpc-to-grpc) for the call-by-call mapping.
+</Warning>
+
+## gRPC API
+
+Sui nodes on Chainstack support gRPC for high-performance access. gRPC uses HTTP/2 and Protocol Buffers for binary serialization, which makes payloads smaller and adds server-side streaming — ideal for indexers, backends, and low-latency lookups. gRPC is the forward path as Sui deprecates JSON-RPC.
+
+### Endpoint and authentication
+
+Your Sui gRPC endpoint is `sui-mainnet.core.chainstack.com:443` (testnet: `sui-testnet.core.chainstack.com:443`), with TLS. Authenticate by passing your token in the `x-token` metadata header on every call. Find your endpoint and token on Chainstack under your Sui node's **Access and credentials** tab.
+
+### Explore with grpcurl
+
+Sui gRPC has server reflection enabled, so [grpcurl](https://github.com/fullstorydev/grpcurl) can list services and call methods without compiling proto files:
+
+<CodeGroup>
+  ```bash List services
+  grpcurl -H "x-token: YOUR_X_TOKEN" \
+    sui-mainnet.core.chainstack.com:443 \
+    list
+  ```
+
+  ```bash Node and chain info
+  grpcurl -H "x-token: YOUR_X_TOKEN" \
+    sui-mainnet.core.chainstack.com:443 \
+    sui.rpc.v2.LedgerService/GetServiceInfo
+  ```
+</CodeGroup>
+
+The available `sui.rpc.v2` services are `LedgerService`, `StateService`, `TransactionExecutionService`, `SubscriptionService`, `MovePackageService`, and `NameService`.
+
+### gRPC from code
+
+Generate typed stubs from [Sui's proto definitions](https://github.com/MystenLabs/sui/tree/main/crates/sui-rpc-api/proto), then attach the `x-token` metadata to every call:
+
+<CodeGroup>
+  ```python Python
+  import grpc
+
+  channel = grpc.secure_channel(
+      "sui-mainnet.core.chainstack.com:443",
+      grpc.ssl_channel_credentials(),
+  )
+  metadata = (("x-token", "YOUR_X_TOKEN"),)
+
+  # With stubs generated from Sui's protos:
+  # stub = ledger_service_pb2_grpc.LedgerServiceStub(channel)
+  # resp = stub.GetServiceInfo(
+  #     ledger_service_pb2.GetServiceInfoRequest(), metadata=metadata
+  # )
+  # print(resp.checkpoint_height)
+  ```
+
+  ```javascript Node.js
+  const grpc = require('@grpc/grpc-js');
+
+  const credentials = grpc.credentials.createSsl();
+  const metadata = new grpc.Metadata();
+  metadata.add('x-token', 'YOUR_X_TOKEN');
+
+  // With stubs generated from Sui's protos:
+  // const client = new LedgerServiceClient(
+  //   'sui-mainnet.core.chainstack.com:443', credentials);
+  // client.getServiceInfo({}, metadata, (err, resp) => {
+  //   console.log(resp.checkpointHeight);
+  // });
+  ```
+
+  ```go Go
+  package main
+
+  import (
+      "context"
+
+      "google.golang.org/grpc"
+      "google.golang.org/grpc/credentials"
+      "google.golang.org/grpc/metadata"
+  )
+
+  func main() {
+      creds := credentials.NewTLS(nil)
+      conn, err := grpc.Dial(
+          "sui-mainnet.core.chainstack.com:443",
+          grpc.WithTransportCredentials(creds),
+      )
+      if err != nil {
+          panic(err)
+      }
+      defer conn.Close()
+
+      ctx := metadata.AppendToOutgoingContext(
+          context.Background(), "x-token", "YOUR_X_TOKEN",
+      )
+      _ = ctx // pass ctx to your generated gRPC client calls
+  }
+  ```
+</CodeGroup>
+
+<Info>
+  The official Sui TypeScript SDK (`@mysten/sui`) uses gRPC-Web over HTTPS, which Chainstack Sui endpoints do not serve yet — those requests return HTTP 415. Until gRPC-Web is supported, use native gRPC (Node.js `@grpc/grpc-js`, Python, Go, or grpcurl), or keep using your Chainstack JSON-RPC endpoint.
+</Info>
 
 ## JSON-RPC API
 
-Interact with your Sui node using the [Sui JSON-RPC API](https://docs.sui.io/sui-api-ref).
+Interact with your Sui node using the [Sui JSON-RPC API](https://docs.sui.io/sui-api-ref). Chainstack's JSON-RPC endpoints keep working after Sui's public endpoints shut down, so this is a valid path while you migrate to gRPC.
 
 Use your Chainstack Sui RPC endpoint to make API calls. Example to get the latest checkpoint:
 
@@ -56,109 +159,6 @@ Use your Chainstack Sui RPC endpoint to make API calls. Example to get the lates
   print(response.json()['result'])
   ```
 </CodeGroup>
-
-## gRPC API
-
-Sui nodes on Chainstack support gRPC for high-performance access. gRPC uses HTTP/2 and Protocol Buffers for efficient binary serialization, making it ideal for streaming data and high-throughput applications.
-
-### Endpoint format
-
-Your Sui gRPC endpoint is available at:
-
-```
-sui-mainnet.core.chainstack.com:443
-sui-testnet.core.chainstack.com:443
-```
-
-### Authentication
-
-gRPC endpoints use x-token authentication. Pass your token in the request metadata:
-
-- **x-token** — your authentication token from the Chainstack console
-
-### Usage examples
-
-<CodeGroup>
-  ```bash grpcurl
-  grpcurl -H "x-token: YOUR_X_TOKEN" \
-    sui-mainnet.core.chainstack.com:443 \
-    list
-  ```
-
-  ```python Python
-  import grpc
-
-  # Create channel with TLS
-  channel = grpc.secure_channel(
-      'sui-mainnet.core.chainstack.com:443',
-      grpc.ssl_channel_credentials()
-  )
-
-  # Add x-token to metadata for all calls
-  metadata = [('x-token', 'YOUR_X_TOKEN')]
-
-  # Use the channel with your gRPC stubs
-  # Example: stub = SuiServiceStub(channel)
-  # response = stub.SomeMethod(request, metadata=metadata)
-  ```
-
-  ```javascript Node.js
-  const grpc = require('@grpc/grpc-js');
-
-  // Create credentials with TLS
-  const credentials = grpc.credentials.createSsl();
-
-  // Create channel
-  const channel = new grpc.Channel(
-    'sui-mainnet.core.chainstack.com:443',
-    credentials
-  );
-
-  // Add x-token to metadata for calls
-  const metadata = new grpc.Metadata();
-  metadata.add('x-token', 'YOUR_X_TOKEN');
-
-  // Use with your gRPC client
-  ```
-
-  ```go Go
-  package main
-
-  import (
-      "google.golang.org/grpc"
-      "google.golang.org/grpc/credentials"
-      "google.golang.org/grpc/metadata"
-      "context"
-  )
-
-  func main() {
-      // Create TLS credentials
-      creds := credentials.NewTLS(nil)
-
-      // Connect to gRPC endpoint
-      conn, err := grpc.Dial(
-          "sui-mainnet.core.chainstack.com:443",
-          grpc.WithTransportCredentials(creds),
-      )
-      if err != nil {
-          panic(err)
-      }
-      defer conn.Close()
-
-      // Add x-token to context
-      ctx := metadata.AppendToOutgoingContext(
-          context.Background(),
-          "x-token", "YOUR_X_TOKEN",
-      )
-
-      // Use ctx with your gRPC calls
-  }
-  ```
-</CodeGroup>
-
-<Info>
-  Find your gRPC endpoint and x-token in the Chainstack console under your Sui node's **Access and credentials** section.
-</Info>
 
 ## Sui TypeScript SDK
 
