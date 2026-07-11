@@ -141,19 +141,41 @@ The available `sui.rpc.v2` services are `LedgerService`, `StateService`, `Transa
 
 ## gRPC from code
 
-Native gRPC works from any language over HTTP/2 with TLS. Authenticate by attaching the `x-token` metadata header to every call. Generate typed stubs from [Sui's proto definitions](https://github.com/MystenLabs/sui/tree/main/crates/sui-rpc-api/proto), then call the service methods from the mapping tables.
+In TypeScript, use the official Sui SDK (`@mysten/sui`) with a **native gRPC transport**. The SDK's default transport is gRPC-Web, which Chainstack does not serve (it returns HTTP 415), so pass a `@protobuf-ts/grpc-transport` transport backed by `@grpc/grpc-js` and authenticate with the `x-token` metadata header. From other languages, generate stubs from [Sui's proto definitions](https://github.com/MystenLabs/sui/tree/main/crates/sui-rpc-api/proto) and attach the same `x-token` metadata.
+
+<Note>
+  Use recent client versions — `@mysten/sui` 2.16 or later and `@grpc/grpc-js` 1.14 or later. Older releases mishandle gRPC streams and produce intermittent `RST` and internal errors under load; current versions are reliable.
+</Note>
 
 <CodeGroup>
+  ```typescript TypeScript
+  // npm install @mysten/sui @protobuf-ts/grpc-transport @grpc/grpc-js
+  import { SuiGrpcClient } from '@mysten/sui/grpc';
+  import { GrpcTransport } from '@protobuf-ts/grpc-transport';
+  import { ChannelCredentials } from '@grpc/grpc-js';
+
+  const client = new SuiGrpcClient({
+    network: 'mainnet',
+    transport: new GrpcTransport({
+      host: 'sui-mainnet.core.chainstack.com:443',
+      channelCredentials: ChannelCredentials.createSsl(),
+      meta: { 'x-token': 'YOUR_X_TOKEN' },
+    }),
+  });
+
+  // High-level helpers on client.core; raw services on client.ledgerService, etc.
+  const gasPrice = await client.core.getReferenceGasPrice();
+  console.log(gasPrice.referenceGasPrice);
+  ```
+
   ```python Python
   import grpc
 
-  # Native gRPC channel over TLS
+  # Native gRPC channel over TLS; x-token metadata on every call
   channel = grpc.secure_channel(
       "sui-mainnet.core.chainstack.com:443",
       grpc.ssl_channel_credentials(),
   )
-
-  # x-token metadata is required on every call
   metadata = (("x-token", "YOUR_X_TOKEN"),)
 
   # Using stubs generated from Sui's protos, e.g. LedgerService:
@@ -164,28 +186,10 @@ Native gRPC works from any language over HTTP/2 with TLS. Authenticate by attach
   # )
   # print(resp.checkpoint_height)
   ```
-
-  ```javascript Node.js
-  const grpc = require('@grpc/grpc-js');
-
-  // Native gRPC channel over TLS
-  const credentials = grpc.credentials.createSsl();
-
-  // x-token metadata is required on every call
-  const metadata = new grpc.Metadata();
-  metadata.add('x-token', 'YOUR_X_TOKEN');
-
-  // Using stubs generated from Sui's protos, e.g. LedgerService:
-  // const client = new LedgerServiceClient(
-  //   'sui-mainnet.core.chainstack.com:443', credentials);
-  // client.getServiceInfo({}, metadata, (err, resp) => {
-  //   console.log(resp.checkpointHeight);
-  // });
-  ```
 </CodeGroup>
 
 <Info>
-  The official Sui TypeScript SDK (`@mysten/sui`) uses gRPC-Web over HTTPS, which Chainstack Sui endpoints do not serve yet — those requests return HTTP 415. Until gRPC-Web is supported, use native gRPC (Node.js `@grpc/grpc-js`, Python, Go, or grpcurl), or keep using your Chainstack JSON-RPC endpoint, which continues to work.
+  Browser apps cannot use this path yet. The SDK's browser transport is gRPC-Web, which Chainstack does not serve (HTTP 415). From the browser, call your Chainstack JSON-RPC endpoint, or proxy gRPC through your own backend.
 </Info>
 
 ## Next steps
