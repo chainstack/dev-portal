@@ -23,12 +23,10 @@ Only Sui Foundation's **public good** JSON-RPC endpoints are being turned off. J
 
 The reason to migrate anyway is that gRPC is the interface Sui invests in going forward. gRPC uses HTTP/2 and Protocol Buffers for binary serialization, which makes payloads smaller and adds server-side streaming — you subscribe to new checkpoints instead of polling for them.
 
-On Chainstack, the migration is **JSON-RPC → gRPC**. Chainstack serves Sui over JSON-RPC and gRPC — not GraphQL RPC — so:
+On Chainstack, the migration is **JSON-RPC → gRPC**, and both run on the same node:
 
 - Move performance-sensitive and streaming workloads to **gRPC** — backends, indexers, typed clients, low-latency lookups, transaction submission, and checkpoint streaming.
 - Keep everything else on **JSON-RPC**. It stays up on your Chainstack endpoint, and methods that have no gRPC equivalent (event and transaction-block queries, and so on) keep working over it — you do not have to move them.
-
-Sui also offers **GraphQL RPC** (for frontends and flexible historical queries) and an **archival store** (for deep history beyond a full node's retention window) on its own infrastructure. Chainstack does not serve these — if you specifically need GraphQL, query Sui's GraphQL service directly.
 
 ## Chainstack Sui endpoints
 
@@ -77,16 +75,13 @@ Sui's gRPC API is organized into services under `sui.rpc.v2`. Most read and writ
 
 ### No gRPC equivalent — keep on JSON-RPC
 
-These methods have no gRPC equivalent, but they keep working on your Chainstack JSON-RPC endpoint — Sui Foundation is retiring its own public endpoints, not removing JSON-RPC from the node software, so Chainstack's JSON-RPC is unaffected. Keep calling these over JSON-RPC; you do not need GraphQL for them. The last column names Sui's GraphQL equivalent in case you move that workload to Sui's GraphQL service, which Chainstack does not host.
+These methods have no gRPC equivalent, but they keep working on your Chainstack JSON-RPC endpoint — Sui Foundation is retiring its own public endpoints, not removing JSON-RPC from the node software, so Chainstack's JSON-RPC is unaffected. Keep calling them over JSON-RPC:
 
-| JSON-RPC method | On Chainstack | Sui GraphQL equivalent |
-| --- | --- | --- |
-| `suix_queryTransactionBlocks` | Keep on JSON-RPC | `transactions` query |
-| `suix_queryEvents` | Keep on JSON-RPC | `events` query |
-| `sui_getCheckpoints` | Keep on JSON-RPC | `checkpoints` query |
-| `suix_getStakes`, `suix_getStakesByIds` | Keep on JSON-RPC | `address.stakedSuis` query |
-| `suix_getValidatorsApy` | Keep on JSON-RPC | Compute client-side from validator pool exchange rates |
-| `suix_subscribeEvent`, `suix_subscribeTransaction` | Keep on JSON-RPC (WebSocket) | `events` query (poll), or gRPC `SubscriptionService/SubscribeCheckpoints` and filter client-side |
+- `suix_queryTransactionBlocks` and `suix_queryEvents`
+- `sui_getCheckpoints`
+- `suix_getStakes` and `suix_getStakesByIds`
+- `suix_getValidatorsApy`
+- `suix_subscribeEvent` and `suix_subscribeTransaction`, over the JSON-RPC WebSocket endpoint
 
 ### Indexer and analytics methods
 
@@ -94,7 +89,7 @@ A few JSON-RPC methods return aggregated analytics that come from Sui's indexer 
 
 | JSON-RPC method | What to use instead |
 | --- | --- |
-| `suix_getEpochs` | For current epoch data — validators, committee, gas price — call `suix_getLatestSuiSystemState` (JSON-RPC) or `LedgerService/GetEpoch` (gRPC) on Chainstack. For historical epoch enumeration, query Sui's GraphQL `epochs`. |
+| `suix_getEpochs` | For epoch data — validators, committee, gas price — call `suix_getLatestSuiSystemState` (JSON-RPC) or `LedgerService/GetEpoch` (gRPC) on Chainstack. Enumerating past epochs is an indexer job, not a node call. |
 | `suix_getNetworkMetrics`, `suix_getAddressMetrics`, `suix_getMoveCallMetrics` | Network analytics (TPS, active addresses, popular calls). Derive them by indexing your Chainstack node's checkpoint stream (gRPC `SubscriptionService/SubscribeCheckpoints`) into your own store, or use a Sui analytics provider. Most applications do not need these. |
 
 <Note>
