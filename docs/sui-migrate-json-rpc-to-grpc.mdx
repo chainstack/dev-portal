@@ -1,0 +1,203 @@
+---
+title: "Migrate Sui from JSON-RPC to gRPC"
+description: "Sui Foundation shuts down its public JSON-RPC endpoints on Jul 31, 2026. Migrate call by call to gRPC on Chainstack, where JSON-RPC and gRPC run on the same node and JSON-RPC keeps working."
+---
+
+Sui Foundation is shutting down its **public** JSON-RPC endpoints. On Chainstack, your Sui node serves JSON-RPC and gRPC on the **same endpoint**, so you migrate call by call — keep using JSON-RPC while you port each call to gRPC, with no provider switch and no re-sync.
+
+<Warning>
+  Apps calling Sui Foundation's public endpoints `fullnode.mainnet.sui.io` or `fullnode.testnet.sui.io` stop working after Jul 31, 2026.
+</Warning>
+
+Sui Foundation retires its public JSON-RPC in stages:
+
+| Milestone | Date |
+| --- | --- |
+| Testnet public JSON-RPC off | Week of Jul 6, 2026 |
+| Mainnet public JSON-RPC off | Week of Jul 20, 2026 |
+| Public JSON-RPC fully retired | Jul 31, 2026 |
+
+## What is actually being deprecated
+
+Only Sui Foundation's **public good** JSON-RPC endpoints are being turned off. JSON-RPC is deprecated in the `sui-node` software but not removed — node operators can keep JSON-RPC serving. Your **Chainstack Sui JSON-RPC endpoint keeps working**, so the deadline is not a hard cutover for Chainstack customers: you can keep calling JSON-RPC while you port your code to gRPC on the same endpoint.
+
+The reason to migrate anyway is that gRPC is the interface Sui invests in going forward. gRPC uses HTTP/2 and Protocol Buffers for binary serialization, which makes payloads smaller and adds server-side streaming — you subscribe to new checkpoints instead of polling for them.
+
+On Chainstack, the migration is **JSON-RPC → gRPC**, and both run on the same node:
+
+- Move performance-sensitive and streaming workloads to **gRPC** — backends, indexers, typed clients, low-latency lookups, transaction submission, and checkpoint streaming.
+- Keep everything else on **JSON-RPC**. It stays up on your Chainstack endpoint, and methods that have no gRPC equivalent (event and transaction-block queries, and so on) keep working over it — you do not have to move them.
+
+## Chainstack Sui endpoints
+
+Both interfaces are on the same node. Copy your JSON-RPC endpoint (shown below as `YOUR_CHAINSTACK_ENDPOINT`, with its auth token built in) from Chainstack — see [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials). The gRPC endpoint is the host and port below.
+
+| Interface | Endpoint | Authentication |
+| --- | --- | --- |
+| JSON-RPC (HTTPS) | `YOUR_CHAINSTACK_ENDPOINT` | auth token or basic auth, built into the endpoint |
+| gRPC | `sui-mainnet.core.chainstack.com:443` | `x-token` metadata header |
+
+Testnet gRPC is `sui-testnet.core.chainstack.com:443`. For every authentication option, see [Authentication methods available on Chainstack](/docs/authentication-methods-for-different-scenarios). See [Sui tooling](/docs/sui-tooling) for SDK setup and per-language connection code.
+
+## Method mapping
+
+Sui's gRPC API is organized into services under `sui.rpc.v2`. Most read and write JSON-RPC methods map directly to a gRPC call. A handful of query methods have no gRPC equivalent but keep working on Chainstack's JSON-RPC; a few analytics methods come from Sui's indexer and no full node serves them. The tables below give the path for each common JSON-RPC method.
+
+### Maps to gRPC
+
+| JSON-RPC method | gRPC service and method |
+| --- | --- |
+| `sui_getChainIdentifier` | `LedgerService/GetServiceInfo` (read `chainId`) |
+| `sui_getLatestCheckpointSequenceNumber` | `LedgerService/GetServiceInfo` (read `checkpointHeight`) |
+| `sui_getCheckpoint` | `LedgerService/GetCheckpoint` |
+| `sui_getObject` | `LedgerService/GetObject` |
+| `sui_multiGetObjects` | `LedgerService/BatchGetObjects` |
+| `sui_getTransactionBlock` | `LedgerService/GetTransaction` |
+| `sui_multiGetTransactionBlocks` | `LedgerService/BatchGetTransactions` |
+| `suix_getLatestSuiSystemState` | `LedgerService/GetEpoch` (system state in read mask) |
+| `suix_getCommitteeInfo` | `LedgerService/GetEpoch` (committee in read mask) |
+| `sui_getProtocolConfig` | `LedgerService/GetEpoch` (protocol config in read mask) |
+| `suix_getBalance` | `StateService/GetBalance` |
+| `suix_getAllBalances` | `StateService/ListBalances` |
+| `suix_getCoins` | `StateService/ListOwnedObjects` (filter `type: 0x2::coin::Coin`) |
+| `suix_getCoinMetadata` | `StateService/GetCoinInfo` |
+| `suix_getTotalSupply` | `StateService/GetCoinInfo` |
+| `suix_getOwnedObjects` | `StateService/ListOwnedObjects` |
+| `suix_getDynamicFields` | `StateService/ListDynamicFields` |
+| `sui_dryRunTransactionBlock` | `TransactionExecutionService/SimulateTransaction` |
+| `sui_devInspectTransactionBlock` | `TransactionExecutionService/SimulateTransaction` (`checksEnabled: false`) |
+| `sui_executeTransactionBlock` | `TransactionExecutionService/ExecuteTransaction` |
+| `sui_getNormalizedMoveModule` | `MovePackageService/GetPackage` |
+| `sui_getNormalizedMoveFunction` | `MovePackageService/GetFunction` |
+| `sui_getNormalizedMoveStruct` | `MovePackageService/GetDatatype` |
+| `suix_resolveNameServiceAddress` | `NameService/LookupName` |
+| `suix_resolveNameServiceNames` | `NameService/ReverseLookupName` |
+
+### No gRPC equivalent — keep on JSON-RPC
+
+These methods have no gRPC equivalent, but they keep working on your Chainstack JSON-RPC endpoint — Sui Foundation is retiring its own public endpoints, not removing JSON-RPC from the node software, so Chainstack's JSON-RPC is unaffected. Keep calling them over JSON-RPC:
+
+- `suix_queryTransactionBlocks` and `suix_queryEvents`
+- `sui_getCheckpoints`
+- `suix_getStakes` and `suix_getStakesByIds`
+- `suix_getValidatorsApy`
+- `suix_subscribeEvent` and `suix_subscribeTransaction`, over the JSON-RPC WebSocket endpoint
+
+### Indexer and analytics methods
+
+A few JSON-RPC methods return aggregated analytics that come from Sui's indexer layer, not from a full node. A full node — Sui's or Chainstack's — does not serve them over JSON-RPC or gRPC (calling them on Chainstack returns `-32601 Method not found`). Get the underlying data these way:
+
+| JSON-RPC method | What to use instead |
+| --- | --- |
+| `suix_getEpochs` | For epoch data — validators, committee, gas price — call `suix_getLatestSuiSystemState` (JSON-RPC) or `LedgerService/GetEpoch` (gRPC) on Chainstack. Enumerating past epochs is an indexer job, not a node call. |
+| `suix_getNetworkMetrics`, `suix_getAddressMetrics`, `suix_getMoveCallMetrics` | Network analytics (TPS, active addresses, popular calls). Derive them by indexing your Chainstack node's checkpoint stream (gRPC `SubscriptionService/SubscribeCheckpoints`) into your own store, or use a Sui analytics provider. Most applications do not need these. |
+
+<Note>
+  gRPC streaming exposes only `SubscribeCheckpoints`, not per-event subscriptions. For event streams, keep `suix_subscribeEvent` on the JSON-RPC WebSocket, or subscribe to checkpoints over gRPC and filter client-side.
+</Note>
+
+## gRPC quickstart
+
+The fastest way to confirm your endpoint and explore the API is [grpcurl](https://github.com/fullstorydev/grpcurl). Sui gRPC has server reflection enabled, so you can list services and call methods without compiling proto files.
+
+<CodeGroup>
+  ```bash List services
+  grpcurl -H "x-token: YOUR_X_TOKEN" \
+    sui-mainnet.core.chainstack.com:443 \
+    list
+  ```
+
+  ```bash Node and chain info
+  grpcurl -H "x-token: YOUR_X_TOKEN" \
+    sui-mainnet.core.chainstack.com:443 \
+    sui.rpc.v2.LedgerService/GetServiceInfo
+  ```
+
+  ```bash Get a checkpoint
+  grpcurl -H "x-token: YOUR_X_TOKEN" \
+    -d '{"sequence_number": 296000000}' \
+    sui-mainnet.core.chainstack.com:443 \
+    sui.rpc.v2.LedgerService/GetCheckpoint
+  ```
+</CodeGroup>
+
+`GetServiceInfo` returns the chain, current epoch, and the node's checkpoint range:
+
+```json
+{
+  "chainId": "4btiuiMPvEENsttpZC7CZ53DruC3MAgfznDbASZ7DR6S",
+  "chain": "mainnet",
+  "epoch": "1184",
+  "checkpointHeight": "296723264",
+  "lowestAvailableCheckpoint": "253124671",
+  "server": "sui-node/1.74.1-8fc60f1fa966"
+}
+```
+
+To inspect any service's methods and message shapes, describe it:
+
+```bash
+grpcurl -H "x-token: YOUR_X_TOKEN" \
+  sui-mainnet.core.chainstack.com:443 \
+  describe sui.rpc.v2.LedgerService
+```
+
+## gRPC from code
+
+In TypeScript, use the official Sui SDK (`@mysten/sui`) with a **native gRPC transport**. The SDK's default transport is gRPC-Web, which Chainstack does not serve (it returns HTTP 415), so pass a `@protobuf-ts/grpc-transport` transport backed by `@grpc/grpc-js` and authenticate with the `x-token` metadata header. From other languages, generate stubs from [Sui's proto definitions](https://github.com/MystenLabs/sui/tree/main/crates/sui-rpc-api/proto) and attach the same `x-token` metadata.
+
+<Note>
+  Use recent client versions — `@mysten/sui` 2.16 or later and `@grpc/grpc-js` 1.14 or later. Older releases mishandle gRPC streams and produce intermittent `RST` and internal errors under load; current versions are reliable.
+</Note>
+
+<CodeGroup>
+  ```typescript TypeScript
+  // npm install @mysten/sui @protobuf-ts/grpc-transport @grpc/grpc-js
+  import { SuiGrpcClient } from '@mysten/sui/grpc';
+  import { GrpcTransport } from '@protobuf-ts/grpc-transport';
+  import { ChannelCredentials } from '@grpc/grpc-js';
+
+  const client = new SuiGrpcClient({
+    network: 'mainnet',
+    transport: new GrpcTransport({
+      host: 'sui-mainnet.core.chainstack.com:443',
+      channelCredentials: ChannelCredentials.createSsl(),
+      meta: { 'x-token': 'YOUR_X_TOKEN' },
+    }),
+  });
+
+  // High-level helpers on client.core; raw services on client.ledgerService, etc.
+  const gasPrice = await client.core.getReferenceGasPrice();
+  console.log(gasPrice.referenceGasPrice);
+  ```
+
+  ```python Python
+  import grpc
+
+  # Native gRPC channel over TLS; x-token metadata on every call
+  channel = grpc.secure_channel(
+      "sui-mainnet.core.chainstack.com:443",
+      grpc.ssl_channel_credentials(),
+  )
+  metadata = (("x-token", "YOUR_X_TOKEN"),)
+
+  # Using stubs generated from Sui's protos, e.g. LedgerService:
+  # from sui.rpc.v2 import ledger_service_pb2, ledger_service_pb2_grpc
+  # stub = ledger_service_pb2_grpc.LedgerServiceStub(channel)
+  # resp = stub.GetServiceInfo(
+  #     ledger_service_pb2.GetServiceInfoRequest(), metadata=metadata
+  # )
+  # print(resp.checkpoint_height)
+  ```
+</CodeGroup>
+
+<Info>
+  This path is server-side only. The SDK's browser transport is gRPC-Web, which Chainstack does not serve yet (HTTP 415) — from the browser, use JSON-RPC or proxy gRPC through your backend.
+</Info>
+
+## Next steps
+
+- [Sui tooling](/docs/sui-tooling) — SDKs, JSON-RPC, and gRPC connection setup.
+- [Sui gRPC endpoint](/docs/sui-grpc-endpoint) — checkpoint retention, authentication, and how Chainstack fronts both interfaces on one node.
+- [Sui gRPC overview](https://docs.sui.io/concepts/grpc-overview) — Sui's own gRPC reference.
+- [Sui JSON-RPC migration guide](https://sdk.mystenlabs.com/sui/migrations/sui-2.0/json-rpc-migration) — the upstream mapping and SDK migration notes.
