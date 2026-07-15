@@ -1,0 +1,122 @@
+---
+title: "Migrating from Grove to Chainstack"
+sidebarTitle: "Grove"
+description: Migration guide from Grove (grove.city) to Chainstack, covering the endpoint URL swap, authentication, and chain mapping.
+---
+
+**TLDR:**
+* Grove — the RPC gateway built by Pocket Network — has wound down, and its `rpc.grove.city` endpoints are retired.
+* Grove's traffic moved to Pocket Network's free public endpoints in Nov 2025; Grove the company closed in Jul 2026.
+* Migrating to Chainstack is a one-line change: swap the endpoint URL. The JSON-RPC methods and responses are identical.
+* The one code difference is authentication — a Chainstack endpoint carries an auth token, where Grove endpoints were open.
+
+## What happened to Grove
+
+Grove ran the Grove Portal, the first gateway for Pocket Network, serving RPC across 60+ chains. It has now wound down in two stages:
+
+- In Nov 2025, Grove's public and paid RPC traffic moved to Pocket Network's free public endpoints at `api.pocket.network`, and Grove stepped away from operating the gateway.
+- In Jul 2026, Grove the company [closed entirely](https://grove.city/). The `rpc.grove.city` and `docs.grove.city` domains no longer resolve.
+
+Pocket Network itself continues under the Pocket Network Foundation, so the `api.pocket.network` public endpoints still work. They are free, shared, and rate-limited, with no SLA — fine for prototyping, but a production app wants dedicated capacity, higher throughput, and support.
+
+## Who should migrate
+
+- Apps still calling `https://<chain>.rpc.grove.city/v1/<app-id>` — these endpoints are offline, so the calls now fail.
+- Apps that followed Grove's traffic to the free Pocket public endpoints — these still respond, but Chainstack adds dedicated capacity, higher rate limits, archive and debug/trace access, and support.
+
+## Change your endpoint URL
+
+Migrating is a one-line change — point your client at a Chainstack node endpoint instead of your old Grove endpoint. Everything else in your code stays the same, because both speak standard JSON-RPC.
+
+| Provider | Endpoint (Ethereum example) |
+| --- | --- |
+| Grove (retired) | `https://eth.rpc.grove.city/v1/YOUR_APP_ID` |
+| Chainstack | `YOUR_CHAINSTACK_ENDPOINT` |
+
+The same swap applies in your application code:
+
+<CodeGroup>
+```javascript ethers.js
+const { ethers } = require("ethers");
+
+// Before (Grove — retired):
+// const provider = new ethers.JsonRpcProvider("https://eth.rpc.grove.city/v1/YOUR_APP_ID");
+
+// After (Chainstack):
+const provider = new ethers.JsonRpcProvider("YOUR_CHAINSTACK_ENDPOINT");
+
+const block = await provider.getBlockNumber();
+console.log(`Current block: ${block}`);
+```
+
+```python web3.py
+from web3 import Web3
+
+# Before (Grove — retired):
+# web3 = Web3(Web3.HTTPProvider("https://eth.rpc.grove.city/v1/YOUR_APP_ID"))
+
+# After (Chainstack):
+web3 = Web3(Web3.HTTPProvider("YOUR_CHAINSTACK_ENDPOINT"))
+
+print(f"Current block: {web3.eth.block_number}")
+```
+</CodeGroup>
+
+Non-EVM chains migrate the same way. On Solana, for example, you point your client at your Chainstack Solana endpoint and keep calling the standard Solana JSON-RPC methods.
+
+## Authentication is the one difference
+
+Grove endpoints were open — no key, or an optional `app-id` in the URL path. A Chainstack node authenticates every request. The default method is an auth token already embedded in the endpoint URL, so you copy the full HTTPS endpoint from Chainstack and use it as-is — no code changes beyond the URL. For basic auth, the platform API key, or the gRPC x-token, see [Authentication methods](/docs/authentication-methods-for-different-scenarios).
+
+## Map your chains
+
+Chainstack supports the chains most Grove users run. Match the chain from your Grove endpoint subdomain to the Chainstack protocol:
+
+| Grove subdomain | Chainstack protocol |
+| --- | --- |
+| `eth` | Ethereum |
+| `base` | Base |
+| `arb-one` | Arbitrum |
+| `op` | Optimism |
+| `poly` | Polygon |
+| `bsc` | BNB Smart Chain |
+| `avax` | Avalanche |
+| `gnosis` | Gnosis Chain |
+| `linea` | Linea |
+| `scroll` | Scroll |
+| `sonic` | Sonic |
+| `opbnb` | opBNB |
+| `harmony` | Harmony |
+| `kaia` | Kaia |
+| `solana` | Solana |
+| `sui` | Sui |
+| `tron` | TRON |
+
+For the authoritative, current list of supported chains and networks, see [Protocols and networks](/docs/protocols-networks).
+
+## Get your Chainstack endpoint
+
+<Steps>
+<Step title="Create a Chainstack account">
+[Sign up](https://console.chainstack.com/) with your GitHub, X, Google, or Microsoft account. No credit card is required to start.
+</Step>
+<Step title="Deploy a node">
+Create a project, then deploy a [Global Node](/docs/global-elastic-node) for your protocol and network. A Global Node is the load-balanced default that fits most workloads; for isolated infrastructure or debug and trace access, deploy a [Dedicated Node](/docs/dedicated-node).
+</Step>
+<Step title="Copy the endpoint">
+Open the node's **Access and credentials** tab and copy the HTTPS endpoint — it already includes your auth token. See [node access details](/docs/manage-your-node#view-node-access-and-credentials).
+</Step>
+<Step title="Swap the URL and test">
+Replace the Grove URL in your app with the Chainstack endpoint, then send a test request to confirm you get a response.
+</Step>
+</Steps>
+
+<Check>
+Your migration is complete when a test call to your Chainstack endpoint returns the same result your Grove endpoint did for the same chain.
+</Check>
+
+## Next steps
+
+- [Deploy your first node](/docs/manage-your-node)
+- [Authentication methods](/docs/authentication-methods-for-different-scenarios)
+- [Protocols and networks](/docs/protocols-networks)
