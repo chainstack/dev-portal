@@ -1,0 +1,84 @@
+---
+title: "eth_sendRawTransactionSync | Robinhood"
+openapi: /openapi/robinhood_node_api/execute_transactions/eth_sendRawTransactionSync.json POST /
+description: "Robinhood Chain API method that submits a signed transaction and blocks until the transaction receipt is returned or the timeout expires."
+---
+
+Robinhood Chain API method `eth_sendRawTransactionSync` allows for the submission of a pre-signed transaction to Robinhood Chain and waits synchronously for the transaction receipt or a configurable timeout. This method reduces transaction submission latency by combining transaction submission and receipt retrieval into a single RPC call, based on [EIP-7966](https://eips.ethereum.org/EIPS/eip-7966).
+
+<Visibility for="humans">
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+</Visibility>
+
+## Parameters
+
+* `signedTransactionData` — the signed transaction data in hexadecimal format. This data includes the transaction details such as nonce, gas price, gas limit, to address, value, data, and the signature.
+* `timeout` (optional) — maximum time to wait for the transaction receipt, in milliseconds, passed as a `0x`-prefixed hex-encoded quantity, for example `0x1388` for 5000 ms. If omitted, the node's default applies (20 seconds in the standard Nitro configuration). Requests above the node's maximum (60 seconds by default) are silently capped to the maximum rather than rejected.
+
+<Note>
+Although [EIP-7966](https://eips.ethereum.org/EIPS/eip-7966) defines `timeout` as a plain integer, Robinhood Chain Nitro—a [go-ethereum](https://github.com/OffchainLabs/go-ethereum) fork—types it as a hex-encoded quantity (`hexutil.Uint64`), so you must pass it as a `0x`-prefixed hex string. Plain integers (`5000`) and non-hex strings (`"5000"`) are rejected with an `invalid argument 1` error.
+</Note>
+
+## Response
+
+* `result` — the complete transaction receipt object, the same structure returned by eth_getTransactionReceipt: transaction hash, block information, gas usage, contract address (if applicable), logs, and status. If the timeout elapses before the transaction is mined, the call returns an error instead of a receipt.
+
+Alongside the standard receipt fields, Robinhood Chain includes:
+
+* `gasUsedForL1` — the amount of gas spent on parent chain (L1) calldata, in units of child chain gas.
+* `l1BlockNumber` — the block number of the first non-Robinhood Chain ancestor chain, usable for `block.number` calls.
+* `timeboosted` — `true` if the transaction was sequenced through the Robinhood Chain [Timeboost](https://docs.robinhood.io/how-robinhood-works/timeboost/gentle-introduction) express lane, `false` otherwise.
+
+## Use case
+
+The `eth_sendRawTransactionSync` method is particularly useful for:
+
+* High-frequency applications requiring immediate transaction confirmation feedback.
+* Layer 2 solutions with fast block times where rapid transaction throughput is critical.
+* DApps and wallets seeking to improve user experience with faster transaction confirmations.
+* Trading applications where transaction latency directly impacts performance.
+* Applications requiring stronger delivery guarantees than standard asynchronous transaction submission.
+
+## `eth_sendRawTransactionSync` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const { JsonRpcProvider } = require("ethers");
+
+const provider = new JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function call() {
+  const result = await provider.send("eth_sendRawTransactionSync", ["0x02"]);
+  console.log(result);
+}
+
+call();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+result = web3.provider.make_request("eth_sendRawTransactionSync", ["0x02"])
+print(result)
+```
+
+```shell cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  --data '{
+    "jsonrpc": "2.0",
+    "method": "eth_sendRawTransactionSync",
+    "params": ["0x02"],
+    "id": 1
+  }'
+```
+</CodeGroup>

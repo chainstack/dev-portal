@@ -1,0 +1,142 @@
+---
+title: "debug_traceBlockByNumber | Robinhood"
+openapi: /openapi/robinhood_node_api/debug_and_trace/debug_traceBlockByNumber.json POST /
+description: "Robinhood Chain API method that traces the execution of all transactions in a block identified by its number. Chainstack Robinhood Chain reference."
+---
+
+Robinhood Chain API method that traces the execution of all transactions in a block identified by its number. This method provides detailed traces for every transaction and call in the block, including gas usage and internal call information.
+
+<Note>
+Learn how to [deploy a node](/docs/debug-and-trace-apis#robinhood) with the debug and trace API methods enabled.
+</Note>
+
+<Warning>
+This method is available for post-Nitro blocks only (block 22,207,815 and later). For pre-Nitro blocks, use `arbtrace_block` instead.
+</Warning>
+
+<Visibility for="humans">
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+</Visibility>
+
+
+## Parameters
+
+* `quantity or tag` — the block number in hex format or block tag:
+  + `latest` — the most recent block.
+  + `safe` — the block that received justification from the beacon chain.
+  + `finalized` — the block accepted as canonical by more than 2/3 of validators.
+  + `earliest` — the earliest available or genesis block.
+  + `pending` — the pending state and transactions block.
+
+* `tracer` — an object identifying the type of tracer and its configuration:
+  + `4byteTracer` — tracer that captures the function signatures and call data sizes for all functions executed during a transaction.
+  + `callTracer` — tracer that captures information on all call frames executed during a transaction.
+  + `prestateTracer` — tracer with two modes: `prestate` and `diff`, returning account states needed to execute transactions.
+
+## Response types
+
+### `4byteTracer` response
+
+* `object` — the `4byteTracer` traces object:
+  + `result` — a map of the function signature, the call data size, and how many times the function was called.
+
+### `callTracer` response
+
+* `object` — the `callTracer` traces object:
+  + `from` — the address of the sender who initiated the transaction.
+  + `gas` — the units of gas included in the transaction by the sender.
+  + `gasUsed` — the total used gas by the call, encoded as hexadecimal.
+  + `to` — the address of the recipient of the transaction if it was a transaction to an address. For contract creation transactions, this field is `null`.
+  + `input` — the optional input data sent with the transaction.
+  + `output` — the return value of the call, encoded as a hexadecimal string.
+  + `error` — an error message in case the execution failed.
+  + `revertReason` — the reason why the transaction was reverted, returned by the smart contract if any.
+  + `calls` — a list of sub-calls made by the contract during the call, each represented as a nested call frame object.
+
+### `prestateTracer` response
+
+* `object` — the `prestateTracer` traces object:
+  + `smart contract address` — the address of the smart contract associated with the result.
+    - `balance` — the balance of the contract, expressed in Wei and encoded as a hexadecimal string.
+    - `code` — the bytecode of the contract, encoded as a hexadecimal string.
+    - `nonce` — the nonce of the account associated with the contract, represented as an unsigned integer.
+    - `storage` — a map of key-value pairs representing the storage slots of the contract.
+
+## `debug_traceBlockByNumber` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "YOUR_CHAINSTACK_ENDPOINT";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const traceBlockByNumber = async (block) => {
+  const tracer = { tracer: "callTracer" };
+  const traces = await provider.send("debug_traceBlockByNumber", [block, tracer]);
+  console.log(traces);
+};
+
+traceBlockByNumber("latest");
+```
+
+```python web3.py
+from web3 import Web3
+node_url = "YOUR_CHAINSTACK_ENDPOINT"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+block = "latest"
+
+tracer = {"tracer": "callTracer"}
+block_traces = web3.provider.make_request('debug_traceBlockByNumber', [block, tracer])
+print(block_traces)
+```
+</CodeGroup>
+
+
+## Use case
+
+The `debug_traceBlockByNumber` method is useful for analyzing all transactions in a block by number. Developers can use it to calculate average gas usage across transactions, monitor smart contract activity patterns, or build block-level analytics dashboards.
+
+## `debug_traceBlockByNumber` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const { JsonRpcProvider } = require("ethers");
+
+const provider = new JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function call() {
+  const result = await provider.send("debug_traceBlockByNumber", ["0xc3007d", {"tracer": "callTracer"}]);
+  console.log(result);
+}
+
+call();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+result = web3.provider.make_request("debug_traceBlockByNumber", ["0xc3007d", {"tracer": "callTracer"}])
+print(result)
+```
+
+```shell cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  --data '{
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByNumber",
+    "params": ["0xc3007d", {"tracer": "callTracer"}],
+    "id": 1
+  }'
+```
+</CodeGroup>
