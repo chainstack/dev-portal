@@ -193,6 +193,8 @@ When updating:
 2. Regenerate dependent tables
 3. Verify changes display correctly
 
+**Node-type naming in the generated tables:** use the current product names — **Global Node** (the `global` node type), **Dedicated Node**, and **Trader Node**. Do **not** emit **Elastic** (the deprecated name for Global Node). In `protocols-networks.mdx` the **Support** column reads `Global Node, Dedicated` and the availability headers are `Global Node Mainnet Support` / `Global Node Testnet Support`.
+
 ## 13. Quality checklist
 
 Before submitting changes:

@@ -196,6 +196,8 @@ Relevant tables (updated on every master list change):
 * `nodes-clouds-regions-and-locations.mdx`
 * `protocols-networks.mdx`
 
+When regenerating the tables, use the current product node-type names — **Global Node** (the `global` node type), **Dedicated Node**, and **Trader Node**. Do **not** emit **Elastic** (the deprecated name for Global Node): in `protocols-networks.mdx` the **Support** column reads `Global Node, Dedicated` and the availability headers are `Global Node Mainnet Support` / `Global Node Testnet Support`.
+
 ### CLI commands
 
 | Command | Purpose |
