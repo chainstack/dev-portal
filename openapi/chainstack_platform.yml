@@ -1364,6 +1364,130 @@ paths:
           "$ref": "#/components/responses/ForbiddenError"
         '404':
           "$ref": "#/components/responses/NotFoundError"
+  "/v2/reporting/node-usage/":
+    get:
+      operationId: listNodeUsageV2
+      summary: List node usage
+      description: |
+        List per-node usage metrics for your organization — compute hours, GB-hours, request units, and bloXroute requests — bucketed by day or hour.
+        <br> When `date_from` and `date_to` are omitted, the report covers your organization's current metered billing period. Usage data is retained for 2 months — `date_from` cannot be earlier than the first day of the previous calendar month.
+        <br> The response is paginated at 100 rows per page and includes dataset-wide totals for the selected filters.
+        <br> Rate limit: 60 requests per minute per organization.
+      parameters:
+      - "$ref": "#/components/parameters/NodeUsageDateFrom"
+      - "$ref": "#/components/parameters/NodeUsageDateTo"
+      - "$ref": "#/components/parameters/NodeUsageNodeId"
+      - "$ref": "#/components/parameters/NodeUsageProtocol"
+      - "$ref": "#/components/parameters/NodeUsageNetwork"
+      - "$ref": "#/components/parameters/NodeUsageNodeType"
+      - "$ref": "#/components/parameters/NodeUsageGranularity"
+      - "$ref": "#/components/parameters/NodeUsageOrdering"
+      - "$ref": "#/components/parameters/Pagination"
+      tags:
+      - Node usage V2
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                - "$ref": "#/components/schemas/Pagination"
+                - type: object
+                  properties:
+                    results:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/NodeUsageV2"
+                    totals:
+                      "$ref": "#/components/schemas/NodeUsageTotalsV2"
+              examples:
+                list:
+                  value:
+                    count: 2
+                    next:
+                    previous:
+                    results:
+                    - node_id: ND-123-456-789
+                      node_name: My Ethereum node
+                      datetime: '2026-07-16T00:00:00Z'
+                      node_type: dedicated
+                      protocol: ethereum
+                      network: ethereum-mainnet
+                      compute_hours: 24
+                      gb_hour: 2064
+                      request_units:
+                      bloxroute_requests:
+                    - node_id: ND-987-654-321
+                      node_name: My Solana node
+                      datetime: '2026-07-16T00:00:00Z'
+                      node_type: elastic
+                      protocol: solana
+                      network: solana-mainnet
+                      compute_hours:
+                      gb_hour:
+                      request_units: 184023
+                      bloxroute_requests: 0
+                    totals:
+                      compute_hours: 24
+                      gb_hour: 2064
+                      request_units: 184023
+                      bloxroute_requests: 0
+          description: ''
+        '400':
+          "$ref": "#/components/responses/ValidationError"
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+        '429':
+          description: Request was throttled. The node usage list endpoint allows
+            60 requests per minute per organization.
+  "/v2/reporting/node-usage/export/":
+    get:
+      operationId: exportNodeUsageV2
+      summary: Export node usage to CSV
+      description: |
+        Download the full node usage report for your organization as a CSV file. Accepts the same filters as the list endpoint and returns every matching row without pagination.
+        <br> When `date_from` and `date_to` are omitted, the report covers your organization's current metered billing period. Usage data is retained for 2 months — `date_from` cannot be earlier than the first day of the previous calendar month.
+        <br> The `Date` column renders as `YYYY-MM-DD` with `granularity=day` and as `YYYY-MM-DDTHH:00:00Z` with `granularity=hour`. Metrics that don't apply to a node are empty cells.
+        <br> Rate limit: 5 requests per minute per organization.
+      parameters:
+      - "$ref": "#/components/parameters/NodeUsageDateFrom"
+      - "$ref": "#/components/parameters/NodeUsageDateTo"
+      - "$ref": "#/components/parameters/NodeUsageNodeId"
+      - "$ref": "#/components/parameters/NodeUsageProtocol"
+      - "$ref": "#/components/parameters/NodeUsageNetwork"
+      - "$ref": "#/components/parameters/NodeUsageNodeType"
+      - "$ref": "#/components/parameters/NodeUsageGranularity"
+      - "$ref": "#/components/parameters/NodeUsageOrdering"
+      tags:
+      - Node usage V2
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '200':
+          content:
+            text/csv:
+              schema:
+                type: string
+              examples:
+                export:
+                  value: |
+                    Node ID,Node name,Date,Node type,Protocol,Network,Compute hours,GB-hour,Request units,bloXroute requests
+                    ND-123-456-789,My Ethereum node,2026-07-16,dedicated,ethereum,ethereum-mainnet,24,2064,,
+                    ND-987-654-321,My Solana node,2026-07-16,elastic,solana,solana-mainnet,,,184023,0
+          description: The report as a CSV attachment named `node-usage-report.csv`.
+        '400':
+          "$ref": "#/components/responses/ValidationError"
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+        '429':
+          description: Request was throttled. The node usage export endpoint allows
+            5 requests per minute per organization.
 components:
   securitySchemes:
     APIKeyAuthentication:
@@ -1423,6 +1547,79 @@ components:
           type: array
           items:
             type: object
+    NodeUsageV2:
+      type: object
+      readOnly: true
+      properties:
+        node_id:
+          type: string
+          description: Unique node identifier.
+          example: ND-123-456-789
+        node_name:
+          type: string
+          description: Name of the node.
+          example: My Ethereum node
+        datetime:
+          type: string
+          format: date-time
+          description: |
+            Start of the usage bucket in UTC — one day with `granularity=day`, one hour with `granularity=hour`.
+          example: '2026-07-16T00:00:00Z'
+        node_type:
+          type: string
+          enum:
+          - elastic
+          - dedicated
+          description: Type of the node.
+        protocol:
+          type: string
+          nullable: true
+          description: Protocol of the node.
+          example: ethereum
+        network:
+          type: string
+          nullable: true
+          description: |
+            Public network internal name of the node, prefixed by protocol (`ethereum-mainnet`, `solana-mainnet`).
+          example: ethereum-mainnet
+        compute_hours:
+          type: integer
+          nullable: true
+          description: |
+            Compute hours consumed by the node in the bucket. `null` when the metric doesn't apply to the node.
+        gb_hour:
+          type: integer
+          nullable: true
+          description: |
+            Storage consumed by the node in the bucket, in GB-hours. `null` when the metric doesn't apply to the node.
+        request_units:
+          type: integer
+          nullable: true
+          description: |
+            Request units (RUs) consumed by the node in the bucket. `null` when the metric doesn't apply to the node.
+        bloxroute_requests:
+          type: integer
+          nullable: true
+          description: |
+            bloXroute requests served by the node in the bucket. `null` when the metric doesn't apply to the node.
+    NodeUsageTotalsV2:
+      type: object
+      readOnly: true
+      description: Dataset-wide totals across every row matching the filters, not
+        just the current page.
+      properties:
+        compute_hours:
+          type: integer
+          description: Total compute hours.
+        gb_hour:
+          type: integer
+          description: Total storage in GB-hours.
+        request_units:
+          type: integer
+          description: Total request units (RUs).
+        bloxroute_requests:
+          type: integer
+          description: Total bloXroute requests.
     Object:
       type: object
       description: Common object representation.
@@ -2942,6 +3139,82 @@ components:
       description: A page number within the paginated result set.
       schema:
         type: integer
+    NodeUsageDateFrom:
+      name: date_from
+      required: false
+      in: query
+      description: |
+        Start of the reporting period, inclusive, as an ISO 8601 datetime.
+        <br> Defaults to the start of your organization's current metered billing period.
+        <br> Cannot be earlier than the first day of the previous calendar month — usage data is retained for 2 months.
+      schema:
+        type: string
+        format: date-time
+        example: '2026-07-01T00:00:00Z'
+    NodeUsageDateTo:
+      name: date_to
+      required: false
+      in: query
+      description: |
+        End of the reporting period as an ISO 8601 datetime. Must be later than `date_from`.
+        <br> Defaults to the end of your organization's current metered billing period.
+      schema:
+        type: string
+        format: date-time
+        example: '2026-07-17T00:00:00Z'
+    NodeUsageNodeId:
+      name: node_id
+      required: false
+      in: query
+      description: Filter by node ID. Accepts a comma-separated list (`ND-123-456-789,ND-987-654-321`).
+      schema:
+        type: string
+    NodeUsageProtocol:
+      name: protocol
+      required: false
+      in: query
+      description: Filter by protocol. Accepts a comma-separated list (`ethereum,solana`).
+      schema:
+        type: string
+    NodeUsageNetwork:
+      name: network
+      required: false
+      in: query
+      description: |
+        Filter by the network's public internal name, prefixed by protocol (`ethereum-mainnet`, `ethereum-sepolia-testnet`). Accepts a comma-separated list.
+      schema:
+        type: string
+    NodeUsageNodeType:
+      name: node_type
+      required: false
+      in: query
+      description: Filter by node type. Omit to include both types.
+      schema:
+        type: string
+        enum:
+        - elastic
+        - dedicated
+    NodeUsageGranularity:
+      name: granularity
+      required: false
+      in: query
+      description: Size of the time bucket the usage is aggregated into.
+      schema:
+        type: string
+        enum:
+        - day
+        - hour
+        default: day
+    NodeUsageOrdering:
+      name: ordering
+      required: false
+      in: query
+      description: |
+        Which fields to use when ordering the results — a comma-separated list of `datetime` and `node_id`.
+        <br> Use the `-` prefix to perform descending ordering (`-datetime`).
+      schema:
+        type: string
+        default: "-datetime,node_id"
     OrganizationIdFilter:
       name: organization
       required: false
