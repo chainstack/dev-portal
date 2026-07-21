@@ -1,0 +1,109 @@
+---
+title: "Pathfinder RPC version removal 0.23.0 | Starknet"
+description: "Pathfinder 0.23.0 removes Starknet JSON-RPC API versions 0.6, 0.7, and 0.8, and serves 0.9 by default on the root endpoint. Learn what breaks and how to migrate to v0_9 or v0_10."
+---
+
+<Warning>
+  **Breaking change notice**
+
+  With the roll-out of Pathfinder node version [0.23.0](https://github.com/eqlabs/pathfinder/releases/tag/v0.23.0), Starknet JSON-RPC API versions **0.6, 0.7, and 0.8 are removed**, and the default version served on the `/` path changes to **0.9**. Requests to `/rpc/v0_6`, `/rpc/v0_7`, or `/rpc/v0_8` now fail. Migrate to `/rpc/v0_9` or `/rpc/v0_10` before the upgrade reaches your node.
+</Warning>
+
+This change affects you if your application pins one of the removed API versions in its endpoint URL, or if it relies on the default `/` endpoint serving version 0.8.
+
+## What changed
+
+Pathfinder 0.23.0 makes two changes to JSON-RPC API version support:
+
+- **Removed** — JSON-RPC API versions 0.6, 0.7, and 0.8. The `/rpc/v0_6`, `/rpc/v0_7`, and `/rpc/v0_8` paths no longer serve requests.
+- **Default version** — the root (`/`) endpoint now serves JSON-RPC API version 0.9. Previously it served 0.8.
+
+The supported versions after the upgrade are:
+
+| JSON-RPC API version | Endpoint path | Notes |
+| --- | --- | --- |
+| 0.9 | `/rpc/v0_9` | Also served on the default `/` path |
+| 0.10 | `/rpc/v0_10` | Latest available version |
+
+## What breaks
+
+A request to a removed version path returns an HTTP `404` with a JSON-RPC error. For example, calling `/rpc/v0_8` after the upgrade:
+
+```json
+{ "jsonrpc": "2.0", "id": 1, "error": { "code": -32603, "message": "Internal error" } }
+```
+
+Applications that call the default `/` endpoint keep working, but they now receive JSON-RPC 0.9 responses instead of 0.8. Review the [Starknet spec differences](https://github.com/starkware-libs/starknet-specs/releases) between 0.8 and 0.9 for any response-shape changes that affect your code.
+
+## Checking the current API version
+
+Verify which JSON-RPC API version an endpoint serves with the `starknet_specVersion` method:
+
+```bash
+curl -X POST CHAINSTACK_STARKNET_PATHFINDER_ENDPOINT \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "starknet_specVersion",
+    "params": [],
+    "id": 1
+  }'
+```
+
+Against the default endpoint this returns `0.9.0` after the upgrade. Append `/rpc/v0_10` to the endpoint to confirm the 0.10 version is served.
+
+<Visibility for="humans">
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+</Visibility>
+
+## Migration guide
+
+### If you pin a removed version (v0_6, v0_7, v0_8)
+
+Move your requests to a supported version. Version 0.9 is the closest to the removed 0.8:
+
+**Before (removed after 0.23.0):**
+```bash
+curl -X POST CHAINSTACK_STARKNET_PATHFINDER_ENDPOINT/rpc/v0_8 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "starknet_specVersion",
+    "params": [],
+    "id": 1
+  }'
+```
+
+**After (pin v0.9):**
+```bash
+curl -X POST CHAINSTACK_STARKNET_PATHFINDER_ENDPOINT/rpc/v0_9 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "starknet_specVersion",
+    "params": [],
+    "id": 1
+  }'
+```
+
+### If you use the default endpoint
+
+No URL change is required — the default `/` endpoint keeps working and now serves 0.9. Test your application against 0.9 before the upgrade reaches your node, because response shapes can differ between spec versions. To pin the version explicitly and avoid future default changes, append `/rpc/v0_9`.
+
+## Best practices
+
+1. **Always pin the API version explicitly** in production applications (for example, `/rpc/v0_9`) so a future default change does not affect you.
+2. **Test against 0.9** before the upgrade, and review the spec differences from 0.8.
+3. **Check the spec changes** to understand new features and breaking changes between versions.
+
+## Additional resources
+
+- [Pathfinder v0.23.0 release notes](https://github.com/eqlabs/pathfinder/releases/tag/v0.23.0) — details of this release
+- [Pathfinder GitHub repository](https://github.com/eqlabs/pathfinder) — latest version information
+- [Starknet spec releases](https://github.com/starkware-libs/starknet-specs/releases) — complete changelog and differences between spec versions
