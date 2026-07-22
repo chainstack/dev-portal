@@ -48,11 +48,26 @@ The node exposes six `sui.rpc.v2` services:
 
 ### gRPC from code
 
-In TypeScript, use the official `@mysten/sui` SDK with a native gRPC transport (its default transport is gRPC-Web, which Chainstack does not serve). From other languages, generate typed stubs from [Sui's proto definitions](https://github.com/MystenLabs/sui/tree/main/crates/sui-rpc-api/proto). Either way, attach the `x-token` metadata to every call, and use recent client versions — `@mysten/sui` 2.16+ and `@grpc/grpc-js` 1.14+ — since older releases produce intermittent gRPC errors under load.
+In TypeScript, use the official `@mysten/sui` SDK. Its default gRPC-Web transport works against Chainstack over HTTPS — including from the browser — so the simplest setup needs only your node URL as `baseUrl`. For server-side apps that prefer native gRPC over HTTP/2, pass a native transport instead. From other languages, generate typed stubs from [Sui's proto definitions](https://github.com/MystenLabs/sui/tree/main/crates/sui-rpc-api/proto) and connect over native gRPC. Authenticate with your node's `x-token` — carried in the endpoint URL, or as `x-token` metadata on native-gRPC calls — and use recent client versions — `@mysten/sui` 2.16+ and `@grpc/grpc-js` 1.14+ — since older releases produce intermittent gRPC errors under load.
 
 <CodeGroup>
-  ```typescript TypeScript
+  ```typescript TypeScript (gRPC-Web)
+  // npm install @mysten/sui
+  // Default gRPC-Web transport over HTTPS — works in the browser and in Node.js.
+  import { SuiGrpcClient } from '@mysten/sui/grpc';
+
+  const client = new SuiGrpcClient({
+    network: 'mainnet',
+    baseUrl: 'YOUR_CHAINSTACK_SUI_HTTPS_ENDPOINT',
+  });
+
+  const gasPrice = await client.core.getReferenceGasPrice();
+  console.log(gasPrice.referenceGasPrice);
+  ```
+
+  ```typescript TypeScript (native gRPC)
   // npm install @mysten/sui @protobuf-ts/grpc-transport @grpc/grpc-js
+  // Native gRPC over HTTP/2 — server runtimes only.
   import { SuiGrpcClient } from '@mysten/sui/grpc';
   import { GrpcTransport } from '@protobuf-ts/grpc-transport';
   import { ChannelCredentials } from '@grpc/grpc-js';
@@ -133,7 +148,7 @@ In TypeScript, use the official `@mysten/sui` SDK with a native gRPC transport (
 </CodeGroup>
 
 <Info>
-  The native gRPC transport above works only in Node.js and other server runtimes. The SDK's browser transport is gRPC-Web, which Chainstack does not serve yet (HTTP 415) — from the browser, use JSON-RPC or proxy gRPC through your backend.
+  The default gRPC-Web transport works in both the browser and server runtimes, so it is the simplest choice for most apps. The native gRPC transport (HTTP/2) is server-side only — use it when you specifically need native gRPC.
 </Info>
 
 ## JSON-RPC API
