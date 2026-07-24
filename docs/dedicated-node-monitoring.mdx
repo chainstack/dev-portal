@@ -1,0 +1,165 @@
+---
+title: "Dedicated Node monitoring"
+description: "Monitor your Chainstack Dedicated Node from your own stack. Scrape a Prometheus-compatible metrics endpoint for CPU, memory, storage, and chain head, and build your own Grafana dashboards, alerts, and SLOs."
+---
+
+Chainstack Dedicated Nodes expose monitoring data you can consume from your own observability stack. Today this is a Prometheus-compatible metrics endpoint that reports node-level compute, storage, and chain-head metrics, so you can build dashboards, alerts, and service-level objectives (SLOs) alongside your application metrics.
+
+<Info>
+  **Availability**
+
+  Monitoring is available on **Dedicated Nodes** only. A Pro, Business, or Enterprise subscription is required—see [Chainstack pricing and subscription plans](https://chainstack.com/pricing/).
+</Info>
+
+## Metrics endpoint
+
+Every Dedicated Node serves a Prometheus-compatible metrics endpoint you can scrape from Prometheus, Grafana Agent, VictoriaMetrics, or any Prometheus-compatible scraper. It returns node-level metrics in the standard Prometheus exposition format, and it is authenticated and isolated per node so you only ever see your own data.
+
+### Endpoint URL
+
+The metrics endpoint lives on your node's own hostname, at the `/metrics` path, and uses the **same access token as your node's RPC endpoint**:
+
+```text
+https://nd-123-456-789.p2pify.com/YOUR_AUTH_TOKEN/metrics
+```
+
+There is no separate credential to manage. Anywhere you already use your Dedicated Node's HTTPS endpoint, append `/metrics` to reach the metrics route.
+
+### Find your endpoint
+
+<Steps>
+  <Step title="Open your node">
+    Log in to the [Chainstack console](https://console.chainstack.com/), open your project, and select your Dedicated Node.
+  </Step>
+  <Step title="Copy the metrics endpoint">
+    On the node detail page, find the metrics endpoint URL in the node's access and credentials details. It combines your node's host with your access token.
+  </Step>
+</Steps>
+
+You can also retrieve the URL programmatically from the [Chainstack platform API](/reference/platform-api-getting-started) node retrieve response.
+
+### Authentication and isolation
+
+Authentication uses the access token in the endpoint path—the same token as your RPC endpoint:
+
+- A missing or invalid token is rejected with `401`.
+- A token issued for one node cannot be used to scrape another node.
+- Each response is scoped on the server to your node only. Query-string and request-body parameters supplied by the client are stripped, so you cannot widen the scope to any other node, and no other organization can reach your data.
+
+Only `GET` and `HEAD` requests are accepted on the metrics endpoint. Other methods return `405`.
+
+### Available metrics
+
+The endpoint exposes the following node-level series, all gauges. Each carries a `node_id` label identifying your node.
+
+**Compute and storage**
+
+| Metric | Description |
+|---|---|
+| `chainstack_node_cpu_usage_cores` | Current CPU usage, in cores. |
+| `chainstack_node_cpu_limits_cores` | CPU limit allocated to the node, in cores. |
+| `chainstack_node_cpu_utilization_ratio` | CPU usage as a fraction of the CPU limit, from 0 to 1. |
+| `chainstack_node_memory_usage_bytes` | Current memory (RAM) usage, in bytes. |
+| `chainstack_node_memory_limits_bytes` | Memory limit allocated to the node, in bytes. |
+| `chainstack_node_memory_utilization_ratio` | Memory usage as a fraction of the memory limit, from 0 to 1. |
+| `chainstack_node_storage_requests_bytes` | Provisioned disk size, in bytes—the measure your Dedicated Node is billed on. |
+
+**Chain head**
+
+| Metric | Description |
+|---|---|
+| `chainstack_node_block_number` | Latest block height observed on the node. |
+| `chainstack_node_block_timestamp` | Unix timestamp, in seconds, of the latest block. |
+| `chainstack_node_block_age_seconds` | Seconds between the evaluation time and the timestamp of the latest block the node has ingested. |
+
+<Note>
+  Chain head metrics (`chainstack_node_block_*`) are available for supported protocols only. If your node's protocol is not yet covered, these series are absent from the response while the compute and storage series are still served.
+</Note>
+
+`chainstack_node_block_age_seconds` is a local measure—wall-clock time minus the timestamp of the newest block this node has ingested—not a comparison against the network's chain head. Read it against a per-protocol threshold rather than as an absolute: a fully synced node still reports a nonzero value close to the chain's normal block interval, which is a few seconds on Ethereum-family chains and several minutes on Bitcoin-family chains. The value also grows when the chain itself stops producing blocks, not only when a node lags. It is recomputed periodically on the server, so a scraped reading can be a few tens of seconds old.
+
+Example response:
+
+```text
+# HELP chainstack_node_cpu_usage_cores Current CPU usage in cores
+# TYPE chainstack_node_cpu_usage_cores gauge
+chainstack_node_cpu_usage_cores{node_id="nd-123-456-789"} 15.74
+chainstack_node_cpu_limits_cores{node_id="nd-123-456-789"} 32
+chainstack_node_cpu_utilization_ratio{node_id="nd-123-456-789"} 0.4919
+chainstack_node_memory_usage_bytes{node_id="nd-123-456-789"} 916643250176
+chainstack_node_memory_limits_bytes{node_id="nd-123-456-789"} 1717986918400
+chainstack_node_memory_utilization_ratio{node_id="nd-123-456-789"} 0.5335
+chainstack_node_storage_requests_bytes{node_id="nd-123-456-789"} 5867999068160
+chainstack_node_block_number{node_id="nd-123-456-789"} 21453897
+chainstack_node_block_timestamp{node_id="nd-123-456-789"} 1737724800
+chainstack_node_block_age_seconds{node_id="nd-123-456-789"} 6
+```
+
+### Quick check
+
+Confirm the endpoint responds with a single request:
+
+```bash
+curl 'https://nd-123-456-789.p2pify.com/YOUR_AUTH_TOKEN/metrics'
+```
+
+### Scrape with Prometheus
+
+Add your node as a scrape target. The access token goes in `metrics_path`, and the node host goes in `targets`:
+
+```yaml
+scrape_configs:
+  - job_name: chainstack-dedicated-node
+    scheme: https
+    metrics_path: /YOUR_AUTH_TOKEN/metrics
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - nd-123-456-789.p2pify.com
+```
+
+<Tip>
+  A scrape interval of 15–60 seconds is recommended. This gives you responsive dashboards while staying well within the endpoint's rate limits.
+</Tip>
+
+### Visualize in Grafana
+
+With the node scraped into Prometheus, add the metrics as a data source in Grafana and build panels from the series. A starter set of panels:
+
+**CPU utilization (%)**
+
+```text
+chainstack_node_cpu_utilization_ratio{node_id="nd-123-456-789"} * 100
+```
+
+**Memory utilization (%)**
+
+```text
+chainstack_node_memory_utilization_ratio{node_id="nd-123-456-789"} * 100
+```
+
+**Provisioned storage (GiB)**
+
+```text
+chainstack_node_storage_requests_bytes{node_id="nd-123-456-789"} / 1024 / 1024 / 1024
+```
+
+**Latest block**
+
+```text
+chainstack_node_block_number{node_id="nd-123-456-789"}
+```
+
+**Block age (seconds)**
+
+```text
+chainstack_node_block_age_seconds{node_id="nd-123-456-789"}
+```
+
+From here you can add alerts—for example, on sustained high CPU or memory utilization, or on block age exceeding a threshold suited to your node's protocol—and SLOs that combine node health with your own application metrics.
+
+### Rate limits
+
+The metrics endpoint is rate-limited to protect the node. A scrape interval of 15–60 seconds passes comfortably; excessive scrape rates are throttled with a `429` response and a `Retry-After` header indicating how many seconds to wait before retrying.
+
+Rate limiting on the metrics endpoint is independent of your RPC traffic—hitting the metrics limit does not throttle JSON-RPC, WebSocket, or other requests to the node. For more, see [Chainstack limits and rate limiting](/docs/limits).
