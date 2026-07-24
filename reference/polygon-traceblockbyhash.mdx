@@ -28,6 +28,7 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
   + `4byteTracer` — tracer that captures the function signatures and call data sizes for all functions executed during a transaction, creating a map that links each selector and size combination to the number of times it occurred. This provides valuable information about the frequency and usage of each function within the transaction.
   + `callTracer` — tracer that captures information on all call frames executed during a transaction. The resulting nested list of call frames is organized into a tree structure that reflects the way the Ethereum Virtual Machine works and can be used for debugging and analysis purposes.
   + `prestateTracer` — tracer with two modes: `prestate` and `diff`, where the former returns the accounts needed to execute a transaction, and the latter returns the differences between the pre and post-states of the transaction. The tracer operates by re-executing the transaction and tracking every state change made, resulting in an object with the account addresses as keys and the corresponding trie leaves as values.
+  + `flatCallTracer` — tracer that returns the transaction's calls as a flat array in the Parity-style trace format, with each entry's position given by its `traceAddress`. This is the drop-in replacement for the Erigon `trace_*` methods, which Bor does not implement.
 
 ## Response types
 
@@ -49,6 +50,16 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
   + `revertReason` — the reason why the transaction was reverted, returned by the smart contract if any.
   + `calls` — a list of sub-calls made by the contract during the call, each represented as a nested call frame object.
 
+### `flatCallTracer` response
+
+* `array` — the block's calls as a flat list in the Parity trace format, one object per call:
+  + `action` — the call details: `from`, `to`, `value`, `gas`, `input`, and `callType` (for example, `call`, `delegatecall`, or `staticcall`). Contract creations and self-destructs carry the corresponding Parity `create` and `suicide` fields instead.
+  + `result` — the call outcome: `gasUsed` and `output`. Contract creations return the new contract `address` and its `code`.
+  + `subtraces` — the number of child calls made directly by this call.
+  + `traceAddress` — the position of this call in the call tree, as an array of child indices.
+  + `type` — the call type: `call`, `create`, or `suicide`.
+  + `error` — present only when the call failed, with the failure reason.
+
 ### `prestateTracer` response
 
 * `object` — the `prestateTracer` traces object:
@@ -68,7 +79,7 @@ const provider = new ethers.JsonRpcProvider(NODE_URL);
 
 const traceBlockByHash = async (blockHash) => {
 
-  // Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer
+  // Specify the type of tracer: 4byteTracer, callTracer, flatCallTracer, or prestateTracer
   const tracer = { tracer: '4byteTracer' };
   const traces = await provider.send("debug_traceBlockByHash", [blockHash, tracer]);
   console.log(traces);
@@ -84,7 +95,7 @@ web3 = Web3.HTTPProvider(node_url)
 
 block_hash = "0x22507441629262af0d44bfadebe086470df5936827bc482300b5183b4b8ac8bd"
 
-# Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer
+# Specify the type of tracer: 4byteTracer, callTracer, flatCallTracer, or prestateTracer
 tracer = { "tracer": '4byteTracer' }
 block_traces = web3.provider.make_request('debug_traceBlockByHash', [block_hash, tracer])
 print(block_traces)
@@ -107,7 +118,7 @@ const provider = new ethers.JsonRpcProvider(NODE_URL);
 
 async function traceTransferFunction(blockHash) {
   try {
-    // Specify the type of tracer: 4byteTracer, callTracer, or prestateTracer
+    // Specify the type of tracer: 4byteTracer, callTracer, flatCallTracer, or prestateTracer
     const tracer = { tracer: '4byteTracer' };
     const response = await provider.send("debug_traceBlockByHash", [blockHash, tracer]);
     
