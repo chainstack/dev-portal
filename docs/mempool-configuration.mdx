@@ -7,6 +7,32 @@ Mempool configurations vary wildly across different protocols & node client conf
 
 The table here is a maintained reference of mempool configurations & specifics across all the protocols that Chainstack supports.
 
+## What gives you mempool access
+
+Two different things get called mempool access, and they have different requirements. On the EVM chains with a public mempool — Ethereum, Polygon, and BNB Smart Chain:
+
+| What you want                             | Methods                                                                     | Full mode     | Archive mode |
+| ----------------------------------------- | --------------------------------------------------------------------------- | ------------- | ------------ |
+| Watch pending transactions as they arrive | `eth_subscribe("newPendingTransactions")`, `eth_newPendingTransactionFilter` | Available     | Available    |
+| Inspect the transaction pool itself       | `txpool_content`, `txpool_status`, `txpool_inspect`                          | Not available | Available    |
+
+For a live feed of pending transactions, a full-mode node is enough. The feed is the node's view of the public mempool — transactions that reached it over the p2p network, not only the ones you submitted through it. No node sees every pending transaction, as each node's view depends on its peers.
+
+The `txpool_*` namespace is the part that needs the archive mode. A [Dedicated Node](/docs/dedicated-node) can serve `txpool_*` in the full mode too — that one is a [customization](/docs/features-availability-across-subscription-plans#node-customization), so ask for it when you deploy.
+
+`txpool_*` is also a separate namespace from `debug_*` and `trace_*`, and each one has its own gate:
+
+* `txpool_*` — the node mode enables it, not your plan. It works on an archive node even when your plan has no debug and trace access.
+* `debug_*` and `trace_*` — your [plan](/docs/features-availability-across-subscription-plans#debug-and-trace-apis) enables them. They also work on full-mode nodes, and they do not bring `txpool_*` with them.
+
+So enabling the debug and trace APIs on a full-mode node does not give you the pool methods. Calling `txpool_content` on such a node returns:
+
+```json
+{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"the method txpool_content is not available"}}
+```
+
+To get the `txpool_*` methods, deploy the node in the [archive mode](/docs/protocols-modes-and-types#modes), or ask for them on a full-mode [Dedicated Node](/docs/dedicated-node). Trader Nodes are regional and not every region offers the archive mode, so check [Available clouds, regions, & locations](/docs/nodes-clouds-regions-and-locations) for your region before you deploy.
+
 <Note>
 On protocols with no public mempool, pending-transaction methods like `eth_newPendingTransactionFilter` and `eth_subscribe("newPendingTransactions")` return empty by design — pending transactions are visible only to the sequencer. On Base and Optimism, follow transactions in real time with Flashblocks instead — see the how-to guides ([Base](/docs/base-streaming-transactions-flashblocks), [Optimism](/docs/optimism-streaming-transactions-flashblocks)) or how Flashblocks works ([Base](/docs/flashblocks-on-base), [Optimism](/docs/flashblocks-on-optimism)).
 </Note>
@@ -15,7 +41,7 @@ The table structure:
 
 * Protocol — protocol name.
 * Protocol availability — details of the mempool availability on the protocol level.
-* Chainstack availability — how to access the protocol's mempool on Chainstack.
+* Chainstack availability — what you need to deploy for the protocol's pool-inspection methods on Chainstack.
 * Client configuration — the default node client configuration for the mempool as deployed at Chainstack.
 * Example — a simple curl example. Remember to replace YOUR\_CHAINSTACK\_NODE with your Chainstack node endpoint for that particular protocol.
 
@@ -23,9 +49,9 @@ Remember that whatever the default configuration, we can always [customize](/doc
 
 | Protocol        | Protocol availability                                                                                                                                                    | Chainstack availability                                                                            | Client configuration                                        | Example                                                |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------ |
-| Ethereum        | Available to everyone                                                                                                                                                    | [Archive](/docs/protocols-modes-and-types) with [Debug and trace APIs](/docs/debug-and-trace-apis) | 4096 pending transactions                                   | [Ethereum txpool\_content](#ethereum-txpool_content)   |
-| Polygon         | Available to everyone                                                                                                                                                    | [Archive](/docs/protocols-modes-and-types) with [Debug and trace APIs](/docs/debug-and-trace-apis) | 4096 pending transactions                                   | [Polygon txpool\_content](#polygon-txpool_content)     |
-| BNB Smart Chain | Available to everyone                                                                                                                                                    | [Archive](/docs/protocols-modes-and-types) with [Debug and trace APIs](/docs/debug-and-trace-apis) | 4096 pending transactions                                   | [BSC txpool\_content](#bsc-txpool_content)             |
+| Ethereum        | Available to everyone                                                                                                                                                    | [Archive](/docs/protocols-modes-and-types#modes) mode                                              | 4096 pending transactions                                   | [Ethereum txpool\_content](#ethereum-txpool_content)   |
+| Polygon         | Available to everyone                                                                                                                                                    | [Archive](/docs/protocols-modes-and-types#modes) mode                                              | 4096 pending transactions                                   | [Polygon txpool\_content](#polygon-txpool_content)     |
+| BNB Smart Chain | Available to everyone                                                                                                                                                    | [Archive](/docs/protocols-modes-and-types#modes) mode                                              | 4096 pending transactions                                   | [BSC txpool\_content](#bsc-txpool_content)             |
 | Base            | [Private to Sequencer](https://github.com/base/node/issues/78).                                                                                                      | N/A                                                                                                | N/A                                                         | N/A                                                    |
 | Avalanche       | [Available only to validators](https://support.avax.network/en/articles/6158842-nodes-faq).                                                                              | Not available on Chainstack                                                                        | N/A                                                         | N/A                                                    |
 | TON             | External messages are available in mempool                                                                                                                               | Available                                                                                          |                                                             |                                                        |
