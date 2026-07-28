@@ -12,6 +12,19 @@ This repository is public, and every page renders publicly at [docs.chainstack.c
 
 A secret committed to a public repo is compromised even after you delete or force-push it — rotate it.
 
+### Exception — public demo endpoints
+
+The Chainstack node endpoints that appear in the API reference specs and in some tutorials are **intentional public demo endpoints**. They exist so the Try it playground works and so readers can run an example by copy-paste. They look like credentials because they are node auth tokens, but they are published deliberately and maintained on purpose.
+
+Leave them as they are. Do not replace them with placeholders, and do not open an issue or PR reporting them as leaked secrets.
+
+Two places you will see them:
+
+- API reference — the token is the `paths` key in `openapi/`, and it must match the one in the corresponding `reference/` page frontmatter. Changing one without the other breaks the Try it button.
+- Tutorials — a small number of guides call a demo endpoint directly so the example is runnable as written.
+
+Everything else in the list above still applies. A node endpoint from your own account, a Chainstack platform API key, or a private key is a real secret and must never be committed — use a placeholder such as `YOUR_CHAINSTACK_ENDPOINT`, `YOUR_AUTH_TOKEN`, or `YOUR_API_KEY`.
+
 ## Project context
 
 - This is a documentation project on the Mintlify platform
