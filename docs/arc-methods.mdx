@@ -1,0 +1,135 @@
+---
+title: "Arc methods"
+description: Complete reference of Arc JSON-RPC methods supported on Chainstack, with per-method availability for the eth, debug, trace, txpool, net, web3, and arc namespaces. Live-tested against Chainstack Arc nodes.
+---
+
+Our pricing is simple: 1 RU per full request, 2 RUs per archive. For which EVM methods are full vs archive, see [Request units — EVM methods affected by block age](/docs/request-units#evm-methods-affected-by-block-age).
+
+Arc is an EVM-compatible layer 1 from Circle. It pairs the [Reth](https://github.com/paradigmxyz/reth) execution client with [Malachite](https://github.com/circlefin/malachite) BFT consensus, and it uses USDC for gas. The availability below is verified against Chainstack Arc nodes.
+
+## Arc namespace
+
+Arc adds a custom `arc_*` namespace on top of the standard Reth surface:
+
+* `arc_getVersion` — returns the execution layer build information: `git_version`, `git_commit`, `git_short_hash`, and `cargo_version`.
+* `arc_getCertificate` — takes a block height and returns the consensus commit certificate for that height: the round, the block hash, and the validator signatures. This is the finality proof for a block.
+
+<Note>
+  `rpc_modules` does not list `arc` in its response, because the namespace is registered outside the standard module registry. The methods work regardless — do not use `rpc_modules` to decide whether they are available.
+</Note>
+
+## Pending transactions are not available
+
+Arc disables pending-transaction visibility. Both `eth_newPendingTransactionFilter` and `eth_subscribe("newPendingTransactions")` return `-32001`, with `Pending transaction filters are not allowed` and `Subscriptions to pending transactions are not allowed` respectively.
+
+The `txpool_*` methods do work, so you can still inspect the pool with `txpool_status`, `txpool_content`, and `txpool_inspect`. You just cannot stream new pending transactions as they arrive. See [What gives you mempool access](/docs/mempool-configuration#what-gives-you-mempool-access) for how this compares with the other EVM chains.
+
+## Block time and archive billing
+
+Arc produces a block roughly every 0.5 seconds. The standard EVM rule — 127 or more blocks behind the tip bills as archive — therefore covers only about a minute of history, against roughly 25 minutes on Ethereum. On Arc, expect most historical queries to bill as archive.
+
+## Legacy debug methods
+
+Reth registers a number of Geth-era `debug_*` methods but returns `null` for them rather than an error. They are marked as unavailable below, because a `null` response carries no data. Use `debug_traceTransaction`, `debug_traceBlockByNumber`, `debug_traceBlockByHash`, and `debug_traceCall` instead, or `eth_getStorageAt` in place of `debug_storageRangeAt` — see [Using eth\_getStorageAt instead of debug\_storageRangeAt on Reth](/docs/using-eth_getstorageat-instead-of-debug_storagerangeat-on-reth).
+
+## Method availability
+
+<Note>
+  `eth_createAccessList` needs an explicit `gas` value in the call object. Without one it returns `-32000 intrinsic gas too high`.
+</Note>
+
+| Method                                   | Availability | Comment |
+| -----------------------------------------| ------------ | ------- |
+| arc\_getCertificate                      | <Icon icon="square-check"  iconType="solid" />            |  |
+| arc\_getVersion                          | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_accountRange                      | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_chaindbProperty                   | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_codeByHash                        | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_dumpBlock                         | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_getAccessibleState                | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_getBadBlocks                      | <Icon icon="square-check"  iconType="solid" />            | returns an empty array |
+| debug\_getModifiedAccountsByHash         | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_getModifiedAccountsByNumber       | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_getRawBlock                       | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_getRawHeader                      | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_getRawReceipts                    | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_getRawTransaction                 | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_getTrieFlushInterval              | <Icon icon="xmark"  iconType="solid" />            | not implemented by Reth |
+| debug\_intermediateRoots                 | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_preimage                          | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_printBlock                        | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_storageRangeAt                    | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_traceBadBlock                     | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_traceBlockByHash                  | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_traceBlockByNumber                | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_traceCall                         | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_traceTransaction                  | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_accounts                            | <Icon icon="square-check"  iconType="solid" />            | returns an empty array — no unlocked accounts on a hosted node |
+| eth\_blobBaseFee                         | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_blockNumber                         | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_call                                | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_chainId                             | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_coinbase                            | <Icon icon="xmark"  iconType="solid" />            | not implemented by Reth — returns `-32603 unimplemented` |
+| eth\_createAccessList                    | <Icon icon="square-check"  iconType="solid" />            | pass an explicit `gas` value, otherwise it returns `-32000 intrinsic gas too high` |
+| eth\_estimateGas                         | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_feeHistory                          | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_gasPrice                            | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getAccount                          | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getBalance                          | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getBlockByHash                      | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getBlockByNumber                    | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getBlockReceipts                    | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getBlockTransactionCountByHash      | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getBlockTransactionCountByNumber    | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getCode                             | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getFilterChanges                    | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getFilterLogs                       | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getHeaderByHash                     | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getHeaderByNumber                   | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getLogs                             | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getProof                            | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getRawTransactionByHash             | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getStorageAt                        | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getTransactionByBlockHashAndIndex   | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getTransactionByBlockNumberAndIndex | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getTransactionByHash                | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getTransactionBySenderAndNonce      | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getTransactionCount                 | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getTransactionReceipt               | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getUncleByBlockHashAndIndex         | <Icon icon="square-check"  iconType="solid" />            | always null — Arc has no uncles (BFT consensus) |
+| eth\_getUncleByBlockNumberAndIndex       | <Icon icon="square-check"  iconType="solid" />            | always null — Arc has no uncles (BFT consensus) |
+| eth\_getUncleCountByBlockHash            | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getUncleCountByBlockNumber          | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_hashrate                            | <Icon icon="square-check"  iconType="solid" />            | always `0x0` |
+| eth\_maxPriorityFeePerGas                | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_mining                              | <Icon icon="xmark"  iconType="solid" />            | not implemented by Reth — returns `-32603 unimplemented` |
+| eth\_newBlockFilter                      | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_newFilter                           | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_newPendingTransactionFilter         | <Icon icon="xmark"  iconType="solid" />            | pending-transaction visibility is disabled on Arc |
+| eth\_protocolVersion                     | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_sendRawTransaction                  | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_sendRawTransactionSync              | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_simulateV1                          | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_subscribe                           | <Icon icon="square-check"  iconType="solid" />            | WSS. `newHeads` and `logs` only — `newPendingTransactions` returns `-32001` |
+| eth\_syncing                             | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_uninstallFilter                     | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_unsubscribe                         | <Icon icon="square-check"  iconType="solid" />            | WSS |
+| net\_listening                           | <Icon icon="square-check"  iconType="solid" />            |  |
+| net\_peerCount                           | <Icon icon="square-check"  iconType="solid" />            |  |
+| net\_version                             | <Icon icon="square-check"  iconType="solid" />            |  |
+| rpc\_modules                             | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_block                             | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_call                              | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_callMany                          | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_filter                            | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_get                               | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_rawTransaction                    | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_replayBlockTransactions           | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_replayTransaction                 | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_transaction                       | <Icon icon="square-check"  iconType="solid" />            |  |
+| txpool\_content                          | <Icon icon="square-check"  iconType="solid" />            |  |
+| txpool\_contentFrom                      | <Icon icon="square-check"  iconType="solid" />            |  |
+| txpool\_inspect                          | <Icon icon="square-check"  iconType="solid" />            |  |
+| txpool\_status                           | <Icon icon="square-check"  iconType="solid" />            |  |
+| web3\_clientVersion                      | <Icon icon="square-check"  iconType="solid" />            |  |
+| web3\_sha3                               | <Icon icon="square-check"  iconType="solid" />            |  |
