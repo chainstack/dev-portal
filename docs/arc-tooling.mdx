@@ -1,0 +1,170 @@
+---
+title: "Arc tooling"
+description: "Connect MetaMask, ethers.js, viem, and web3.py to an Arc node on Chainstack. Chain configuration, the USDC gas token, and the custom arc_* methods."
+---
+
+Arc is EVM-compatible, so the standard Ethereum libraries work against an Arc node without modification. The differences are in the chain configuration rather than in the code.
+
+## Chain configuration
+
+| Property | Value |
+|----------|-------|
+| Network | Arc Testnet |
+| Chain ID | `5042002` |
+| Native gas currency | USDC |
+| Decimals | `18` |
+| RPC URL | your Chainstack [Arc endpoint](/docs/manage-your-node#view-node-access-and-credentials) |
+| Multicall3 | `0xcA11bde05977b3631167028862bE2a173976CA11` |
+
+<Warning>
+  Arc pays gas in USDC, but the native currency carries **18 decimals**, not the 6 that the USDC ERC-20 token uses. Balances are wei-denominated exactly as on Ethereum, so `formatEther` and `from_wei(..., "ether")` are the correct helpers. Treating the gas balance as 6-decimal USDC puts you out by a factor of 10<sup>12</sup>.
+</Warning>
+
+Arc is testnet only — Circle has not launched a mainnet. See [Arc methods](/docs/arc-methods) for per-method availability and [the API reference](/reference/arc-getting-started) for interactive examples.
+
+## MetaMask
+
+Add Arc Testnet as a custom network. On Chainstack, get your [Arc endpoint](/docs/manage-your-node#view-node-access-and-credentials), then in MetaMask select **Add a custom network** and fill in:
+
+* Network name — Arc Testnet
+* Default RPC URL — your Chainstack Arc endpoint
+* Chain ID — `5042002`
+* Currency symbol — USDC
+
+Leave the block explorer field empty. Arc Testnet has no public explorer yet, and MetaMask treats that field as optional.
+
+## ethers.js
+
+Install [ethers.js](https://docs.ethers.org/):
+
+<CodeGroup>
+```shell Shell
+npm install ethers
+```
+</CodeGroup>
+
+<CodeGroup>
+```javascript index.js
+const { JsonRpcProvider, formatEther } = require("ethers");
+
+const provider = new JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function main() {
+  const network = await provider.getNetwork();
+  console.log("Chain ID:", network.chainId.toString());
+
+  const block = await provider.getBlockNumber();
+  console.log("Block:", block);
+
+  const balance = await provider.getBalance("0x19d7CF8eA0CE468417d1edA365a222a9dCBC7D27");
+  console.log("Balance:", formatEther(balance), "USDC");
+}
+
+main();
+```
+</CodeGroup>
+
+Arc's custom methods have no ethers helper, so call them with `send`:
+
+<CodeGroup>
+```javascript index.js
+const certificate = await provider.send("arc_getCertificate", [55000000]);
+console.log("Round:", certificate.round, "signatures:", certificate.signatures.length);
+```
+</CodeGroup>
+
+## viem
+
+Arc is not in viem's bundled chain list, so define it with `defineChain`:
+
+<CodeGroup>
+```shell Shell
+npm install viem
+```
+</CodeGroup>
+
+<CodeGroup>
+```javascript index.mjs
+import { createPublicClient, http, defineChain, formatEther } from "viem";
+
+export const arcTestnet = defineChain({
+  id: 5042002,
+  name: "Arc Testnet",
+  testnet: true,
+  nativeCurrency: { decimals: 18, name: "USDC", symbol: "USDC" },
+  rpcUrls: { default: { http: ["CHAINSTACK_NODE_URL"] } },
+  contracts: {
+    multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11" },
+  },
+});
+
+const client = createPublicClient({ chain: arcTestnet, transport: http() });
+
+console.log("Chain ID:", await client.getChainId());
+console.log("Block:", await client.getBlockNumber());
+
+const balance = await client.getBalance({
+  address: "0x19d7CF8eA0CE468417d1edA365a222a9dCBC7D27",
+});
+console.log("Balance:", formatEther(balance), "USDC");
+```
+</CodeGroup>
+
+For the `arc_*` methods, use `client.request`:
+
+<CodeGroup>
+```javascript index.mjs
+const certificate = await client.request({
+  method: "arc_getCertificate",
+  params: [55000000],
+});
+```
+</CodeGroup>
+
+## web3.py
+
+Install [web3.py](https://web3py.readthedocs.io/):
+
+<CodeGroup>
+```shell Shell
+pip install web3
+```
+</CodeGroup>
+
+<CodeGroup>
+```python main.py
+from web3 import Web3
+
+web3 = Web3(Web3.HTTPProvider("CHAINSTACK_NODE_URL"))
+
+print("Connected:", web3.is_connected())
+print("Chain ID:", web3.eth.chain_id)
+print("Block:", web3.eth.block_number)
+
+address = Web3.to_checksum_address("0x19d7cf8ea0ce468417d1eda365a222a9dcbc7d27")
+balance = web3.eth.get_balance(address)
+print("Balance:", web3.from_wei(balance, "ether"), "USDC")
+```
+</CodeGroup>
+
+<Note>
+  web3.py rejects lowercase addresses with `InvalidAddress`. Wrap any address you did not get from the library itself in `Web3.to_checksum_address()`, as above.
+</Note>
+
+The `arc_*` methods are not in the `web3.eth` namespace, so send them through the provider:
+
+<CodeGroup>
+```python main.py
+version = web3.provider.make_request("arc_getVersion", [])["result"]
+print("Node version:", version["git_version"])
+
+certificate = web3.provider.make_request("arc_getCertificate", [55000000])["result"]
+print("Round:", certificate["round"], "signatures:", len(certificate["signatures"]))
+```
+</CodeGroup>
+
+## Two Arc behaviors that affect tooling
+
+**Only replay-protected transactions are accepted.** Arc rejects pre-EIP-155 transactions on the RPC submission path with `-32000 only replay-protected (EIP-155) transactions allowed over RPC`. Every current library signs with the chain ID by default, so this only bites if you construct raw transactions by hand or use a very old signer.
+
+**Pending state is not readable.** Subscribing to pending transactions fails, and `eth_getBlockByNumber("pending")` returns `null` rather than an error. Code that polls the pending block to estimate the next state will silently receive nothing. See [What gives you mempool access](/docs/mempool-configuration#what-gives-you-mempool-access).
