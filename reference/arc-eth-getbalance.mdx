@@ -1,34 +1,57 @@
 ---
-title: "eth_getBalance | Arc"
+title: eth_getBalance | Arc
 openapi: /openapi/arc_node_api/accounts_info/eth_getBalance.json POST /
-description: "Arc API method that returns the balance of a specific account in wei, the smallest denomination of the native token. Use it on Arc via Chainstack."
+description: "Arc API method that returns the balance of an account. address — the address to check balance for blockParameter — the block number (hex) or tag (latest."
 ---
 
-Arc API method that returns the balance of a specific account in wei, the smallest denomination of the native token.
+Arc API method that returns the balance of an account.
+
+<Visibility for="humans">
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+</Visibility>
+
+<Warning>
+**Important**: Arc has no native token. This method returns a placeholder value instead of an actual balance. To check real balances, query TIP-20 stablecoin contracts using the `balanceOf` function.
+</Warning>
+
 
 ## Parameters
 
-* `address` — the address to check the balance of
-* `quantity or tag` — the block number in hex format or block tag (`latest`, `earliest`, `pending`, `safe`, `finalized`)
+* `address` — the address to check balance for
+* `blockParameter` — the block number (hex) or tag (`latest`, `earliest`, `pending`)
 
 ## Response
 
-* `quantity` — the integer value of the current balance in wei
+* `result` — returns a placeholder value `0x5e5de0bada3a8d...` since Arc has no native token
 
-## `eth_getBalance` code examples
+## Checking TIP-20 token balances
+
+To check actual stablecoin balances on Arc, use `eth_call` with the TIP-20 `balanceOf` function:
 
 <CodeGroup>
 ```javascript ethers.js
-const { JsonRpcProvider } = require("ethers");
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
 
-const provider = new JsonRpcProvider("CHAINSTACK_NODE_URL");
+// pathUSD token address
+const PATHUSD = "0x20c0000000000000000000000000000000000000";
 
-async function call() {
-  const result = await provider.send("eth_getBalance", ["0x40c4431d0a6a183a2f1e604744f4cf25d2aea8e6", "latest"]);
-  console.log(result);
-}
+const checkBalance = async (address) => {
+    const abi = ["function balanceOf(address) view returns (uint256)"];
+    const token = new ethers.Contract(PATHUSD, abi, provider);
+    const balance = await token.balanceOf(address);
+    // TIP-20 tokens use 6 decimals
+    console.log(`pathUSD balance: ${ethers.formatUnits(balance, 6)}`);
+  };
 
-call();
+checkBalance("0x5d20879655df3c1e04ab111af0009ad650e762f0");
 ```
 
 ```python web3.py
@@ -37,18 +60,26 @@ from web3 import Web3
 node_url = "CHAINSTACK_NODE_URL"
 web3 = Web3(Web3.HTTPProvider(node_url))
 
-result = web3.provider.make_request("eth_getBalance", ["0x40c4431d0a6a183a2f1e604744f4cf25d2aea8e6", "latest"])
-print(result)
-```
+# pathUSD token address
+PATHUSD = "0x20c0000000000000000000000000000000000000"
 
-```shell cURL
-curl -X POST "CHAINSTACK_NODE_URL" \
-  -H "Content-Type: application/json" \
-  --data '{
-    "jsonrpc": "2.0",
-    "method": "eth_getBalance",
-    "params": ["0x40c4431d0a6a183a2f1e604744f4cf25d2aea8e6", "latest"],
-    "id": 1
-  }'
+# ERC20 balanceOf ABI
+abi = [{"constant": True, "inputs": [{"name": "account", "type": "address"}], "name": "balanceOf", "outputs": [{"name": "", "type": "uint256"}], "type": "function"}]
+
+token = web3.eth.contract(address=PATHUSD, abi=abi)
+balance = token.functions.balanceOf("0x5d20879655df3c1e04ab111af0009ad650e762f0").call()
+# TIP-20 tokens use 6 decimals
+print(f"pathUSD balance: {balance / 10**6}")
 ```
 </CodeGroup>
+
+## Stablecoin tokens
+
+Arc has these predeployed stablecoins (same addresses on mainnet and testnet):
+
+| Token | Address |
+|-------|---------|
+| pathUSD | `0x20c0000000000000000000000000000000000000` |
+| AlphaUSD | `0x20c0000000000000000000000000000000000001` |
+| BetaUSD | `0x20c0000000000000000000000000000000000002` |
+| ThetaUSD | `0x20c0000000000000000000000000000000000003` |

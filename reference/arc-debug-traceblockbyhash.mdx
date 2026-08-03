@@ -1,0 +1,96 @@
+---
+title: debug_traceBlockByHash | Arc
+openapi: /openapi/arc_node_api/debug_and_trace/debug_traceBlockByHash.json POST /
+description: "Arc API method that returns detailed traces for all transactions in a block specified by block hash. Chainstack Arc reference."
+---
+
+Arc API method that returns detailed traces for all transactions in a block specified by block hash. This is useful for analyzing all contract interactions within a specific block.
+
+<Visibility for="humans">
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+</Visibility>
+
+## Parameters
+
+* `blockHash` — the hash of the block to trace
+* `tracerConfig` — (optional) tracer configuration object:
+  * `tracer` — tracer type (e.g., `callTracer`, `prestateTracer`)
+  * `timeout` — (optional) timeout for the trace
+  * `tracerConfig` — (optional) tracer-specific configuration
+
+## Response
+
+* `result` — array of trace objects, one for each transaction in the block. The format depends on the tracer used.
+
+For `callTracer`, each trace contains:
+* `from` — sender address
+* `to` — recipient address
+* `gas` — gas provided
+* `gasUsed` — gas consumed
+* `input` — call data
+* `output` — return data
+* `calls` — nested array of internal calls
+* `type` — call type (CALL, DELEGATECALL, etc.)
+
+## `debug_traceBlockByHash` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const traceBlockByHash = async (blockHash) => {
+    const traces = await provider.send("debug_traceBlockByHash", [
+      blockHash,
+      { tracer: "callTracer" }
+    ]);
+
+    console.log(`Block contains ${traces.length} transaction traces`);
+    for (let i = 0; i < traces.length; i++) {
+      const trace = traces[i].result;
+      console.log(`\nTx ${i}: ${trace.from} -> ${trace.to}`);
+      console.log(`  Type: ${trace.type}, Gas Used: ${trace.gasUsed}`);
+    }
+  };
+
+traceBlockByHash("0xa86891cc8ae2e3efe67b21e24f8f852e76a0875892e9e8c9a4c77aab8e2761cc");
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+result = web3.provider.make_request("debug_traceBlockByHash", [
+    "0xa86891cc8ae2e3efe67b21e24f8f852e76a0875892e9e8c9a4c77aab8e2761cc",
+    {"tracer": "callTracer"}
+])
+
+traces = result['result']
+print(f"Block contains {len(traces)} transaction traces")
+
+for i, tx_trace in enumerate(traces):
+    trace = tx_trace['result']
+    print(f"\nTx {i}: {trace['from']} -> {trace.get('to', 'Contract Creation')}")
+    print(f"  Type: {trace['type']}, Gas Used: {trace['gasUsed']}")
+```
+
+```bash cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "debug_traceBlockByHash",
+    "params": ["0xa86891cc8ae2e3efe67b21e24f8f852e76a0875892e9e8c9a4c77aab8e2761cc", {"tracer": "callTracer"}],
+    "id": 1
+  }'
+```
+</CodeGroup>
