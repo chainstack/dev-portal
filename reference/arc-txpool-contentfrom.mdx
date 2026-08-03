@@ -1,0 +1,62 @@
+---
+title: "txpool_contentFrom | Arc"
+openapi: /openapi/arc_node_api/txpool/txpool_contentFrom.json POST /
+description: "Arc API method that returns the pending and queued transactions in the node's pool for a single sender address. Use it on Arc via Chainstack."
+---
+
+Arc API method that returns the transactions in the node's pool for one sender address. It is [txpool_content](/reference/arc-txpool-content) narrowed to a single account, so the response stays small on a busy node.
+
+## Parameters
+
+* `address` — the sender address to filter the pool by.
+
+## Response
+
+* `pending` — the sender's transactions that are ready for inclusion, keyed by nonce.
+* `queued` — the sender's transactions held back by a nonce gap, keyed by nonce.
+
+<Note>
+  Arc produces a block roughly every 0.5 seconds, so a healthy sender's transactions usually clear before you can observe them. An empty result means nothing was pending for that address at that moment.
+</Note>
+
+## `txpool_contentFrom` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const { JsonRpcProvider } = require("ethers");
+
+const provider = new JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function call() {
+  const result = await provider.send("txpool_contentFrom", ["0x5d20879655df3c1e04ab111af0009ad650e762f0"]);
+  console.log(result);
+}
+
+call();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+result = web3.provider.make_request("txpool_contentFrom", ["0x5d20879655df3c1e04ab111af0009ad650e762f0"])
+print(result)
+```
+
+```shell cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  --data '{
+    "jsonrpc": "2.0",
+    "method": "txpool_contentFrom",
+    "params": ["0x5d20879655df3c1e04ab111af0009ad650e762f0"],
+    "id": 1
+  }'
+```
+</CodeGroup>
+
+## Use case
+
+When a user reports that a transaction is not landing, this answers the question directly for their address alone. If the transaction sits in `queued` rather than `pending`, the sender has a nonce gap and every later transaction stays parked until the missing nonce is filled.

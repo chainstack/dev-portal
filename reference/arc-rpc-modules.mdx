@@ -1,0 +1,61 @@
+---
+title: "rpc_modules | Arc"
+openapi: /openapi/arc_node_api/chain_info/rpc_modules.json POST /
+description: "Arc API method that lists the JSON-RPC namespaces the node exposes and their versions. Use it on Arc via Chainstack."
+---
+
+Arc API method that lists the JSON-RPC namespaces the node exposes, each mapped to its interface version.
+
+## Parameters
+
+None.
+
+## Response
+
+* `result` — an object whose keys are the enabled namespaces and whose values are version strings. On a Chainstack Arc node this covers `eth`, `debug`, `trace`, `txpool`, `net`, `web3`, and `rpc`.
+
+<Warning>
+  The response is not a complete inventory of what the node serves. Arc's custom `arc_*` namespace is registered outside the standard module registry, so `arc_getVersion` and `arc_getCertificate` both work even though `arc` never appears here. See [Arc methods](/docs/arc-methods) for what is actually available.
+</Warning>
+
+## `rpc_modules` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const { JsonRpcProvider } = require("ethers");
+
+const provider = new JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function call() {
+  const result = await provider.send("rpc_modules", []);
+  console.log(result);
+}
+
+call();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+result = web3.provider.make_request("rpc_modules", [])
+print(result)
+```
+
+```shell cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  --data '{
+    "jsonrpc": "2.0",
+    "method": "rpc_modules",
+    "params": [],
+    "id": 1
+  }'
+```
+</CodeGroup>
+
+## Use case
+
+Client libraries sometimes call `rpc_modules` at startup to decide which features to enable. On Arc that check will under-report, so treat it as a floor rather than the full picture.

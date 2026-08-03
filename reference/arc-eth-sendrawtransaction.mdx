@@ -1,0 +1,86 @@
+---
+title: eth_sendRawTransaction | Arc
+openapi: /openapi/arc_node_api/execute_transactions/eth_sendRawTransaction.json POST /
+description: "Arc API method that sends a signed transaction to the network. Chainstack supports eth_sendRawTransaction on Arc JSON-RPC nodes."
+---
+
+Arc API method that sends a signed transaction to the network. Arc supports standard Ethereum transaction types plus type `0x76` (TempoTransaction) with features like passkey authentication, call batching, and fee sponsorship.
+
+<Visibility for="humans">
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+</Visibility>
+
+<Info>
+**Stablecoin gas fees**: On Arc, transaction fees are paid in TIP-20 stablecoins like pathUSD, not a native token. The fee is automatically converted using the Fee AMM.
+</Info>
+
+
+## Parameters
+
+* `signedTransaction` — the signed transaction data as a hex string
+
+## Response
+
+* `result` — the transaction hash of the submitted transaction
+
+## `eth_sendRawTransaction` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const ethers = require('ethers');
+const NODE_URL = "CHAINSTACK_NODE_URL";
+const provider = new ethers.JsonRpcProvider(NODE_URL);
+
+const sendTransaction = async () => {
+    const wallet = new ethers.Wallet("YOUR_PRIVATE_KEY", provider);
+
+    const tx = {
+      to: "0xRecipientAddress",
+      value: 0, // Arc uses TIP-20 tokens for value transfer
+      data: "0x..." // TIP-20 transfer calldata
+    };
+
+    const txResponse = await wallet.sendTransaction(tx);
+    console.log(`Transaction hash: ${txResponse.hash}`);
+
+    const receipt = await txResponse.wait();
+    console.log(`Confirmed in block: ${receipt.blockNumber}`);
+  };
+
+sendTransaction();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+# Build and sign transaction
+account = web3.eth.account.from_key("YOUR_PRIVATE_KEY")
+tx = {
+    'nonce': web3.eth.get_transaction_count(account.address),
+    'to': "0xRecipientAddress",
+    'value': 0,  # Arc uses TIP-20 tokens for value transfer
+    'gas': 21000,
+    'gasPrice': web3.eth.gas_price,
+    'chainId': 4217  # Arc mainnet (use 42431 for testnet)
+}
+
+signed = account.sign_transaction(tx)
+tx_hash = web3.eth.send_raw_transaction(signed.raw_transaction)
+print(f"Transaction hash: {tx_hash.hex()}")
+```
+
+```bash cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "eth_sendRawTransaction", "params": ["0x02f8"], "id": 1}'
+```
+</CodeGroup>

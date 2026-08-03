@@ -1,0 +1,72 @@
+---
+title: "arc_getCertificate | Arc"
+openapi: /openapi/arc_node_api/arc_namespace/arc_getCertificate.json POST /
+description: "Arc API method that returns the consensus commit certificate for a block height, including the round, the block hash, and the validator signatures. Use it on Arc via Chainstack."
+---
+
+Arc API method that returns the consensus commit certificate for a block height. The certificate is the [Malachite](https://github.com/circlefin/malachite) BFT proof that the validator set committed the block, so it is what you check when you need finality evidence rather than the block contents.
+
+`arc_getCertificate` belongs to the custom `arc_*` namespace, which Arc adds on top of the standard Reth surface.
+
+<Note>
+  `rpc_modules` does not list `arc` in its response, because the namespace is registered outside the standard module registry. The method works regardless — do not use `rpc_modules` to decide whether it is available.
+</Note>
+
+## Parameters
+
+* `height` — the block height to get the commit certificate for, as an integer. Must be `1` or greater.
+
+## Response
+
+* `height` — the block height the certificate commits.
+* `round` — the consensus round in which the block was committed. `0` means the block was committed in the first round.
+* `block_hash` — the hash of the committed block.
+* `signatures` — the validator signatures that form the commit. Each entry has an `address` and a base64-encoded `signature`.
+
+## Error codes
+
+* `-32602` — invalid params, returned when the height is below `1`.
+* `-32004` — no certificate is available for that height.
+* `-32005` — the upstream consensus source is unreachable.
+
+## `arc_getCertificate` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const { JsonRpcProvider } = require("ethers");
+
+const provider = new JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function call() {
+  const result = await provider.send("arc_getCertificate", [55000000]);
+  console.log(result);
+}
+
+call();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+result = web3.provider.make_request("arc_getCertificate", [55000000])
+print(result)
+```
+
+```shell cURL
+curl -X POST "CHAINSTACK_NODE_URL" \
+  -H "Content-Type: application/json" \
+  --data '{
+    "jsonrpc": "2.0",
+    "method": "arc_getCertificate",
+    "params": [55000000],
+    "id": 1
+  }'
+```
+</CodeGroup>
+
+## Use case
+
+A cross-chain bridge or an exchange crediting deposits needs to know that a block is final, not merely present. On a BFT chain the commit certificate is that evidence: it names the validators that signed the block and the round they agreed in, so a relayer can verify the quorum itself instead of waiting out a confirmation count.
