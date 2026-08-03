@@ -24,7 +24,14 @@ Arc adds a custom `arc_*` namespace on top of the standard Reth surface:
 
 Arc disables pending-transaction visibility. Both `eth_newPendingTransactionFilter` and `eth_subscribe("newPendingTransactions")` return `-32001`, with `Pending transaction filters are not allowed` and `Subscriptions to pending transactions are not allowed` respectively.
 
-The `txpool_*` methods do work, so you can still inspect the pool with `txpool_status`, `txpool_content`, and `txpool_inspect`. You just cannot stream new pending transactions as they arrive. See [What gives you mempool access](/docs/mempool-configuration#what-gives-you-mempool-access) for how this compares with the other EVM chains.
+The `txpool_*` methods do work, so you can still inspect the pool with `txpool_status`, `txpool_content`, and `txpool_inspect`. You just cannot stream new pending transactions as they arrive.
+
+Two more methods are blocked for the same reason, and these return `null` rather than an error, so they fail quietly:
+
+* `eth_getBlockByNumber("pending")` — other block tags work normally.
+* `eth_getTransactionBySenderAndNonce` — it answers from the pool.
+
+All of this is enforced by Arc's own node software rather than by Chainstack. The [arc-node](https://github.com/circlefin/arc-node) RPC middleware describes the intent as preventing a request that "would leak pending transaction data". See [What gives you mempool access](/docs/mempool-configuration#what-gives-you-mempool-access) for how this compares with the other EVM chains.
 
 ## Block time and archive billing
 
@@ -95,7 +102,7 @@ Reth registers a number of Geth-era `debug_*` methods but returns `null` for the
 | eth\_getTransactionByBlockHashAndIndex   | <Icon icon="square-check"  iconType="solid" />            |  |
 | eth\_getTransactionByBlockNumberAndIndex | <Icon icon="square-check"  iconType="solid" />            |  |
 | eth\_getTransactionByHash                | <Icon icon="square-check"  iconType="solid" />            |  |
-| eth\_getTransactionBySenderAndNonce      | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| eth\_getTransactionBySenderAndNonce      | <Icon icon="xmark"  iconType="solid" />            | Arc returns `null` — it reads the pool, which Arc does not expose |
 | eth\_getTransactionCount                 | <Icon icon="square-check"  iconType="solid" />            |  |
 | eth\_getTransactionReceipt               | <Icon icon="square-check"  iconType="solid" />            |  |
 | eth\_getUncleByBlockHashAndIndex         | <Icon icon="square-check"  iconType="solid" />            | always null — Arc has no uncles (BFT consensus) |
