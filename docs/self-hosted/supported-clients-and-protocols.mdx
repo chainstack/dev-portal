@@ -16,6 +16,8 @@ This page is the canonical catalog of every deployment available in Chainstack S
 | Base | Mainnet | Base-Reth v1.1.0 + Base-Node v1.1.0 | 12 | 48 GiB | ~3.5 TB |
 | Unichain | Mainnet | OP-Reth v2.3.1 + OP-Node v1.19.0 | 12 | 48 GiB | ~2 TB |
 | Zora | Mainnet | OP-Reth v2.3.1 + OP-Node v1.19.0 | 12 | 48 GiB | ~2 TB |
+| World Chain | Mainnet | World-Chain v2.4.0 + OP-Node v1.19.3 | 12 | 48 GiB | ~1.3 TB |
+| World Chain | Sepolia | World-Chain v2.4.0 + OP-Node v1.19.3 | 6 | 24 GiB | 100 GB |
 | Arbitrum | Mainnet | Nitro v3.11.2 | 8 | 64 GiB | ~2.5 TB |
 | Arbitrum | Sepolia | Nitro v3.11.2 | 4 | 32 GiB | ~1.5 TB |
 | Robinhood Chain | Mainnet | Nitro v3.11.2 | 8 | 64 GiB | 200 GB |
@@ -30,6 +32,9 @@ This page is the canonical catalog of every deployment available in Chainstack S
 | Tempo | Testnet | Tempo v1.11.0 | 4 | 16 GiB | ~1.1 TB |
 | Plasma | Mainnet | Reth v1.11.3 + PlasmaBFT v0.15.0 | 5 | 20 GiB | 350 GB |
 | Plasma | Testnet | Reth v1.11.3 + PlasmaBFT v0.15.0 | 5 | 20 GiB | 250 GB |
+| Avalanche | Mainnet | AvalancheGo v1.14.2 | 4 | 16 GiB | 400 GB |
+| Avalanche | Fuji | AvalancheGo v1.15.0-fuji | 4 | 16 GiB | 300 GB |
+| Arc | Testnet | Arc-Execution 0.7.3 + Arc-Consensus 0.7.3 | 8 | 32 GiB | ~315 GB |
 
 <Note>
 vCPU and RAM figures are the standard preset totals. Ethereum networks also ship a **Light** preset that uses half the CPU and RAM with the same storage — see [EVM Layer 1](#evm-layer-1-execution-consensus) below.
@@ -78,15 +83,21 @@ OP Stack deployments require an Ethereum Layer 1 **RPC endpoint** and a **Beacon
 | Base Mainnet | 8453 | Base-Reth + Base-Node | [basescan.org](https://basescan.org) |
 | Unichain Mainnet | 130 | OP-Reth + OP-Node | [uniscan.xyz](https://uniscan.xyz) |
 | Zora Mainnet | 7777777 | OP-Reth + OP-Node | [explorer.zora.energy](https://explorer.zora.energy) |
+| World Chain Mainnet | 480 | World-Chain + OP-Node | [worldscan.org](https://worldscan.org) |
+| World Chain Sepolia | 4801 | World-Chain + OP-Node | [worldchain-sepolia.explorer.alchemy.com](https://worldchain-sepolia.explorer.alchemy.com) |
 
-Optimism Mainnet bootstraps from a pre-built snapshot (plan for ~2× storage during deploy). Base, Unichain, and Zora sync without a snapshot.
+Optimism Mainnet and both World Chain networks bootstrap from a pre-built snapshot (plan for ~2× storage during deploy). Base, Unichain, and Zora sync without a snapshot.
+
+<Note>
+World Chain Sepolia is the smallest deployment in this family — 6 vCPU / 24 GiB against the 12 vCPU / 48 GiB the Mainnet deployments take.
+</Note>
 
 ### Exposed ports
 
 | Client | Port | Protocol | Purpose |
 |--------|------|----------|---------|
-| OP-Reth / Base-Reth | 8545 | TCP | HTTP JSON-RPC |
-| OP-Reth / Base-Reth | 8546 | TCP | WS JSON-RPC |
+| OP-Reth / Base-Reth / World-Chain | 8545 | TCP | HTTP JSON-RPC |
+| OP-Reth / Base-Reth / World-Chain | 8546 | TCP | WS JSON-RPC |
 | OP-Node / Base-Node | 9545 | TCP | Rollup HTTP RPC |
 
 The execution client's auth RPC port (8551) is used internally between clients and is not exposed.
@@ -256,6 +267,48 @@ Storage splits into 300 GB for Reth and 50 GB for PlasmaBFT on Mainnet, and 200 
 | PlasmaBFT | 35070 | TCP | Consensus API (HTTP) |
 
 Both Reth listeners serve the `eth`, `net`, `web3`, `txpool`, and `debug` namespaces. The execution client's auth RPC port (8551) carries the engine API between the two clients, and the consensus client's P2P port (34070) and telemetry port (9745) are internal — none of the three are exposed.
+
+## Avalanche
+
+Runs a single AvalancheGo full node as a non-validator in full mode. One node serves the whole Primary Network, so there is no separate client per chain.
+
+Mainnet bootstraps from a pre-built chain snapshot, which temporarily requires about **2× the steady-state storage** while the archive is downloaded and extracted — provision the node's volume at the peak. Fuji syncs from genesis over the network's public peers and needs no extra headroom. See [Initial sync times](/docs/self-hosted/deploying-nodes#initial-sync-times).
+
+| Network | Chain ID | Client | Block explorer |
+|---------|----------|--------|----------------|
+| Avalanche Mainnet | 43114 | AvalancheGo v1.14.2 | [snowscan.xyz](https://snowscan.xyz) |
+| Avalanche Fuji | 43113 | AvalancheGo v1.15.0-fuji | [testnet.snowscan.xyz](https://testnet.snowscan.xyz) |
+
+The client version is pinned per network, so Mainnet and Fuji run different versions.
+
+### Exposed ports
+
+| Client | Port | Protocol | Purpose |
+|--------|------|----------|---------|
+| AvalancheGo | 9650 | TCP | HTTP and WS JSON-RPC for all three chains |
+
+All chain endpoints share port 9650 and differ only by path — `/ext/bc/C/rpc` for C-Chain HTTP, `/ext/bc/C/ws` for C-Chain WebSocket, `/ext/bc/X` for X-Chain HTTP, and `/ext/P` for P-Chain HTTP. The node overview lists all four. Only the C-Chain offers a WebSocket endpoint; the X-Chain's pubsub endpoint was removed upstream and nothing replaced it. The P2P port (9651) is internal and is not exposed.
+
+## Arc
+
+Runs a paired execution client and consensus client as a non-validator node in full mode, following the network's public endpoints. Arc-Execution takes 6 vCPU / 24 GiB and Arc-Consensus takes 2 vCPU / 8 GiB.
+
+These deployments bootstrap from a pre-built chain snapshot rather than syncing from genesis. Snapshot bootstrap temporarily requires about **2× the steady-state storage** while the archive is downloaded and extracted — provision the node's volume at the peak. See [Initial sync times](/docs/self-hosted/deploying-nodes#initial-sync-times).
+
+| Network | Chain ID | Block explorer |
+|---------|----------|----------------|
+| Arc Testnet | 5042002 | [testnet.arcscan.app](https://testnet.arcscan.app) |
+
+Storage splits into 250 GB for Arc-Execution and 64 GB for Arc-Consensus.
+
+### Exposed ports
+
+| Client | Port | Protocol | Purpose |
+|--------|------|----------|---------|
+| Arc-Execution | 8545 | TCP | HTTP JSON-RPC |
+| Arc-Execution | 8546 | TCP | WS JSON-RPC |
+
+Both listeners serve the `eth`, `net`, `web3`, `txpool`, `trace`, and `debug` namespaces. Arc-Consensus publishes nothing of its own — its RPC port is the internal upstream of the execution client's `arc` namespace. The execution client's auth RPC port (8551), the consensus client's RPC (31000) and P2P (27000) ports, and both metrics ports are internal and are not exposed.
 
 ## Coming soon
 

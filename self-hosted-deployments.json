@@ -134,6 +134,42 @@
         { "port": 34070, "proto": "TCP", "purpose": "P2P", "exposed": false },
         { "port": 9745, "proto": "TCP", "purpose": "Telemetry", "exposed": false }
       ]
+    },
+    "avalanchego": {
+      "label": "AvalancheGo",
+      "role": "full",
+      "ports": [
+        { "port": 9650, "proto": "TCP", "purpose": "HTTP and WS JSON-RPC for the C-Chain, X-Chain, and P-Chain (one port, per-chain paths)", "exposed": true },
+        { "port": 9651, "proto": "TCP", "purpose": "P2P", "exposed": false }
+      ]
+    },
+    "arc-execution": {
+      "label": "Arc-Execution",
+      "role": "execution",
+      "ports": [
+        { "port": 8545, "proto": "TCP", "purpose": "HTTP JSON-RPC", "exposed": true },
+        { "port": 8546, "proto": "TCP", "purpose": "WS JSON-RPC", "exposed": true },
+        { "port": 8551, "proto": "TCP", "purpose": "Auth RPC (engine API, execution to consensus only)", "exposed": false },
+        { "port": 9001, "proto": "TCP", "purpose": "Metrics", "exposed": false }
+      ]
+    },
+    "arc-consensus": {
+      "label": "Arc-Consensus",
+      "role": "consensus",
+      "ports": [
+        { "port": 31000, "proto": "TCP", "purpose": "Consensus RPC (upstream of the execution client's arc namespace only)", "exposed": false },
+        { "port": 27000, "proto": "TCP", "purpose": "P2P", "exposed": false },
+        { "port": 29000, "proto": "TCP", "purpose": "Metrics", "exposed": false }
+      ]
+    },
+    "world-chain": {
+      "label": "World-Chain",
+      "role": "execution",
+      "ports": [
+        { "port": 8545, "proto": "TCP", "purpose": "HTTP JSON-RPC", "exposed": true },
+        { "port": 8546, "proto": "TCP", "purpose": "WS JSON-RPC", "exposed": true },
+        { "port": 8551, "proto": "TCP", "purpose": "Auth RPC (engine API, execution to consensus only)", "exposed": false }
+      ]
     }
   },
   "families": {
@@ -211,6 +247,21 @@
       "notes": [
         "Runs a paired execution client and consensus client as a non-validator node. CPU and RAM are split across the two clients.",
         "Syncs from genesis over the network's public peers rather than restoring from a snapshot, so no extra storage headroom is needed for the initial sync."
+      ]
+    },
+    "avalanche": {
+      "label": "Avalanche",
+      "notes": [
+        "Runs a single full node client that serves the Primary Network's C-Chain, X-Chain, and P-Chain on one port, addressed by per-chain paths.",
+        "Mainnet bootstraps from a pre-built chain snapshot and temporarily needs about 2x the steady-state storage while the archive is downloaded and extracted. Fuji syncs from genesis over the network's public peers.",
+        "Client version is pinned per network, so Mainnet and Fuji can run different versions."
+      ]
+    },
+    "arc": {
+      "label": "Arc",
+      "notes": [
+        "Runs a paired execution client and consensus client as a non-validator node that follows the network's public endpoints. CPU and RAM are split across the two clients.",
+        "Bootstraps from a pre-built chain snapshot. Snapshot bootstrap temporarily needs about 2x the steady-state storage while the archive is downloaded and extracted."
       ]
     }
   },
@@ -291,6 +342,28 @@
         { "client": "op-node", "version": "v1.19.0", "cpu": 4, "ramGi": 16, "storageGi": 0 }
       ],
       "totals": { "cpu": 12, "ramGi": 48, "storageGi": 2000 }
+    },
+    {
+      "protocol": "World Chain", "network": "Mainnet", "chainId": 480,
+      "explorer": "https://worldscan.org",
+      "family": "op-stack-l2", "status": "available", "snapshotBootstrap": true,
+      "presets": ["standard"],
+      "clients": [
+        { "client": "world-chain", "version": "v2.4.0",  "cpu": 8, "ramGi": 32, "storageGi": 1300 },
+        { "client": "op-node",     "version": "v1.19.3", "cpu": 4, "ramGi": 16, "storageGi": 0 }
+      ],
+      "totals": { "cpu": 12, "ramGi": 48, "storageGi": 1300 }
+    },
+    {
+      "protocol": "World Chain", "network": "Sepolia", "chainId": 4801,
+      "explorer": "https://worldchain-sepolia.explorer.alchemy.com",
+      "family": "op-stack-l2", "status": "available", "snapshotBootstrap": true,
+      "presets": ["standard"],
+      "clients": [
+        { "client": "world-chain", "version": "v2.4.0",  "cpu": 4, "ramGi": 16, "storageGi": 100 },
+        { "client": "op-node",     "version": "v1.19.3", "cpu": 2, "ramGi": 8,  "storageGi": 0 }
+      ],
+      "totals": { "cpu": 6, "ramGi": 24, "storageGi": 100 }
     },
     {
       "protocol": "Arbitrum", "network": "Mainnet", "chainId": 42161,
@@ -434,6 +507,37 @@
         { "client": "plasma", "version": "0.15.0", "cpu": 1, "ramGi": 4, "storageGi": 50 }
       ],
       "totals": { "cpu": 5, "ramGi": 20, "storageGi": 250 }
+    },
+    {
+      "protocol": "Avalanche", "network": "Mainnet", "chainId": 43114,
+      "explorer": "https://snowscan.xyz",
+      "family": "avalanche", "status": "available", "snapshotBootstrap": true,
+      "presets": ["standard"],
+      "clients": [
+        { "client": "avalanchego", "version": "v1.14.2", "cpu": 4, "ramGi": 16, "storageGi": 400 }
+      ],
+      "totals": { "cpu": 4, "ramGi": 16, "storageGi": 400 }
+    },
+    {
+      "protocol": "Avalanche", "network": "Fuji", "chainId": 43113,
+      "explorer": "https://testnet.snowscan.xyz",
+      "family": "avalanche", "status": "available", "snapshotBootstrap": false,
+      "presets": ["standard"],
+      "clients": [
+        { "client": "avalanchego", "version": "v1.15.0-fuji", "cpu": 4, "ramGi": 16, "storageGi": 300 }
+      ],
+      "totals": { "cpu": 4, "ramGi": 16, "storageGi": 300 }
+    },
+    {
+      "protocol": "Arc", "network": "Testnet", "chainId": 5042002,
+      "explorer": "https://testnet.arcscan.app",
+      "family": "arc", "status": "available", "snapshotBootstrap": true,
+      "presets": ["standard"],
+      "clients": [
+        { "client": "arc-execution", "version": "0.7.3", "cpu": 6, "ramGi": 24, "storageGi": 250 },
+        { "client": "arc-consensus", "version": "0.7.3", "cpu": 2, "ramGi": 8,  "storageGi": 64 }
+      ],
+      "totals": { "cpu": 8, "ramGi": 32, "storageGi": 314 }
     },
     {
       "protocol": "Solana", "network": "Mainnet", "chainId": null,
