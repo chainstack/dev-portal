@@ -1,0 +1,156 @@
+---
+title: "Stable tooling"
+description: "Connect MetaMask, ethers.js, viem, and web3.py to a Stable node on Chainstack. Chain configuration, the USDT0 gas token and its two decimal counts, and the behaviors that affect tooling."
+---
+
+Stable is EVM-compatible, so the standard Ethereum libraries work against a Stable node without modification. The differences are in the chain configuration and in a handful of methods the client does not implement.
+
+## Chain configuration
+
+| Property | Value |
+|----------|-------|
+| Network | Stable Mainnet |
+| Chain ID | `988` |
+| Native gas currency | USDT0 |
+| Decimals | `18` |
+| Block time | ~0.7 seconds |
+| RPC URL | your Chainstack [Stable endpoint](/docs/manage-your-node#view-node-access-and-credentials) |
+| Multicall3 | `0xcA11bde05977b3631167028862bE2a173976CA11` |
+| Explorer | [stablescan.xyz](https://stablescan.xyz) |
+
+<Warning>
+  **Two different USDT0 decimal counts on one chain.** The native gas currency carries **18 decimals**, so gas balances are wei-denominated exactly as on Ethereum and `formatEther` and `from_wei(..., "ether")` are the correct helpers.
+
+  The USDT0 **ERC-20 token** at `0x779Ded0c9e1022225f8E0630b35a9b54bE713736` reports **6 decimals**. Format that one with `formatUnits(value, 6)`, not `formatEther`.
+
+  Both are called USDT0, so the mistake is easy to make and puts you out by a factor of 10<sup>12</sup> in whichever direction you got it wrong.
+</Warning>
+
+See [Stable methods](/docs/stable-methods) for per-method availability and [Debug and trace APIs](/docs/debug-and-trace-apis#stable) for the tracing namespaces.
+
+## MetaMask
+
+Add Stable Mainnet as a custom network. On Chainstack, get your [Stable endpoint](/docs/manage-your-node#view-node-access-and-credentials), then in MetaMask select **Add a custom network** and fill in:
+
+* Network name — Stable
+* Default RPC URL — your Chainstack Stable endpoint
+* Chain ID — `988`
+* Currency symbol — USDT0
+* Block explorer URL — `https://stablescan.xyz`
+
+## ethers.js
+
+Install [ethers.js](https://docs.ethers.org/):
+
+<CodeGroup>
+```shell Shell
+npm install ethers
+```
+</CodeGroup>
+
+<CodeGroup>
+```javascript index.js
+const { JsonRpcProvider, formatEther } = require("ethers");
+
+const provider = new JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function main() {
+  const network = await provider.getNetwork();
+  console.log("Chain ID:", network.chainId.toString());
+
+  const block = await provider.getBlockNumber();
+  console.log("Block:", block);
+
+  const balance = await provider.getBalance("0x71B7c43c004D99A1091A532808b8E9c812eC51F8");
+  console.log("Balance:", formatEther(balance), "USDT0");
+}
+
+main();
+```
+</CodeGroup>
+
+## viem
+
+Stable ships in viem's bundled chain list as `stable`, so you do not need `defineChain`:
+
+<CodeGroup>
+```shell Shell
+npm install viem
+```
+</CodeGroup>
+
+<CodeGroup>
+```javascript index.mjs
+import { createPublicClient, http, formatEther, formatUnits } from "viem";
+import { stable } from "viem/chains";
+
+const client = createPublicClient({
+  chain: stable,
+  transport: http("CHAINSTACK_NODE_URL"),
+});
+
+console.log("Chain ID:", await client.getChainId());
+console.log("Block:", await client.getBlockNumber());
+
+// Native USDT0 — 18 decimals.
+const balance = await client.getBalance({
+  address: "0x71B7c43c004D99A1091A532808b8E9c812eC51F8",
+});
+console.log("Gas balance:", formatEther(balance), "USDT0");
+
+// The USDT0 ERC-20 — 6 decimals.
+const totalSupply = await client.readContract({
+  address: "0x779Ded0c9e1022225f8E0630b35a9b54bE713736",
+  abi: [{
+    name: "totalSupply", type: "function", inputs: [],
+    outputs: [{ type: "uint256" }], stateMutability: "view",
+  }],
+  functionName: "totalSupply",
+});
+console.log("USDT0 token supply:", formatUnits(totalSupply, 6));
+```
+</CodeGroup>
+
+Pass your Chainstack endpoint to `http()` as above. The bundled chain definition carries a public RPC URL, and `http()` with no argument would use that instead of your node.
+
+## web3.py
+
+Install [web3.py](https://web3py.readthedocs.io/):
+
+<CodeGroup>
+```shell Shell
+pip install web3
+```
+</CodeGroup>
+
+<CodeGroup>
+```python main.py
+from web3 import Web3
+
+web3 = Web3(Web3.HTTPProvider("CHAINSTACK_NODE_URL"))
+
+print("Connected:", web3.is_connected())
+print("Chain ID:", web3.eth.chain_id)
+print("Block:", web3.eth.block_number)
+
+address = Web3.to_checksum_address("0x71b7c43c004d99a1091a532808b8e9c812ec51f8")
+balance = web3.eth.get_balance(address)
+print("Gas balance:", web3.from_wei(balance, "ether"), "USDT0")
+```
+</CodeGroup>
+
+<Note>
+  web3.py rejects lowercase addresses with `InvalidAddress`. Wrap any address you did not get from the library itself in `Web3.to_checksum_address()`, as above.
+</Note>
+
+## Stable behaviors that affect tooling
+
+**No `trace_*` namespace.** All nine Parity-style trace methods return `-32601`. Any library helper or indexer that reaches for `trace_block` or `trace_transaction` will fail. Use `debug_traceBlockByNumber` and `debug_traceTransaction` with the `callTracer` instead — see [Stable methods](/docs/stable-methods#the-trace-namespace-is-not-served) for the full swap table.
+
+**The transaction pool responds but is always empty.** `txpool_status`, `txpool_content`, `txpool_contentFrom`, and `txpool_inspect` all return successfully and report nothing pending. Pending-transaction subscriptions and filters behave the same way: they hand back an ID and then deliver no transactions. Do not build a pending-transaction feed on Stable. See [What gives you mempool access](/docs/mempool-configuration#what-gives-you-mempool-access).
+
+**Three methods behave unlike Geth.** `eth_getProof` returns a Cosmos IAVL proof rather than an Ethereum Merkle-Patricia proof, and needs an explicit block number — passing `latest` returns `-32000 proof queries at height <= 2 are not supported`. `eth_createAccessList` returns `-32603 method handler crashed`; since Stable charges a flat base fee, an access list buys you nothing here anyway. `eth_simulateV1` is not implemented.
+
+**`eth_getLogs` is capped at 10,000 blocks.** Exceeding it returns `-32000 maximum [from, to] blocks distance: 10000`, and a query that matches too much returns `-32000 query returned more than 10000 results`. Paginate on both. See [EVM range limits](/docs/limits#evm-range-limits).
+
+**Filters are node-local.** A [Global Node](/docs/global-elastic-node) endpoint is load balanced across backends, and a filter created by `eth_newFilter` or `eth_newBlockFilter` lives on the backend that created it. A follow-up `eth_getFilterChanges` that lands elsewhere returns `-32000 filter not found`. Poll [eth\_getLogs](/reference/ethereum-getlogs) over an explicit block range instead, or hold a WSS subscription, which keeps one connection to one backend for its lifetime.
