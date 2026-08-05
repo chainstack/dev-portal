@@ -1,0 +1,132 @@
+---
+title: "World Chain tooling"
+description: "Connect MetaMask, ethers.js, viem, and web3.py to a World Chain node on Chainstack. Chain configuration, and the three behaviors that affect tooling."
+---
+
+World Chain is an [OP Stack](https://docs.optimism.io/) layer 2, so the standard Ethereum libraries work against a World Chain node without modification. Gas is paid in ETH exactly as on Ethereum mainnet.
+
+## Chain configuration
+
+| Property | Value |
+|----------|-------|
+| Network | World Chain Mainnet |
+| Chain ID | `480` |
+| Native gas currency | ETH |
+| Decimals | `18` |
+| Block time | ~2 seconds |
+| RPC URL | your Chainstack [World Chain endpoint](/docs/manage-your-node#view-node-access-and-credentials) |
+| Multicall3 | `0xcA11bde05977b3631167028862bE2a173976CA11` |
+| Explorer | [worldscan.org](https://worldscan.org) |
+
+See [World Chain methods](/docs/worldchain-methods) for per-method availability and [Debug and trace APIs](/docs/debug-and-trace-apis#world-chain) for the tracing namespaces.
+
+## MetaMask
+
+Add World Chain Mainnet as a custom network. On Chainstack, get your [World Chain endpoint](/docs/manage-your-node#view-node-access-and-credentials), then in MetaMask select **Add a custom network** and fill in:
+
+* Network name — World Chain
+* Default RPC URL — your Chainstack World Chain endpoint
+* Chain ID — `480`
+* Currency symbol — ETH
+* Block explorer URL — `https://worldscan.org`
+
+## ethers.js
+
+Install [ethers.js](https://docs.ethers.org/):
+
+<CodeGroup>
+```shell Shell
+npm install ethers
+```
+</CodeGroup>
+
+<CodeGroup>
+```javascript index.js
+const { JsonRpcProvider, formatEther } = require("ethers");
+
+const provider = new JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function main() {
+  const network = await provider.getNetwork();
+  console.log("Chain ID:", network.chainId.toString());
+
+  const block = await provider.getBlockNumber();
+  console.log("Block:", block);
+
+  const balance = await provider.getBalance("0xC2Ca6E8f5764E377F72A206Ab6E2805607aC405a");
+  console.log("Balance:", formatEther(balance), "ETH");
+}
+
+main();
+```
+</CodeGroup>
+
+## viem
+
+World Chain ships in viem's bundled chain list as `worldchain`, so you do not need `defineChain`:
+
+<CodeGroup>
+```shell Shell
+npm install viem
+```
+</CodeGroup>
+
+<CodeGroup>
+```javascript index.mjs
+import { createPublicClient, http, formatEther } from "viem";
+import { worldchain } from "viem/chains";
+
+const client = createPublicClient({
+  chain: worldchain,
+  transport: http("CHAINSTACK_NODE_URL"),
+});
+
+console.log("Chain ID:", await client.getChainId());
+console.log("Block:", await client.getBlockNumber());
+
+const balance = await client.getBalance({
+  address: "0xC2Ca6E8f5764E377F72A206Ab6E2805607aC405a",
+});
+console.log("Balance:", formatEther(balance), "ETH");
+```
+</CodeGroup>
+
+Pass your Chainstack endpoint to `http()` as above. The bundled chain definition carries a public RPC URL, and `http()` with no argument would use that instead of your node.
+
+## web3.py
+
+Install [web3.py](https://web3py.readthedocs.io/):
+
+<CodeGroup>
+```shell Shell
+pip install web3
+```
+</CodeGroup>
+
+<CodeGroup>
+```python main.py
+from web3 import Web3
+
+web3 = Web3(Web3.HTTPProvider("CHAINSTACK_NODE_URL"))
+
+print("Connected:", web3.is_connected())
+print("Chain ID:", web3.eth.chain_id)
+print("Block:", web3.eth.block_number)
+
+address = Web3.to_checksum_address("0xc2ca6e8f5764e377f72a206ab6e2805607ac405a")
+balance = web3.eth.get_balance(address)
+print("Balance:", web3.from_wei(balance, "ether"), "ETH")
+```
+</CodeGroup>
+
+<Note>
+  web3.py rejects lowercase addresses with `InvalidAddress`. Wrap any address you did not get from the library itself in `Web3.to_checksum_address()`, as above.
+</Note>
+
+## Three World Chain behaviors that affect tooling
+
+**There is no transaction pool to read.** The `txpool_*` namespace is not served — `txpool_status`, `txpool_content`, `txpool_contentFrom`, and `txpool_inspect` all return `-32601`. No mode or plan change turns them on, because World Chain is an OP Stack chain and pending transactions stay with the sequencer.
+
+**Pending-transaction subscriptions succeed and then deliver nothing.** `eth_subscribe("newPendingTransactions")` returns a subscription ID and `eth_newPendingTransactionFilter` returns a filter ID, so neither call looks like it failed. No transaction ever arrives. `newHeads` and `logs` subscriptions both work normally. See [What gives you mempool access](/docs/mempool-configuration#what-gives-you-mempool-access).
+
+**Filters are node-local.** A [Global Node](/docs/global-elastic-node) endpoint is load balanced across backends, and a filter created by `eth_newFilter` or `eth_newBlockFilter` lives on the backend that created it. A follow-up `eth_getFilterChanges` that lands elsewhere returns `-32602 filter not found`. Poll [eth\_getLogs](/reference/ethereum-getlogs) over an explicit block range instead, or hold a WSS subscription, which keeps one connection to one backend for its lifetime.
