@@ -1,0 +1,137 @@
+---
+title: "World Chain methods"
+description: Complete reference of World Chain JSON-RPC methods supported on Chainstack, with per-method availability for the eth, debug, trace, net, and web3 namespaces. Live-tested against Chainstack World Chain nodes.
+---
+
+Our pricing is simple: 1 RU per full request, 2 RUs per archive. For which EVM methods are full vs archive, see [Request units — EVM methods affected by block age](/docs/request-units#evm-methods-affected-by-block-age).
+
+World Chain is an [OP Stack](https://docs.optimism.io/) layer 2 built by [World](https://world.org/). Chain ID is `480`. Chainstack nodes run the `world-chain` execution client, a fork of [Reth](https://github.com/paradigmxyz/reth), and report `world-chain/v2.4.0` from `web3_clientVersion`. The availability below is verified against Chainstack World Chain nodes.
+
+## Both debug and trace are available
+
+World Chain exposes the `debug_*` and the `trace_*` namespaces in full. Every trace method works, including `trace_block`, `trace_transaction`, `trace_filter`, `trace_callMany`, and `trace_replayBlockTransactions`. Both namespaces need a [paid plan](https://chainstack.com/pricing/) — see [Debug and trace APIs](/docs/debug-and-trace-apis#world-chain).
+
+For tracer selection, the native tracers `callTracer`, `prestateTracer`, `4byteTracer`, and `noopTracer` are enabled. `flatCallTracer` and `muxTracer` are not — see [Available native tracers](/docs/limits#available-native-tracers).
+
+<Note>
+  `rpc_modules` is not available on World Chain — it returns `-32601 Method not found`. Do not use it to work out which namespaces you have; use the table below.
+</Note>
+
+## The transaction pool is not served
+
+The `txpool_*` namespace is not available on World Chain. `txpool_status`, `txpool_content`, `txpool_contentFrom`, and `txpool_inspect` all return `-32601`. There is no archive-mode or plan upgrade that turns them on, because World Chain is an OP Stack chain and pending transactions stay with the sequencer.
+
+## Pending transactions are accepted but never delivered
+
+`eth_newPendingTransactionFilter` returns a filter ID and `eth_subscribe("newPendingTransactions")` returns a subscription ID, so both look like they worked. Neither ever delivers a transaction — the subscription produced zero events over a 16-second window against a chain that was confirming transactions throughout.
+
+`eth_getBlockByNumber("pending")` does return a block, unlike on [Arc](/docs/arc-methods), so that call is safe to make. See [What gives you mempool access](/docs/mempool-configuration#what-gives-you-mempool-access) for how World Chain compares with the other EVM chains.
+
+## Filters on a load-balanced endpoint
+
+A [Global Node](/docs/global-elastic-node) endpoint is load balanced across backends, and a filter created by `eth_newFilter` or `eth_newBlockFilter` lives on the single backend that created it. A follow-up `eth_getFilterChanges` that lands on a different backend returns `-32602 filter not found`. Poll with [eth\_getLogs](/reference/ethereum-getlogs) over an explicit block range instead, or use a WSS subscription, which holds one connection to one backend for its lifetime.
+
+## Block time and archive billing
+
+World Chain produces a block roughly every 2 seconds. The standard EVM rule — 127 or more blocks behind the tip bills as archive — therefore covers about 4 minutes of history, against roughly 25 minutes on Ethereum. Plan for historical queries to bill as archive sooner than they would on Ethereum.
+
+## Legacy debug methods
+
+The `world-chain` client inherits Reth's behavior of registering a number of Geth-era `debug_*` methods and then returning `null` for them rather than an error. They are marked unavailable below, because a `null` response carries no data. Use `debug_traceTransaction`, `debug_traceBlockByNumber`, `debug_traceBlockByHash`, and `debug_traceCall` instead, or `eth_getStorageAt` in place of `debug_storageRangeAt` — see [Using eth\_getStorageAt instead of debug\_storageRangeAt on Reth](/docs/using-eth_getstorageat-instead-of-debug_storagerangeat-on-reth).
+
+## Method availability
+
+| Method                                    | Availability | Comment |
+| ----------------------------------------- | ------------ | ------- |
+| debug\_accountRange                       | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_chaindbProperty                    | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_codeByHash                         | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_dumpBlock                          | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_getAccessibleState                 | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_getBadBlocks                       | <Icon icon="square-check"  iconType="solid" />            | returns an empty array |
+| debug\_getModifiedAccountsByHash          | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_getModifiedAccountsByNumber        | <Icon icon="xmark"  iconType="solid" />            | returns `-32602 Invalid params` for every argument form |
+| debug\_getRawBlock                        | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_getRawHeader                       | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_getRawReceipts                     | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_getRawTransaction                  | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_getTrieFlushInterval               | <Icon icon="xmark"  iconType="solid" />            | not implemented by Reth |
+| debug\_intermediateRoots                  | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_preimage                           | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_printBlock                         | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth |
+| debug\_storageRangeAt                     | <Icon icon="xmark"  iconType="solid" />            | registered but returns `null` on Reth — use `eth_getStorageAt` |
+| debug\_traceBadBlock                      | <Icon icon="square-check"  iconType="solid" />            | returns `-32603 bad block not found in cache` when the chain has no bad blocks |
+| debug\_traceBlock                         | <Icon icon="square-check"  iconType="solid" />            | takes an RLP-encoded block |
+| debug\_traceBlockByHash                   | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_traceBlockByNumber                 | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_traceCall                          | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_traceTransaction                   | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_accounts                             | <Icon icon="square-check"  iconType="solid" />            | returns an empty array — no unlocked accounts on a hosted node |
+| eth\_blobBaseFee                          | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_blockNumber                          | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_call                                 | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_chainId                              | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_coinbase                             | <Icon icon="xmark"  iconType="solid" />            | not implemented by Reth — returns `-32603 unimplemented` |
+| eth\_createAccessList                     | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_estimateGas                          | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_feeHistory                           | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_gasPrice                             | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getAccount                           | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getBalance                           | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getBlockByHash                       | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getBlockByNumber                     | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getBlockReceipts                     | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getBlockTransactionCountByHash       | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getBlockTransactionCountByNumber     | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getCode                              | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getFilterChanges                     | <Icon icon="square-check"  iconType="solid" />            | filters are node-local — see [Filters on a load-balanced endpoint](#filters-on-a-load-balanced-endpoint) |
+| eth\_getFilterLogs                        | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getHeaderByHash                      | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getHeaderByNumber                    | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getLogs                              | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getProof                             | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getRawTransactionByHash              | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getStorageAt                         | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getTransactionByBlockHashAndIndex    | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getTransactionByBlockNumberAndIndex  | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getTransactionByHash                 | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getTransactionBySenderAndNonce       | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getTransactionCount                  | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getTransactionReceipt                | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getUncleByBlockHashAndIndex          | <Icon icon="square-check"  iconType="solid" />            | always null — World Chain has no uncles |
+| eth\_getUncleByBlockNumberAndIndex        | <Icon icon="square-check"  iconType="solid" />            | always null — World Chain has no uncles |
+| eth\_getUncleCountByBlockHash             | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getUncleCountByBlockNumber           | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_hashrate                             | <Icon icon="square-check"  iconType="solid" />            | always `0x0` |
+| eth\_maxPriorityFeePerGas                 | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_mining                               | <Icon icon="xmark"  iconType="solid" />            | not implemented by Reth — returns `-32603 unimplemented` |
+| eth\_newBlockFilter                       | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_newFilter                            | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_newPendingTransactionFilter          | <Icon icon="square-check"  iconType="solid" />            | accepts the filter but never returns a transaction — see [Pending transactions](#pending-transactions-are-accepted-but-never-delivered) |
+| eth\_protocolVersion                      | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_sendRawTransaction                   | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_sendRawTransactionSync               | <Icon icon="square-check"  iconType="solid" />            | waits for the receipt instead of returning the hash |
+| eth\_simulateV1                           | <Icon icon="xmark"  iconType="solid" />            | returns `-32603 Internal error` for every request shape tested |
+| eth\_subscribe                            | <Icon icon="square-check"  iconType="solid" />            | WSS. `newHeads`, `logs`, and `syncing` deliver. `newPendingTransactions` subscribes but delivers nothing |
+| eth\_syncing                              | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_uninstallFilter                      | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_unsubscribe                          | <Icon icon="square-check"  iconType="solid" />            | WSS |
+| net\_listening                            | <Icon icon="square-check"  iconType="solid" />            |  |
+| net\_peerCount                            | <Icon icon="square-check"  iconType="solid" />            |  |
+| net\_version                              | <Icon icon="square-check"  iconType="solid" />            |  |
+| rpc\_modules                              | <Icon icon="xmark"  iconType="solid" />            | returns `-32601 Method not found` |
+| trace\_block                              | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_call                               | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_callMany                           | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_filter                             | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_get                                | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_rawTransaction                     | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_replayBlockTransactions            | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_replayTransaction                  | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_transaction                        | <Icon icon="square-check"  iconType="solid" />            |  |
+| txpool\_content                           | <Icon icon="xmark"  iconType="solid" />            | the `txpool_*` namespace is not served on World Chain |
+| txpool\_contentFrom                       | <Icon icon="xmark"  iconType="solid" />            | the `txpool_*` namespace is not served on World Chain |
+| txpool\_inspect                           | <Icon icon="xmark"  iconType="solid" />            | the `txpool_*` namespace is not served on World Chain |
+| txpool\_status                            | <Icon icon="xmark"  iconType="solid" />            | the `txpool_*` namespace is not served on World Chain |
+| web3\_clientVersion                       | <Icon icon="square-check"  iconType="solid" />            |  |
+| web3\_sha3                                | <Icon icon="square-check"  iconType="solid" />            |  |
