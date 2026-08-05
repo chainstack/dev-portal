@@ -1,0 +1,147 @@
+---
+title: "Stable methods"
+description: Complete reference of Stable JSON-RPC methods supported on Chainstack, with per-method availability for the eth, debug, txpool, net, and web3 namespaces. Live-tested against Chainstack Stable nodes. The trace namespace is not served.
+---
+
+Our pricing is simple: 1 RU per full request, 2 RUs per archive. For which EVM methods are full vs archive, see [Request units — EVM methods affected by block age](/docs/request-units#evm-methods-affected-by-block-age).
+
+Stable is an EVM-compatible layer 1. Chain ID is `988`. Chainstack nodes run the `stabled` client, which is built on the Cosmos SDK and serves an Ethereum-compatible JSON-RPC surface on top of it. The availability below is verified against Chainstack Stable nodes.
+
+## The trace namespace is not served
+
+<Warning>
+  Stable serves `debug_*` but not `trace_*`. All nine Parity-style trace methods return `-32601`: `trace_block`, `trace_transaction`, `trace_call`, `trace_callMany`, `trace_filter`, `trace_get`, `trace_rawTransaction`, `trace_replayBlockTransactions`, and `trace_replayTransaction`.
+
+  If you are porting code from Ethereum, Arc, or World Chain, swap the calls before you deploy:
+
+  | Instead of | Use |
+  | ---------- | --- |
+  | `trace_block` | `debug_traceBlockByNumber` with `{"tracer": "callTracer"}` |
+  | `trace_transaction` | `debug_traceTransaction` with `{"tracer": "callTracer"}` |
+  | `trace_call` | `debug_traceCall` with `{"tracer": "callTracer"}` |
+</Warning>
+
+`rpc_modules` is available on Stable and reports the served namespaces accurately: `debug`, `eth`, `net`, `rpc`, `txpool`, and `web3`.
+
+The available tracing methods are `debug_traceTransaction`, `debug_traceBlockByNumber`, `debug_traceBlockByHash`, and `debug_traceCall`, all of which need a [paid plan](https://chainstack.com/pricing/) — see [Debug and trace APIs](/docs/debug-and-trace-apis#stable). The native tracers `callTracer`, `prestateTracer`, `4byteTracer`, and `noopTracer` are enabled; `flatCallTracer` and `muxTracer` are not — see [Available native tracers](/docs/limits#available-native-tracers).
+
+## Pending transactions are accepted but never delivered
+
+The `txpool_*` methods respond on Stable, so `txpool_status`, `txpool_content`, `txpool_contentFrom`, and `txpool_inspect` all return successfully. They always report an empty pool. Across 30 samples taken every 4 seconds over two minutes, `txpool_status` returned `pending: 0x0, queued: 0x0` every time, while 52 transactions confirmed in new blocks over the same window. The pool is not exposed through the EVM JSON-RPC layer.
+
+`eth_newPendingTransactionFilter` and `eth_subscribe("newPendingTransactions")` both hand back an ID and then deliver nothing. Do not build a pending-transaction feed on Stable. See [What gives you mempool access](/docs/mempool-configuration#what-gives-you-mempool-access).
+
+## Filters on a load-balanced endpoint
+
+A [Global Node](/docs/global-elastic-node) endpoint is load balanced across backends, and a filter created by `eth_newFilter` or `eth_newBlockFilter` lives on the single backend that created it. A follow-up `eth_getFilterChanges` that lands on a different backend returns `-32000 filter not found`. Poll with [eth\_getLogs](/reference/ethereum-getlogs) over an explicit block range instead, or use a WSS subscription, which holds one connection to one backend for its lifetime.
+
+## Cosmos SDK behavior to expect
+
+The Cosmos SDK foundation shows through in three places:
+
+* `eth_getProof` returns a Cosmos IAVL proof, not an Ethereum Merkle-Patricia proof, so it is not a drop-in for Ethereum state-proof verification. It also needs an explicit block number — passing `latest` returns `-32000 proof queries at height <= 2 are not supported`.
+* `debug_printBlock` and `debug_intermediateRoots` return `-32000 profiling disabled in the debug namespace`.
+* `eth_createAccessList` returns `-32603 method handler crashed` for every request shape tested. Since Stable charges a flat base fee, an access list buys you nothing here anyway.
+
+`eth_simulateV1` is not implemented. `eth_blobBaseFee` is not either — Stable takes no blob transactions.
+
+## Block time and archive billing
+
+Stable produces a block roughly every 0.7 seconds. The standard EVM rule — 127 or more blocks behind the tip bills as archive — therefore covers only about 90 seconds of history, against roughly 25 minutes on Ethereum. On Stable, expect most historical queries to bill as archive.
+
+## Method availability
+
+| Method                                    | Availability | Comment |
+| ----------------------------------------- | ------------ | ------- |
+| debug\_accountRange                       | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| debug\_chaindbProperty                    | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| debug\_codeByHash                         | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| debug\_dumpBlock                          | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| debug\_getAccessibleState                 | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| debug\_getBadBlocks                       | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| debug\_getModifiedAccountsByHash          | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| debug\_getModifiedAccountsByNumber        | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| debug\_getRawBlock                        | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_getRawHeader                       | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| debug\_getRawReceipts                     | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| debug\_getRawTransaction                  | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| debug\_getTrieFlushInterval               | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| debug\_intermediateRoots                  | <Icon icon="xmark"  iconType="solid" />            | returns `-32000 profiling disabled in the debug namespace` |
+| debug\_preimage                           | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| debug\_printBlock                         | <Icon icon="xmark"  iconType="solid" />            | returns `-32000 profiling disabled in the debug namespace` |
+| debug\_storageRangeAt                     | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| debug\_traceBadBlock                      | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| debug\_traceBlock                         | <Icon icon="square-check"  iconType="solid" />            | takes an RLP-encoded block |
+| debug\_traceBlockByHash                   | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_traceBlockByNumber                 | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_traceCall                          | <Icon icon="square-check"  iconType="solid" />            |  |
+| debug\_traceTransaction                   | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_accounts                             | <Icon icon="square-check"  iconType="solid" />            | returns an empty array — no unlocked accounts on a hosted node |
+| eth\_blobBaseFee                          | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| eth\_blockNumber                          | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_call                                 | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_chainId                              | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_coinbase                             | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| eth\_createAccessList                     | <Icon icon="xmark"  iconType="solid" />            | returns `-32603 method handler crashed` for every request shape tested |
+| eth\_estimateGas                          | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_feeHistory                           | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_gasPrice                             | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getAccount                           | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| eth\_getBalance                           | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getBlockByHash                       | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getBlockByNumber                     | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getBlockReceipts                     | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getBlockTransactionCountByHash       | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getBlockTransactionCountByNumber     | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getCode                              | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getFilterChanges                     | <Icon icon="square-check"  iconType="solid" />            | filters are node-local — see [Filters on a load-balanced endpoint](#filters-on-a-load-balanced-endpoint) |
+| eth\_getFilterLogs                        | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getHeaderByHash                      | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getHeaderByNumber                    | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getLogs                              | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getProof                             | <Icon icon="square-check"  iconType="solid" />            | pass an explicit block number — `latest` returns `-32000 proof queries at height <= 2 are not supported`. The proof is a Cosmos IAVL proof, not an Ethereum Merkle-Patricia proof |
+| eth\_getRawTransactionByHash              | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| eth\_getStorageAt                         | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getTransactionByBlockHashAndIndex    | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getTransactionByBlockNumberAndIndex  | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getTransactionByHash                 | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getTransactionBySenderAndNonce       | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| eth\_getTransactionCount                  | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getTransactionReceipt                | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getUncleByBlockHashAndIndex          | <Icon icon="square-check"  iconType="solid" />            | always null — Stable has no uncles |
+| eth\_getUncleByBlockNumberAndIndex        | <Icon icon="square-check"  iconType="solid" />            | always null — Stable has no uncles |
+| eth\_getUncleCountByBlockHash             | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_getUncleCountByBlockNumber           | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_hashrate                             | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| eth\_maxPriorityFeePerGas                 | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_mining                               | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| eth\_newBlockFilter                       | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_newFilter                            | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_newPendingTransactionFilter          | <Icon icon="square-check"  iconType="solid" />            | accepts the filter but never returns a transaction — see [Pending transactions](#pending-transactions-are-accepted-but-never-delivered) |
+| eth\_protocolVersion                      | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_sendRawTransaction                   | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_sendRawTransactionSync               | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| eth\_simulateV1                           | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| eth\_subscribe                            | <Icon icon="square-check"  iconType="solid" />            | WSS. `newHeads` and `logs` deliver. `newPendingTransactions` subscribes but delivers nothing; `syncing` returns `-32600 syncing subscription is not implemented` |
+| eth\_syncing                              | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_uninstallFilter                      | <Icon icon="square-check"  iconType="solid" />            |  |
+| eth\_unsubscribe                          | <Icon icon="square-check"  iconType="solid" />            | WSS |
+| net\_listening                            | <Icon icon="square-check"  iconType="solid" />            |  |
+| net\_peerCount                            | <Icon icon="square-check"  iconType="solid" />            |  |
+| net\_version                              | <Icon icon="square-check"  iconType="solid" />            |  |
+| rpc\_modules                              | <Icon icon="square-check"  iconType="solid" />            |  |
+| trace\_block                              | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| trace\_call                               | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| trace\_callMany                           | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| trace\_filter                             | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| trace\_get                                | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| trace\_rawTransaction                     | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| trace\_replayBlockTransactions            | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| trace\_replayTransaction                  | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| trace\_transaction                        | <Icon icon="xmark"  iconType="solid" />            | returns `-32601` |
+| txpool\_content                           | <Icon icon="square-check"  iconType="solid" />            | responds, but the pool always reads empty — see [Pending transactions](#pending-transactions-are-accepted-but-never-delivered) |
+| txpool\_contentFrom                       | <Icon icon="square-check"  iconType="solid" />            | responds, but the pool always reads empty |
+| txpool\_inspect                           | <Icon icon="square-check"  iconType="solid" />            | responds, but the pool always reads empty |
+| txpool\_status                            | <Icon icon="square-check"  iconType="solid" />            | responds, but the pool always reads empty |
+| web3\_clientVersion                       | <Icon icon="square-check"  iconType="solid" />            |  |
+| web3\_sha3                                | <Icon icon="square-check"  iconType="solid" />            |  |
