@@ -35,6 +35,10 @@ This page is the canonical catalog of every deployment available in Chainstack S
 | Avalanche | Mainnet | AvalancheGo v1.14.2 | 4 | 16 GiB | 400 GB |
 | Avalanche | Fuji | AvalancheGo v1.15.0-fuji | 4 | 16 GiB | 300 GB |
 | Arc | Testnet | Arc-Execution 0.7.3 + Arc-Consensus 0.7.3 | 8 | 32 GiB | ~315 GB |
+| Sonic | Mainnet | sonicd v2.2.1 | 8 | 64 GiB | ~2.5 TB |
+| Sonic | Testnet | sonicd v2.2.1 | 4 | 32 GiB | 800 GB |
+| Stable | Mainnet | stabled 1.3.3 | 4 | 16 GiB | 200 GB |
+| Stable | Testnet | stabled 1.8.0-rc0 | 4 | 16 GiB | 50 GB |
 
 <Note>
 vCPU and RAM figures are the standard preset totals. Ethereum networks also ship a **Light** preset that uses half the CPU and RAM with the same storage — see [EVM Layer 1](#evm-layer-1-execution-consensus) below.
@@ -309,6 +313,48 @@ Storage splits into 250 GB for Arc-Execution and 64 GB for Arc-Consensus.
 | Arc-Execution | 8546 | TCP | WS JSON-RPC |
 
 Both listeners serve the `eth`, `net`, `web3`, `txpool`, `trace`, and `debug` namespaces. Arc-Consensus publishes nothing of its own — its RPC port is the internal upstream of the execution client's `arc` namespace. The execution client's auth RPC port (8551), the consensus client's RPC (31000) and P2P (27000) ports, and both metrics ports are internal and are not exposed.
+
+## Sonic
+
+Runs a single sonicd full node as a non-validator in full mode. One process serves both the HTTP and the WebSocket JSON-RPC.
+
+Mainnet bootstraps from a pre-built chain snapshot, which temporarily requires about **2× the steady-state storage** while the archive is downloaded and extracted — provision the node's volume at the peak. Testnet starts from a pruned genesis export and syncs the remainder from the network, so expect a longer first sync and no extra storage headroom. See [Initial sync times](/docs/self-hosted/deploying-nodes#initial-sync-times).
+
+| Network | Chain ID | Client | Block explorer |
+|---------|----------|--------|----------------|
+| Sonic Mainnet | 146 | sonicd v2.2.1 | [sonicscan.org](https://sonicscan.org) |
+| Sonic Testnet | 14601 | sonicd v2.2.1 | [testnet.sonicscan.org](https://testnet.sonicscan.org) |
+
+### Exposed ports
+
+| Client | Port | Protocol | Purpose |
+|--------|------|----------|---------|
+| sonicd | 18545 | TCP | HTTP JSON-RPC |
+| sonicd | 18546 | TCP | WS JSON-RPC |
+
+Both listeners serve the `eth`, `web3`, `net`, `ftm`, `txpool`, `abft`, `dag`, `trace`, and `debug` namespaces. The P2P port (5050, TCP and UDP) and the metrics port (6060) are internal and are not exposed.
+
+## Stable
+
+Runs a single stabled full node as a non-validator in full mode. One process carries both the CometBFT consensus engine and an embedded EVM, so a single node serves the chain end to end and there is no separate consensus client to provision.
+
+Both networks bootstrap from a pre-built chain snapshot, which temporarily requires about **2× the steady-state storage** while the archive is downloaded and extracted — provision the node's volume at the peak. See [Initial sync times](/docs/self-hosted/deploying-nodes#initial-sync-times).
+
+| Network | Chain ID | Client | Block explorer |
+|---------|----------|--------|----------------|
+| Stable Mainnet | 988 | stabled 1.3.3 | [stablescan.xyz](https://stablescan.xyz) |
+| Stable Testnet | 2201 | stabled 1.8.0-rc0 | [testnet.stablescan.xyz](https://testnet.stablescan.xyz) |
+
+The client version and the consensus timing are pinned per network, so Mainnet and Testnet run different versions and different values.
+
+### Exposed ports
+
+| Client | Port | Protocol | Purpose |
+|--------|------|----------|---------|
+| stabled | 8545 | TCP | EVM HTTP JSON-RPC |
+| stabled | 8546 | TCP | EVM WS JSON-RPC |
+
+Both listeners serve the `eth`, `net`, `web3`, `debug`, and `txpool` namespaces. The CometBFT RPC port (26657) is internal — it carries the node health surface, not a customer endpoint. The CometBFT P2P port (26656) and the metrics port (26660) are internal as well, and the Cosmos gRPC server is bound to loopback, so none of them are exposed.
 
 ## Coming soon
 
