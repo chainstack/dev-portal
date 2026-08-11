@@ -3,7 +3,7 @@
 
 Why nested: Mintlify's auto llms.txt is a single flat file listed alphabetically and
 truncated near 100K chars, which silently drops our highest-traffic protocols from the
-index. A custom file at the repo root overrides the auto one. To get BOTH a small root
+index. A custom file at the repo root overrides the auto one. To get BOTH a small roo
 (AFDocs passes <50K) AND high page coverage, we use the progressive-disclosure pattern
 (Cloudflare/QuickNode/Alchemy): a tiny root llms.txt that links to per-section sub-index
 llms.txt files, each listing that section's pages as Markdown (.md) links. Mintlify serves
@@ -12,7 +12,7 @@ a file named `llms.txt` at any sub-path, so the sub-indexes are reachable.
 Source of truth: the page list is read from docs.json navigation (deterministic; matches
 the published sitemap). Run this whenever pages are added/removed/retitled:
 
-    python3 scripts/generate_llms_txt.py        # writes llms.txt + <section>/llms.txt
+    python3 scripts/generate_llms_txt.py        # writes llms.txt + <section>/llms.tx
     python3 scripts/generate_llms_txt.py --check # exit 1 if committed files are stale (CI)
 
 Output is deterministic, so `--check` can gate freshness in CI.
@@ -46,7 +46,8 @@ def title_of(page):
     """Frontmatter title for a page path, else a slug fallback."""
     f = os.path.join(REPO, page + ".mdx")
     if os.path.exists(f):
-        head = open(f, encoding="utf-8", errors="ignore").read(1500)
+        with open(f, encoding="utf-8", errors="ignore") as file:
+            head = file.read(1500)
         m = re.search(r'^title:\s*["\']?(.+?)["\']?\s*$', head, re.M)
         if m:
             return m.group(1).strip().strip('"').strip("'")
@@ -103,7 +104,7 @@ def build():
         sections.setdefault(key, []).append(p)
         meta[key] = (subpath, label, prio)
 
-    files = {}  # repo-relative path -> content
+    files = {}  # repo-relative path -> conten
 
     # per-section sub-index files
     for key, ps in sections.items():
@@ -143,12 +144,16 @@ def main():
     stale = []
     for rel, content in files.items():
         path = os.path.join(REPO, rel)
-        current = open(path, encoding="utf-8").read() if os.path.exists(path) else None
+        current = None
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as file:
+                current = file.read()
         if current != content:
             stale.append(rel)
         if not check:
             os.makedirs(os.path.dirname(path) or REPO, exist_ok=True)
-            open(path, "w", encoding="utf-8").write(content)
+            with open(path, "w", encoding="utf-8") as file:
+                file.write(content)
 
     root_sz = len(files["llms.txt"])
     sub_sizes = {r: len(c) for r, c in files.items() if r != "llms.txt"}
