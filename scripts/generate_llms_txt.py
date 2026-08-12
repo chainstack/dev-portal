@@ -46,7 +46,8 @@ def title_of(page):
     """Frontmatter title for a page path, else a slug fallback."""
     f = os.path.join(REPO, page + ".mdx")
     if os.path.exists(f):
-        head = open(f, encoding="utf-8", errors="ignore").read(1500)
+        with open(f, encoding="utf-8", errors="ignore") as file:
+            head = file.read(1500)
         m = re.search(r'^title:\s*["\']?(.+?)["\']?\s*$', head, re.M)
         if m:
             return m.group(1).strip().strip('"').strip("'")
@@ -143,12 +144,16 @@ def main():
     stale = []
     for rel, content in files.items():
         path = os.path.join(REPO, rel)
-        current = open(path, encoding="utf-8").read() if os.path.exists(path) else None
+        current = None
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as file:
+                current = file.read()
         if current != content:
             stale.append(rel)
         if not check:
             os.makedirs(os.path.dirname(path) or REPO, exist_ok=True)
-            open(path, "w", encoding="utf-8").write(content)
+            with open(path, "w", encoding="utf-8") as file:
+                file.write(content)
 
     root_sz = len(files["llms.txt"])
     sub_sizes = {r: len(c) for r, c in files.items() if r != "llms.txt"}
