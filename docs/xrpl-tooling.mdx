@@ -1,0 +1,211 @@
+---
+title: "XRP Ledger tooling"
+description: "Connect to your Chainstack XRP Ledger node over the rippled JSON-RPC API with curl, xrpl-py, and JavaScript, including ledger history limits and the xrpl.js client gotcha."
+---
+
+Get started with a [reliable XRP Ledger RPC endpoint](https://chainstack.com/build-better-with-xrp-ledger/) to use the tools below.
+
+Your Chainstack XRP Ledger node serves the [rippled JSON-RPC API](https://xrpl.org/docs/references/http-websocket-apis) over HTTPS. XRP Ledger has its own method set and does not implement the Ethereum `eth_*` interface, so EVM tooling — ethers.js, web3.py, Hardhat — does not apply here.
+
+## JSON-RPC over HTTPS
+
+Every call is an HTTP POST carrying a `method` and a `params` array. The `params` array holds exactly one object, even when a method takes no arguments — a bare `{}` rather than an empty array.
+
+<CodeGroup>
+  ```bash cURL
+  curl YOUR_CHAINSTACK_ENDPOINT \
+    -H 'Content-Type: application/json' \
+    -d '{"method":"server_info","params":[{}]}'
+  ```
+</CodeGroup>
+
+The `result` object reports the client version, the ledgers this node holds, and its sync state:
+
+<CodeGroup>
+  ```json Response (excerpt)
+  {
+    "build_version": "3.2.0",
+    "complete_ledgers": "106105250-106233330",
+    "server_state": "full"
+  }
+  ```
+</CodeGroup>
+
+Replace `YOUR_CHAINSTACK_ENDPOINT` with your node's HTTPS endpoint. For the credential in that endpoint and the other ways to authenticate, see [Authentication methods for different scenarios](/docs/authentication-methods-for-different-scenarios).
+
+## How much ledger history your node holds
+
+XRP Ledger Global Nodes run in full mode and keep a **rolling window of recent ledgers**, not the full chain. Read `complete_ledgers` from `server_info` at runtime and work within it — the lower bound advances as the node prunes, so treat any specific depth as a moving target rather than a guarantee.
+
+Measured on Aug 12, 2026:
+
+| Network | Ledgers retained | Window | Close rate |
+| --- | --- | --- | --- |
+| Mainnet | 127,935 | 137.5 h (5.73 days) | 3.87 s/ledger |
+| Testnet | 158,182 | 137.6 h (5.73 days) | 3.13 s/ledger |
+
+Requesting anything below the window returns `lgrNotFound`:
+
+<CodeGroup>
+  ```json Response
+  {
+    "result": {
+      "error": "lgrNotFound",
+      "error_message": "ledgerNotFound",
+      "status": "error"
+    }
+  }
+  ```
+</CodeGroup>
+
+The same floor applies to transaction history and to account state alike — `account_tx` clamps its search range to the retained window rather than reaching further back. For queries older than the window, use a full-history source such as an [XRP Ledger public full-history server](https://xrpl.org/docs/concepts/networks-and-servers/ledger-history).
+
+## Python
+
+Use the official [xrpl-py](https://github.com/XRPLF/xrpl-py) SDK with its `JsonRpcClient`, which talks to your node over HTTPS.
+
+<CodeGroup>
+  ```python Python
+  # pip install xrpl-py
+  from xrpl.clients import JsonRpcClient
+  from xrpl.models.requests import AccountInfo, ServerInfo
+
+  client = JsonRpcClient("YOUR_CHAINSTACK_ENDPOINT")
+
+  info = client.request(ServerInfo()).result["info"]
+  print("rippled", info["build_version"], "| ledgers on this node:", info["complete_ledgers"])
+
+  account = client.request(AccountInfo(
+      account="rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+      ledger_index="validated",
+  )).result["account_data"]
+  print("balance (drops):", account["Balance"], "| sequence:", account["Sequence"])
+  ```
+</CodeGroup>
+
+This prints the node's client version, its retained range, and the queried account's balance in drops:
+
+<CodeGroup>
+  ```text Output
+  rippled 3.2.0 | ledgers on this node: 106105250-106233332
+  balance (drops): 56774125592 | sequence: 44196
+  ```
+</CodeGroup>
+
+<Warning>
+  The xrpl-py `WebsocketClient` does not work against a Chainstack endpoint — use `JsonRpcClient`.
+</Warning>
+
+## JavaScript
+
+Call your node with `fetch` and keep [xrpl.js](https://github.com/XRPLF/xrpl.js) for the work it does offline — key management, transaction signing, and binary codec helpers.
+
+The xrpl.js `Client` cannot reach a Chainstack XRP Ledger endpoint. It is WebSocket-only: it rejects an `https://` URL outright with `server URI must start with wss://`, and against the WSS endpoint it connects successfully and then times out on every request.
+
+<CodeGroup>
+  ```javascript JavaScript
+  const RPC = "YOUR_CHAINSTACK_ENDPOINT";
+
+  async function rpc(method, params = {}) {
+    const res = await fetch(RPC, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ method, params: [params] }),
+    });
+    return (await res.json()).result;
+  }
+
+  const { info } = await rpc("server_info");
+  console.log("rippled", info.build_version, "| ledgers:", info.complete_ledgers);
+  ```
+</CodeGroup>
+
+### Sign and submit a transaction
+
+Sign locally with xrpl.js, then submit the resulting blob with the `rpc` helper from [JavaScript](#javascript). Without a connected `Client` you fill in `Fee`, `Sequence`, and `LastLedgerSequence` yourself, from `fee`, `account_info`, and `ledger_current`.
+
+<CodeGroup>
+  ```javascript JavaScript
+  // npm install xrpl
+  import { Wallet } from "xrpl";
+
+  const wallet = Wallet.fromSeed("YOUR_SEED");
+
+  const [{ drops }, { account_data }, { ledger_current_index }] = await Promise.all([
+    rpc("fee"),
+    rpc("account_info", { account: wallet.classicAddress, ledger_index: "validated" }),
+    rpc("ledger_current"),
+  ]);
+
+  const { tx_blob, hash } = wallet.sign({
+    TransactionType: "Payment",
+    Account: wallet.classicAddress,
+    Destination: "rPT1Sjq2YGrBMTttX4GZHjKu9dyfzbpAYe",
+    Amount: "1000000", // 1 XRP, in drops
+    Fee: drops.open_ledger_fee,
+    Sequence: account_data.Sequence,
+    LastLedgerSequence: ledger_current_index + 20,
+    SigningPubKey: wallet.publicKey,
+  });
+
+  const submitted = await rpc("submit", { tx_blob });
+  console.log(submitted.engine_result, "-", submitted.engine_result_message);
+
+  // Poll until the transaction is in a validated ledger.
+  for (let i = 0; i < 15; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    const tx = await rpc("tx", { transaction: hash });
+    if (tx.validated) {
+      console.log("validated in ledger", tx.ledger_index, "|", tx.meta.TransactionResult);
+      break;
+    }
+  }
+  ```
+</CodeGroup>
+
+A successful submission reports `tesSUCCESS` twice — once provisionally from `submit`, then finally from `tx` once a validated ledger contains it:
+
+<CodeGroup>
+  ```text Output
+  tesSUCCESS - The transaction was applied. Only final in a validated ledger.
+  validated in ledger 19834462 | tesSUCCESS
+  ```
+</CodeGroup>
+
+## WebSocket endpoint
+
+Your node's WSS endpoint speaks the same JSON-RPC framing as the HTTPS endpoint — a `method` and a `params` array. It does not accept rippled's native WebSocket framing, so a message shaped as `{"id":1,"command":"server_info"}` comes back as `-32600 Invalid json request`. That framing mismatch is why the xrpl.js and xrpl-py WebSocket clients time out against a Chainstack endpoint.
+
+<Warning>
+  Subscriptions do not deliver on XRP Ledger Global Nodes. A `subscribe` call returns `"status": "success"` with an empty `result` and then never pushes a message.
+</Warning>
+
+Poll for new ledgers instead, using the `rpc` helper from [JavaScript](#javascript). Validated ledgers close every few seconds, so a short interval keeps you close to the tip:
+
+<CodeGroup>
+  ```javascript JavaScript
+  let last = 0;
+
+  setInterval(async () => {
+    const { ledger } = await rpc("ledger", { ledger_index: "validated", transactions: true });
+    const index = Number(ledger.ledger_index);
+    if (index === last) return;
+    last = index;
+    console.log(`ledger ${index} closed at ${ledger.close_time_human} with ${ledger.transactions.length} transactions`);
+  }, 2000);
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```text Output
+  ledger 106233334 closed at 2026-Aug-12 01:14:10.000000000 UTC with 100 transactions
+  ledger 106233335 closed at 2026-Aug-12 01:14:11.000000000 UTC with 110 transactions
+  ledger 106233336 closed at 2026-Aug-12 01:14:20.000000000 UTC with 96 transactions
+  ```
+</CodeGroup>
+
+## Methods your node does not serve
+
+rippled's admin methods are not exposed and return HTTP 403: `can_delete`, `connect`, `log_level`, `peers`, `stop`, `validation_create`, and `wallet_propose`. Generate keys and wallets client-side with xrpl.js or xrpl-py instead of calling `wallet_propose` on the node.
+
+The public method set is served in full, including `account_info`, `account_lines`, `account_objects`, `account_tx`, `account_nfts`, `amm_info`, `book_offers`, `fee`, `gateway_balances`, `ledger`, `ledger_data`, `ledger_entry`, `ripple_path_find`, `server_info`, `submit`, and `tx`.
