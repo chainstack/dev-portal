@@ -41,6 +41,9 @@ This page is the canonical catalog of every deployment available in Chainstack S
 | Sonic | Testnet | sonicd v2.2.1 | 4 | 32 GiB | 800 GB |
 | Stable | Mainnet | stabled 1.3.3 | 4 | 16 GiB | 200 GB |
 | Stable | Testnet | stabled 1.8.0-rc0 | 4 | 16 GiB | 50 GB |
+| Berachain | Mainnet | Bera-Reth 1.4.4 + Beacond 1.4.1 | 6 | 24 GiB | 250 GB |
+| Berachain | Bepolia | Bera-Reth 1.4.4 + Beacond 1.4.2-rc.0 | 8 | 36 GiB | ~165 GB |
+| Cronos | Testnet | cronosd 1.7.8 | 4 | 16 GiB | 50 GB |
 
 <Note>
 vCPU and RAM figures are the standard preset totals. Ethereum networks also ship a **Light** preset that uses half the CPU and RAM with the same storage — see [EVM Layer 1](#evm-layer-1-execution-consensus) below.
@@ -386,6 +389,49 @@ The client version and the consensus timing are pinned per network, so Mainnet a
 | stabled | 8546 | TCP | EVM WS JSON-RPC |
 
 Both listeners serve the `eth`, `net`, `web3`, `debug`, and `txpool` namespaces. The CometBFT RPC port (26657) is internal — it carries the node health surface, not a customer endpoint. The CometBFT P2P port (26656) and the metrics port (26660) are internal as well, and the Cosmos gRPC server is bound to loopback, so none of them are exposed.
+
+## Berachain
+
+Runs a paired execution client and consensus client as a non-validator node in full mode. Bera-Reth is a Reth-based execution client that serves the JSON-RPC, and Beacond is Berachain's BeaconKit consensus client running on CometBFT with block building disabled.
+
+These deployments bootstrap from a pre-built chain snapshot rather than syncing from genesis. Snapshot bootstrap temporarily requires about **2× the steady-state storage** while the archive is downloaded and extracted — provision the node's volume at the peak. See [Initial sync times](/docs/self-hosted/deploying-nodes#initial-sync-times).
+
+| Network | Chain ID | Client | Block explorer |
+|---------|----------|--------|----------------|
+| Berachain Mainnet | 80094 | Bera-Reth 1.4.4 + Beacond 1.4.1 | [berascan.com](https://berascan.com) |
+| Berachain Bepolia | 80069 | Bera-Reth 1.4.4 + Beacond 1.4.2-rc.0 | [testnet.berascan.com](https://testnet.berascan.com) |
+
+The Beacond version is pinned per network, so Mainnet and Bepolia run different versions. Compute and storage also differ per network — Mainnet splits 4 vCPU / 16 GiB and 200 GB for Bera-Reth with 2 vCPU / 8 GiB and 50 GB for Beacond, and Bepolia splits 6 vCPU / 24 GiB and 100 GB for Bera-Reth with 2 vCPU / 12 GiB and 64 GB for Beacond.
+
+### Exposed ports
+
+| Client | Port | Protocol | Purpose |
+|--------|------|----------|---------|
+| Bera-Reth | 8545 | TCP | HTTP JSON-RPC |
+| Bera-Reth | 8546 | TCP | WS JSON-RPC |
+
+Both listeners serve the `eth`, `net`, `web3`, `txpool`, and `debug` namespaces. Beacond publishes nothing of its own — its CometBFT RPC port carries the node health surface, and its ABCI proxy app is bound to loopback. The execution client's auth RPC port (8551), its P2P port (30303, TCP and UDP), Beacond's RPC (26657) and P2P (26656) ports, and both metrics ports are internal and are not exposed.
+
+## Cronos
+
+Runs a single cronosd full node as a non-validator in full mode. One process carries both the CometBFT consensus engine and an embedded EVM, so a single node serves the chain end to end and there is no separate consensus client to provision.
+
+This deployment bootstraps from a pre-built chain snapshot, which temporarily requires about **2× the steady-state storage** while the archive is downloaded and extracted — provision the node's volume at the peak. See [Initial sync times](/docs/self-hosted/deploying-nodes#initial-sync-times).
+
+| Network | Chain ID | Client | Block explorer |
+|---------|----------|--------|----------------|
+| Cronos Testnet | 338 | cronosd 1.7.8 | [explorer.cronos.org/testnet](https://explorer.cronos.org/testnet) |
+
+The node stores state with the RocksDB backend and versioned state enabled, under the network's default pruning policy.
+
+### Exposed ports
+
+| Client | Port | Protocol | Purpose |
+|--------|------|----------|---------|
+| cronosd | 8545 | TCP | EVM HTTP JSON-RPC |
+| cronosd | 8546 | TCP | EVM WS JSON-RPC |
+
+Both listeners serve the `eth`, `net`, `web3`, `debug`, and `txpool` namespaces. The CometBFT RPC port (26657) is internal — it carries the node health surface, not a customer endpoint. The CometBFT P2P port (26656) and the metrics port (26660) are internal as well.
 
 ## Coming soon
 
