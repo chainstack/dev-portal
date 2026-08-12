@@ -1,6 +1,6 @@
 ---
 title: "XRP Ledger tooling"
-description: "Connect to your Chainstack XRP Ledger node over the rippled JSON-RPC API with curl, xrpl-py, and JavaScript, including ledger history limits and the xrpl.js client gotcha."
+description: "Connect to your Chainstack XRP Ledger node over the rippled JSON-RPC API with curl, xrpl-py, and JavaScript, including ledger history limits and offline transaction signing."
 ---
 
 Get started with a [reliable XRP Ledger RPC endpoint](https://chainstack.com/build-better-with-xrp-ledger/) to use the tools below.
@@ -92,15 +92,9 @@ This prints the node's client version, its retained range, and the queried accou
   ```
 </CodeGroup>
 
-<Warning>
-  The xrpl-py `WebsocketClient` does not work against a Chainstack endpoint — use `JsonRpcClient`.
-</Warning>
-
 ## JavaScript
 
-Call your node with `fetch` and keep [xrpl.js](https://github.com/XRPLF/xrpl.js) for the work it does offline — key management, transaction signing, and binary codec helpers.
-
-The xrpl.js `Client` cannot reach a Chainstack XRP Ledger endpoint. It is WebSocket-only: it rejects an `https://` URL outright with `server URI must start with wss://`, and against the WSS endpoint it connects successfully and then times out on every request.
+Call your node over the HTTPS endpoint with `fetch`, and use [xrpl.js](https://github.com/XRPLF/xrpl.js) for the work it does offline — key management, transaction signing, and binary codec helpers.
 
 <CodeGroup>
   ```javascript JavaScript
@@ -172,15 +166,9 @@ A successful submission reports `tesSUCCESS` twice — once provisionally from `
   ```
 </CodeGroup>
 
-## WebSocket endpoint
+### Track new ledgers
 
-Your node's WSS endpoint speaks the same JSON-RPC framing as the HTTPS endpoint — a `method` and a `params` array. It does not accept rippled's native WebSocket framing, so a message shaped as `{"id":1,"command":"server_info"}` comes back as `-32600 Invalid json request`. That framing mismatch is why the xrpl.js and xrpl-py WebSocket clients time out against a Chainstack endpoint.
-
-<Warning>
-  Subscriptions do not deliver on XRP Ledger Global Nodes. A `subscribe` call returns `"status": "success"` with an empty `result` and then never pushes a message.
-</Warning>
-
-Poll for new ledgers instead, using the `rpc` helper from [JavaScript](#javascript). Validated ledgers close every few seconds, so a short interval keeps you close to the tip:
+Poll the validated ledger with the `rpc` helper from [JavaScript](#javascript). Ledgers close every few seconds, so a short interval keeps you close to the tip:
 
 <CodeGroup>
   ```javascript JavaScript
