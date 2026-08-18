@@ -1,9 +1,92 @@
 ---
 title: "Monitoring"
-description: Use the integrated Grafana and Prometheus observability stack in Chainstack Self-Hosted to monitor node health, sync status, and resource utilization.
+description: View node health, sync status, and resource utilization on the Monitoring page of the Chainstack Self-Hosted Control Panel, backed by an integrated Grafana and VictoriaMetrics observability stack.
 ---
 
-Chainstack Self-Hosted ships with an optional integrated observability stack deployed inside the `control-panel` namespace alongside the Control Panel itself. No additional configuration is required.
+Chainstack Self-Hosted ships with an optional observability stack — Grafana, VictoriaMetrics, and a set of exporters — deployed in the `control-panel` namespace alongside the Control Panel itself. Once the stack is installed, three of its dashboards appear on the Control Panel's **Monitoring** page with no additional configuration. Reaching the rest of Grafana takes one extra step, because the Grafana service is internal to the cluster until you expose it.
+
+## Viewing dashboards in the Control Panel
+
+Click **Monitoring** in the Control Panel sidebar. The page embeds three Grafana dashboards as tabs and follows the Control Panel's light or dark theme, so you never leave the interface to check a node. It is a fixed set of dashboards rather than all of Grafana — to reach the rest, see [Accessing full Grafana](/docs/self-hosted/monitoring#accessing-full-grafana).
+
+The tabs are:
+
+- **Nodes** — sync status, peer count, and client-specific health signals for every deployed node, from the Chainstack blockchain-node-exporter
+- **Cluster Overview** — cluster-wide resource utilization, from kube-state-metrics and the Prometheus node exporter
+- **Pods** — per-pod status, restarts, and resource consumption
+
+Grafana prompts you to log in the first time you open the page. Use the credentials described in [Grafana credentials](/docs/self-hosted/monitoring#grafana-credentials).
+
+If the installation skipped the monitoring stack, the **Monitoring** page reports that monitoring is not enabled. Re-run the installer without the `--disable-monitoring` flag to add the stack.
+
+## Grafana credentials
+
+Grafana credentials are auto-generated during installation. At the end of the installation, `cpctl` displays the retrieval command. The Grafana username is `admin`. To retrieve the password:
+
+```bash
+yq '.grafana.adminPassword' ~/.config/cp-suite/values/cp-control-panel-*.yaml
+```
+
+## Accessing full Grafana
+
+The Control Panel's **Monitoring** page carries three dashboards. To use everything else Grafana offers — the full dashboard library, Explore and ad-hoc queries, and the alerting configuration — expose the `cp-grafana` service yourself. It is a ClusterIP service on port 80, reachable only inside the cluster until you do.
+
+Two rules apply to every method:
+
+- Include `/monitoring/` in the URL — Grafana is configured to serve from that sub-path, so a URL without it returns a redirect or a 404
+- Use an address other than the Control Panel's — the Control Panel reserves `/monitoring` on its own address for the embedded page, so a typed URL there returns the three-dashboard view instead of Grafana
+
+### Option 1: LoadBalancer (recommended for production)
+
+```bash
+kubectl expose service cp-grafana --type=LoadBalancer --name=cp-grafana-external -n control-panel
+kubectl get svc cp-grafana-external -n control-panel
+```
+
+Open `http://<EXTERNAL-IP>/monitoring/` once the external IP is assigned.
+
+### Option 2: NodePort
+
+```bash
+kubectl expose service cp-grafana --type=NodePort --name=cp-grafana-nodeport -n control-panel
+kubectl get svc cp-grafana-nodeport -n control-panel
+```
+
+Open `http://<SERVER-IP>:<NODE-PORT>/monitoring/`, taking the assigned port from the command output.
+
+### Option 3: Ingress
+
+Give Grafana its own hostname. Keep the path at `/monitoring` so that Grafana's own links and redirects resolve:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cp-grafana-ingress
+  namespace: control-panel
+spec:
+  rules:
+  - host: grafana.yourdomain.com
+    http:
+      paths:
+      - path: /monitoring
+        pathType: Prefix
+        backend:
+          service:
+            name: cp-grafana
+            port:
+              number: 80
+```
+
+Open `http://grafana.yourdomain.com/monitoring/`.
+
+### Option 4: Port forward (testing only)
+
+```bash
+kubectl port-forward svc/cp-grafana 3000:80 -n control-panel --address 0.0.0.0
+```
+
+Open `http://<SERVER-IP>:3000/monitoring/`.
 
 ## Stack components
 
@@ -18,46 +101,6 @@ Chainstack Self-Hosted ships with an optional integrated observability stack dep
 | Prometheus node exporter | `cp-prometheus-node-exporter` | Host-level metrics |
 | kube-state-metrics | `cp-kube-state-metrics` | Kubernetes resource metrics |
 
-## Accessing Grafana
-
-The Grafana service (`cp-grafana`) is a ClusterIP service on port 80. Expose it the same way as the Control Panel.
-
-### Port forward (testing)
-
-```bash
-kubectl port-forward svc/cp-grafana 3000:80 -n control-panel --address 0.0.0.0
-```
-
-Then open `http://<SERVER-IP>:3000` in your browser.
-
-### LoadBalancer (production)
-
-```bash
-kubectl expose service cp-grafana --type=LoadBalancer --name=cp-grafana-external -n control-panel
-kubectl get svc cp-grafana-external -n control-panel
-```
-
-### NodePort
-
-```bash
-kubectl expose service cp-grafana --type=NodePort --name=cp-grafana-nodeport -n control-panel
-```
-
-## Grafana credentials
-
-Grafana credentials are auto-generated during installation. At the end of the installation, `cpctl` displays the retrieval command. The Grafana username is `admin`. To retrieve the password:
-
-```bash
-yq '.grafana.adminPassword' ~/.config/cp-suite/values/cp-control-panel-*.yaml
-```
-
-## Dashboards
-
-Grafana ships with pre-built dashboards covering:
-
-- Ethereum node health — sync status, peer count, and client-specific signals from the Chainstack blockchain-node-exporter
-- Kubernetes infrastructure — pod status, resource utilization, and persistent volume metrics from kube-state-metrics and the Prometheus node exporter
-
 ## Disabling monitoring
 
 During installation, the installer prompts you to configure the monitoring stack. Select option **[3] Skip monitoring** to skip it.
@@ -68,4 +111,4 @@ You can also skip it non-interactively with `--disable-monitoring`:
 cpctl install -s STORAGE_CLASS_NAME --disable-monitoring
 ```
 
-Skipping monitoring removes all observability components. The Control Panel itself is unaffected.
+Skipping monitoring removes all observability components, and the Control Panel's **Monitoring** page reports that monitoring is not enabled. The rest of the Control Panel is unaffected.
