@@ -3,13 +3,13 @@ title: "Monitoring"
 description: View node health, sync status, and resource utilization on the Monitoring page of the Chainstack Self-Hosted Control Panel, backed by an integrated Grafana and VictoriaMetrics observability stack.
 ---
 
-Chainstack Self-Hosted ships with an optional observability stack — Grafana, VictoriaMetrics, and a set of exporters — deployed in the `control-panel` namespace alongside the Control Panel itself. Once the stack is installed, its dashboards appear on the Control Panel's **Monitoring** page. No additional configuration is required.
+Chainstack Self-Hosted ships with an optional observability stack — Grafana, VictoriaMetrics, and a set of exporters — deployed in the `control-panel` namespace alongside the Control Panel itself. Once the stack is installed, three of its dashboards appear on the Control Panel's **Monitoring** page with no additional configuration. Reaching the rest of Grafana takes one extra step, because the Grafana service is internal to the cluster until you expose it.
 
 ## Viewing dashboards in the Control Panel
 
-Click **Monitoring** in the Control Panel sidebar. The page embeds the Grafana dashboards directly and follows the Control Panel's light or dark theme, so you never leave the interface to check a node.
+Click **Monitoring** in the Control Panel sidebar. The page embeds three Grafana dashboards as tabs and follows the Control Panel's light or dark theme, so you never leave the interface to check a node. It is a fixed set of dashboards rather than all of Grafana — to reach the rest, see [Accessing full Grafana](/docs/self-hosted/monitoring#accessing-full-grafana).
 
-Three dashboards are available as tabs:
+The tabs are:
 
 - **Nodes** — sync status, peer count, and client-specific health signals for every deployed node, from the Chainstack blockchain-node-exporter
 - **Cluster Overview** — cluster-wide resource utilization, from kube-state-metrics and the Prometheus node exporter
@@ -27,36 +27,66 @@ Grafana credentials are auto-generated during installation. At the end of the in
 yq '.grafana.adminPassword' ~/.config/cp-suite/values/cp-control-panel-*.yaml
 ```
 
-## Accessing Grafana directly
+## Accessing full Grafana
 
-To use Grafana on its own — the full dashboard library, ad-hoc queries, and the alerting configuration — expose the `cp-grafana` service, a ClusterIP service on port 80, and open it at the `/monitoring/` path.
+The Control Panel's **Monitoring** page carries three dashboards. To use everything else Grafana offers — the full dashboard library, Explore and ad-hoc queries, and the alerting configuration — expose the `cp-grafana` service yourself. It is a ClusterIP service on port 80, reachable only inside the cluster until you do.
 
-The Control Panel address does not serve Grafana's own home page. `http://<CONTROL-PANEL-ADDRESS>/monitoring` is the Control Panel's **Monitoring** page, and the Control Panel keeps that route for itself so that a typed URL or a page refresh returns the embedded dashboards rather than loading Grafana as the whole document. Only the deeper paths that the embedded dashboards request pass through to Grafana.
+Two rules apply to every method:
 
-<Warning>
-Grafana serves from the `/monitoring/` sub-path, so every direct-access URL must include it. A URL that omits the path returns a redirect or a 404.
-</Warning>
+- Include `/monitoring/` in the URL — Grafana is configured to serve from that sub-path, so a URL without it returns a redirect or a 404
+- Use an address other than the Control Panel's — the Control Panel reserves `/monitoring` on its own address for the embedded page, so a typed URL there returns the three-dashboard view instead of Grafana
 
-### Port forward (testing)
-
-```bash
-kubectl port-forward svc/cp-grafana 3000:80 -n control-panel --address 0.0.0.0
-```
-
-Then open `http://<SERVER-IP>:3000/monitoring/` in your browser.
-
-### LoadBalancer (production)
+### Option 1: LoadBalancer (recommended for production)
 
 ```bash
 kubectl expose service cp-grafana --type=LoadBalancer --name=cp-grafana-external -n control-panel
 kubectl get svc cp-grafana-external -n control-panel
 ```
 
-### NodePort
+Open `http://<EXTERNAL-IP>/monitoring/` once the external IP is assigned.
+
+### Option 2: NodePort
 
 ```bash
 kubectl expose service cp-grafana --type=NodePort --name=cp-grafana-nodeport -n control-panel
+kubectl get svc cp-grafana-nodeport -n control-panel
 ```
+
+Open `http://<SERVER-IP>:<NODE-PORT>/monitoring/`, taking the assigned port from the command output.
+
+### Option 3: Ingress
+
+Give Grafana its own hostname. Keep the path at `/monitoring` so that Grafana's own links and redirects resolve:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cp-grafana-ingress
+  namespace: control-panel
+spec:
+  rules:
+  - host: grafana.yourdomain.com
+    http:
+      paths:
+      - path: /monitoring
+        pathType: Prefix
+        backend:
+          service:
+            name: cp-grafana
+            port:
+              number: 80
+```
+
+Open `http://grafana.yourdomain.com/monitoring/`.
+
+### Option 4: Port forward (testing only)
+
+```bash
+kubectl port-forward svc/cp-grafana 3000:80 -n control-panel --address 0.0.0.0
+```
+
+Open `http://<SERVER-IP>:3000/monitoring/`.
 
 ## Stack components
 
