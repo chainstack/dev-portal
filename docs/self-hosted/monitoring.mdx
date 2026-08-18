@@ -1,26 +1,41 @@
 ---
 title: "Monitoring"
-description: Use the integrated Grafana and Prometheus observability stack in Chainstack Self-Hosted to monitor node health, sync status, and resource utilization.
+description: View node health, sync status, and resource utilization on the Monitoring page of the Chainstack Self-Hosted Control Panel, backed by an integrated Grafana and VictoriaMetrics observability stack.
 ---
 
-Chainstack Self-Hosted ships with an optional integrated observability stack deployed inside the `control-panel` namespace alongside the Control Panel itself. No additional configuration is required.
+Chainstack Self-Hosted ships with an optional observability stack — Grafana, VictoriaMetrics, and a set of exporters — deployed in the `control-panel` namespace alongside the Control Panel itself. Once the stack is installed, its dashboards appear on the Control Panel's **Monitoring** page. No additional configuration is required.
 
-## Stack components
+## Viewing dashboards in the Control Panel
 
-| Component | Pod prefix | Purpose |
-|-----------|------------|---------|
-| Grafana | `cp-grafana` | Dashboards and visualization |
-| VictoriaMetrics (single-node) | `vmsingle-cp-victoria-metrics-k8s-stack` | Metrics storage |
-| VMAgent | `vmagent-cp-victoria-metrics-k8s-stack` | Metrics scraping |
-| VMAlertmanager | `vmalertmanager-cp-victoria-metrics-k8s-stack` | Alerting |
-| VictoriaMetrics operator | `cp-victoria-metrics-operator` | Manages VictoriaMetrics custom resources |
-| Chainstack blockchain-node-exporter | `cp-blockchain-node-exporter` | Chain-specific health signals |
-| Prometheus node exporter | `cp-prometheus-node-exporter` | Host-level metrics |
-| kube-state-metrics | `cp-kube-state-metrics` | Kubernetes resource metrics |
+Click **Monitoring** in the Control Panel sidebar. The page embeds the Grafana dashboards directly and follows the Control Panel's light or dark theme, so you never leave the interface to check a node.
 
-## Accessing Grafana
+Three dashboards are available as tabs:
 
-The Grafana service (`cp-grafana`) is a ClusterIP service on port 80. Expose it the same way as the Control Panel.
+- **Nodes** — sync status, peer count, and client-specific health signals for every deployed node, from the Chainstack blockchain-node-exporter
+- **Cluster Overview** — cluster-wide resource utilization, from kube-state-metrics and the Prometheus node exporter
+- **Pods** — per-pod status, restarts, and resource consumption
+
+Grafana prompts you to log in the first time you open the page. Use the credentials described in [Grafana credentials](/docs/self-hosted/monitoring#grafana-credentials).
+
+If the installation skipped the monitoring stack, the **Monitoring** page reports that monitoring is not enabled. Re-run the installer without the `--disable-monitoring` flag to add the stack.
+
+## Grafana credentials
+
+Grafana credentials are auto-generated during installation. At the end of the installation, `cpctl` displays the retrieval command. The Grafana username is `admin`. To retrieve the password:
+
+```bash
+yq '.grafana.adminPassword' ~/.config/cp-suite/values/cp-control-panel-*.yaml
+```
+
+## Accessing Grafana directly
+
+To use Grafana on its own — the full dashboard library, ad-hoc queries, and the alerting configuration — expose the `cp-grafana` service, a ClusterIP service on port 80, and open it at the `/monitoring/` path.
+
+The Control Panel address does not serve Grafana's own home page. `http://<CONTROL-PANEL-ADDRESS>/monitoring` is the Control Panel's **Monitoring** page, and the Control Panel keeps that route for itself so that a typed URL or a page refresh returns the embedded dashboards rather than loading Grafana as the whole document. Only the deeper paths that the embedded dashboards request pass through to Grafana.
+
+<Warning>
+Grafana serves from the `/monitoring/` sub-path, so every direct-access URL must include it. A URL that omits the path returns a redirect or a 404.
+</Warning>
 
 ### Port forward (testing)
 
@@ -28,7 +43,7 @@ The Grafana service (`cp-grafana`) is a ClusterIP service on port 80. Expose it 
 kubectl port-forward svc/cp-grafana 3000:80 -n control-panel --address 0.0.0.0
 ```
 
-Then open `http://<SERVER-IP>:3000` in your browser.
+Then open `http://<SERVER-IP>:3000/monitoring/` in your browser.
 
 ### LoadBalancer (production)
 
@@ -43,20 +58,18 @@ kubectl get svc cp-grafana-external -n control-panel
 kubectl expose service cp-grafana --type=NodePort --name=cp-grafana-nodeport -n control-panel
 ```
 
-## Grafana credentials
+## Stack components
 
-Grafana credentials are auto-generated during installation. At the end of the installation, `cpctl` displays the retrieval command. The Grafana username is `admin`. To retrieve the password:
-
-```bash
-yq '.grafana.adminPassword' ~/.config/cp-suite/values/cp-control-panel-*.yaml
-```
-
-## Dashboards
-
-Grafana ships with pre-built dashboards covering:
-
-- Ethereum node health — sync status, peer count, and client-specific signals from the Chainstack blockchain-node-exporter
-- Kubernetes infrastructure — pod status, resource utilization, and persistent volume metrics from kube-state-metrics and the Prometheus node exporter
+| Component | Pod prefix | Purpose |
+|-----------|------------|---------|
+| Grafana | `cp-grafana` | Dashboards and visualization |
+| VictoriaMetrics (single-node) | `vmsingle-cp-victoria-metrics-k8s-stack` | Metrics storage |
+| VMAgent | `vmagent-cp-victoria-metrics-k8s-stack` | Metrics scraping |
+| VMAlertmanager | `vmalertmanager-cp-victoria-metrics-k8s-stack` | Alerting |
+| VictoriaMetrics operator | `cp-victoria-metrics-operator` | Manages VictoriaMetrics custom resources |
+| Chainstack blockchain-node-exporter | `cp-blockchain-node-exporter` | Chain-specific health signals |
+| Prometheus node exporter | `cp-prometheus-node-exporter` | Host-level metrics |
+| kube-state-metrics | `cp-kube-state-metrics` | Kubernetes resource metrics |
 
 ## Disabling monitoring
 
@@ -68,4 +81,4 @@ You can also skip it non-interactively with `--disable-monitoring`:
 cpctl install -s STORAGE_CLASS_NAME --disable-monitoring
 ```
 
-Skipping monitoring removes all observability components. The Control Panel itself is unaffected.
+Skipping monitoring removes all observability components, and the Control Panel's **Monitoring** page reports that monitoring is not enabled. The rest of the Control Panel is unaffected.

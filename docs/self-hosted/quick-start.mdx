@@ -218,9 +218,9 @@ Reason: All components ready
 
 <Step title="Expose the web interface and deployments API">
 
-Browser access requires exposing both the UI and the deployments API. The Ingress below puts the UI and Grafana on port 80; the deployments API is exposed separately on port 8081 to match the `--backend-url` you set during installation.
+Browser access requires exposing both the Control Panel and the deployments API. The Ingress puts the Control Panel on port 80, which also serves the Grafana dashboards embedded on its **Monitoring** page; the deployments API is exposed separately on port 8081 to match the `--backend-url` you set during installation.
 
-Apply the Ingress for the UI and Grafana. The example uses Traefik, which k3s ships with by default:
+Apply the Ingress for the Control Panel. The example uses Traefik, which k3s ships with by default:
 
 ```bash
 kubectl apply -f - <<EOF
@@ -235,13 +235,6 @@ spec:
   rules:
   - http:
       paths:
-      - path: /grafana
-        pathType: Prefix
-        backend:
-          service:
-            name: cp-grafana
-            port:
-              number: 80
       - path: /
         pathType: Prefix
         backend:
@@ -262,7 +255,6 @@ For testing without an ingress controller, use port forwarding for everything:
 
 ```bash
 kubectl port-forward svc/cp-cp-ui 8080:80 -n control-panel --address 0.0.0.0 &
-kubectl port-forward svc/cp-grafana 3000:80 -n control-panel --address 0.0.0.0 &
 kubectl port-forward svc/cp-cp-deployments-api 8081:8080 -n control-panel --address 0.0.0.0 &
 ```
 
@@ -276,10 +268,12 @@ The `kubectl port-forward` process must keep running for the deployments API to 
 
 Open your browser and navigate to:
 
-- **Ingress:** `http://<SERVER-IP>` — Control Panel, `http://<SERVER-IP>/grafana` — Grafana
-- **Port forward:** `http://<SERVER-IP>:8080` — Control Panel, `http://<SERVER-IP>:3000` — Grafana
+- **Ingress:** `http://<SERVER-IP>` — Control Panel
+- **Port forward:** `http://<SERVER-IP>:8080` — Control Panel
 
 You should see the Chainstack Self-Hosted login page.
+
+The Grafana dashboards are on the Control Panel's **Monitoring** page, so this one address covers them too. To run Grafana on its own instead, see [Monitoring](/docs/self-hosted/monitoring).
 
 </Step>
 
