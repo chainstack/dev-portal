@@ -49,6 +49,12 @@ This page is the canonical catalog of every deployment available in Chainstack S
 | Berachain | Bepolia | Bera-Reth 1.4.4 + Beacond 1.4.2-rc.0 | 8 | 36 GiB | ~165 GB |
 | Cronos | Mainnet | cronosd 1.7.8 | 8 | 32 GiB | 100 GB |
 | Cronos | Testnet | cronosd 1.7.8 | 4 | 16 GiB | 50 GB |
+| BNB Smart Chain | Mainnet | Reth-BSC v0.1.1 | 4 | 16 GiB | ~5.5 TB |
+| BNB Smart Chain | Testnet | Reth-BSC v0.1.1 | 4 | 16 GiB | 900 GB |
+| Kaia | Mainnet | kend v2.2.2 | 8 | 32 GiB | ~2.75 TB |
+| Kaia | Kairos | kend v2.2.2 | 4 | 16 GiB | ~1.2 TB |
+| Ronin | Saigon | Conduit-Reth v2.1.2 + OP-Node v1.19.0 + EigenDA-Proxy 2.7.0 | 7 | 28 GiB | 220 GB |
+| Hyperliquid | Testnet | hyperliquid testnet-full | 4 | 16 GiB | 300 GB |
 
 <Note>
 vCPU and RAM figures are the standard preset totals. Ethereum networks also ship a **Light** preset that uses half the CPU and RAM with the same storage — see [EVM Layer 1](#evm-layer-1-execution-consensus) below.
@@ -444,6 +450,94 @@ The node stores state with the RocksDB backend, under the network's default prun
 | cronosd | 8546 | TCP | EVM WS JSON-RPC |
 
 Both listeners serve the `eth`, `net`, `web3`, `debug`, and `txpool` namespaces. The CometBFT RPC port (26657) is internal — it carries the node health surface, not a customer endpoint. The CometBFT P2P port (26656) and the metrics port (26660) are internal as well.
+
+## BNB Smart Chain
+
+Runs a single reth-bsc full node in pruned mode. One process serves the chain end to end, so there is no separate consensus client to provision.
+
+Both networks bootstrap from a pre-built chain snapshot, which temporarily requires about **2× the steady-state storage** while the archive is downloaded and extracted — provision the node's volume at the peak. See [Initial sync times](/docs/self-hosted/deploying-nodes#initial-sync-times).
+
+| Network | Chain ID | Client | Block explorer |
+|---------|----------|--------|----------------|
+| BNB Smart Chain Mainnet | 56 | Reth-BSC v0.1.1 | [bscscan.com](https://bscscan.com) |
+| BNB Smart Chain Testnet | 97 | Reth-BSC v0.1.1 | [testnet.bscscan.com](https://testnet.bscscan.com) |
+
+The node runs in pruned mode, keeping recent state rather than the full history. Mainnet is the larger of the two by a wide margin — size the volume from the catalog figures above, not from the testnet.
+
+### Exposed ports
+
+| Client | Port | Protocol | Purpose |
+|--------|------|----------|---------|
+| Reth-BSC | 8545 | TCP | HTTP JSON-RPC |
+| Reth-BSC | 8546 | TCP | WS JSON-RPC |
+
+Both listeners serve the `eth`, `net`, `web3`, `txpool`, and `debug` namespaces. The P2P port (30303, TCP and UDP) and the metrics port (9001) are internal.
+
+## Kaia
+
+Runs a single kend full node with full sync and full garbage collection. One process serves the chain end to end, so there is no separate consensus client to provision.
+
+Both networks sync from genesis rather than from a snapshot, so expect a long first sync. See [Initial sync times](/docs/self-hosted/deploying-nodes#initial-sync-times).
+
+| Network | Chain ID | Client | Block explorer |
+|---------|----------|--------|----------------|
+| Kaia Mainnet | 8217 | kend v2.2.2 | [kaiascan.io](https://kaiascan.io) |
+| Kaia Kairos | 1001 | kend v2.2.2 | [kairos.kaiascan.io](https://kairos.kaiascan.io) |
+
+Full garbage collection keeps the state needed to serve current-block queries. The node's transaction pool is sized well above the client default, so it holds a deeper queue of pending transactions under load.
+
+### Exposed ports
+
+| Client | Port | Protocol | Purpose |
+|--------|------|----------|---------|
+| kend | 8551 | TCP | HTTP JSON-RPC |
+| kend | 8552 | TCP | WS JSON-RPC |
+
+Both listeners serve Kaia's native `klay` namespace alongside the standard `eth`, `net`, `web3`, and `debug` namespaces, so Kaia-specific and Ethereum-compatible calls reach the same endpoint. The P2P port (32323, TCP and UDP), its subport (32324), and the metrics port (61001) are internal.
+
+## Ronin
+
+Runs an OP Stack execution client and rollup client alongside a data-availability proxy. Ronin posts its rollup batches to EigenDA rather than to Ethereum calldata, so the rollup client reads generic commitments and resolves the underlying blobs through the proxy. CPU and RAM are split across the three clients.
+
+<Warning>
+This family needs three endpoints you supply: an Ethereum Layer 1 RPC endpoint, a Beacon API endpoint, and outbound reachability to the EigenDA disperser. The rollup stalls at the last derived block if any of the three is unavailable.
+</Warning>
+
+| Network | Chain ID | Clients | Block explorer |
+|---------|----------|---------|----------------|
+| Ronin Saigon | 202601 | Conduit-Reth v2.1.2 + OP-Node v1.19.0 + EigenDA-Proxy 2.7.0 | [saigon-explorer.roninchain.com](https://saigon-explorer.roninchain.com) |
+
+The execution client bootstraps from a published state export instead of replaying history from genesis, so it reaches the chain head without a full sync. Transactions submitted to the node are forwarded to the network's sequencer.
+
+### Exposed ports
+
+| Client | Port | Protocol | Purpose |
+|--------|------|----------|---------|
+| Conduit-Reth | 8545 | TCP | HTTP JSON-RPC |
+| Conduit-Reth | 8546 | TCP | WS JSON-RPC |
+| OP-Node | 9545 | TCP | Rollup HTTP RPC |
+
+Both execution listeners serve the `eth`, `net`, `web3`, `trace`, `debug`, and `txpool` namespaces. The engine auth RPC port (8551), the execution P2P port (30303), and the proxy's REST (3100) and metrics (7300) ports are internal — the rollup client reaches the proxy inside the deployment, not from outside it.
+
+## Hyperliquid
+
+Runs a single full node that serves the EVM JSON-RPC. One process serves the chain end to end, so there is no separate consensus client to provision.
+
+The network syncs from its public peers rather than from a snapshot. See [Initial sync times](/docs/self-hosted/deploying-nodes#initial-sync-times).
+
+| Network | Chain ID | Client | Block explorer |
+|---------|----------|--------|----------------|
+| Hyperliquid Testnet | 998 | hyperliquid testnet-full | [app.hyperliquid-testnet.xyz/explorer](https://app.hyperliquid-testnet.xyz/explorer) |
+
+The node prunes its logs on a rolling 48-hour window, so steady-state disk use stays flat over long runs rather than growing with uptime.
+
+### Exposed ports
+
+| Client | Port | Protocol | Purpose |
+|--------|------|----------|---------|
+| hyperliquid | 3001 | TCP | HTTP JSON-RPC |
+
+The single HTTP listener carries the EVM JSON-RPC. There is no separate WebSocket listener on this deployment. The gossip ports (4001 and 4002) are internal.
 
 ## Coming soon
 

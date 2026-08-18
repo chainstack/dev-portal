@@ -290,6 +290,56 @@
         { "port": 9003, "proto": "UDP", "purpose": "P2P discovery", "exposed": false },
         { "port": 7300, "proto": "TCP", "purpose": "Metrics", "exposed": false }
       ]
+    },
+    "reth-bsc": {
+      "label": "Reth-BSC",
+      "role": "full",
+      "ports": [
+        { "port": 8545, "proto": "TCP", "purpose": "HTTP JSON-RPC", "exposed": true },
+        { "port": 8546, "proto": "TCP", "purpose": "WS JSON-RPC", "exposed": true },
+        { "port": 30303, "proto": "TCP", "purpose": "P2P", "exposed": false },
+        { "port": 30303, "proto": "UDP", "purpose": "P2P discovery", "exposed": false },
+        { "port": 9001, "proto": "TCP", "purpose": "Metrics", "exposed": false }
+      ]
+    },
+    "kend": {
+      "label": "kend",
+      "role": "full",
+      "ports": [
+        { "port": 8551, "proto": "TCP", "purpose": "HTTP JSON-RPC", "exposed": true },
+        { "port": 8552, "proto": "TCP", "purpose": "WS JSON-RPC", "exposed": true },
+        { "port": 32323, "proto": "TCP", "purpose": "P2P", "exposed": false },
+        { "port": 32323, "proto": "UDP", "purpose": "P2P discovery", "exposed": false },
+        { "port": 32324, "proto": "TCP", "purpose": "P2P subport", "exposed": false },
+        { "port": 61001, "proto": "TCP", "purpose": "Metrics", "exposed": false }
+      ]
+    },
+    "conduit-reth": {
+      "label": "Conduit-Reth",
+      "role": "execution",
+      "ports": [
+        { "port": 8545, "proto": "TCP", "purpose": "HTTP JSON-RPC", "exposed": true },
+        { "port": 8546, "proto": "TCP", "purpose": "WS JSON-RPC", "exposed": true },
+        { "port": 8551, "proto": "TCP", "purpose": "Engine auth RPC", "exposed": false },
+        { "port": 30303, "proto": "TCP", "purpose": "P2P", "exposed": false }
+      ]
+    },
+    "eigenda-proxy": {
+      "label": "EigenDA-Proxy",
+      "role": "data-availability",
+      "ports": [
+        { "port": 3100, "proto": "TCP", "purpose": "Alt-DA REST", "exposed": false },
+        { "port": 7300, "proto": "TCP", "purpose": "Metrics", "exposed": false }
+      ]
+    },
+    "hyperliquid": {
+      "label": "hyperliquid",
+      "role": "full",
+      "ports": [
+        { "port": 3001, "proto": "TCP", "purpose": "HTTP JSON-RPC", "exposed": true },
+        { "port": 4001, "proto": "TCP", "purpose": "Gossip", "exposed": false },
+        { "port": 4002, "proto": "TCP", "purpose": "Gossip", "exposed": false }
+      ]
     }
   },
   "families": {
@@ -429,6 +479,36 @@
       "notes": [
         "Runs a paired execution client and consensus client as a non-validator node that follows the network's public endpoints. CPU and RAM are split across the two clients.",
         "Bootstraps from a pre-built chain snapshot. Snapshot bootstrap temporarily needs about 2x the steady-state storage while the archive is downloaded and extracted."
+      ]
+    },
+    "bsc": {
+      "label": "BNB Smart Chain",
+      "notes": [
+        "Runs a single full node client in pruned mode that serves both the HTTP and the WebSocket JSON-RPC.",
+        "Both networks bootstrap from a pre-built chain snapshot and temporarily need about 2x the steady-state storage while the archive is downloaded and extracted."
+      ]
+    },
+    "kaia": {
+      "label": "Kaia",
+      "notes": [
+        "Runs a single full node client with full sync and full garbage collection, serving both the HTTP and the WebSocket JSON-RPC.",
+        "Both listeners expose the native klay namespace alongside the standard eth, net, web3, and debug namespaces.",
+        "Both networks sync from genesis rather than from a snapshot, so expect a long first sync."
+      ]
+    },
+    "ronin": {
+      "label": "Ronin",
+      "notes": [
+        "Runs an OP Stack execution client and rollup client alongside a data-availability proxy, because the rollup posts its batch data to EigenDA instead of Ethereum calldata. CPU and RAM are split across the three clients.",
+        "Requires an Ethereum Layer 1 RPC endpoint and a Beacon API endpoint that you supply, plus outbound reachability to the EigenDA disperser.",
+        "The execution client bootstraps from a published state export rather than replaying history from genesis."
+      ]
+    },
+    "hyperliquid": {
+      "label": "Hyperliquid",
+      "notes": [
+        "Runs a single full node client that serves the EVM HTTP JSON-RPC. There is no separate WebSocket listener.",
+        "The node prunes its logs on a rolling 48-hour window, so steady-state disk use stays flat over long runs."
       ]
     }
   },
@@ -873,6 +953,68 @@
         { "client": "cronosd", "version": "1.7.8", "cpu": 4, "ramGi": 16, "storageGi": 50 }
       ],
       "totals": { "cpu": 4, "ramGi": 16, "storageGi": 50 }
+    },
+    {
+      "protocol": "BNB Smart Chain", "network": "Mainnet", "chainId": 56,
+      "explorer": "https://bscscan.com",
+      "family": "bsc", "status": "available", "snapshotBootstrap": true,
+      "presets": ["standard"],
+      "clients": [
+        { "client": "reth-bsc", "version": "v0.1.1", "cpu": 4, "ramGi": 16, "storageGi": 5600 }
+      ],
+      "totals": { "cpu": 4, "ramGi": 16, "storageGi": 5600 }
+    },
+    {
+      "protocol": "BNB Smart Chain", "network": "Testnet", "chainId": 97,
+      "explorer": "https://testnet.bscscan.com",
+      "family": "bsc", "status": "available", "snapshotBootstrap": true,
+      "presets": ["standard"],
+      "clients": [
+        { "client": "reth-bsc", "version": "v0.1.1", "cpu": 4, "ramGi": 16, "storageGi": 900 }
+      ],
+      "totals": { "cpu": 4, "ramGi": 16, "storageGi": 900 }
+    },
+    {
+      "protocol": "Kaia", "network": "Mainnet", "chainId": 8217,
+      "explorer": "https://kaiascan.io",
+      "family": "kaia", "status": "available", "snapshotBootstrap": false,
+      "presets": ["standard"],
+      "clients": [
+        { "client": "kend", "version": "v2.2.2", "cpu": 8, "ramGi": 32, "storageGi": 2800 }
+      ],
+      "totals": { "cpu": 8, "ramGi": 32, "storageGi": 2800 }
+    },
+    {
+      "protocol": "Kaia", "network": "Kairos", "chainId": 1001,
+      "explorer": "https://kairos.kaiascan.io",
+      "family": "kaia", "status": "available", "snapshotBootstrap": false,
+      "presets": ["standard"],
+      "clients": [
+        { "client": "kend", "version": "v2.2.2", "cpu": 4, "ramGi": 16, "storageGi": 1200 }
+      ],
+      "totals": { "cpu": 4, "ramGi": 16, "storageGi": 1200 }
+    },
+    {
+      "protocol": "Ronin", "network": "Saigon", "chainId": 202601,
+      "explorer": "https://saigon-explorer.roninchain.com",
+      "family": "ronin", "status": "available", "snapshotBootstrap": false,
+      "presets": ["standard"],
+      "clients": [
+        { "client": "conduit-reth", "version": "v2.1.2", "cpu": 4, "ramGi": 16, "storageGi": 200 },
+        { "client": "op-node", "version": "v1.19.0", "cpu": 2, "ramGi": 8, "storageGi": 20 },
+        { "client": "eigenda-proxy", "version": "2.7.0", "cpu": 1, "ramGi": 4, "storageGi": 0 }
+      ],
+      "totals": { "cpu": 7, "ramGi": 28, "storageGi": 220 }
+    },
+    {
+      "protocol": "Hyperliquid", "network": "Testnet", "chainId": 998,
+      "explorer": "https://app.hyperliquid-testnet.xyz/explorer",
+      "family": "hyperliquid", "status": "available", "snapshotBootstrap": false,
+      "presets": ["standard"],
+      "clients": [
+        { "client": "hyperliquid", "version": "testnet-full", "cpu": 4, "ramGi": 16, "storageGi": 300 }
+      ],
+      "totals": { "cpu": 4, "ramGi": 16, "storageGi": 300 }
     },
     {
       "protocol": "Solana", "network": "Mainnet", "chainId": null,
