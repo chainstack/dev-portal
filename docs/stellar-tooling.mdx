@@ -1,0 +1,138 @@
+---
+title: "Stellar tooling"
+description: "Connect to your Chainstack Stellar node over the Stellar RPC JSON-RPC API with curl, the JavaScript SDK, and the Python SDK, and check the ledger history your node holds."
+---
+
+Your Chainstack Stellar node serves the [Stellar RPC API](https://developers.stellar.org/docs/data/apis/rpc) — the JSON-RPC interface that stellar-rpc exposes for reading ledger data, simulating contract calls, and submitting transactions. Horizon is a separate service with its own REST interface and is not served on this endpoint.
+
+## JSON-RPC over HTTPS
+
+Every call is an HTTP POST with a `method` and, for methods that take arguments, a `params` object. The endpoint is HTTPS only — Stellar nodes on Chainstack do not expose a WebSocket endpoint.
+
+<CodeGroup>
+  ```bash cURL
+  curl YOUR_CHAINSTACK_ENDPOINT \
+    -H 'Content-Type: application/json' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}'
+  ```
+</CodeGroup>
+
+`getHealth` is the fastest way to confirm the endpoint works and to see the ledger range the node holds:
+
+<CodeGroup>
+  ```json Response
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "status": "healthy",
+      "latestLedger": 64065198,
+      "latestLedgerCloseTime": "1787363249",
+      "oldestLedger": 63028399,
+      "oldestLedgerCloseTime": "1781453141",
+      "ledgerRetentionWindow": 1036800
+    }
+  }
+  ```
+</CodeGroup>
+
+Replace `YOUR_CHAINSTACK_ENDPOINT` with your node's HTTPS endpoint. For the credential in that endpoint and the other ways to authenticate, see [Authentication methods for different scenarios](/docs/authentication-methods-for-different-scenarios).
+
+## Historical data availability
+
+Stellar nodes on Chainstack run in full mode and keep a rolling window of recent ledgers rather than history from genesis. Billing is independent of the window — every Stellar request is billed as full, at 1 RU; see [Request units](/docs/request-units).
+
+Your node reports its own window in `getHealth`:
+
+- `ledgerRetentionWindow` — the configured size of the window, in ledgers
+- `oldestLedger` — the oldest ledger the node can serve right now
+- `latestLedger` — the current tip
+
+Work from `oldestLedger`, not from `ledgerRetentionWindow`. The configured size is the ceiling, and a node that has not been running long enough to fill its window holds less than that. A request for a ledger outside the window returns `-32600` with a message naming the range the node can serve.
+
+## JavaScript
+
+Use the official [`@stellar/stellar-sdk`](https://github.com/stellar/js-stellar-sdk) and point `rpc.Server` at your endpoint.
+
+<CodeGroup>
+  ```javascript JavaScript
+  // npm install @stellar/stellar-sdk
+  import { rpc } from "@stellar/stellar-sdk";
+
+  const server = new rpc.Server("YOUR_CHAINSTACK_ENDPOINT");
+
+  const health = await server.getHealth();
+  console.log("getHealth:", health.status, "| latest", health.latestLedger, "| oldest", health.oldestLedger);
+
+  const network = await server.getNetwork();
+  console.log("getNetwork:", network.passphrase);
+
+  const ledger = await server.getLatestLedger();
+  console.log("getLatestLedger: sequence", ledger.sequence, "protocol", ledger.protocolVersion);
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```text Output
+  getHealth: healthy | latest 64065193 | oldest 63028394
+  getNetwork: Public Global Stellar Network ; September 2015
+  getLatestLedger: sequence 64065193 protocol 27
+  ```
+</CodeGroup>
+
+### Read recent ledgers
+
+`getLedgers` takes a single request object with `startLedger` and a `pagination` block, rather than positional arguments:
+
+<CodeGroup>
+  ```javascript JavaScript
+  const { latestLedger } = await server.getHealth();
+
+  const { ledgers } = await server.getLedgers({
+    startLedger: latestLedger - 2,
+    pagination: { limit: 3 },
+  });
+
+  for (const l of ledgers) {
+    console.log(`ledger ${l.sequence} closed at ${new Date(l.ledgerCloseTime * 1000).toISOString()}`);
+  }
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```text Output
+  ledger 64065203 closed at 2026-08-22T01:47:57.000Z
+  ledger 64065204 closed at 2026-08-22T01:48:03.000Z
+  ledger 64065205 closed at 2026-08-22T01:48:08.000Z
+  ```
+</CodeGroup>
+
+## Python
+
+Use the official [`stellar-sdk`](https://github.com/StellarCN/py-stellar-base) and its `SorobanServer`, which speaks the Stellar RPC API.
+
+<CodeGroup>
+  ```python Python
+  # pip install stellar-sdk
+  from stellar_sdk import SorobanServer
+
+  server = SorobanServer("YOUR_CHAINSTACK_ENDPOINT")
+
+  health = server.get_health()
+  print("get_health:", health.status, "| latest", health.latest_ledger, "| oldest", health.oldest_ledger)
+
+  network = server.get_network()
+  print("get_network:", network.passphrase, "| protocol", network.protocol_version)
+
+  ledger = server.get_latest_ledger()
+  print("get_latest_ledger: sequence", ledger.sequence)
+  ```
+</CodeGroup>
+
+<CodeGroup>
+  ```text Output
+  get_health: healthy | latest 64065195 | oldest 63028396
+  get_network: Public Global Stellar Network ; September 2015 | protocol 27
+  get_latest_ledger: sequence 64065195
+  ```
+</CodeGroup>
