@@ -1,6 +1,6 @@
 ---
 title: "Stellar tooling"
-description: "Connect to your Chainstack Stellar node over the Stellar RPC JSON-RPC API with curl, the JavaScript SDK, and the Python SDK, including how much ledger history your node holds."
+description: "Connect to your Chainstack Stellar node over the Stellar RPC JSON-RPC API with curl, the JavaScript SDK, and the Python SDK, and check the ledger history your node holds."
 ---
 
 Your Chainstack Stellar node serves the [Stellar RPC API](https://developers.stellar.org/docs/data/apis/rpc) — the JSON-RPC interface that stellar-rpc exposes for reading ledger data, simulating contract calls, and submitting transactions. Horizon is a separate service with its own REST interface and is not served on this endpoint.
@@ -38,41 +38,17 @@ Every call is an HTTP POST with a `method` and, for methods that take arguments,
 
 Replace `YOUR_CHAINSTACK_ENDPOINT` with your node's HTTPS endpoint. For the credential in that endpoint and the other ways to authenticate, see [Authentication methods for different scenarios](/docs/authentication-methods-for-different-scenarios).
 
-## How much ledger history your node holds
+## Historical data availability
 
-Stellar nodes on Chainstack keep a rolling window of recent ledgers rather than full history, and `getHealth` reports that window directly — no guesswork needed. Read three fields:
+Stellar nodes on Chainstack run in full mode and keep a rolling window of recent ledgers rather than history from genesis. Billing is independent of the window — every Stellar request is billed as full, at 1 RU; see [Request units](/docs/request-units).
 
-| Field | Meaning |
-| --- | --- |
-| `ledgerRetentionWindow` | The configured window, in ledgers |
-| `oldestLedger` | The oldest ledger actually available right now |
-| `latestLedger` | The current tip |
+Your node reports its own window in `getHealth`:
 
-The configured window is the ceiling; `oldestLedger` is what you can actually query. A node that has not been running long enough to fill its window holds less than the configured amount, so always work from `oldestLedger` rather than assuming the full window is present.
+- `ledgerRetentionWindow` — the configured size of the window, in ledgers
+- `oldestLedger` — the oldest ledger the node can serve right now
+- `latestLedger` — the current tip
 
-Measured on Aug 22, 2026, both networks configured at 1,036,800 ledgers:
-
-| Network | Ledgers available | Window | Close rate |
-| --- | --- | --- | --- |
-| Mainnet | 1,036,799 | 68.4 days | 5.70 s/ledger |
-| Testnet | 43,079 | 2.5 days | 5.01 s/ledger |
-
-Mainnet is at steady state — it holds essentially its whole configured window. Testnet held far less at the time of measurement because it had not yet accumulated that much history.
-
-Requesting a ledger outside the window returns `-32600`, and the message names the range the node can serve:
-
-<CodeGroup>
-  ```json Response
-  {
-    "jsonrpc": "2.0",
-    "id": 1,
-    "error": {
-      "code": -32600,
-      "message": "start ledger (1) must be between the oldest ledger: 4225023 and the latest ledger: 4268124 for this rpc instance"
-    }
-  }
-  ```
-</CodeGroup>
+Work from `oldestLedger`, not from `ledgerRetentionWindow`. The configured size is the ceiling, and a node that has not been running long enough to fill its window holds less than that. A request for a ledger outside the window returns `-32600` with a message naming the range the node can serve.
 
 ## JavaScript
 
