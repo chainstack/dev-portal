@@ -72,6 +72,8 @@ def classify(page):
             prio = CROWN.index(pr) if pr in CROWN else 10 + PROTO.index(pr)
             return (f"ref:{pr}", f"reference/{pr}/llms.txt", f"{pr.capitalize()} node API", prio)
         return ("ref:other", "reference/other/llms.txt", "API reference (other)", 90)
+    if top == "docs" and len(seg) > 1 and seg[1] == "self-hosted":
+        return ("self-hosted", "docs/self-hosted/llms.txt", "Self-Hosted", 102)
     if top == "docs":
         return ("docs", "docs/llms.txt", "Guides", 100)
     if top == "recipes":
