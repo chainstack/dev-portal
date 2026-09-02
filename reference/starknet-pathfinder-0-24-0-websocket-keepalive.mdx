@@ -1,0 +1,118 @@
+---
+title: "Pathfinder WebSocket keepalive 0.24.0 | Starknet"
+description: "Pathfinder 0.24.0 requires Starknet WebSocket clients to answer server-initiated pings. Learn the ping interval, the disconnect window, the new idle-connection timeout, and how to keep subscriptions alive."
+---
+
+<Warning>
+  **Breaking change notice**
+
+  With the roll-out of Pathfinder node version [0.24.0](https://github.com/equilibriumco/pathfinder/releases/tag/v0.24.0), a Starknet WebSocket client that does not answer server-initiated pings is disconnected. Keepalive cannot be turned off.
+</Warning>
+
+Most applications need no changes, because every RFC 6455-compliant WebSocket library answers ping frames automatically. This change affects you if you hold long-lived Starknet WebSocket subscriptions — `starknet_subscribeNewHeads`, `starknet_subscribeEvents`, `starknet_subscribeNewTransactions` — and either your client is hand-rolled and ignores pings, or it opens a connection and leaves it idle before subscribing.
+
+HTTP JSON-RPC requests are unaffected. No RPC methods are added or removed in this release, and the JSON-RPC API versions served do not change.
+
+## What changed
+
+Pathfinder 0.24.0 makes WebSocket keepalive mandatory. The server pings a client that has gone quiet and closes the connection if the pings go unanswered.
+
+| Behavior | Value on Chainstack | What it means |
+| --- | --- | --- |
+| Ping interval | 30 seconds | After 30 seconds without a frame from your client, the server sends a ping |
+| Missed pings allowed | 2 | Two consecutive unanswered pings close the connection |
+| **Disconnect window** | **60 seconds** | A client that never answers is closed 60 seconds after going quiet |
+| Initial frame timeout | 30 seconds | A connection that sends no frame within 30 seconds of being established is closed |
+
+The release also bounds the feeder-gateway fallback path used by `starknet_traceTransaction` and `starknet_traceBlockTransactions` at **30 seconds**, so a slow sequencer can no longer hold a trace request open indefinitely.
+
+## Connecting over WebSocket
+
+Your Starknet WebSocket endpoint carries the authentication token as the last path segment, and serves JSON-RPC API version 0.9 by default:
+
+```bash
+wscat -c CHAINSTACK_STARKNET_PATHFINDER_WSS_ENDPOINT
+```
+
+To pin a version explicitly, append the version path:
+
+| JSON-RPC API version | Endpoint path |
+| --- | --- |
+| 0.9 | `/rpc/v0_9` — also served on the default path |
+| 0.10 | `/rpc/v0_10` |
+
+See [Authentication methods for different scenarios](/docs/authentication-methods-for-different-scenarios) for where to find your token.
+
+## What breaks
+
+**A client that ignores pings.** The connection closes 60 seconds after your client's last frame. Your application sees a closed socket and loses every active subscription on it. Before 0.24.0 an idle connection was neither pinged nor closed.
+
+**A connection left idle at open.** If you establish the WebSocket and send nothing for 30 seconds — for example, connecting at start-up and subscribing only once your application is ready — the server closes it before your first subscription request arrives.
+
+Neither case produces a JSON-RPC error. The socket simply closes, so handle it in your close/reconnect path rather than in your error handler.
+
+<Visibility for="humans">
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+</Visibility>
+
+## Migration guide
+
+### If you use a standard WebSocket library
+
+No change is required. `websockets` and `websocket-client` (Python), `ws` (Node.js), `tokio-tungstenite` (Rust), and `gorilla/websocket` (Go) all answer ping frames as part of the protocol.
+
+One caveat: with `gorilla/websocket` the default ping handler runs only while your code is reading from the connection. If you subscribe and then stop calling `ReadMessage`, pongs stop going out and the connection is closed 60 seconds later. Keep a read loop running for the life of the connection.
+
+### If you use a hand-rolled client
+
+Respond to every ping frame (opcode `0x9`) with a pong frame (opcode `0xA`) carrying the same payload. This is a protocol-level requirement in [RFC 6455 §5.5.2](https://datatracker.ietf.org/doc/html/rfc6455#section-5.5.2), not a Starknet-specific one.
+
+### If you connect before you subscribe
+
+Send your first frame within 30 seconds of establishing the connection. Either subscribe immediately, or connect lazily at the point you actually need the stream.
+
+### Verifying your client is unaffected
+
+Open a subscription and leave it running with no further requests for at least 90 seconds — past the 60-second disconnect window with margin. If the subscription keeps delivering notifications, your client is answering pings:
+
+```bash
+wscat -c CHAINSTACK_STARKNET_PATHFINDER_WSS_ENDPOINT \
+  -x '{"jsonrpc":"2.0","id":1,"method":"starknet_subscribeNewHeads","params":{}}' --wait 90
+```
+
+## Subscription methods
+
+The Starknet WebSocket subscriptions available on Chainstack are the standardized spec methods:
+
+| Method | Availability |
+| --- | --- |
+| `starknet_subscribeNewHeads` | Available |
+| `starknet_subscribeEvents` | Available |
+| `starknet_subscribeNewTransactions` | Available |
+| `starknet_subscribeNewTransactionReceipts` | Available |
+| `starknet_subscribeTransactionStatus` | Available |
+| `starknet_unsubscribe` | Available |
+| `pathfinder_subscribe`, `pathfinder_unsubscribe` | Removed in Pathfinder 0.18.0 — use the `starknet_subscribe*` methods |
+
+For the full method list, see [Starknet methods](/docs/starknet-methods).
+
+## Best practices
+
+1. Keep a read loop alive for the whole life of a WebSocket connection, so your library can answer pings.
+2. Treat a close as expected and reconnect with backoff, re-establishing subscriptions — a subscription does not survive its connection.
+3. Subscribe promptly after connecting, or connect only when you are ready to subscribe.
+4. Pin the API version in the endpoint path (`/rpc/v0_9` or `/rpc/v0_10`) so a future default change does not affect you.
+
+## Additional resources
+
+- [Chainstack changelog: Starknet Pathfinder v0.24.0](/changelog/chainstack-updates-september-2-2026) — the dated release note for this change
+- [Pathfinder v0.24.0 release notes](https://github.com/equilibriumco/pathfinder/releases/tag/v0.24.0) — details of this release
+- [Pathfinder RPC version removal 0.23.0](/reference/starknet-pathfinder-0-23-0-rpc-version-removal) — the previous breaking change
+- [Starknet methods](/docs/starknet-methods) — full method availability
+- [Starknet spec releases](https://github.com/starkware-libs/starknet-specs/releases) — differences between spec versions
