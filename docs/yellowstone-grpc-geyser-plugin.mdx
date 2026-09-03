@@ -55,6 +55,40 @@ For arbitrary historical data beyond the buffer, use the standard JSON-RPC metho
 
 3. Click **Add-ons** > **Yellowstone gRPC Geyser Plugin** > **Install**.
 
+## Connect to your endpoint
+
+Once the add-on is installed, the node's **Access and credentials** view gains a **Yellowstone gRPC** section with the gRPC endpoint and the x-token. This endpoint is separate from the node's HTTPS and WSS endpoints, and the token travels in request metadata rather than in the URL — see [gRPC access via x-token](/docs/authentication-methods-for-different-scenarios#grpc-access-via-x-token). The x-token is the same value as the node's auth token, so if your RPC endpoint already works you already have it.
+
+The console shows the endpoint as a bare hostname, for example `yellowstone-solana-mainnet.core.chainstack.com`. Add the port yourself: Geyser listens on **443** with TLS. Whether you also add a scheme depends on your client:
+
+| Client | Endpoint form |
+| --- | --- |
+| `@triton-one/yellowstone-grpc` (TypeScript), `yellowstone-grpc-client` (Rust) | `https://yellowstone-solana-mainnet.core.chainstack.com:443` — the scheme is required |
+| `grpc` (Python), `grpc-go` (Go), `grpcurl` | `yellowstone-solana-mainnet.core.chainstack.com:443` — host and port only, no scheme |
+
+The two forms are not interchangeable. A TypeScript or Rust client given a bare host fails to connect, and a Python or Go client given a scheme fails to resolve it.
+
+<CodeGroup>
+```js Node.js
+const { default: Client } = require("@triton-one/yellowstone-grpc");
+
+const client = new Client("https://yellowstone-solana-mainnet.core.chainstack.com:443", "YOUR_X_TOKEN");
+console.log(await client.getVersion());
+```
+
+```python Python
+import grpc
+
+auth = grpc.metadata_call_credentials(
+    lambda ctx, cb: cb((("x-token", "YOUR_X_TOKEN"),), None)
+)
+creds = grpc.composite_channel_credentials(grpc.ssl_channel_credentials(), auth)
+channel = grpc.aio.secure_channel("yellowstone-solana-mainnet.core.chainstack.com:443", creds)
+```
+</CodeGroup>
+
+For full working examples, see [Listening to programs using Geyser and Yellowstone gRPC (Node.js)](/docs/solana-listening-to-programs-using-geyser-and-yellowstone-grpc-node-js) and [Solana: transactions and block time with Yellowstone gRPC](/docs/solana-transactions-block-time-yellowstone-grpc).
+
 ## Limits
 
 $49/month:
