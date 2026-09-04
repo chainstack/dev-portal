@@ -18,19 +18,17 @@ See current service pricing on the [pricing page](https://chainstack.com/pricing
 
 ## How your node type affects this
 
-The classification rules on this page decide the cost of each request individually — but only on node types that meter requests that way. Your node type decides whether they apply at all.
+Node type decides whether requests are classified one by one or billed at a fixed class. Global Nodes classify each request; Trader Nodes bill every request according to the node's mode; Dedicated Nodes and the Unlimited Node add-on do not meter requests.
 
-| Node type | How requests are billed |
+| Node type | Billing |
 | --- | --- |
-| [Global Node](/docs/global-elastic-node) | Each request is classified on its own by the rules below — full is 1 RU, archive is 2 RUs |
-| [Trader Node](/docs/trader-node), full mode | Everything the node serves is a full request, so every request is 1 RU |
-| [Trader Node](/docs/trader-node), archive mode | **Every request is billed as archive, 2 RUs**, whatever the method or the block age. The per-request rules below do not apply |
-| [Dedicated Node](/docs/dedicated-node) | Not metered per request — you pay for the node's compute and storage monthly |
-| [Unlimited Node](/docs/unlimited-node) add-on | Not metered per request — a flat monthly fee tied to an RPS tier |
+| [Global Node](/docs/global-elastic-node) | Each request is classified on its own. Full requests are 1 RU and archive requests are 2 RUs, by the per-protocol rules on this page. Debug and trace requests are 2 RUs. |
+| [Trader Node](/docs/trader-node), full mode | Every request is 1 RU, including debug and trace methods where the node offers them. Archive requests are not served: a state query for a block outside the node's retained window returns `-32000` with the message `missing trie node`. See [EVM node returns "Missing trie node"](/docs/evm-node-returns-missing-trie-node). |
+| [Trader Node](/docs/trader-node), archive mode | Every request is 2 RUs, including requests for the latest block, requests with no block parameter, and each WebSocket subscription notification. The per-protocol full-versus-archive rules do not apply. |
+| [Dedicated Node](/docs/dedicated-node) | Not metered per request. Billed monthly for the node's compute and storage. |
+| [Unlimited Node](/docs/unlimited-node) add-on | Not metered per request. A flat monthly fee tied to an RPS tier. |
 
-The archive Trader Node case is the one that surprises people. On an archive Trader Node, `eth_blockNumber` and a `latest` block query cost 2 RUs each, the same as a call reaching back to genesis, because the node is archive rather than because the request is.
-
-A full-mode Trader Node cannot serve an archive request at all. A state query for a block outside the node's window returns `-32000` with `missing trie node` — see [EVM node returns "Missing trie node"](/docs/evm-node-returns-missing-trie-node).
+The archive Trader Node rule applies on every protocol that offers Trader Nodes in archive mode, including protocols with their own full-versus-archive boundaries such as Aptos. Which regions offer each mode is listed in [Available clouds, regions, and locations](/docs/nodes-clouds-regions-and-locations).
 
 ## Full vs archive by protocol
 
@@ -49,7 +47,7 @@ For each protocol, here's what counts as a **full request (1 RU)** and what coun
 
 ## Always 2 RUs
 
-These EVM methods are billed at 2 RUs regardless of block age:
+On Global Nodes and archive Trader Nodes, these EVM methods are billed at 2 RUs regardless of block age. On a full Trader Node every request is 1 RU, including these methods.
 
 - All `debug_*`, `trace_*`, and `arbtrace_*` methods — including `debug_traceTransaction`, `debug_traceBlockByNumber`, and `trace_block`.
 - `eth_callMany`
