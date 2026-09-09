@@ -1,0 +1,105 @@
+---
+title: "Avalanche Helicon network upgrade"
+description: What the Avalanche Helicon upgrade (AvalancheGo v1.15.0) changes for RPC users — removed admin, warp, and personal namespaces, new named block resolution on the C-Chain, and a dynamic minimum gas price.
+---
+
+**TLDR:**
+* Helicon activated on Fuji Testnet on July 28, 2026 and activates on Avalanche Mainnet on September 22, 2026 at 15:00 UTC, with [AvalancheGo v1.15.0](https://github.com/ava-labs/avalanchego/releases/tag/v1.15.0).
+* Six Avalanche Community Proposals (ACPs) activate: ACP-194 (continuous execution), ACP-236 (auto-renewed staking), ACP-267 (uptime requirement increase), ACP-273 (reduce minimum staking duration), ACP-283 (dynamic minimum gas price), ACP-285 (reduce minimum consumption rate).
+* Helicon removes C-Chain RPC methods — the `admin`, `warp`, and `personal` namespaces, three `eth` methods, and eight non-trace `debug` methods.
+* On the C-Chain, `latest` and `pending` now resolve to the last executed block, and `safe` and `finalized` to the last settled block.
+
+<Warning>
+  Helicon is a breaking upgrade for RPC users, unlike the [Granite upgrade](/docs/avalanche-granite-upgrade). A call to `eth_accounts` or to one of the removed `debug` methods fails on an upgraded node. Check your application against the removed methods listed on this page.
+</Warning>
+
+## Main article
+
+Helicon is a network upgrade for Avalanche that changes how the C-Chain executes blocks and prices gas, and that removes a set of C-Chain RPC methods. Fuji Testnet activated Helicon on July 28, 2026, and Avalanche Mainnet activates it on September 22, 2026 at 15:00 UTC.
+
+<Check>
+  ### Chainstack nodes are Helicon-ready
+
+  Chainstack rolls out Helicon on the Avalanche upgrade timeline: Fuji Testnet first, then Mainnet. Nodes on Chainstack are prepared for the respective network upgrades.
+</Check>
+
+`eth_call`, `eth_getLogs`, `eth_sendRawTransaction`, `eth_getBlockByNumber`, the `debug_trace*` methods, and the X-Chain and P-Chain APIs are unaffected. For the full supported surface, see [Avalanche methods](/docs/avalanche-methods).
+
+## Removed API namespaces
+
+Helicon removes three C-Chain namespaces entirely. A request to any method in these namespaces returns a method-not-found error on an upgraded node:
+
+* `admin` — node administration methods such as `admin_peers` and `admin_nodeInfo`. These were never served on Chainstack nodes.
+* `warp` — Avalanche Warp Messaging methods.
+* `personal` — account management methods.
+
+## Removed C-Chain RPC methods
+
+Helicon removes eleven individual C-Chain methods on top of the removed namespaces.
+
+Three `eth` methods that report node-local accounts:
+
+* `eth_accounts`
+* `eth_coinbase`
+* `eth_etherbase`
+
+Eight `debug` methods for state and block inspection:
+
+* `debug_accountRange`
+* `debug_dumpBlock`
+* `debug_getAccessibleState`
+* `debug_getBadBlocks`
+* `debug_getModifiedAccountsByHash`
+* `debug_getModifiedAccountsByNumber`
+* `debug_preimage`
+* `debug_storageRangeAt`
+
+The `debug_trace*` methods — `debug_traceBlockByNumber`, `debug_traceBlockByHash`, `debug_traceTransaction`, `debug_traceCall`, and `debug_traceBlock` — are not affected. Deploy your node in [archive mode](/docs/protocols-modes-and-types#modes) to call them, as described in [Debug and trace APIs](/docs/debug-and-trace-apis).
+
+<Tip>
+  If your application reads contract storage with `debug_storageRangeAt`, you can replicate the query with `eth_getStorageAt` against known slot positions. See [eth\_getStorageAt vs debug\_storageRangeAt on Reth](/docs/using-eth_getstorageat-instead-of-debug_storagerangeat-on-reth) for a working script — the same approach applies to Avalanche.
+</Tip>
+
+## Named block resolution on the C-Chain
+
+ACP-194 makes C-Chain block execution continuous, so a block can be accepted before it is executed. That splits apart what the named block tags mean, and the tags resolve as follows on an upgraded node:
+
+| Tag         | Resolves to             |
+| ----------- | ----------------------- |
+| `latest`    | Last executed block     |
+| `pending`   | Last executed block     |
+| `safe`      | Last settled block      |
+| `finalized` | Last settled block      |
+
+The practical effect is that `latest` can lag block acceptance by the execution queue depth, and `safe` and `finalized` now return the same block. An application that reads state at `latest` and expects it to match the newest accepted block height needs to account for that gap — compare the height returned by `eth_getBlockByNumber` with `latest` against the height you get from a block subscription.
+
+## Dynamic minimum gas price
+
+ACP-283 replaces the fixed minimum C-Chain gas price with one that adjusts to network conditions. Read the current value with `eth_gasPrice` or `eth_feeHistory` rather than hardcoding a floor, and let `eth_estimateGas` size your gas limit.
+
+## Deprecated with a warning
+
+One RPC method is deprecated rather than removed, and still answers on an upgraded node:
+
+* `avax.getAtomicTxStatus` — replaced by `avax.getAtomicTx`.
+
+## The six ACPs
+
+Helicon activates six proposals. Four change validator economics and operations on the P-Chain, and two change C-Chain execution and pricing:
+
+* [ACP-194: continuous execution](https://github.com/avalanche-foundation/ACPs/tree/main/ACPs/194-continuous-execution) — decouples C-Chain block acceptance from block execution.
+* [ACP-236: auto-renewed staking](https://github.com/avalanche-foundation/ACPs/tree/main/ACPs/236-auto-renewed-staking) — lets a validator's stake renew without a new staking transaction.
+* [ACP-267: uptime requirement increase](https://github.com/avalanche-foundation/ACPs/tree/main/ACPs/267-uptime-requirement-increase) — raises the uptime a validator must meet to earn rewards.
+* [ACP-273: reduce minimum staking duration](https://github.com/avalanche-foundation/ACPs/tree/main/ACPs/273-reduce-minimum-staking-duration) — shortens the minimum validator staking period.
+* [ACP-283: dynamic minimum gas price](https://github.com/avalanche-foundation/ACPs/tree/main/ACPs/283-dynamic-minimum-gas-price) — makes the C-Chain minimum gas price responsive to demand.
+* [ACP-285: reduce minimum consumption rate](https://github.com/avalanche-foundation/ACPs/tree/main/ACPs/285-reduce-minimum-consumption-rate) — lowers the minimum staking reward consumption rate.
+
+## What this means for developers
+
+If you build on Avalanche using Chainstack nodes:
+
+**Check your calls** — replace the removed `debug` methods and drop any `eth_accounts`, `eth_coinbase`, or `eth_etherbase` call. A node endpoint has no accounts of its own, so these methods returned an empty or zero result before Helicon removed them.
+
+**Re-read your block tags** — if your indexer or bot treats `latest` as the newest accepted block, measure the gap against a block subscription and decide whether your application can tolerate it.
+
+**Stop hardcoding a gas floor** — query the minimum gas price at call time.
