@@ -26,7 +26,7 @@ DOCS_JSON = os.path.join(REPO, "docs.json")
 CROWN = ["ethereum", "solana", "hyperliquid", "ton", "tron"]
 PROTO = CROWN + ["base", "bnb", "polygon-zkevm", "polygon", "arbitrum", "optimism",
                  "avalanche", "bitcoin", "gnosis", "fantom", "cronos", "ronin",
-                 "zksync", "starknet", "monad", "plasma", "tempo", "aptos"]
+                 "zksync", "starknet", "monad", "plasma", "tempo", "arc", "aptos"]
 
 
 def nav_leaves(node, acc):
