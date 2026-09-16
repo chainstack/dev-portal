@@ -1,12 +1,26 @@
 ---
 title: "Arc tooling"
-description: "Connect MetaMask, ethers.js, viem, and web3.py to an Arc node on Chainstack. Chain configuration, the USDC gas token, and the custom arc_* methods."
+description: "Connect MetaMask, ethers.js, viem, and web3.py to an Arc Mainnet or Arc Testnet node on Chainstack. Chain configuration, the USDC gas token, and the custom arc_* methods."
 ---
 
 Arc is EVM-compatible, so the standard Ethereum libraries work against an Arc node without modification. The differences are in the chain configuration rather than in the code.
 
 ## Chain configuration
 
+Arc Mainnet and Arc Testnet differ only in the chain ID. Every other value below is the same on both networks.
+
+<Tabs>
+  <Tab title="Mainnet">
+| Property | Value |
+|----------|-------|
+| Network | Arc Mainnet |
+| Chain ID | `5042` |
+| Native gas currency | USDC |
+| Decimals | `18` |
+| RPC URL | your Chainstack [Arc endpoint](/docs/manage-your-node#view-node-access-and-credentials) |
+| Multicall3 | `0xcA11bde05977b3631167028862bE2a173976CA11` |
+  </Tab>
+  <Tab title="Testnet">
 | Property | Value |
 |----------|-------|
 | Network | Arc Testnet |
@@ -15,23 +29,25 @@ Arc is EVM-compatible, so the standard Ethereum libraries work against an Arc no
 | Decimals | `18` |
 | RPC URL | your Chainstack [Arc endpoint](/docs/manage-your-node#view-node-access-and-credentials) |
 | Multicall3 | `0xcA11bde05977b3631167028862bE2a173976CA11` |
+  </Tab>
+</Tabs>
 
 <Warning>
   Arc pays gas in USDC, but the native currency carries **18 decimals**, not the 6 that the USDC ERC-20 token uses. Balances are wei-denominated exactly as on Ethereum, so `formatEther` and `from_wei(..., "ether")` are the correct helpers. Treating the gas balance as 6-decimal USDC puts you out by a factor of 10<sup>12</sup>.
 </Warning>
 
-Arc is testnet only — Circle has not launched a mainnet. See [Arc methods](/docs/arc-methods) for per-method availability and [the API reference](/reference/arc-getting-started) for interactive examples.
+See [Arc methods](/docs/arc-methods) for per-method availability and [the API reference](/reference/arc-getting-started) for interactive examples.
 
 ## MetaMask
 
-Add Arc Testnet as a custom network. On Chainstack, get your [Arc endpoint](/docs/manage-your-node#view-node-access-and-credentials), then in MetaMask select **Add a custom network** and fill in:
+Add Arc as a custom network. On Chainstack, get your [Arc endpoint](/docs/manage-your-node#view-node-access-and-credentials), then in MetaMask select **Add a custom network** and fill in:
 
-* Network name — Arc Testnet
+* Network name — Arc Mainnet or Arc Testnet
 * Default RPC URL — your Chainstack Arc endpoint
-* Chain ID — `5042002`
+* Chain ID — `5042` for mainnet, `5042002` for testnet
 * Currency symbol — USDC
 
-Leave the block explorer field empty. Arc Testnet has no public explorer yet, and MetaMask treats that field as optional.
+The block explorer field is optional in MetaMask. For Arc Mainnet, use [explorer.arc.io](https://explorer.arc.io). For Arc Testnet, use [explorer.testnet.arc.io](https://explorer.testnet.arc.io).
 
 ## ethers.js
 
@@ -87,6 +103,16 @@ npm install viem
 ```javascript index.mjs
 import { createPublicClient, http, defineChain, formatEther } from "viem";
 
+export const arcMainnet = defineChain({
+  id: 5042,
+  name: "Arc",
+  nativeCurrency: { decimals: 18, name: "USDC", symbol: "USDC" },
+  rpcUrls: { default: { http: ["CHAINSTACK_NODE_URL"] } },
+  contracts: {
+    multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11" },
+  },
+});
+
 export const arcTestnet = defineChain({
   id: 5042002,
   name: "Arc Testnet",
@@ -98,7 +124,7 @@ export const arcTestnet = defineChain({
   },
 });
 
-const client = createPublicClient({ chain: arcTestnet, transport: http() });
+const client = createPublicClient({ chain: arcMainnet, transport: http() });
 
 console.log("Chain ID:", await client.getChainId());
 console.log("Block:", await client.getBlockNumber());
