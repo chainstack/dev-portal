@@ -8,6 +8,7 @@ description: "How Solana compute units work — default allocations, SetComputeU
 * The transaction-level cap is 1,400,000 CUs.
 * Priority fees are calculated from the **requested** CU limit, not actual usage — overspending on CUs wastes money.
 * Use `simulateTransaction` to measure actual CU usage, then set `SetComputeUnitLimit` to the measured value + 10% margin.
+* On [transaction v1](/docs/solana-transaction-v1), these settings move out of Compute Budget Program instructions and into a `transactionConfig` field on the message.
 
 ## How compute units work
 
@@ -171,9 +172,30 @@ priority_fee = ceil(SetComputeUnitPrice × SetComputeUnitLimit / 1,000,000)
 
 Where `SetComputeUnitPrice` is in micro-lamports and the result is in lamports. The division uses ceiling — non-integer results round up. The fee is **always based on the requested limit**, not actual usage.
 
+## Compute budget on transaction v1
+
+Everything above describes legacy and v0 transactions. A [v1 transaction](/docs/solana-transaction-v1) carries the same settings in a `transactionConfig` field on the message rather than as Compute Budget Program instructions:
+
+```json
+"transactionConfig": {
+  "computeUnitLimit": 117372,
+  "heapSize": null,
+  "loadedAccountsDataSizeLimit": 14097421,
+  "priorityFee": 839349
+}
+```
+
+Two differences matter when you read v1 traffic:
+
+* The priority fee is a total in lamports, not a rate in micro-lamports per compute unit. A v1 transaction pays `5000 × numRequiredSignatures + priorityFee`, with no further arithmetic.
+* Code that derives limits or fees by scanning for Compute Budget instructions finds nothing on a v1 transaction. Read `transactionConfig` when it is present, and fall back to the instruction scan for legacy and v0.
+
+To compare a v0 rate against a v1 total, apply the same formula as above: `SetComputeUnitPrice × SetComputeUnitLimit / 1,000,000`.
+
 ## Additional resources
 
 * [Priority fees for faster transactions](/docs/solana-how-to-priority-fees-faster-transactions) — practical guide to setting priority fees
 * [Estimate priority fees with getRecentPrioritizationFees](/docs/solana-estimate-priority-fees-getrecentprioritizationfees) — dynamic fee estimation
 * [Analyzing adjacent transactions for priority fees](/docs/solana-analyzing-adjacent-transactions-for-priority-fees) — advanced fee analysis
 * [simulateTransaction](/reference/solana-simulatetransaction) — simulate to measure CU usage
+* [Solana: transaction v1 explained](/docs/solana-transaction-v1) — the `transactionConfig` field and the fee unit change
