@@ -1,0 +1,161 @@
+---
+title: "Solana: Transaction v1 explained"
+description: "What Solana's transaction v1 format changes — the 4096-byte limit, the transactionConfig field, no address lookup tables — and how to keep your RPC reads working."
+---
+
+**TLDR:**
+* Transaction v1 activated on Solana Mainnet at the first slot of epoch 1035 (slot 447,120,000), on September 15, 2026.
+* The per-transaction size limit goes from 1,232 to 4,096 bytes, which is what makes ZK proofs, large multisigs, and wide instruction sets fit into a single transaction.
+* Reading is the breaking part: [getBlock](/reference/solana-getblock), [getTransaction](/reference/gettransaction), and [blockSubscribe](/reference/blocksubscribe-solana) need `maxSupportedTransactionVersion: 1` or they stop returning transaction data.
+* Compute unit limits, the loaded accounts data size limit, and the priority fee move out of Compute Budget Program instructions and into a `transactionConfig` field on the message.
+* The priority fee in `transactionConfig` is a total in lamports, not micro-lamports per compute unit.
+* A v1 transaction carries no address lookup tables. Every address travels inline, up to 64 of them.
+* Legacy and v0 transactions keep working exactly as before, and blocks now mix all three versions.
+
+## Main article
+
+Transaction v1 is a new wire format for Solana transactions, specified in [SIMD-0385](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0385-transaction-v1.md). It is gated behind the `txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL` feature account, which records slot 447,120,000 as its activation slot — the first slot of epoch 1035.
+
+Sending a v1 transaction is opt-in. Reading one is not: mainnet blocks now mix legacy, v0, and v1 transactions, so any client that reads blocks or transactions has to declare that it understands v1.
+
+<Info>
+To follow along with the examples, you need a Solana node endpoint. See [Solana tooling](/docs/solana-tooling) to get set up.
+</Info>
+
+## What changed on the wire
+
+Three things are visible from the raw bytes:
+
+* Version byte — a v1 transaction starts with `0x81` at offset zero, so you can identify the format from a single byte. Legacy and v0 transactions start with their compact signature count instead.
+* Signatures — they move from the head of the transaction to the tail, which is what frees offset zero for the version byte.
+* Size — the maximum raw transaction size is 4,096 bytes, up from 1,232.
+
+The size limit is enforced per encoding when you submit through [sendTransaction](/reference/solana-sendtransaction):
+
+| Encoding | Maximum raw size | Maximum encoded size |
+| -------- | ---------------- | -------------------- |
+| `base64` | 4,096 bytes | 5,464 bytes |
+| `base58` | 1,232 bytes | 1,683 bytes |
+
+<Warning>
+Base58 submission is still capped at the old 1,232-byte limit. A v1 transaction larger than that has to be submitted as `base64`, or `sendTransaction` rejects it with `-32602` and a `too large` message.
+</Warning>
+
+## Reading v1 transactions over RPC
+
+`maxSupportedTransactionVersion` declares the highest transaction version your client can parse. It is a ceiling, not a filter — declaring `1` returns legacy, v0, and v1 transactions alike, so raising it never costs you data.
+
+It has to be the JSON integer `1`. The string `"1"` fails request validation with `-32602`.
+
+| Method | With `maxSupportedTransactionVersion: 1` | At a lower value, or omitted |
+| ------ | ---------------------------------------- | ---------------------------- |
+| [getBlock](/reference/solana-getblock) | Returns the block | The whole call fails with `-32015` |
+| [getTransaction](/reference/gettransaction) | Returns the transaction | Fails with `-32015` on a v1 transaction |
+| [blockSubscribe](/reference/blocksubscribe-solana) | Streams blocks | Notifications keep arriving, each with `block: null` and an `err` of `{"UnsupportedTransactionVersion": <version>}` |
+
+The `blockSubscribe` case is the one to watch, because there is no JSON-RPC error to catch. The subscription stays alive and keeps advancing slot by slot, delivering nothing but nulls.
+
+Calls that return no transaction bodies are unaffected. Setting `transactionDetails` to `signatures` or `none` on `getBlock` or `blockSubscribe` works at any version, and [getSignaturesForAddress](/reference/solana-getsignaturesforaddress) has no version parameter at all.
+
+<CodeGroup>
+```shell getBlock
+curl -X POST CHAINSTACK_SOLANA_URL \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "getBlock",
+    "params": [
+      SLOT_NUMBER,
+      {
+        "encoding": "json",
+        "transactionDetails": "full",
+        "rewards": false,
+        "maxSupportedTransactionVersion": 1
+      }
+    ]
+  }'
+```
+
+```shell blockSubscribe
+wscat -c CHAINSTACK_SOLANA_WSS_URL
+
+> {"jsonrpc":"2.0","id":1,"method":"blockSubscribe","params":["all",{"commitment":"confirmed","encoding":"json","transactionDetails":"full","showRewards":false,"maxSupportedTransactionVersion":1}]}
+```
+</CodeGroup>
+
+## transactionConfig replaces compute budget scanning
+
+In legacy and v0 transactions, the compute unit limit, the compute unit price, and the loaded accounts data size limit arrive as [Compute Budget Program](/docs/solana-compute-budget) instructions that you have to find and decode. A v1 message carries them in a `transactionConfig` field instead:
+
+```json
+"transactionConfig": {
+  "computeUnitLimit": 117372,
+  "heapSize": null,
+  "loadedAccountsDataSizeLimit": 14097421,
+  "priorityFee": 839349
+}
+```
+
+* `computeUnitLimit` — the compute unit ceiling for the transaction.
+* `loadedAccountsDataSizeLimit` — the account data budget, in bytes.
+* `heapSize` — the requested heap size, or `null` for the default.
+* `priorityFee` — the priority fee, as a total in lamports. It can be `null`.
+
+Every v1 transaction carries the field, and no legacy or v0 transaction does. If your indexer derives compute limits or fees by scanning for Compute Budget instructions, it reads zeros on v1 traffic unless you read `transactionConfig` first.
+
+### The priority fee is a total, not a rate
+
+This is the change most likely to corrupt a fee dashboard quietly. In legacy and v0, `SetComputeUnitPrice` is a rate in micro-lamports per compute unit. In v1, `transactionConfig.priorityFee` is the whole priority fee in lamports.
+
+The fee a v1 transaction pays is exactly:
+
+```
+fee = 5000 * numRequiredSignatures + priorityFee
+```
+
+To compare a v0 rate against a v1 total, multiply the rate by the compute unit limit and divide by 1,000,000.
+
+## No address lookup tables in v1
+
+A v1 message has no `addressTableLookups` field. Every address the transaction touches travels inline as a full 32-byte public key, and a v1 transaction can carry up to 64 of them.
+
+This is a trade, not a regression: the 4,096-byte envelope has room for the addresses that v0 had to move into a lookup table. [Address lookup tables](/docs/solana-address-lookup-tables) remain fully supported on v0, which is not deprecated, so an account-heavy workload can stay on v0 with a table or move to v1 without one.
+
+## What stays the same
+
+* Legacy and v0 transactions are unchanged and still produced.
+* Signatures, blockhashes, and the 150-block expiry window work as before.
+* The base fee is still 5,000 lamports per required signature.
+* Account and program semantics do not change. Only the envelope does.
+
+## Readiness checklist
+
+<Steps>
+  <Step title="Raise maxSupportedTransactionVersion to 1">
+    Set it on every `getBlock`, `getTransaction`, and `blockSubscribe` call, as the integer `1`. This is the change that stops data loss today.
+  </Step>
+  <Step title="Read limits from transactionConfig">
+    Where you scan for Compute Budget instructions, check for `transactionConfig` first and fall back to the instruction scan for legacy and v0.
+  </Step>
+  <Step title="Normalize priority fees">
+    Treat `transactionConfig.priorityFee` as lamports. Convert v0 rates with `price * computeUnitLimit / 1000000` before comparing.
+  </Step>
+  <Step title="Handle versions 0, 1, and legacy in one pipeline">
+    A single block holds all three. Branch on the `version` field rather than assuming a shape.
+  </Step>
+  <Step title="Submit large transactions as base64">
+    Anything over 1,232 raw bytes cannot go out as base58.
+  </Step>
+  <Step title="Drop lookup tables from v1 builds">
+    A v1 transaction cannot reference one. Place the accounts inline, within the 64-address limit.
+  </Step>
+</Steps>
+
+## Additional resources
+
+* [SIMD-0385: transaction V1 format](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0385-transaction-v1.md)
+* [Larger transaction sizes](https://solana.com/upgrades/larger-transaction-sizes) on solana.com
+* [Solana: understanding the compute budget](/docs/solana-compute-budget)
+* [Solana: address lookup tables](/docs/solana-address-lookup-tables)
+* [Solana: optimize your getBlock performance](/docs/solana-optimize-your-getblock-performance)

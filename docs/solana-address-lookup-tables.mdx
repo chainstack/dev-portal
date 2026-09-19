@@ -8,10 +8,15 @@ description: "Use Solana address lookup tables to fit more accounts into transac
 * Address lookup tables (ALTs) let you store frequently used addresses on-chain and reference them by index instead of including the full 32-byte public key in every transaction.
 * With ALTs, a versioned transaction (v0) can reference up to 256 accounts per table—enough for complex DeFi interactions, Jupiter swaps, and multi-program calls.
 * This guide walks you through creating a lookup table, adding addresses, and using it in a versioned transaction.
+* Lookup tables are a v0 feature. [Transaction v1](/docs/solana-transaction-v1) does not support them and raises the size limit to 4096 bytes instead.
 
 ## Why you need address lookup tables
 
-Every Solana transaction has a hard 1232-byte size limit. Each account address takes 32 bytes, so a transaction with ~30 accounts already exhausts most of the budget before adding instructions. You will hit this limit when:
+<Note>
+Everything on this page applies to v0 transactions, which are not deprecated. A [v1 transaction](/docs/solana-transaction-v1) cannot reference a lookup table at all—it carries up to 64 addresses inline and gets a 4096-byte envelope to fit them in.
+</Note>
+
+Every v0 or legacy Solana transaction has a hard 1232-byte size limit. Each account address takes 32 bytes, so a transaction with ~30 accounts already exhausts most of the budget before adding instructions. You will hit this limit when:
 
 * Performing Jupiter or Raydium swaps that route through multiple pools
 * Building multi-instruction transactions (swap + transfer + memo)
@@ -278,6 +283,8 @@ The critical line is `.compileToV0Message([lookupTableAccount])` — this tells 
 | Jupiter swap (15–25 accounts) | Likely exceeds 1232 bytes | Required |
 | Multi-hop swap + transfer + memo (30+ accounts) | Always exceeds 1232 bytes | Required |
 
+On [transaction v1](/docs/solana-transaction-v1) the same scenarios fit inline: the 4096-byte envelope holds the full 64-address maximum without a table.
+
 <Tip>
   If you use the same set of accounts repeatedly (e.g., the same token pair, the same DEX pool), create the lookup table once and reuse it across all your transactions. The table persists on-chain until you explicitly close it.
 </Tip>
@@ -287,3 +294,4 @@ The critical line is `.compileToV0Message([lookupTableAccount])` — this tells 
 * [Solana documentation on address lookup tables](https://solana.com/docs/advanced/lookup-tables)
 * [Versioned transactions](/docs/solana-how-to-priority-fees-faster-transactions) — priority fees guide uses v0 transactions
 * [Transaction expiry handling](/docs/solana-how-to-handle-the-transaction-expiry-error) — retry logic for transactions using ALTs
+* [Solana: transaction v1 explained](/docs/solana-transaction-v1) — the format that replaces the need for lookup tables
