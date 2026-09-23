@@ -11,7 +11,7 @@ description: Build a fully coded Python bot that interacts directly with pump.fu
 * This Python-based Solana bot monitors the pump.fun on-chain program to detect new tokens, automatically buys them, and optionally sells them soon after. The same bot also supports [letsbonk.fun](https://letsbonk.fun) via a config switch.
 * It decodes transaction data using the pump.fun Anchor IDL, fetching token details like mint addresses and bonding curves.
 * You configure one or more bot instances as `.yaml` files in the `bots/` directory (strategy, slippage, priority fees, exit rules) and run them with `pump_bot`.
-* Learning examples provide reference scripts on Anchor discriminators, price fetching, and subscribing to Solana websockets via `logsSubscribe`, `blockSubscribe`, and Geyser.
+* The cookbook provides standalone reference scripts on Anchor discriminators, price fetching, and subscribing to Solana websockets via `logsSubscribe`, `blockSubscribe`, and Geyser.
 
 The pump.fun project is generating millions of USD in fees and in the volume as evidenced by [pump.fun DefiLlama project page](https://defillama.com/protocol/pump#information).
 
@@ -31,13 +31,13 @@ In this project, you'll get to be able to *directly* interact with the pump.fun 
 </Check>
 </Visibility>
 
-See the full project code, including learning examples, in the respective [GitHub repository](https://github.com/chainstacklabs/pump-fun-bot).
+See the full project code, including the cookbook of example scripts, in the respective [GitHub repository](https://github.com/chainstacklabs/pumpfun-bonkfun-bot).
 
 ## Overview
 
 The project uses the pump.fun IDL to interact with the program and the accounts.
 
-It's very useful to know that the pump.fun program and all the associated accounts is built with the [Anchor framework](https://www.anchor-lang.com/), as a lot of the decoding comes back to Anchor, like the [8 byte instruction signatures/discriminators](https://book.anchor-lang.com/anchor_bts/discriminator.html).
+It's very useful to know that the pump.fun program and all the associated accounts is built with the [Anchor framework](https://www.anchor-lang.com/), as a lot of the decoding comes back to Anchor, like the [8 byte instruction signatures/discriminators](https://www.anchor-lang.com/docs/basics/idl).
 
 The other thing important to know is that the tokens created with pump.fun are 6 decimal tokens, which is different from the default Solana 9 decimal SPL tokens.
 
@@ -73,7 +73,7 @@ Using the `mint` and your wallet address (from the private key in `.env`), the b
 
 A couple of notes:
 
-* The [Anchor instruction discriminators](https://book.anchor-lang.com/anchor_bts/discriminator.html) are precalculated. See `learning-examples/calculate_discriminator.py`.
+* The [Anchor instruction discriminators](https://www.anchor-lang.com/docs/basics/idl) are precalculated. See [`cookbook/solana/anchor_calculate_discriminator.py`](https://github.com/chainstacklabs/pumpfun-bonkfun-bot/blob/main/cookbook/solana/anchor_calculate_discriminator.py).
 * `extreme_fast_mode` (in the bot config) skips the bonding-curve stabilization wait and the RPC price check and buys a fixed token amount directly—faster, but less precise. With it off, the bot waits and price-checks first so the new token's data has propagated across the cluster.
 
 <Warning>
@@ -85,8 +85,8 @@ pump.fun ships breaking on-chain program upgrades—for example, the [2026-04-28
 ### Install
 
 ```shell
-git clone https://github.com/chainstacklabs/pump-fun-bot.git
-cd pump-fun-bot
+git clone https://github.com/chainstacklabs/pumpfun-bonkfun-bot.git
+cd pumpfun-bonkfun-bot
 uv sync
 source .venv/bin/activate
 uv pip install -e .
@@ -120,18 +120,23 @@ Each enabled bot in `bots/` runs as its own instance, so you can run several str
 This bot is for learning, not production. Also by Chainstack: [pumpfun-cli](https://github.com/chainstacklabs/pumpfun-cli) (a terminal client for trading, launching, and managing tokens, with smart routing between the bonding curve and PumpSwap) and [pumpclaw](https://github.com/chainstacklabs/pumpclaw) (an agent skill that lets AI assistants like Claude Code and Codex operate pumpfun-cli).
 </Note>
 
-## Learning examples
+## Cookbook examples
 
-The `learning-examples` directory has many scripts for understanding how the bot works and how to interact with Solana. Highlights:
+The [`cookbook/`](https://github.com/chainstacklabs/pumpfun-bonkfun-bot/tree/main/cookbook) directory has standalone scripts for understanding how the bot works and how to interact with Solana, grouped by platform and then by action. Each script takes its input as a command-line argument—run it with `uv run <path>`, and pass `--help` to see the options. Highlights:
 
-* `listen-new-tokens/listen_logsubscribe_abc.py` — snipes new tokens using only `logsSubscribe`, deriving the associated bonding curve on the fly (no extra `getTransaction` call)
-* `listen-new-tokens/compare_listeners.py` — runs the listener methods side by side to see which detects new tokens first
-* `bonding-curve-progress/get_bonding_curve_status.py` — checks whether a token's bonding curve is still active or has completed
-* `listen-migrations/listen_logsubscribe.py` — detects graduations to PumpSwap; see [Listening to pump.fun migrations to PumpSwap](/docs/solana-listening-to-pumpfun-migrations-to-raydium)
-* `compute_associated_bonding_curve.py` — derives the associated bonding curve PDA for a token
-* `calculate_discriminator.py` — calculates Anchor instruction discriminators from the IDL in `idl/`
-* `pumpswap/` — manual buy and sell examples against the PumpSwap AMM
-* `manual_buy.py` / `manual_sell.py` — manual buy and sell with parameters you provide
+* [`cookbook/pumpfun/listen/pumpfun_listen_tokens_logsubscribe.py`](https://github.com/chainstacklabs/pumpfun-bonkfun-bot/blob/main/cookbook/pumpfun/listen/pumpfun_listen_tokens_logsubscribe.py) — detects new tokens using only `logsSubscribe`, deriving the associated bonding curve on the fly (no extra `getTransaction` call)
+* [`tools/compare_listeners.py`](https://github.com/chainstacklabs/pumpfun-bonkfun-bot/blob/main/tools/compare_listeners.py) — runs the listener methods side by side to see which detects new tokens first
+* [`cookbook/pumpfun/read/pumpfun_read_curve.py`](https://github.com/chainstacklabs/pumpfun-bonkfun-bot/blob/main/cookbook/pumpfun/read/pumpfun_read_curve.py) — checks whether a token's bonding curve is still active or has completed
+* [`cookbook/pumpfun/graduation/pumpfun_listen_migrations_logsubscribe.py`](https://github.com/chainstacklabs/pumpfun-bonkfun-bot/blob/main/cookbook/pumpfun/graduation/pumpfun_listen_migrations_logsubscribe.py) — detects graduations to PumpSwap; see [Listening to pump.fun migrations to PumpSwap](/docs/solana-listening-to-pumpfun-migrations-to-raydium)
+* [`cookbook/pumpfun/read/pumpfun_derive_curve_addresses.py`](https://github.com/chainstacklabs/pumpfun-bonkfun-bot/blob/main/cookbook/pumpfun/read/pumpfun_derive_curve_addresses.py) — derives the bonding curve and associated bonding curve addresses for a token
+* [`cookbook/solana/anchor_calculate_discriminator.py`](https://github.com/chainstacklabs/pumpfun-bonkfun-bot/blob/main/cookbook/solana/anchor_calculate_discriminator.py) — calculates the 8-byte Anchor discriminator for any instruction or account name
+* [`cookbook/pumpswap/`](https://github.com/chainstacklabs/pumpfun-bonkfun-bot/tree/main/cookbook/pumpswap) — buy and sell examples against the PumpSwap AMM
+* [`cookbook/pumpfun/trade/pumpfun_buy_token_v2.py`](https://github.com/chainstacklabs/pumpfun-bonkfun-bot/blob/main/cookbook/pumpfun/trade/pumpfun_buy_token_v2.py) / [`pumpfun_sell_token_v2.py`](https://github.com/chainstacklabs/pumpfun-bonkfun-bot/blob/main/cookbook/pumpfun/trade/pumpfun_sell_token_v2.py) — buy or sell a token you name by its mint address; the buy script supports `--dry-run` to simulate instead of spending
+* [`cookbook/pumpfun/trade/pumpfun_snipe_token_blocksubscribe.py`](https://github.com/chainstacklabs/pumpfun-bonkfun-bot/blob/main/cookbook/pumpfun/trade/pumpfun_snipe_token_blocksubscribe.py) — waits for the next token created on pump.fun over `blockSubscribe`, then buys it; this is a sniper, not a manual buy of a specific token
+
+<Warning>
+The trade scripts submit real transactions and spend real funds. Read the module docstring before running one.
+</Warning>
 
 The IDLs in `idl/` are vendored from [pump-fun/pump-public-docs](https://github.com/pump-fun/pump-public-docs); refresh them from there when the program changes.
 
