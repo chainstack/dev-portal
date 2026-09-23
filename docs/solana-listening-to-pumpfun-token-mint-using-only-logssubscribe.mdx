@@ -13,7 +13,7 @@ description: Capture newly created pump.fun tokens in real time by subscribing t
 
 This guide shows you how to listen for pump.fun token creation events in real time using only the [logsSubscribe](/reference/logssubscribe-solana) method.
 
-In the [pump-fun-bot repository](https://github.com/chainstacklabs/pump-fun-bot), the `learning-examples/listen-new-tokens/listen_logsubscribe.py` script demonstrates how to capture the new token’s name, symbol, mint address, user (creator), bonding curve address, and associated bonding curve address—no methods like [blockSubscribe](/reference/blocksubscribe-solana) or extra RPC calls like [getTransaction](/reference/gettransaction) are required.
+In the [pumpfun-bonkfun-bot repository](https://github.com/chainstacklabs/pumpfun-bonkfun-bot), the [`cookbook/pumpfun/listen/pumpfun_listen_tokens_logsubscribe.py`](https://github.com/chainstacklabs/pumpfun-bonkfun-bot/blob/main/cookbook/pumpfun/listen/pumpfun_listen_tokens_logsubscribe.py) script demonstrates how to capture the new token’s name, symbol, mint address, user (creator), bonding curve address, and associated bonding curve address—no methods like [blockSubscribe](/reference/blocksubscribe-solana) or extra RPC calls like [getTransaction](/reference/gettransaction) are required.
 
 There's difference in speed in how `blockSubscribe` and `logsSubscribe` work. Also, `blockSubscribe` is available on all Chainstack plans, but with other providers, it may not be available on the free tier plans or even lower tier paid plans.
 
@@ -22,7 +22,7 @@ There is also difference in how `blockSubscribe` and `logsSubscribe` work, hence
 * `blockSubscribe` — extracts and decodes transactions as the are streamed in the blocks produced. And the script in the bot decodes them on the fly. This means that we get all the necessary data to do our sniping using the `blockSubscribe` method.
 * `logsSubscribe` — only prints the pump.fun program logs, in our case—for token mints. The problem is we can get and decode from the logs the new token’s name, symbol, mint address, user (creator), and bonding curve address. But the logs do not contain the associated bonding curve address, which we need to do a sniping/buying transaction.
 
-The script discussed in this article (`learning-examples/listen-new-tokens/listen_logsubscribe.py`) solves the issue by computing the associated bonding curve address from the bonding curve address on the fly and prints it. This way it makes it possible to snipe tokens on pump.fun using the `logsSubscribe` method only. which in general has better availability across providers and may work faster for you.
+The script discussed in this article (`cookbook/pumpfun/listen/pumpfun_listen_tokens_logsubscribe.py`) solves the issue by computing the associated bonding curve address from the bonding curve address on the fly and prints it. This way it makes it possible to snipe tokens on pump.fun using the `logsSubscribe` method only. which in general has better availability across providers and may work faster for you.
 
 <Warning>
   **Note on blockSubscribe limitations:** While `blockSubscribe` provides transaction data, it has known stability issues with high-traffic programs—including connection errors (1006, 1009) and data skipping. For the most reliable real-time data streaming, [Geyser is recommended by the Solana team](https://github.com/anza-xyz/agave/issues/3879#issuecomment-2519700883). See our [Geyser guide](/docs/solana-listening-to-pumpfun-token-mint-using-geyser) for the fastest and most stable implementation. Learn more about [Yellowstone Geyser](/docs/yellowstone-grpc-geyser-plugin).
@@ -62,13 +62,13 @@ By using `logsSubscribe`, you can get new token details almost immediately, whic
 ## Prerequisites
 
 1. A Solana WebSocket endpoint (e.g., from Chainstack).
-2. Python 3.8+ with the required dependencies installed:
+2. Python 3.11+ with the dependencies installed through [uv](https://github.com/astral-sh/uv):
    <CodeGroup>
      ```shell Shell
-     pip install -r requirements.txt
+     uv sync
      ```
    </CodeGroup>
-3. A properly configured `config.py` file that includes your WebSocket endpoint (`WSS_ENDPOINT`).
+3. A `.env` file in the repository root that includes your WebSocket endpoint as `SOLANA_NODE_WSS_ENDPOINT`.
 
 ## Usage
 
@@ -76,7 +76,7 @@ By using `logsSubscribe`, you can get new token details almost immediately, whic
 
    <CodeGroup>
      ```bash Bash
-     python listen_logsubscribe.py
+     uv run cookbook/pumpfun/listen/pumpfun_listen_tokens_logsubscribe.py
      ```
    </CodeGroup>
 
@@ -135,11 +135,11 @@ Because we rely on logs only, we do not need extra calls like `getTransaction`. 
 
 ## Compare performance
 
-The repository's `listen-new-tokens/` directory has a listener for each method — `listen_logsubscribe.py` (logs only), `listen_blocksubscribe.py`, and `listen_geyser.py` — plus `compare_listeners.py`, which runs them side by side and reports which detects a new token first:
+The repository's `cookbook/pumpfun/listen/` directory has a listener for each method — `pumpfun_listen_tokens_logsubscribe.py` (logs only), `pumpfun_listen_tokens_blocksubscribe.py`, `pumpfun_listen_tokens_geyser.py`, and `pumpfun_listen_tokens_pumpportal.py` — and [`tools/compare_listeners.py`](https://github.com/chainstacklabs/pumpfun-bonkfun-bot/blob/main/tools/compare_listeners.py) runs them side by side and reports which detects a new token first:
 
 <CodeGroup>
   ```shell Shell
-  uv run learning-examples/listen-new-tokens/compare_listeners.py
+  uv run tools/compare_listeners.py
   ```
 </CodeGroup>
 

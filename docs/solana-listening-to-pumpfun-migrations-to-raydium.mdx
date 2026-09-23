@@ -6,11 +6,11 @@ description: Track pump.fun token graduations to the PumpSwap AMM (formerly Rayd
 **TLDR:**
 * pump.fun tokens start on a bonding curve and, once it completes, **graduate to PumpSwap** — pump.fun's own AMM (program `pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA`).
 * Before March 2025, graduated tokens migrated to Raydium. pump.fun launched PumpSwap on Mar 20, 2025, and graduations have gone there ever since — Raydium is now a rare legacy path.
-* Use `get_bonding_curve_status.py` to check whether a token's curve is still active or completed.
-* Use `listen_logsubscribe.py` (logsSubscribe on the migration program) or `listen_programsubscribe.py` (programSubscribe on the PumpSwap program) to track live graduations.
+* Use `pumpfun_read_curve.py` to check whether a token's curve is still active or completed.
+* Use `pumpfun_listen_migrations_logsubscribe.py` (logsSubscribe on the migration program) or `pumpfun_listen_migrations_programsubscribe.py` (programSubscribe on the PumpSwap program) to track live graduations.
 
 <Warning>
-This guide previously covered migration to **Raydium**. On **March 20, 2025** pump.fun launched its own AMM, [PumpSwap](https://x.com/pumpdotfun/status/1902762309950292010), and graduated tokens now migrate to PumpSwap instead of Raydium. The bonding-curve mechanics and the migration program are the same; only the destination AMM changed. The old Raydium listener is kept in the repository as `listen_blocksubscribe_old_raydium.py` for reference.
+This guide previously covered migration to **Raydium**. On **March 20, 2025** pump.fun launched its own AMM, [PumpSwap](https://x.com/pumpdotfun/status/1902762309950292010), and graduated tokens now migrate to PumpSwap instead of Raydium. The bonding-curve mechanics and the migration program are the same; only the destination AMM changed. The old Raydium listener is no longer in the repository.
 </Warning>
 
 ## Main article
@@ -19,13 +19,13 @@ For the full pump.fun bot, see [Solana: Creating a trading and sniping pump.fun 
 
 See also [Solana: Listening to pump.fun token mint using only logsSubscribe](/docs/solana-listening-to-pumpfun-token-mint-using-only-logssubscribe).
 
-This article is an add-on for these scripts in the [pump-fun-bot repository](https://github.com/chainstacklabs/pump-fun-bot):
+This article is an add-on for these scripts in the [pumpfun-bonkfun-bot repository](https://github.com/chainstacklabs/pumpfun-bonkfun-bot):
 
 <CardGroup>
-  <Card title="get_bonding_curve_status.py" href="https://github.com/chainstacklabs/pump-fun-bot/blob/main/learning-examples/bonding-curve-progress/get_bonding_curve_status.py" icon="angle-right" horizontal />
-  <Card title="listen_logsubscribe.py" href="https://github.com/chainstacklabs/pump-fun-bot/blob/main/learning-examples/listen-migrations/listen_logsubscribe.py" icon="angle-right" horizontal />
-  <Card title="listen_programsubscribe.py" href="https://github.com/chainstacklabs/pump-fun-bot/blob/main/learning-examples/listen-migrations/listen_programsubscribe.py" icon="angle-right" horizontal />
-  <Card title="compare_migration_listeners.py" href="https://github.com/chainstacklabs/pump-fun-bot/blob/main/learning-examples/listen-migrations/compare_migration_listeners.py" icon="angle-right" horizontal />
+  <Card title="pumpfun_read_curve.py" href="https://github.com/chainstacklabs/pumpfun-bonkfun-bot/blob/main/cookbook/pumpfun/read/pumpfun_read_curve.py" icon="angle-right" horizontal />
+  <Card title="pumpfun_listen_migrations_logsubscribe.py" href="https://github.com/chainstacklabs/pumpfun-bonkfun-bot/blob/main/cookbook/pumpfun/graduation/pumpfun_listen_migrations_logsubscribe.py" icon="angle-right" horizontal />
+  <Card title="pumpfun_listen_migrations_programsubscribe.py" href="https://github.com/chainstacklabs/pumpfun-bonkfun-bot/blob/main/cookbook/pumpfun/graduation/pumpfun_listen_migrations_programsubscribe.py" icon="angle-right" horizontal />
+  <Card title="compare_migration_listeners.py" href="https://github.com/chainstacklabs/pumpfun-bonkfun-bot/blob/main/tools/compare_migration_listeners.py" icon="angle-right" horizontal />
 </CardGroup>
 
 This guide shows you how to track the lifecycle of pump.fun tokens from their initial bonding curve state through graduation to PumpSwap using Python scripts.
@@ -44,9 +44,9 @@ This guide shows you how to track the lifecycle of pump.fun tokens from their in
 </Check>
 </Visibility>
 
-* Clone the [pump-fun-bot GitHub repository](https://github.com/chainstacklabs/pump-fun-bot/)
-* Install the requirements `pip install -r requirements.txt`
-* Provide the node HTTP and WebSocket endpoints in your `.env` file
+* Clone the [pumpfun-bonkfun-bot GitHub repository](https://github.com/chainstacklabs/pumpfun-bonkfun-bot)
+* Install the dependencies with [uv](https://github.com/astral-sh/uv): `uv sync`
+* Provide the node HTTP and WebSocket endpoints in your `.env` file as `SOLANA_NODE_RPC_ENDPOINT` and `SOLANA_NODE_WSS_ENDPOINT`
 
 ## Understanding pump.fun token graduation
 
@@ -70,24 +70,24 @@ After graduation, trading moves from the bonding curve to PumpSwap's constant-pr
 
 This guide covers the scripts for tracking graduation:
 
-1. `get_bonding_curve_status.py` — checks whether a token is still on the bonding curve or has completed and graduated
-2. `listen_logsubscribe.py` — monitors real-time graduations by listening to the migration program's events
-3. `listen_programsubscribe.py` — monitors real-time graduations by watching for new PumpSwap pool accounts
-4. `compare_migration_listeners.py` — runs both listeners side by side to compare detection latency
+1. `cookbook/pumpfun/read/pumpfun_read_curve.py` — checks whether a token is still on the bonding curve or has completed and graduated
+2. `cookbook/pumpfun/graduation/pumpfun_listen_migrations_logsubscribe.py` — monitors real-time graduations by listening to the migration program's events
+3. `cookbook/pumpfun/graduation/pumpfun_listen_migrations_programsubscribe.py` — monitors real-time graduations by watching for new PumpSwap pool accounts
+4. `tools/compare_migration_listeners.py` — runs both listeners side by side to compare detection latency
 
 ### Checking bonding curve status
 
-The `get_bonding_curve_status.py` script lets you check whether a token's bonding curve is still active or has completed and graduated. It derives the bonding curve address from the token mint and makes a [getAccountInfo | Solana](/reference/solana-getaccountinfo) call to read the curve state from the pump.fun program (`6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P`).
+The `pumpfun_read_curve.py` script lets you check whether a token's bonding curve is still active or has completed and graduated. It derives the bonding curve address from the token mint and makes a [getAccountInfo | Solana](/reference/solana-getaccountinfo) call to read the curve state from the pump.fun program (`6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P`).
 
 <Note>
-The bonding curve account layout has evolved. The current state includes a `creator` field (and an `is_mayhem_mode` flag), so make sure your decoder matches the latest account struct in the repository's `get_bonding_curve_status.py`. The `complete` flag itself is unchanged.
+The bonding curve account layout has evolved. The current state includes a `creator` field (and an `is_mayhem_mode` flag), so make sure your decoder matches the latest account struct in the repository's `pumpfun_read_curve.py`. The `complete` flag itself is unchanged.
 </Note>
 
 #### Usage
 
 <CodeGroup>
   ```shell Shell
-  python get_bonding_curve_status.py TOKEN_ADDRESS
+  uv run cookbook/pumpfun/read/pumpfun_read_curve.py TOKEN_ADDRESS
   ```
 </CodeGroup>
 
@@ -118,25 +118,25 @@ Note: This bonding curve has completed and liquidity has migrated to PumpSwap.
 
 There are two reliable ways to detect a graduation, and the repository ships a script for each.
 
-**Option 1 — listen to the migration program (logsSubscribe).** The migration wrapper program [39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg](https://solscan.io/account/39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg) emits a `Migrate` event when a token graduates. `listen_logsubscribe.py` subscribes with [logsSubscribe | Solana](/reference/logssubscribe-solana), parses the event, and prints the migration signature, the token mint, and the new PumpSwap pool address. The event carries the `baseMint`, `quoteMint`, decimals, and the base/quote amounts deposited into the pool.
+**Option 1 — listen to the migration program (logsSubscribe).** The migration wrapper program [39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg](https://solscan.io/account/39azUYFWPz3VHgKCf3VChUwbpURdCHRxjWVowf5jUJjg) emits a `Migrate` event when a token graduates. `pumpfun_listen_migrations_logsubscribe.py` subscribes with [logsSubscribe | Solana](/reference/logssubscribe-solana), parses the event, and prints the migration signature, the token mint, and the new PumpSwap pool address. The event carries the `baseMint`, `quoteMint`, decimals, and the base/quote amounts deposited into the pool.
 
 <Warning>
 `logsSubscribe` skips transactions with truncated logs (no `Program data` field), so a small number of migrations can be missed. To cover those, follow up with a `getTransaction` call or run the programSubscribe listener below in parallel.
 </Warning>
 
-**Option 2 — watch for new PumpSwap pools (programSubscribe).** `listen_programsubscribe.py` subscribes to the PumpSwap program `pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA` and detects new pool (market) accounts as they are created, filtering by the pool account discriminator and length. This catches every new pool, but consumes a high volume of WebSocket messages.
+**Option 2 — watch for new PumpSwap pools (programSubscribe).** `pumpfun_listen_migrations_programsubscribe.py` subscribes to the PumpSwap program `pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA` and detects new pool (market) accounts as they are created, filtering by the pool account discriminator and length. This catches every new pool, but consumes a high volume of WebSocket messages.
 
-Run `compare_migration_listeners.py` to run both at once and measure which detects a given graduation first across your RPC providers.
+Run `tools/compare_migration_listeners.py` to run both at once and measure which detects a given graduation first across your RPC providers.
 
 #### Usage
 
 <CodeGroup>
   ```shell Shell
   # Listen via the migration program's events
-  python listen_logsubscribe.py
+  uv run cookbook/pumpfun/graduation/pumpfun_listen_migrations_logsubscribe.py
 
   # Or watch for new PumpSwap pool accounts
-  python listen_programsubscribe.py
+  uv run cookbook/pumpfun/graduation/pumpfun_listen_migrations_programsubscribe.py
   ```
 </CodeGroup>
 

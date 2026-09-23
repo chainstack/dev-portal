@@ -788,7 +788,7 @@ The Chainstack open source public repositories must use lowercase-with-hyphens n
 
 Correct:
 - https://github.com/chainstacklabs/chainstack-rpc-dashboard-functions
-- https://github.com/chainstacklabs/pump-fun-bot
+- https://github.com/chainstacklabs/pumpfun-bonkfun-bot
 - https://github.com/chainstacklabs/chainbench
 
 ### Description
