@@ -132,7 +132,7 @@ The following per-method RPS limits apply across all regions:
 | `getLargestAccounts` | 0 — available on [Dedicated Nodes](/docs/dedicated-node) only |
 | `getTokenLargestAccounts` | 0 — available on [Dedicated Nodes](/docs/dedicated-node) only |
 
-[`getProgramAccounts`](/reference/solana-getprogramaccounts) is a heavy, rate-limited method — up to 20 RPS with filters. Throughput depends on how many accounts your query returns, so always narrow it with `dataSize` or `memcmp` filters. Unfiltered requests to large programs are blocked.
+[`getProgramAccounts`](/reference/solana-getprogramaccounts) is a heavy, rate-limited method, and its RPS limit scales with the size of the result set. Queries that return fewer accounts — small programs, or large programs narrowed with `dataSize` or `memcmp` filters — get the highest limit, up to 20 RPS. Queries that scan large programs, or that run without filters, get a progressively lower limit. Always narrow your query with `dataSize` or `memcmp` filters.
 
 <Note>
 The `getConfirmedBlock` method was removed in Agave 2.0 and returns `Method not found` on current validators. Use [`getBlock`](/reference/solana-getblock) instead.
@@ -142,6 +142,23 @@ Architectural limits (set by Solana, not Chainstack):
 
 - `getBlocks`: 500,000 blocks range — [Solana architecture limit](https://solana.com/docs/rpc/http/getblocks).
 - `getBlocksWithLimit`: 500,000 blocks range — [Solana architecture limit](https://solana.com/docs/rpc/http/getblockswithlimit).
+
+## Solana scan method limits
+
+The account-scan methods — `getProgramAccounts`, `getTokenAccountsByOwner`, `getTokenAccountsByDelegate`, and `getSupply` — read across a program's accounts, which on a large program can be hundreds of millions of accounts. To keep one heavy scan from tying up a node, each scan runs under a 60-second execution-time limit and a per-request memory limit.
+
+A scan that exceeds either limit is aborted and returns error [`-32012`](/docs/error-reference#json-rpc-error-codes) rather than hanging:
+
+```json
+{
+  "error": {
+    "code": -32012,
+    "message": "scan aborted: the scan was aborted (result size limit exceeded or externally cancelled)"
+  }
+}
+```
+
+Narrow the query where you can — for example with `dataSize` or `memcmp` filters on `getProgramAccounts` — to keep the scan within the limit.
 
 ## Solana accounts excluded from indexing
 
