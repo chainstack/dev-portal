@@ -1,25 +1,22 @@
 ---
 title: "Extended history"
-description: "Extended Global Nodes keep more history than a standard full node — more retention than Full, without being a complete archive — with no change to request-unit billing."
+description: "Extended Global Nodes are full nodes that keep more history than a standard full node of the protocol, but not a complete archive. Requests are billed the same as on a Full node."
 ---
 
-Some Chainstack [Global Nodes](/docs/global-elastic-node) carry an **Extended** label. An Extended node is a full node that keeps more history than a standard full node of the protocol — more retention than a plain Full node, but not a complete archive from genesis.
+An Extended [Global Node](/docs/global-elastic-node) is a full node that keeps more history than a standard full node of the same protocol, but not a complete archive from genesis. Extended does not change request-unit billing.
 
-It exists because Full and Archive don't describe these nodes well. A standard full node keeps only a short recent window, an archive node keeps everything from genesis, and Chainstack Global Nodes for some protocols sit in between. **Extended** is the honest label for that middle ground: more than Full, less than Archive.
+## Which nodes are Extended
+
+Extended applies only to Global Nodes. The protocols and networks that offer Extended Global Nodes show Extended in the Global Node Mainnet Support and Global Node Testnet Support columns on [Networks](/docs/protocols-networks). Each protocol's history depth is listed in [How much history each protocol keeps](#how-much-history-each-protocol-keeps).
 
 ## Billing
 
-Extended is not a new billing class. Requests are billed exactly as on a Full node, with no request-unit change. See [Request units](/docs/request-units).
+Extended is not a separate billing class. Requests to an Extended Global Node are billed the same as requests to a Full Global Node of the protocol. See [Full vs archive by protocol](/docs/request-units#full-vs-archive-by-protocol).
 
-## Availability
+## How much history each protocol keeps
 
-- Global Nodes only.
-- The label maps to the actually deployed node configuration, so it appears only where the node genuinely serves extended history — never on a standard full node.
+History depth depends on the protocol and the network, and it can change over time. Each protocol reports its current range at runtime, so read the range from the node instead of assuming a fixed depth:
 
-## How much history you get
-
-The exact window depends on the protocol and moves over time, so read it from the node at runtime rather than assuming a fixed depth:
-
-- **Sui** — serves checkpoint history from genesis, well beyond the ~2 epochs (~48 hours) a standard Sui full node keeps locally. See [Sui tooling](/docs/sui-tooling).
-- **XRP Ledger** — keeps more recent ledgers than a default `rippled` server. Read `complete_ledgers` from `server_info`. See [XRP Ledger tooling](/docs/xrpl-tooling#how-much-ledger-history-your-node-holds).
-- **Stellar** — keeps an extended retention window plus full `getLedgers` history. Read the window from `getHealth`. See [Stellar tooling](/docs/stellar-tooling#historical-data-availability).
+- Sui — the gRPC `LedgerService/GetServiceInfo` method reports `lowestAvailableCheckpoint`, the oldest checkpoint the node holds. Plan against the window from that checkpoint to the tip on both gRPC and JSON-RPC. See [Checkpoint retention](/docs/sui-grpc-endpoint#checkpoint-retention).
+- XRP Ledger — keeps more recent ledgers than a default `rippled` server. `server_info` reports the range the node holds in `complete_ledgers`. See [How much ledger history your node holds](/docs/xrpl-tooling#how-much-ledger-history-your-node-holds).
+- Stellar — `getHealth` reports the retention window, from `oldestLedger` to `latestLedger`, which bounds transaction and event queries on both networks. On Mainnet, `getLedgers` also serves ledgers older than the window, back to ledger 2. On Testnet, `getLedgers` is limited to the window. See [Historical data availability](/docs/stellar-tooling#historical-data-availability).

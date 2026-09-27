@@ -40,15 +40,15 @@ Replace `YOUR_CHAINSTACK_ENDPOINT` with your node's HTTPS endpoint. For the cred
 
 ## Historical data availability
 
-Stellar Global Nodes are [Extended](/docs/extended-nodes) — they keep an extended rolling window of recent ledgers rather than history from genesis. Billing is independent of the window — every Stellar request is billed as full, at 1 RU; see [Request units](/docs/request-units).
+Stellar Global Nodes are [Extended](/docs/extended-nodes): they keep a rolling window of recent ledgers that is longer than the stellar-rpc default of about 7 days. Transaction and event queries are limited to that window on both networks. On Mainnet, `getLedgers` also serves ledgers older than the window, back to ledger 2. On Testnet, `getLedgers` is limited to the window. Billing is independent of the window — every Stellar request is billed as full, at 1 RU; see [Request units](/docs/request-units).
 
 Your node reports its own window in `getHealth`:
 
 - `ledgerRetentionWindow` — the configured size of the window, in ledgers
-- `oldestLedger` — the oldest ledger the node can serve right now
+- `oldestLedger` — the oldest ledger in the retention window right now
 - `latestLedger` — the current tip
 
-Work from `oldestLedger`, not from `ledgerRetentionWindow`. The configured size is the ceiling, and a node that has not been running long enough to fill its window holds less than that. A request for a ledger outside the window returns `-32600` with a message naming the range the node can serve.
+Work from `oldestLedger`, not from `ledgerRetentionWindow`. The configured size is the ceiling, and a node that has not been running long enough to fill its window holds less than that. A `getTransactions` or `getEvents` request that starts before `oldestLedger` returns `-32600` with a message naming the range the node can serve. The same applies to `getLedgers` on Testnet. On Mainnet, `getLedgers` accepts any `startLedger` from 2 to the tip.
 
 ## JavaScript
 
