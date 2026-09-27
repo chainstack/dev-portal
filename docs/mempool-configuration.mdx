@@ -11,31 +11,32 @@ The table here is a maintained reference of mempool configurations & specifics a
 
 Two different things get called mempool access, and they have different requirements. On the EVM chains with a public mempool — Ethereum, Polygon, and BNB Smart Chain:
 
-| What you want                             | Methods                                                                     | Full mode     | Archive mode |
-| ----------------------------------------- | --------------------------------------------------------------------------- | ------------- | ------------ |
-| Watch pending transactions as they arrive | `eth_subscribe("newPendingTransactions")`, `eth_newPendingTransactionFilter` | Available     | Available    |
-| Inspect the transaction pool itself       | `txpool_content`, `txpool_status`, `txpool_inspect`                          | Not available | Available    |
+| What you want                             | Methods                                                                     | Global Nodes and Trader Nodes   | Dedicated Nodes      |
+| ----------------------------------------- | --------------------------------------------------------------------------- | ------------------------------- | -------------------- |
+| Watch pending transactions as they arrive | `eth_subscribe("newPendingTransactions")`, `eth_newPendingTransactionFilter` | Available                       | Available            |
+| Read the transaction pool contents        | `txpool_content`, `txpool_contentFrom`, `txpool_inspect`                     | Not available                   | Available on request |
+| Count pending and queued transactions     | `txpool_status`                                                             | Depends on the network and mode | Available on request |
 
-For a live feed of pending transactions, a full-mode node is enough. The feed is the node's view of the public mempool — transactions that reached it over the p2p network, not only the ones you submitted through it. No node sees every pending transaction, as each node's view depends on its peers.
+For a live feed of pending transactions, any node type is enough, in the full mode or the archive mode. The feed is the node's view of the public mempool — transactions that reached it over the p2p network, not only the ones you submitted through it. No node sees every pending transaction, as each node's view depends on its peers.
 
-The `txpool_*` namespace is the part that needs the archive mode. A [Dedicated Node](/docs/dedicated-node) can serve `txpool_*` in the full mode too — that one is a [customization](/docs/features-availability-across-subscription-plans#node-customization), so ask for it when you deploy.
+Global Nodes and Trader Nodes block `txpool_content`, `txpool_contentFrom`, and `txpool_inspect` on EVM networks, in every mode and on every plan. A call returns error code `-32601`:
+
+```json
+{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"the method txpool_content is not supported yet"}}
+```
+
+`txpool_status` is not blocked. It returns the pending and queued transaction counts on nodes whose client serves the `txpool` namespace, which varies by network and mode.
+
+To read the pool contents, deploy a [Dedicated Node](/docs/dedicated-node) and ask for the `txpool_*` namespace when you deploy. It is a [customization](/docs/features-availability-across-subscription-plans#node-customization) that works in the full mode and the archive mode.
 
 `txpool_*` is also a separate namespace from `debug_*` and `trace_*`, and each one has its own gate:
 
-* `txpool_*` — the node mode enables it, not your plan. It works on an archive node even when your plan has no debug and trace access.
-* `debug_*` and `trace_*` — your [plan](/docs/features-availability-across-subscription-plans#debug-and-trace-apis) enables them. They also work on full-mode nodes, and they do not bring `txpool_*` with them.
-
-So enabling the debug and trace APIs on a full-mode node does not give you the pool methods. Calling `txpool_content` on such a node returns:
-
-```json
-{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"the method txpool_content is not available"}}
-```
+* `txpool_*` — the node type decides whether you can read the pool contents, not your plan.
+* `debug_*` and `trace_*` — your [plan](/docs/features-availability-across-subscription-plans#debug-and-trace-apis) enables them. They do not bring `txpool_*` with them.
 
 <Warning>
-  Arc is the exception to the split above. It serves the `txpool_*` methods, but its node software blocks pending-transaction visibility outright: `eth_newPendingTransactionFilter` and `eth_subscribe("newPendingTransactions")` return `-32001`, and both `eth_getBlockByNumber("pending")` and `eth_getTransactionBySenderAndNonce` return `null`. See [Arc methods](/docs/arc-methods).
+  On Arc, the node software blocks pending-transaction visibility: `eth_newPendingTransactionFilter` and `eth_subscribe("newPendingTransactions")` return `-32001`, and both `eth_getBlockByNumber("pending")` and `eth_getTransactionBySenderAndNonce` return `null`. See [Arc methods](/docs/arc-methods).
 </Warning>
-
-To get the `txpool_*` methods, deploy the node in the [archive mode](/docs/protocols-modes-and-types#modes), or ask for them on a full-mode [Dedicated Node](/docs/dedicated-node). Trader Nodes are regional and not every region offers the archive mode, so check [Available clouds, regions, & locations](/docs/nodes-clouds-regions-and-locations) for your region before you deploy.
 
 <Note>
 On protocols with no public mempool, pending-transaction methods like `eth_newPendingTransactionFilter` and `eth_subscribe("newPendingTransactions")` return empty by design — pending transactions are visible only to the sequencer. On Base and Optimism, follow transactions in real time with Flashblocks instead — see the how-to guides ([Base](/docs/base-streaming-transactions-flashblocks), [Optimism](/docs/optimism-streaming-transactions-flashblocks)) or how Flashblocks works ([Base](/docs/flashblocks-on-base), [Optimism](/docs/flashblocks-on-optimism)).
@@ -44,7 +45,7 @@ On protocols with no public mempool, pending-transaction methods like `eth_newPe
 <Warning>
   A subscription that is accepted is not a subscription that delivers. On **World Chain** and **Stable**, `eth_subscribe("newPendingTransactions")` and `eth_newPendingTransactionFilter` both succeed and hand back an ID, then deliver nothing.
 
-  World Chain is an OP Stack chain, so its pending transactions sit with the sequencer and the `txpool_*` methods are not served at all. On Stable, the `txpool_*` methods do respond, but `txpool_status` reported `pending: 0x0, queued: 0x0` in every one of 30 samples taken over two minutes while 52 transactions confirmed in new blocks over the same window — the pool is not exposed through the EVM JSON-RPC layer. Do not build a pending-transaction feed on either chain.
+  World Chain is an OP Stack chain, so its pending transactions sit with the sequencer and the `txpool_*` methods are not served at all. On Stable, `txpool_status` responds, but it reported `pending: 0x0, queued: 0x0` in every one of 30 samples taken over two minutes while 52 transactions confirmed in new blocks over the same window — the pool is not exposed through the EVM JSON-RPC layer. Do not build a pending-transaction feed on either chain.
 </Warning>
 
 The table structure:
@@ -59,13 +60,13 @@ Remember that whatever the default configuration, we can always [customize](/doc
 
 | Protocol        | Protocol availability                                                                                                                                                    | Chainstack availability                                                                            | Client configuration                                        | Example                                                |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------ |
-| Ethereum        | Available to everyone                                                                                                                                                    | [Archive](/docs/protocols-modes-and-types#modes) mode                                              | 4096 pending transactions                                   | [Ethereum txpool\_content](#ethereum-txpool_content)   |
-| Polygon         | Available to everyone                                                                                                                                                    | [Archive](/docs/protocols-modes-and-types#modes) mode                                              | 4096 pending transactions                                   | [Polygon txpool\_content](#polygon-txpool_content)     |
-| BNB Smart Chain | Available to everyone                                                                                                                                                    | [Archive](/docs/protocols-modes-and-types#modes) mode                                              | 4096 pending transactions                                   | [BSC txpool\_content](#bsc-txpool_content)             |
-| Arc             | Available, but the node blocks pending-transaction visibility                                                                                                            | Available                                                                                          | Not published                                               | [Arc txpool\_content](/reference/arc-txpool-content)    |
+| Ethereum        | Available to everyone                                                                                                                                                    | On a [Dedicated Node](/docs/dedicated-node)                                                        | 4096 pending transactions                                   | [Ethereum txpool\_content](#ethereum-txpool_content)   |
+| Polygon         | Available to everyone                                                                                                                                                    | On a [Dedicated Node](/docs/dedicated-node)                                                        | 4096 pending transactions                                   | [Polygon txpool\_content](#polygon-txpool_content)     |
+| BNB Smart Chain | Available to everyone                                                                                                                                                    | On a [Dedicated Node](/docs/dedicated-node)                                                        | 4096 pending transactions                                   | [BSC txpool\_content](#bsc-txpool_content)             |
+| Arc             | Available, but the node blocks pending-transaction visibility                                                                                                            | `txpool_status` only                                                                               | Not published                                               | [Arc txpool\_status](/reference/arc-txpool-status)      |
 | Base            | [Private to Sequencer](https://github.com/base/node/issues/78).                                                                                                      | N/A                                                                                                | N/A                                                         | N/A                                                    |
 | World Chain     | [Private to Sequencer](https://docs.optimism.io/stack/differences#mempool-rules) — OP Stack                                                                               | N/A — the `txpool_*` methods are not served                                                        | N/A                                                         | N/A                                                    |
-| Stable          | Not exposed through the EVM JSON-RPC — see the note below                                                                                                                 | The `txpool_*` methods respond, but always empty                                                   | N/A                                                         | `txpool_*`                                             |
+| Stable          | Not exposed through the EVM JSON-RPC — see [Stable methods](/docs/stable-methods#pending-transactions-are-accepted-but-never-delivered) | `txpool_status` only, and it always reads empty                                                    | N/A                                                         | `txpool_status`                                        |
 | Avalanche       | [Available only to validators](https://support.avax.network/en/articles/6158842-nodes-faq).                                                                              | Not available on Chainstack                                                                        | N/A                                                         | N/A                                                    |
 | TON             | External messages are available in mempool                                                                                                                               | Available                                                                                          |                                                             |                                                        |
 | Arbitrum        | No mempool. Only [Sequencer FIFO](https://docs.arbitrum.io/learn-more/faq#does-arbitrum-have-a-mempool).                                                                 | N/A                                                                                                | N/A                                                         | N/A                                                    |
