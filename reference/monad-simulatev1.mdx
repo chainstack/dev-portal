@@ -1,0 +1,157 @@
+---
+title: eth_simulateV1 | Monad
+openapi: /openapi/monad_node_api/execute_transactions/eth_simulateV1.json POST /
+description: "Monad API method that simulates a sequence of calls across one or more blocks with state and block overrides. Reference for eth_simulateV1 on Monad via Chainstack."
+---
+
+Monad API method that simulates a sequence of calls across one or more blocks on top of the state of a chosen block, without creating transactions on the blockchain. Each simulated block can override account state and block fields, and with `traceTransfers` the result reports every native MON transfer as a `Transfer` log.
+
+<Note>
+When called against a block older than the latest ~128 blocks, this method is treated as an archive request (2 RUs instead of 1 RU). See [request units](/docs/request-units#evm-methods-affected-by-block-age).
+</Note>
+
+<Visibility for="humans">
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+</Visibility>
+
+## Parameters
+
+* `object` — the simulation request object:
+  * `blockStateCalls` — an array of simulated blocks, executed in order on top of the base block. Each entry contains:
+    * `blockOverrides` (optional) — block fields to override for this simulated block, such as `number`, `time`, `gasLimit`, or `feeRecipient`.
+    * `stateOverrides` (optional) — account state to override for the simulation, keyed by address. Each entry can set `balance`, `nonce`, `code`, `state`, or `stateDiff`.
+    * `calls` — an array of call objects executed in sequence, each with `from`, `to`, and optionally `gas`, `value`, `data`, `nonce`, `maxFeePerGas`, and `maxPriorityFeePerGas`.
+  * `traceTransfers` (optional) — when `true`, every native MON transfer is returned as a `Transfer` log emitted by `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee`. Defaults to `false`.
+  * `validation` (optional) — enables transaction checks, such as rejecting a `maxFeePerGas` below the block base fee. Defaults to `true`, and `false` is not supported on Monad.
+* `quantity or tag` — the base block: a block number in hex, a block hash, or `latest`, `safe`, `finalized`, or `pending`.
+
+## Response
+
+* `result` — an array with one object per simulated block. Each object contains the block header fields (`number`, `hash`, `parentHash`, `timestamp`, `gasLimit`, `gasUsed`, `baseFeePerGas`, `miner`, `logsBloom`, and the trie roots), `transactions` as an array of transaction hashes, and:
+  * `calls` — an array with one result per call:
+    * `status` — `0x1` if the call succeeded, `0x0` if it failed.
+    * `returnData` — the data returned by the call.
+    * `gasUsed` — the gas charged for the call. On Monad, this value equals the gas limit of the call.
+    * `logs` — the logs emitted by the call, including a `Transfer` log for each native MON transfer when `traceTransfers` is `true`.
+    * `error` — present when the call failed, with a `message` describing the failure.
+
+## Monad-specific behavior
+
+On Monad, `eth_simulateV1` behaves as follows:
+
+* `gasUsed` reports the gas limit of each call, not the gas consumed, because [Monad charges the gas limit](https://docs.monad.xyz/developer-essentials/gas-pricing) of a transaction. A call without `gas` runs with the node's default call gas limit and reports that limit as `gasUsed`. Set `gas` on each call to get a representative value.
+* Validation is always on. Omitting `validation` behaves as `true`, and `"validation": false` returns a `-32000` error stating that this mode is not supported yet. Calls without fee fields are accepted.
+* The [Monad reserve balance](https://docs.monad.xyz/developer-essentials/reserve-balance) rule applies inside the simulation. A value transfer that leaves the sender below the 10 MON reserve balance reverts with `execution reverted`, except for the sender's first transaction in the reserve window (an emptying transaction). Set the sender's `balance` in `stateOverrides` well above 10 MON when one account makes several value transfers.
+* `returnFullTransactions` is not supported. `transactions` always contains transaction hashes.
+* The base block must be one whose state the node holds. `earliest` returns the `-32602` error `Block requested not found`.
+
+## Request limits
+
+A single `eth_simulateV1` request on Chainstack Monad nodes accepts:
+
+* Up to 256 simulated blocks in `blockStateCalls`.
+* Up to 2,000 calls across all simulated blocks.
+* Up to 1,600,000,000 gas in total, summed over the gas limits of all calls. A call without `gas` counts at the node's default call gas limit.
+
+A request over any of these limits returns a `-32000` error that states the limit, for example `Too many calls to simulate: 2001, maximum allowed is 2000`.
+
+## Example: simulate a native MON transfer
+
+The code examples on this page simulate a transfer of 1 MON from `0x5d20879655df3c1e04ab111af0009ad650e762f0` to `0x000000000000000000000000000000000000dEaD` on top of the latest block. The `stateOverrides` entry sets the sender's balance to 100 MON (`0x56bc75e2d63100000`) for the simulation only, so the result does not depend on the account's live balance. The call sets `gas` to 21,000 (`0x5208`), the intrinsic gas of a plain MON transfer.
+
+The simulated call returns `status` `0x1`, `gasUsed` `0x5208`, and one `Transfer` log for the native MON movement:
+
+* `address` — `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee`, the pseudo-address that `traceTransfers` uses for native transfers.
+* `topics` — the `Transfer(address,address,uint256)` event signature, then the sender and the recipient.
+* `data` — the amount, `1000000000000000000` wei (1 MON).
+
+## `eth_simulateV1` code examples
+
+<CodeGroup>
+```javascript ethers.js
+const { JsonRpcProvider } = require("ethers");
+
+const provider = new JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+const sender = "0x5d20879655df3c1e04ab111af0009ad650e762f0";
+const recipient = "0x000000000000000000000000000000000000dEaD";
+
+async function simulateTransfer() {
+  const [block] = await provider.send("eth_simulateV1", [
+    {
+      blockStateCalls: [
+        {
+          stateOverrides: { [sender]: { balance: "0x56bc75e2d63100000" } }, // 100 MON
+          calls: [
+            {
+              from: sender,
+              to: recipient,
+              gas: "0x5208", // 21,000
+              value: "0xde0b6b3a7640000" // 1 MON
+            }
+          ]
+        }
+      ],
+      traceTransfers: true
+    },
+    "latest"
+  ]);
+
+  const [result] = block.calls;
+  console.log(`Simulated block: ${parseInt(block.number, 16)}`);
+  console.log(`Status: ${result.status}, gas used: ${parseInt(result.gasUsed, 16)}`);
+  for (const log of result.logs) {
+    console.log(`Transfer log from ${log.address}: ${BigInt(log.data)} wei`);
+  }
+}
+
+simulateTransfer();
+```
+
+```python web3.py
+from web3 import Web3
+
+node_url = "CHAINSTACK_NODE_URL"
+web3 = Web3(Web3.HTTPProvider(node_url))
+
+sender = "0x5d20879655df3c1e04ab111af0009ad650e762f0"
+recipient = "0x000000000000000000000000000000000000dEaD"
+
+response = web3.provider.make_request("eth_simulateV1", [
+    {
+        "blockStateCalls": [
+            {
+                "stateOverrides": {sender: {"balance": "0x56bc75e2d63100000"}},  # 100 MON
+                "calls": [
+                    {
+                        "from": sender,
+                        "to": recipient,
+                        "gas": "0x5208",  # 21,000
+                        "value": "0xde0b6b3a7640000"  # 1 MON
+                    }
+                ]
+            }
+        ],
+        "traceTransfers": True
+    },
+    "latest"
+])
+
+block = response["result"][0]
+result = block["calls"][0]
+print(f"Simulated block: {int(block['number'], 16)}")
+print(f"Status: {result['status']}, gas used: {int(result['gasUsed'], 16)}")
+for log in result["logs"]:
+    print(f"Transfer log from {log['address']}: {int(log['data'], 16)} wei")
+```
+</CodeGroup>
+
+## Use case
+
+A practical use case for `eth_simulateV1` is previewing a multi-step flow before signing it, such as a token approval followed by a swap. The calls in one request run in sequence against shared state, so each call sees the effects of the calls before it, and `stateOverrides` funds the sender without touching a real account.
