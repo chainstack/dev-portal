@@ -135,7 +135,7 @@ The following limits are applied on all subscription plans:
 
 ## Solana method limits
 
-The following per-method RPS limits apply across all regions:
+The following per-method RPS limits apply to Solana Mainnet [Global Nodes](/docs/global-elastic-node). On [Dedicated Nodes](/docs/dedicated-node), per-method limits are configured per node.
 
 | Method | RPS |
 | ------ | --- |
@@ -145,11 +145,9 @@ The following per-method RPS limits apply across all regions:
 | `getMultipleAccounts` | 300 |
 | `getSupply` | 300 |
 | `getTokenAccountsByOwner` | 150 |
-| `getProgramAccounts` | up to 20 with filters (see below) |
+| `getProgramAccounts` | Depends on the program size and on filters — see [getProgramAccounts limits](#getprogramaccounts-limits) |
 | `getLargestAccounts` | 0 — available on [Dedicated Nodes](/docs/dedicated-node) only |
 | `getTokenLargestAccounts` | 0 — available on [Dedicated Nodes](/docs/dedicated-node) only |
-
-[`getProgramAccounts`](/reference/solana-getprogramaccounts) is a heavy, rate-limited method, and its RPS limit scales with the size of the result set. Queries that return fewer accounts — small programs, or large programs narrowed with `dataSize` or `memcmp` filters — get the highest limit, up to 20 RPS. Queries that scan large programs, or that run without filters, get a progressively lower limit. Always narrow your query with `dataSize` or `memcmp` filters.
 
 <Note>
 The `getConfirmedBlock` method was removed in Agave 2.0 and returns `Method not found` on current validators. Use [`getBlock`](/reference/solana-getblock) instead.
@@ -160,11 +158,32 @@ Architectural limits (set by Solana, not Chainstack):
 - `getBlocks`: 500,000 blocks range — [Solana architecture limit](https://solana.com/docs/rpc/http/getblocks).
 - `getBlocksWithLimit`: 500,000 blocks range — [Solana architecture limit](https://solana.com/docs/rpc/http/getblockswithlimit).
 
+### getProgramAccounts limits
+
+On Solana Mainnet Global Nodes, the [`getProgramAccounts`](/reference/solana-getprogramaccounts) rate limit depends on the size of the program you query. Each program is assigned a size tier by its approximate number of accounts, and each tier has one limit for requests that include `filters` and a lower limit for requests without them. Filters raise the limit only within the program's tier — a filtered request to a program with 1M or more accounts is limited to 3 requests per 20 seconds.
+
+| Program size (accounts) | With filters | Without filters |
+| --- | --- | --- |
+| Under 10K | 20 RPS | 10 RPS |
+| 10K–30K | 15 RPS | 5 RPS |
+| 30K–60K | 15 RPS | 3 RPS |
+| 60K–200K | 15 RPS | 2 RPS |
+| 200K–500K | 10 RPS | 2 RPS |
+| 500K–1M | 5 RPS | 2 RPS |
+| 1M and more | 3 requests per 20 seconds | 2 requests per 20 seconds |
+
+The following rules also apply:
+
+- A program without an assigned size tier, such as a recently deployed program, is limited to 2 RPS with or without filters.
+- Requests to some high-traffic programs at `finalized` or `confirmed` commitment are served from a cache under separate per-program limits instead of the size tiers.
+- Unfiltered requests to the SPL Token Program (`TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`), Token-2022 (`TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`), and Kin (`kinXdEcpDQeHPEuQnqmUgtYykqKGVFq6CeVX5iAHJq6`) are rejected with error `-32602` — see [getProgramAccounts filters](/reference/solana-getprogramaccounts#filters). The SPL Token Program and Kin are also [excluded from indexing](#solana-accounts-excluded-from-indexing).
+- A request over the limit returns HTTP `429` with JSON-RPC error `-32005`.
+
 ## Solana scan method limits
 
-The account-scan methods — `getProgramAccounts`, `getTokenAccountsByOwner`, `getTokenAccountsByDelegate`, and `getSupply` — read across a program's accounts, which on a large program can be hundreds of millions of accounts. To keep one heavy scan from tying up a node, each scan runs under a 60-second execution-time limit and a per-request memory limit.
+The account-scan methods — `getProgramAccounts`, `getTokenAccountsByOwner`, `getTokenAccountsByDelegate`, and `getSupply` — read across a program's accounts, which on a large program can be hundreds of millions of accounts. To keep one heavy scan from tying up a node, Solana Mainnet Global Nodes run each scan under a 60-second execution-time limit and a per-request memory limit, and run a limited number of scans at once. A scan that waits more than 15 seconds for a free scan slot is dropped without running.
 
-A scan that exceeds either limit is aborted and returns error [`-32012`](/docs/error-reference#json-rpc-error-codes) rather than hanging:
+A scan that exceeds the execution-time or memory limit is aborted and returns error [`-32012`](/docs/error-reference#json-rpc-error-codes) rather than hanging:
 
 ```json
 {
@@ -175,7 +194,9 @@ A scan that exceeds either limit is aborted and returns error [`-32012`](/docs/e
 }
 ```
 
-Narrow the query where you can — for example with `dataSize` or `memcmp` filters on `getProgramAccounts` — to keep the scan within the limit.
+To keep the scan within the limits, narrow the query — for example with `dataSize` or `memcmp` filters on `getProgramAccounts`.
+
+A scan dropped from the queue also returns error `-32012`, with the message `scan aborted: scan abandoned after waiting Nms for a scan slot`, where `N` is the time the request spent queued in milliseconds. The scan never ran, so the same request can succeed later. Retry it with exponential backoff.
 
 ## Solana accounts excluded from indexing
 
