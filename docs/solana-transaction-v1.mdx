@@ -53,7 +53,7 @@ It has to be the JSON integer `1`. The string `"1"` fails request validation wit
 | [getTransaction](/reference/gettransaction) | Returns the transaction | Fails with `-32015` on a v1 transaction |
 | [blockSubscribe](/reference/blocksubscribe-solana) | Streams blocks | Notifications keep arriving, each with `block: null` and an `err` of `{"UnsupportedTransactionVersion": <version>}` |
 
-The `blockSubscribe` case is the one to watch, because there is no JSON-RPC error to catch. The subscription stays alive and keeps advancing slot by slot, delivering nothing but nulls.
+A `blockSubscribe` subscription at a lower version returns no JSON-RPC error. The subscription stays open and advances slot by slot, and its notifications carry `block: null` instead of block data.
 
 Calls that return no transaction bodies are unaffected. Setting `transactionDetails` to `signatures` or `none` on `getBlock` or `blockSubscribe` works at any version, and [getSignaturesForAddress](/reference/solana-getsignaturesforaddress) has no version parameter at all.
 
@@ -84,6 +84,10 @@ wscat -c CHAINSTACK_SOLANA_WSS_URL
 ```
 </CodeGroup>
 
+### Client library versions
+
+Reading v1 transactions through a JavaScript SDK needs `@solana/web3.js` 1.99.0 or later, or `@solana/kit` 7.1.0 or later. Earlier `@solana/web3.js` releases throw a validation error on any `getBlock`, `getTransaction`, or `getParsedTransaction` response that contains a v1 transaction, even with `maxSupportedTransactionVersion: 1`. Earlier `@solana/kit` releases return `version` as the bigint `1n` instead of the number `1`.
+
 ## transactionConfig replaces compute budget scanning
 
 In legacy and v0 transactions, the compute unit limit, the compute unit price, and the loaded accounts data size limit arrive as [Compute Budget Program](/docs/solana-compute-budget) instructions that you have to find and decode. A v1 message carries them in a `transactionConfig` field instead:
@@ -106,7 +110,7 @@ Every v1 transaction carries the field, and no legacy or v0 transaction does. If
 
 ### The priority fee is a total, not a rate
 
-This is the change most likely to corrupt a fee dashboard quietly. In legacy and v0, `SetComputeUnitPrice` is a rate in micro-lamports per compute unit. In v1, `transactionConfig.priorityFee` is the whole priority fee in lamports.
+In legacy and v0, `SetComputeUnitPrice` is a rate in micro-lamports per compute unit. In v1, `transactionConfig.priorityFee` is the whole priority fee in lamports.
 
 The fee a v1 transaction pays is exactly:
 
@@ -120,7 +124,7 @@ To compare a v0 rate against a v1 total, multiply the rate by the compute unit l
 
 A v1 message has no `addressTableLookups` field. Every address the transaction touches travels inline as a full 32-byte public key, and a v1 transaction can carry up to 64 of them.
 
-This is a trade, not a regression: the 4,096-byte envelope has room for the addresses that v0 had to move into a lookup table. [Address lookup tables](/docs/solana-address-lookup-tables) remain fully supported on v0, which is not deprecated, so an account-heavy workload can stay on v0 with a table or move to v1 without one.
+The 4,096-byte size limit leaves room for the addresses that a v0 transaction moves into a lookup table. [Address lookup tables](/docs/solana-address-lookup-tables) remain fully supported on v0, which is not deprecated, so an account-heavy workload can stay on v0 with a table or move to v1 without one.
 
 ## What stays the same
 
@@ -133,7 +137,10 @@ This is a trade, not a regression: the 4,096-byte envelope has room for the addr
 
 <Steps>
   <Step title="Raise maxSupportedTransactionVersion to 1">
-    Set it on every `getBlock`, `getTransaction`, and `blockSubscribe` call, as the integer `1`. This is the change that stops data loss today.
+    Set it on every `getBlock`, `getTransaction`, and `blockSubscribe` call, as the integer `1`. Without it, `getBlock` and `getTransaction` fail with `-32015` on v1 data, and `blockSubscribe` notifications carry `block: null`.
+  </Step>
+  <Step title="Upgrade the JavaScript SDK">
+    Use `@solana/web3.js` 1.99.0 or later, or `@solana/kit` 7.1.0 or later. See [Client library versions](#client-library-versions).
   </Step>
   <Step title="Read limits from transactionConfig">
     Where you scan for Compute Budget instructions, check for `transactionConfig` first and fall back to the instruction scan for legacy and v0.
