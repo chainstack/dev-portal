@@ -12,7 +12,7 @@ The TON API gives developers programmatic access to The Open Network, a non-EVM 
 | Chain | TON (The Open Network) — non-EVM layer-1, Proof-of-Stake |
 | Address model | Workchains — masterchain (`-1`) and basechain (`0`) |
 | EVM chain ID | None — TON is not EVM-compatible |
-| API surfaces | HTTP API v2 (node API, also runs JSON-RPC) and HTTP API v3 (indexer) |
+| API surfaces | HTTP API v2 (node API, also runs JSON-RPC), HTTP API v3 (indexer), and TON API v4 (block-pinned reads and WebSocket block streams, on Global Nodes) |
 | Methods served by Chainstack | 62 — 28 on v2 and 34 on v3 |
 | Low-level protocol | ADNL on Dedicated Nodes |
 | Networks | Mainnet and testnet |
@@ -44,6 +44,8 @@ Chainstack exposes two API surfaces on the same endpoint, and both serve the sam
 - TON API v2 — the node API. It serves real-time requests directly off a node and also accepts JSON-RPC through the `/jsonRPC` envelope.
 - TON API v3 — the indexer. It serves processed, indexed data through REST endpoints, which suits complex queries and stable historical reads.
 
+On Global Nodes, the same endpoint also serves TON API v4 under `/api/v4` — account state and get-method calls pinned to a masterchain block, and WebSocket streams of new blocks. See [TON API v4](/docs/ton-choosing-v2-or-v3#ton-api-v4).
+
 The interactive examples on each TON method page are REST, but every Chainstack TON endpoint also accepts JSON-RPC, and each page has a JSON-RPC curl counterpart.
 
 <Check>
@@ -52,7 +54,7 @@ The interactive examples on each TON method page are REST, but every Chainstack 
   TON Dedicated Nodes on Chainstack support the [ADNL protocol](https://docs.ton.org/v3/documentation/network/protocols/adnl/overview) for secure, low-level network communication. This enables advanced use cases requiring direct interaction with the TON network layer.
 </Check>
 
-For help deciding between the two surfaces, see [choosing v2 or v3](/docs/ton-choosing-v2-or-v3).
+For help deciding between the surfaces, see [choosing v2, v3, or v4](/docs/ton-choosing-v2-or-v3).
 
 ## TON API surface
 
@@ -62,6 +64,7 @@ The two surfaces differ in how they serve data, not in what data they cover.
 | --- | --- | --- | --- | --- |
 | TON API v2 | Node API + JSON-RPC | A node | Real-time reads, transaction sending | Chainstack |
 | TON API v3 | Indexer | An indexer | Processed data, complex and historical queries | Chainstack |
+| TON API v4 | Block-pinned HTTP API + WebSocket | A node, over lite-server connections | Reads at a specific block, `TonClient4`, new-block streams | Chainstack (Global Nodes) |
 | ADNL | Low-level network protocol | A Dedicated Node | Direct TON network-layer interaction | Chainstack (Dedicated Nodes) |
 
 ## Methods
@@ -125,11 +128,12 @@ Chainstack supports both TON mainnet and testnet. TON nodes run in archive mode,
 | --- | --- | --- |
 | TON API v2 | Yes | Yes |
 | TON API v3 | Yes | Yes |
+| TON API v4 | Yes | Yes |
 | Archive data | Yes | Yes |
 | Faucet | N/A | [Chainstack faucet](https://faucet.chainstack.com) |
 
 <Note>
-TON has no debug and trace namespace and no EVM-style WebSocket subscriptions. For analyzing activity, use the v3 indexer endpoints — `/v3/traces`, `/v3/actions`, and `/v3/events`.
+TON has no debug and trace namespace. For analyzing activity, use the v3 indexer endpoints — `/v3/traces`, `/v3/actions`, and `/v3/events`; for WebSocket streams of new blocks, use [TON API v4](/docs/ton-choosing-v2-or-v3#ton-api-v4).
 </Note>
 
 ## Frequently asked questions
@@ -137,6 +141,10 @@ TON has no debug and trace namespace and no EVM-style WebSocket subscriptions. F
 ### What is the difference between TON API v2 and v3?
 
 v2 is the node API: it serves real-time requests directly off a node and also accepts JSON-RPC. v3 is the indexer: it serves processed, structured data through REST, which suits complex queries and stable historical reads. Both are priced the same and expose the same data on Chainstack. Use v2 for the freshest data and v3 for cleaned, indexed data. See [choosing v2 or v3](/docs/ton-choosing-v2-or-v3).
+
+### What is TON API v4?
+
+TON API v4 is an HTTP and WebSocket API in which account-state and get-method routes take a masterchain block seqno in the URL, so each result is pinned to that block. Chainstack serves it on Global Nodes at `YOUR_CHAINSTACK_ENDPOINT/api/v4`, and the `TonClient4` class in `@ton/ton` is a client for it. See [TON API v4](/docs/ton-choosing-v2-or-v3#ton-api-v4).
 
 ### Does TON have an EVM chain ID?
 
@@ -156,7 +164,7 @@ Jettons are TON's fungible token standard (TEP-74), the equivalent of ERC-20 on 
 
 ### How is TON usage billed on Chainstack?
 
-By request unit. Most TON requests are full (1 RU). Archive requests (2 RUs) apply to history reads — `getTransactions` and `getTransactionsStd` are always archive, and block/seqno methods are archive when the requested block is 128 or more seqno behind the tip. v2 and v3 are priced the same. See [request units — TON method scope](/docs/request-units#ton-method-scope).
+By request unit. Most TON requests are full (1 RU). Archive requests (2 RUs) apply to history reads — `getTransactions` and `getTransactionsStd` are always archive, and block/seqno methods are archive when the requested block is 128 or more seqno behind the tip. v2, v3, and v4 are priced the same. See [request units — TON method scope](/docs/request-units#ton-method-scope).
 
 ### Does Chainstack support the ADNL protocol?
 
@@ -165,7 +173,7 @@ Yes, on Dedicated Nodes. ADNL is TON's low-level network protocol for secure, di
 ## Related TON resources
 
 - [TON methods](/docs/ton-methods) — complete per-method API reference
-- [TON: choosing v2 or v3](/docs/ton-choosing-v2-or-v3) — pick the right API surface
+- [TON: choosing v2, v3, or v4](/docs/ton-choosing-v2-or-v3) — pick the right API surface
 - [TON tooling](/docs/ton-tooling) — SDKs, wallets, IDEs, and Blueprint setup
 - [TON: wallet initialization with TonWeb](/docs/ton-wallet-initialization-with-tonweb) — deploy a wallet contract end to end
 - [TON: how to develop fungible tokens (jettons)](/docs/ton-how-to-develop-fungible-tokens-jettons) — build jetton minter and wallet contracts
