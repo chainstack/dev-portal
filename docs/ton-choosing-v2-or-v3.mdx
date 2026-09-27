@@ -1,15 +1,15 @@
 ---
-title: "TON: Choosing v2 or v3"
-description: "Compare TON API v2 vs v3: real-time node requests vs indexed data. Choose v2 for speed and freshness, v3 for stable processed data with Chainstack."
+title: "TON: Choosing v2, v3, or v4"
+description: "Compare TON API v2, v3, and v4 on Chainstack: real-time node requests, indexed data, and block-pinned reads with WebSocket block streams. Includes the v4 endpoint, routes, and examples."
 ---
 
 <Info>
   ### TON billing: full vs archive
 
-  v2 and v3 are priced the same, and all data is available. Billing follows the request: most TON requests are **full** (1 request unit), while requests that read historical data are **archive** (2 request units). `getTransactions` and `getTransactionsStd` are always archive; block/seqno methods are archive when the requested block is 128 or more seqno behind the tip. See [Request units — TON method scope](/docs/request-units#ton-method-scope) for the full method list.
+  v2, v3, and v4 are priced the same, and all data is available. Billing follows the request: most TON requests are **full** (1 request unit), while requests that read historical data are **archive** (2 request units). `getTransactions`, `getTransactionsStd`, and the v4 account transaction routes are always archive; block/seqno methods are archive when the requested block is 128 or more seqno behind the tip. See [Request units — TON method scope](/docs/request-units#ton-method-scope) for the full method list.
 </Info>
 
-Check out our [TON API reference](/reference/getting-started-ton), which has both v2 and v3 methods.
+Check out our [TON API reference](/reference/getting-started-ton), which has both v2 and v3 methods. For v4 routes, see [TON API v4](#ton-api-v4).
 
 The question is—which one should you choose for your project?
 
@@ -17,12 +17,15 @@ As a reminder:
 
 * TON API v2 endpoints serve real-time requests. TON API v2 requests serve off a node.
 * TON API v3 endpoints serve indexed requests. TON API v3 requests serve off an indexer.
+* TON API v4 endpoints serve block-pinned requests: each account-state read and get-method call names a masterchain block seqno in the URL. TON API v4 requests serve off a node.
 
 ## Which one to choose
 
 If speed and real-time freshness are crucial (for example, you need near-instant visibility of new transactions), go with v2.
 
 If you need highly stable, processed, and precise data, and can tolerate a slight indexing delay—v3 is likely the better option.
+
+If your code uses `TonClient4` from `@ton/ton`, or you need account state and get-method results as of a specific block, use v4. v4 also streams new blocks over WebSocket.
 
 Tip: If the data provided by v2 is sufficient for your use case, it should remain your best choice for simplicity and quick data access.
 
@@ -34,11 +37,150 @@ Tip: If the data provided by v2 is sufficient for your use case, it should remai
 
 **v3**: Performs additional data processing and indexing. As a result, it may have a slight lag compared to raw data sources. Offers well-structured and cleaned data, which can be advantageous for complex queries. If ultra-fresh data is a priority (for instance, if you need to see changes at near real-time), use v2 tends to have the edge.
 
+**v4**: Reads from the node over lite-server connections, with no indexing step.
+
 ### Request latency
 
 Our TON RPC node network is global and we strive to always have the shortest travel time for your requests based on our highly tuned infrastructure.
 
 See also [Available clouds, regions, and locations](/docs/nodes-clouds-regions-and-locations).
+
+## TON API v4
+
+TON API v4 is an HTTP and WebSocket API in which block, account-state, and get-method routes take a masterchain block seqno in the URL, so each result is pinned to that block. Chainstack serves the open-source [ton-api-v4](https://github.com/ton-community/ton-api-v4) server maintained by the TON community (originally built by Whales Corp), which reads from the TON node over lite-server connections. TON API v4 is available on TON Global Nodes on Mainnet and Testnet.
+
+The `TonClient4` class in [`@ton/ton`](https://github.com/ton-org/ton) is a client for TON API v4.
+
+### TON API v4 endpoint
+
+The TON API v4 base URL is `YOUR_CHAINSTACK_ENDPOINT/api/v4` — your node endpoint, which ends with your auth token, followed by `/api/v4`:
+
+```text
+https://ton-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN/api/v4
+https://ton-testnet.core.chainstack.com/YOUR_AUTH_TOKEN/api/v4
+```
+
+For the WebSocket routes, use the same URL with the `wss://` scheme. The full URLs for your node are in [node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+
+### TON API v4 routes
+
+Each route is relative to the TON API v4 base URL. Routes that take `{seqno}` return data as of that masterchain block.
+
+| Method | Route | Returns |
+| --- | --- | --- |
+| GET | `/block/latest` | Latest masterchain block, with its Unix time in `now` |
+| GET | `/block/{seqno}` | Masterchain and shard blocks at the seqno, with their transaction lists |
+| GET | `/block/utime/{utime}` | Block at a Unix timestamp |
+| GET | `/block/{seqno}/{address}` | Account state at the block — balance, code, data, and last transaction |
+| GET | `/block/{seqno}/{address}/lite` | Account state at the block, with code and data hashes instead of code and data |
+| GET | `/block/{seqno}/{address}/run/{method}` | Result of a get-method run at the block; arguments go in an extra path segment |
+| GET | `/block/{seqno}/config/{ids}` | Blockchain config parameters at the block, for comma-separated parameter IDs |
+| GET | `/account/{address}/tx/{lt}/{hash}` | Up to 20 account transactions as a bag of cells (BOC), starting at the given transaction and going back |
+| GET | `/account/{address}/tx/parsed/{lt}/{hash}` | Parsed account transactions; the `count` query parameter sets how many |
+| WebSocket | `/block/watch` | A message for each new masterchain block with its `seqno`, block time, and server time |
+| WebSocket | `/block/watch/changed` | A message for each new masterchain block with the accounts changed in it |
+
+Consecutive WebSocket messages can skip seqnos; fetch a skipped block with `/block/{seqno}`. The [ton-api-v4 README](https://github.com/ton-community/ton-api-v4#methods) documents the routes with example responses.
+
+Responses from block-pinned routes do not change and are returned with `Cache-Control: public, max-age=31536000`. `/block/latest` is returned with a `max-age` of 5 seconds or less.
+
+### Call TON API v4 with curl
+
+Get the latest masterchain block:
+
+```bash
+curl YOUR_CHAINSTACK_ENDPOINT/api/v4/block/latest
+```
+
+```json
+{
+  "last": {
+    "seqno": 95317858,
+    "shard": "-9223372036854775808",
+    "workchain": -1,
+    "fileHash": "M/EVkJdLlaRAJecavcQgM0B7WlLmOk4JNaf1Gzgm8MU=",
+    "rootHash": "zFZKplNSAUG0p4ABJXgyW2bCRGYIfMRcyIcOiE0g/z4="
+  },
+  "init": {
+    "fileHash": "XplPz01CXAps5qeSWUtxcyBfdAo5zVb1N979KLSKD24=",
+    "rootHash": "F6OpKZKqvqeFp6CQmFomXNMfMj2EnaUSOXN+Mh+wVWk="
+  },
+  "stateRootHash": "IF7c/VCNXnyScSMHPrCHvtIR+DIPlNMOhiZq1/NxK1k=",
+  "now": 1790477242
+}
+```
+
+Get an account's state at masterchain block 95318361:
+
+```bash
+curl YOUR_CHAINSTACK_ENDPOINT/api/v4/block/95318361/EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N/lite
+```
+
+```json
+{
+  "account": {
+    "state": {
+      "type": "active",
+      "codeHash": "hNr6RJ+Ypph3ibojI1gHK8D3bcRSQAKl0JGLmnXS1Zk=",
+      "dataHash": "4O4a0XnqF0b5MpZIpFTlll4r2Gn+MRiukcnVhtSdFG8="
+    },
+    "balance": {
+      "coins": "1592540632745552",
+      "currencies": {}
+    },
+    "last": {
+      "lt": "105876895000014",
+      "hash": "cfO6LqgwjPbf+9DL+tmRGp6pFf6raoCl41L6lgQLlLI="
+    },
+    "storageStat": {
+      "lastPaid": 1790368385,
+      "duePayment": null,
+      "used": {
+        "bits": 1339,
+        "cells": 3
+      }
+    }
+  }
+}
+```
+
+### Call TON API v4 with TonClient4
+
+Install the packages:
+
+```bash
+npm install @ton/ton @ton/core @ton/crypto
+```
+
+Save the script as `index.mjs`. It reads the latest block, then the wallet's balance and `seqno` get-method result at that block:
+
+```javascript index.mjs
+import { TonClient4, Address } from '@ton/ton';
+
+const client = new TonClient4({
+  endpoint: 'YOUR_CHAINSTACK_ENDPOINT/api/v4',
+});
+
+const address = Address.parse('EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N');
+
+const { last } = await client.getLastBlock();
+const { account } = await client.getAccountLite(last.seqno, address);
+console.log(`Block ${last.seqno}: balance ${account.balance.coins} nanotons`);
+
+const { reader } = await client.runMethod(last.seqno, address, 'seqno');
+console.log(`Wallet seqno: ${reader.readNumber()}`);
+```
+
+Run it with `node index.mjs`:
+
+```text
+Block 95318879: balance 1592540632745552 nanotons
+Wallet seqno: 343
+```
+
+### TON API v4 billing
+
+TON API v4 requests follow the TON full and archive rules. Block-pinned `/block/{seqno}/...` routes are archive when the seqno is 128 or more behind the masterchain tip, the `/account/{address}/tx/...` routes are always archive, and all other routes are full. See [Request units — TON method scope](/docs/request-units#ton-method-scope).
 
 
 <CardGroup>
