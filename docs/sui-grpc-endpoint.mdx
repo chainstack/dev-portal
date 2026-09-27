@@ -25,7 +25,7 @@ Testnet gRPC is `sui-testnet.core.chainstack.com:443`. The auth token and x-toke
 
 ## Checkpoint retention
 
-A Sui full node serves a moving window of recent checkpoints rather than the full ledger from genesis. Query the current window with `GetServiceInfo`, which reports the tip (`checkpointHeight`) and the oldest checkpoint the node still holds (`lowestAvailableCheckpoint`):
+The Chainstack Sui node holds a window of checkpoints from `lowestAvailableCheckpoint` to the tip, not the full ledger from genesis. `GetServiceInfo` reports both ends of the window — the tip (`checkpointHeight`) and the oldest checkpoint the node holds (`lowestAvailableCheckpoint`):
 
 ```bash
 grpcurl -H "x-token: YOUR_X_TOKEN" \
@@ -35,15 +35,25 @@ grpcurl -H "x-token: YOUR_X_TOKEN" \
 
 ```json
 {
+  "chainId": "4btiuiMPvEENsttpZC7CZ53DruC3MAgfznDbASZ7DR6S",
   "chain": "mainnet",
-  "epoch": "1184",
-  "checkpointHeight": "296723264",
-  "lowestAvailableCheckpoint": "253124671",
-  "server": "sui-node/1.74.1-8fc60f1fa966"
+  "epoch": "1263",
+  "checkpointHeight": "327352270",
+  "timestamp": "2026-09-27T02:41:27.573Z",
+  "lowestAvailableCheckpoint": "237661232",
+  "lowestAvailableCheckpointObjects": "237661232",
+  "server": "sui-node/1.80.1-782577ca40c9"
 }
 ```
 
-In this snapshot from Jul 10, 2026, the node served checkpoints from 253,124,671 to 296,723,264 — about 43.6M checkpoints of history. The window advances as the chain grows; check `lowestAvailableCheckpoint` at runtime for the current floor. For reads older than the window, query an archival store.
+In this response from Sep 27, 2026, the node held checkpoints 237,661,232 through 327,352,270 — about 89.7M checkpoints. `lowestAvailableCheckpointObjects` is the matching floor for historical object versions. The floor can change, so read `lowestAvailableCheckpoint` at runtime instead of hard-coding it.
+
+How the window applies to each interface:
+
+- gRPC — checkpoints, transactions, and object versions older than the window return `NotFound`.
+- JSON-RPC — object versions older than the window return `VersionNotFound`. On Mainnet, JSON-RPC also resolves older checkpoint and transaction lookups through the implicit archival fallback built into Sui's JSON-RPC, which Sui's [deprecation timeline](https://docs.sui.io/develop/accessing-data/json-rpc-migration) schedules for disconnection at the end of September 2026. Do not build on JSON-RPC reads below `lowestAvailableCheckpoint`.
+
+For data older than the window, query an archival service — see Sui's [Archival Store and Service](https://docs.sui.io/develop/accessing-data/archival-store).
 
 ## Verify your endpoint
 
