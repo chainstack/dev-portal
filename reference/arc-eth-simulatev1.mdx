@@ -15,6 +15,15 @@ Arc API method that simulates transaction execution.
 
 * `object` — the simulation result
 
+## Example: simulate a USDC transfer
+
+The code examples on this page simulate a transfer of 1 USDC from `0x5d20879655df3c1e04ab111af0009ad650e762f0` to `0x000000000000000000000000000000000000dEaD` through the USDC ERC-20 interface at `0x3600000000000000000000000000000000000000`. The `stateOverrides` entry sets the sender's balance to 10 USDC (`0x8ac7230489e80000` in the 18-decimal native unit) for the simulation only, so the result does not depend on the account's live balance.
+
+The simulated call returns `true` in `returnData` and two `Transfer` logs for the same movement:
+
+* The [EIP-7708](https://eips.ethereum.org/EIPS/eip-7708) native-value log emitted by the system address `0xfffffffffffffffffffffffffffffffffffffffe`, with the amount `1000000000000000000` in 18 decimals.
+* The ERC-20 `Transfer` event emitted by `0x3600000000000000000000000000000000000000`, with the amount `1000000` in 6 decimals.
+
 ## `eth_simulateV1` code examples
 
 <CodeGroup>
@@ -24,7 +33,7 @@ const { JsonRpcProvider } = require("ethers");
 const provider = new JsonRpcProvider("CHAINSTACK_NODE_URL");
 
 async function call() {
-  const result = await provider.send("eth_simulateV1", [{"blockStateCalls": [{"calls": [{"from": "0x5d20879655df3c1e04ab111af0009ad650e762f0", "to": "0x3600000000000000000000000000000000000000", "gas": "0xf4240", "data": "0x"}]}]}, "latest"]);
+  const result = await provider.send("eth_simulateV1", [{"blockStateCalls": [{"stateOverrides": {"0x5d20879655df3c1e04ab111af0009ad650e762f0": {"balance": "0x8ac7230489e80000"}}, "calls": [{"from": "0x5d20879655df3c1e04ab111af0009ad650e762f0", "to": "0x3600000000000000000000000000000000000000", "data": "0xa9059cbb000000000000000000000000000000000000000000000000000000000000dead00000000000000000000000000000000000000000000000000000000000f4240"}]}]}, "latest"]);
   console.log(result);
 }
 
@@ -37,9 +46,21 @@ from web3 import Web3
 node_url = "CHAINSTACK_NODE_URL"
 web3 = Web3(Web3.HTTPProvider(node_url))
 
-# Make the call
-# Add your parameters here
-# result = web3.eth.<method_name>(...)
+sender = "0x5d20879655df3c1e04ab111af0009ad650e762f0"
+usdc = "0x3600000000000000000000000000000000000000"
+transfer_data = "0xa9059cbb000000000000000000000000000000000000000000000000000000000000dead00000000000000000000000000000000000000000000000000000000000f4240"
+
+result = web3.provider.make_request("eth_simulateV1", [
+    {
+        "blockStateCalls": [
+            {
+                "stateOverrides": {sender: {"balance": "0x8ac7230489e80000"}},
+                "calls": [{"from": sender, "to": usdc, "data": transfer_data}]
+            }
+        ]
+    },
+    "latest"
+])
 print(result)
 ```
 
@@ -49,7 +70,7 @@ curl -X POST "CHAINSTACK_NODE_URL" \
   --data '{
     "jsonrpc": "2.0",
     "method": "eth_simulateV1",
-    "params": [{"blockStateCalls": [{"calls": [{"from": "0x5d20879655df3c1e04ab111af0009ad650e762f0", "to": "0x3600000000000000000000000000000000000000", "gas": "0xf4240", "data": "0x"}]}]}, "latest"],
+    "params": [{"blockStateCalls": [{"stateOverrides": {"0x5d20879655df3c1e04ab111af0009ad650e762f0": {"balance": "0x8ac7230489e80000"}}, "calls": [{"from": "0x5d20879655df3c1e04ab111af0009ad650e762f0", "to": "0x3600000000000000000000000000000000000000", "data": "0xa9059cbb000000000000000000000000000000000000000000000000000000000000dead00000000000000000000000000000000000000000000000000000000000f4240"}]}]}, "latest"],
     "id": 1
   }'
 ```
