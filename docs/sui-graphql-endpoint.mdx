@@ -171,16 +171,14 @@ Lists are cursor-paginated. Page forward with `first` and `after`, or backward w
 
 GraphQL history depends on the query type. Each kind of query reads from its own window, and the node reports every window through `serviceConfig.availableRange`:
 
-| Query type | Window | First checkpoint on Sep 29, 2026 |
-| --- | --- | --- |
-| Point lookups and unfiltered lists — `checkpoint`, `transaction`, `object`, `objectVersions`, and `checkpoints` or `transactions` without a filter | Fixed start at the node's retention floor, growing with the chain | 237,661,232 (Jan 23, 2026) |
-| Filtered transactions — any `filter` field on `transactions`, and `transactions` on an address — and all `events` | Rolling, about the most recent 90 days | 294,775,698 (Jul 5, 2026) |
-| Live `balances` and owned `objects` | Current state, plus a short recent window for `atCheckpoint` reads | About the last hour |
-| Move `packages` | Every package since genesis | 0 |
+| Query type | Window |
+| --- | --- |
+| Point lookups and unfiltered lists — `checkpoint`, `transaction`, `object`, `objectVersions`, and `checkpoints` or `transactions` without a filter | Starts at the node's retention floor and grows as the chain grows |
+| Filtered transactions — any `filter` field on `transactions`, and `transactions` on an address — and all `events` | Rolling window of up to the most recent 90 days |
+| Live `balances` and owned `objects` | Current state, plus a short window of recent checkpoints for `atCheckpoint` reads |
+| Move `packages` | Every package since genesis |
 
-`object` and `multiGetObjects` find an object by ID only when its current version was written inside the point-lookup window. For a live object last modified before the window floor, list it through its owner with `address.objects`, or read it with gRPC `LedgerService/GetObject` on the same node.
-
-Query `availableRange` for the window of a specific query and filter:
+Query `availableRange` for the current window of a specific query and filter. `first` is the oldest checkpoint the query can reach:
 
 ```graphql
 {
@@ -218,7 +216,7 @@ Query `availableRange` for the window of a specific query and filter:
 
 A query outside its window returns an empty result, not an error. A filtered list returns no `nodes`, a `transaction` lookup returns `null`, and a `checkpoint` below the floor returns its `sequenceNumber` with every other field `null`. Check `availableRange` before you read an empty result as "no data".
 
-The floors can move, so read `availableRange` at runtime instead of hard-coding them. The gRPC interface on the same node reports the matching floor as `lowestAvailableCheckpoint` — see [Checkpoint retention](/docs/sui-grpc-endpoint#checkpoint-retention). For data older than these windows, query an archival service — see Sui's [Archival Store and Service](https://docs.sui.io/develop/accessing-data/archival-store).
+The windows move — the filtered window rolls forward with every checkpoint — so read `availableRange` at runtime instead of hard-coding checkpoint numbers. The gRPC interface on the same node reports the matching floor as `lowestAvailableCheckpoint` — see [Checkpoint retention](/docs/sui-grpc-endpoint#checkpoint-retention). For data older than these windows, query an archival service — see Sui's [Archival Store and Service](https://docs.sui.io/develop/accessing-data/archival-store).
 
 ## Query limits
 
