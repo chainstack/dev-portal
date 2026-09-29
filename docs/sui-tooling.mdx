@@ -1,12 +1,12 @@
 ---
 title: "Sui tooling"
-description: "Sui blockchain development tools guide. Use gRPC, JSON-RPC, the TypeScript SDK, Rust SDK, Python pysui, and Go SDK to build Sui applications with Chainstack."
+description: "Sui blockchain development tools guide. Use gRPC, GraphQL, JSON-RPC, the TypeScript SDK, Rust SDK, Python pysui, and Go SDK to build Sui applications with Chainstack."
 ---
 
-Get started with a [reliable Sui RPC endpoint](https://chainstack.com/build-better-with-sui/) to use the tools below. Your Chainstack Sui node serves both gRPC and JSON-RPC on the same endpoint.
+Get started with a [reliable Sui RPC endpoint](https://chainstack.com/build-better-with-sui/) to use the tools below. Your Chainstack Sui node serves gRPC and JSON-RPC on the same endpoint, and Sui Mainnet Global Nodes also serve GraphQL.
 
 <Warning>
-  Sui Foundation retires its public JSON-RPC endpoints by Jul 31, 2026. Chainstack's own JSON-RPC keeps working, but gRPC is the path forward — see [Migrate Sui from JSON-RPC to gRPC](/docs/sui-migrate-json-rpc-to-grpc).
+  Sui Foundation's public endpoints no longer serve JSON-RPC, and Sui removes JSON-RPC from the full node code in mid-October 2026. Your Chainstack endpoint still serves JSON-RPC; plan your move to gRPC and GraphQL — see [Migrate Sui from JSON-RPC to gRPC and GraphQL](/docs/sui-migrate-json-rpc-to-grpc).
 </Warning>
 
 ## Extended history
@@ -155,9 +155,40 @@ In TypeScript, use the official `@mysten/sui` SDK. Its default gRPC-Web transpor
   The default gRPC-Web transport works in both the browser and server runtimes, so it is the simplest choice for most apps. The native gRPC transport (HTTP/2) is server-side only — use it when you specifically need native gRPC.
 </Info>
 
+## GraphQL API
+
+Sui Mainnet Global Nodes serve Sui's GraphQL RPC at `YOUR_CHAINSTACK_ENDPOINT/graphql`, with the same auth token as JSON-RPC. Use GraphQL for filtered, paginated reads — transactions by address, events by type, objects by owner and type — that have no gRPC equivalent. GraphQL is not available on Sui Testnet.
+
+In TypeScript, use `SuiGraphQLClient` from the official `@mysten/sui` SDK:
+
+```typescript TypeScript
+// npm install @mysten/sui
+import { SuiGraphQLClient } from '@mysten/sui/graphql';
+import { graphql } from '@mysten/sui/graphql/schema';
+
+const client = new SuiGraphQLClient({
+  url: 'YOUR_CHAINSTACK_ENDPOINT/graphql',
+  network: 'mainnet',
+});
+
+const result = await client.query({
+  query: graphql(`
+    query {
+      checkpoint {
+        sequenceNumber
+        timestamp
+      }
+    }
+  `),
+});
+console.log(result.data);
+```
+
+Filtered queries and events keep a shorter history window than point lookups. For authentication options, filters, history windows, and query limits, see [Sui GraphQL endpoint](/docs/sui-graphql-endpoint).
+
 ## JSON-RPC API
 
-Interact with your Sui node using the [Sui JSON-RPC API](https://docs.sui.io/sui-api-ref). Chainstack's JSON-RPC endpoints keep working after Sui's public endpoints shut down, so this is a valid path while you migrate to gRPC.
+Interact with your Sui node using the [Sui JSON-RPC API](https://docs.sui.io/sui-api-ref). Sui's public endpoints no longer serve JSON-RPC, but your Chainstack endpoint does, so JSON-RPC remains a path while you migrate to gRPC and GraphQL.
 
 Use your Chainstack Sui RPC endpoint to make API calls. Example to get the latest checkpoint:
 

@@ -1,0 +1,272 @@
+---
+title: "Sui GraphQL endpoint"
+description: "Query Sui Mainnet over GraphQL RPC on Chainstack Global Nodes: endpoint and authentication, filtered transaction and event queries, history windows per query type, limits, and billing."
+---
+
+Sui Mainnet Global Nodes on Chainstack serve Sui's [GraphQL RPC](https://docs.sui.io/develop/accessing-data/graphql/graphql-rpc) at `/graphql` on the same endpoint and auth token as JSON-RPC and gRPC. Use GraphQL for filtered, paginated reads — transactions by address, events by type, objects by owner and type — that have no gRPC equivalent. Each GraphQL request is 1 request unit (RU).
+
+## Endpoint and authentication
+
+The GraphQL endpoint is your Sui Mainnet HTTPS endpoint with `/graphql` appended — `YOUR_CHAINSTACK_ENDPOINT/graphql`. To find your endpoint on Chainstack, see [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+
+Send each query as an HTTP `POST` with a JSON body of `query` and, optionally, `variables`. `GET` requests return `404`, and the endpoint does not serve a GraphiQL IDE.
+
+The endpoint accepts the same credentials as the node's other interfaces:
+
+| Method | URL | Credential |
+| --- | --- | --- |
+| Auth token in the URL | `YOUR_CHAINSTACK_ENDPOINT/graphql` | built into the URL |
+| Basic auth | `https://sui-mainnet.core.chainstack.com/graphql` | `YOUR_USER_NAME` and `YOUR_PASSWORD` |
+| x-token header | `https://sui-mainnet.core.chainstack.com/graphql` | `x-token: YOUR_X_TOKEN` header |
+
+A request without valid credentials returns `401`. Responses carry `Access-Control-Allow-Origin: *`, so browser apps can call the endpoint directly. For every authentication option, see [Authentication methods available on Chainstack](/docs/authentication-methods-for-different-scenarios).
+
+GraphQL is available on Sui Mainnet only. Sui Testnet nodes do not serve `/graphql`.
+
+## Run a query
+
+The official Sui TypeScript SDK (`@mysten/sui`) includes a GraphQL client, `SuiGraphQLClient`, that takes the endpoint as its `url`. The client runs raw queries and also exposes the same `client.core` methods as the SDK's gRPC and JSON-RPC clients.
+
+<CodeGroup>
+  ```bash cURL
+  curl --request POST \
+    --url YOUR_CHAINSTACK_ENDPOINT/graphql \
+    --header 'Content-Type: application/json' \
+    --data '{"query": "{ chainIdentifier checkpoint { sequenceNumber digest timestamp } }"}'
+  ```
+
+  ```typescript TypeScript
+  // npm install @mysten/sui
+  import { SuiGraphQLClient } from '@mysten/sui/graphql';
+  import { graphql } from '@mysten/sui/graphql/schema';
+
+  const client = new SuiGraphQLClient({
+    url: 'YOUR_CHAINSTACK_ENDPOINT/graphql',
+    network: 'mainnet',
+  });
+
+  const result = await client.query({
+    query: graphql(`
+      query {
+        chainIdentifier
+        checkpoint {
+          sequenceNumber
+          digest
+          timestamp
+        }
+      }
+    `),
+  });
+  console.log(result.data);
+
+  // The same client also serves the SDK's core API
+  const { balance } = await client.core.getBalance({
+    owner: '0xb52b53331b8b7ce1592e9e2447911fb9af43aee835877bc0e6e501b6659408c3',
+  });
+  console.log(balance.balance);
+  ```
+
+  ```python Python
+  import requests
+
+  query = """
+  query {
+    chainIdentifier
+    checkpoint {
+      sequenceNumber
+      digest
+      timestamp
+    }
+  }
+  """
+
+  response = requests.post(
+      "YOUR_CHAINSTACK_ENDPOINT/graphql",
+      json={"query": query},
+  )
+  print(response.json()["data"])
+  ```
+</CodeGroup>
+
+Response:
+
+```json
+{
+  "data": {
+    "chainIdentifier": "4btiuiMPvEENsttpZC7CZ53DruC3MAgfznDbASZ7DR6S",
+    "checkpoint": {
+      "sequenceNumber": 328096486,
+      "digest": "9GV9KiaQ2J3dtPdy11id46Cnz9ft7RJYX8PNufvAeNzy",
+      "timestamp": "2026-09-29T01:10:15.471Z"
+    }
+  }
+}
+```
+
+## Filter transactions and events
+
+The `transactions` and `events` queries take a `filter` argument, which is where GraphQL replaces JSON-RPC's `suix_queryTransactionBlocks` and `suix_queryEvents`:
+
+- `transactions` — filter by `affectedAddress`, `sentAddress`, `affectedObject`, `function`, or `kind`, and bound the range with `afterCheckpoint`, `atCheckpoint`, or `beforeCheckpoint`
+- `events` — filter by `type`, `module`, or `sender`, with the same checkpoint bounds
+
+This query returns the latest `OrderPlaced` event from DeepBook v3:
+
+```graphql
+query ($type: String!) {
+  events(last: 1, filter: { type: $type }) {
+    nodes {
+      timestamp
+      transaction { digest }
+      contents { json }
+    }
+  }
+}
+```
+
+Variables:
+
+```json
+{
+  "type": "0x2c8d603bc51326b8c13cef9dd07031a408a48dddb541963357661df5d3204809::order_info::OrderPlaced"
+}
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "events": {
+      "nodes": [
+        {
+          "timestamp": "2026-09-29T01:10:14.789Z",
+          "transaction": {
+            "digest": "8jVMVLt73kCukre2bX7o5Ev8eFdjps23AdgokknCaXYQ"
+          },
+          "contents": {
+            "json": {
+              "balance_manager_id": "0x08aa68cf0d865924df66611635885686f420bde78d8eb8a9741bc97ff0c715ff",
+              "pool_id": "0xe05dafb5133bcffb8d59f4e12465dc0e9faeaa05e3e342a08fe135800e3e4407",
+              "order_id": "21082248846264508727448301",
+              "client_order_id": "15030299036365903758",
+              "trader": "0x1a66b986f6e938c9f6d4cf7b98c97c331165cad5759e13fbbb1dee01728841dd",
+              "price": "1142870",
+              "is_bid": true,
+              "placed_quantity": "1500000000",
+              "expire_timestamp": "1790644514680",
+              "timestamp": "1790644214716"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+Lists are cursor-paginated. Page forward with `first` and `after`, or backward with `last` and `before`, and read the cursors from `pageInfo`. A page holds up to 50 items; requesting more fails with `Page size is too large`.
+
+## How far back GraphQL history goes
+
+GraphQL history depends on the query type. Each kind of query reads from its own window, and the node reports every window through `serviceConfig.availableRange`:
+
+| Query type | Window |
+| --- | --- |
+| Point lookups and unfiltered lists — `checkpoint`, `transaction`, `object`, `objectVersions`, and `checkpoints` or `transactions` without a filter | Starts at the node's retention floor and grows as the chain grows |
+| Filtered transactions — any `filter` field on `transactions`, and `transactions` on an address — and all `events` | Rolling window of up to the most recent 90 days |
+| Live `balances` and owned `objects` | Current state, plus a short window of recent checkpoints for `atCheckpoint` reads |
+| Move `packages` | Every package since genesis |
+
+Query `availableRange` for the current window of a specific query and filter. `first` is the oldest checkpoint the query can reach:
+
+```graphql
+{
+  serviceConfig {
+    events: availableRange(type: "Query", field: "events") {
+      first { sequenceNumber timestamp }
+    }
+    transactions: availableRange(type: "Query", field: "transactions") {
+      first { sequenceNumber timestamp }
+    }
+    transactionsByAddress: availableRange(type: "Query", field: "transactions", filters: ["affectedAddress"]) {
+      first { sequenceNumber timestamp }
+    }
+  }
+}
+```
+
+```json
+{
+  "data": {
+    "serviceConfig": {
+      "events": {
+        "first": { "sequenceNumber": 294775703, "timestamp": "2026-07-05T02:21:30.438Z" }
+      },
+      "transactions": {
+        "first": { "sequenceNumber": 237661232, "timestamp": "2026-01-23T22:30:07.386Z" }
+      },
+      "transactionsByAddress": {
+        "first": { "sequenceNumber": 294775698, "timestamp": "2026-07-05T02:21:29.341Z" }
+      }
+    }
+  }
+}
+```
+
+A query outside its window returns an empty result, not an error. A filtered list returns no `nodes`, a `transaction` lookup returns `null`, and a `checkpoint` below the floor returns its `sequenceNumber` with every other field `null`. Check `availableRange` before you read an empty result as "no data".
+
+The windows move — the filtered window rolls forward with every checkpoint — so read `availableRange` at runtime instead of hard-coding checkpoint numbers. The gRPC interface on the same node reports the matching floor as `lowestAvailableCheckpoint` — see [Checkpoint retention](/docs/sui-grpc-endpoint#checkpoint-retention). For data older than these windows, query an archival service — see Sui's [Archival Store and Service](https://docs.sui.io/develop/accessing-data/archival-store).
+
+## Query limits
+
+The node reports its query limits through `serviceConfig`. A query over a limit fails with a `GRAPHQL_VALIDATION_FAILED` error that names the limit.
+
+```graphql
+{
+  serviceConfig {
+    maxPageSize(type: "Query", field: "transactions")
+    maxQueryPayloadSize
+    maxQueryDepth
+    maxQueryNodes
+    maxMultiGetSize
+    queryTimeoutMs
+  }
+}
+```
+
+```json
+{
+  "data": {
+    "serviceConfig": {
+      "maxPageSize": 50,
+      "maxQueryPayloadSize": 5000,
+      "maxQueryDepth": 20,
+      "maxQueryNodes": 300,
+      "maxMultiGetSize": 200,
+      "queryTimeoutMs": 40000
+    }
+  }
+}
+```
+
+To see how close a query comes to these limits, send it with the `x-sui-rpc-show-usage: true` header. The response then carries an `extensions.usage` object with the query's node count, depth, and payload size in bytes.
+
+## Transactions and simulation
+
+GraphQL also covers writes. The `executeTransaction` mutation submits a signed transaction, and the `simulateTransaction` query dry-runs one, replacing JSON-RPC's `sui_dryRunTransactionBlock` and `sui_devInspectTransactionBlock`. With the TypeScript SDK, call `client.simulateTransaction()` and `client.signAndExecuteTransaction()` on a `SuiGraphQLClient` the same way as on the gRPC client.
+
+## Streaming
+
+The GraphQL endpoint does not accept WebSocket connections, so GraphQL subscriptions are not available. To stream new checkpoints, use gRPC `SubscriptionService/SubscribeCheckpoints` on the same node — see [Sui tooling](/docs/sui-tooling#grpc-api).
+
+## Billing
+
+Each GraphQL request is 1 RU, the same as a gRPC or JSON-RPC call on Sui. Sui has no archive billing split, so a query that reaches back to the window floor costs the same as one at the tip. See [Request units](/docs/request-units).
+
+## Next steps
+
+- [Migrate Sui from JSON-RPC to gRPC and GraphQL](/docs/sui-migrate-json-rpc-to-grpc) — which JSON-RPC methods move to GraphQL and which to gRPC.
+- [Sui gRPC endpoint](/docs/sui-grpc-endpoint) — gRPC on the same node, and checkpoint retention.
+- [Sui tooling](/docs/sui-tooling) — SDKs and per-language connection code.
+- [GraphQL for Sui RPC](https://docs.sui.io/develop/accessing-data/graphql/graphql-rpc) — Sui's own GraphQL guide and schema reference.

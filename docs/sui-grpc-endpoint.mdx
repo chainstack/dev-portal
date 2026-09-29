@@ -3,7 +3,7 @@ title: "Sui gRPC endpoint"
 description: "The Chainstack Sui endpoint serves JSON-RPC and gRPC on the same node, with deep checkpoint retention and x-token authentication. Migrate off Sui's public JSON-RPC without switching providers."
 ---
 
-The Chainstack Sui endpoint serves both JSON-RPC and gRPC on the **same node**, so you can migrate off Sui Foundation's public JSON-RPC — [shutting down Jul 31, 2026](/docs/sui-migrate-json-rpc-to-grpc) — without re-syncing or switching providers. Keep calling JSON-RPC while you port your code, then move each call to gRPC on the same endpoint.
+The Chainstack Sui endpoint serves both JSON-RPC and gRPC on the **same node**, so you can move off JSON-RPC without re-syncing or switching providers. Sui Foundation's public endpoints no longer serve JSON-RPC, and Sui removes JSON-RPC from the full node code in mid-October 2026 — see [Migrate Sui from JSON-RPC to gRPC and GraphQL](/docs/sui-migrate-json-rpc-to-grpc). Keep calling JSON-RPC while you port your code, then move each call to gRPC on the same endpoint. Sui Mainnet Global Nodes also serve GraphQL for filtered queries — see [Sui GraphQL endpoint](/docs/sui-graphql-endpoint).
 
 ## What you get
 
@@ -20,6 +20,7 @@ Find your endpoint and credentials on Chainstack — see [View node access and c
 | --- | --- | --- |
 | JSON-RPC (HTTPS) | `YOUR_CHAINSTACK_ENDPOINT` | auth token or basic auth, built into the endpoint |
 | gRPC | `sui-mainnet.core.chainstack.com:443` | `x-token` metadata header |
+| GraphQL (Mainnet) | `YOUR_CHAINSTACK_ENDPOINT/graphql` | auth token, basic auth, or `x-token` header |
 
 Testnet gRPC is `sui-testnet.core.chainstack.com:443`. The auth token and x-token are the node's access credentials, not your Chainstack platform API key. For every authentication option, see [Authentication methods available on Chainstack](/docs/authentication-methods-for-different-scenarios).
 
@@ -51,7 +52,8 @@ In this response from Sep 27, 2026, the node held checkpoints 237,661,232 throug
 How the window applies to each interface:
 
 - gRPC — checkpoints, transactions, and object versions older than the window return `NotFound`.
-- JSON-RPC — object versions older than the window return `VersionNotFound`. On Mainnet, JSON-RPC also resolves older checkpoint and transaction lookups through the implicit archival fallback built into Sui's JSON-RPC, which Sui's [deprecation timeline](https://docs.sui.io/develop/accessing-data/json-rpc-migration) schedules for disconnection at the end of September 2026. Do not build on JSON-RPC reads below `lowestAvailableCheckpoint`.
+- GraphQL — point lookups share this floor, and filtered transaction and event queries keep a shorter window. `serviceConfig.availableRange` reports each window — see [How far back GraphQL history goes](/docs/sui-graphql-endpoint#how-far-back-graphql-history-goes).
+- JSON-RPC — object versions older than the window return `VersionNotFound`. On Mainnet, JSON-RPC also resolves older checkpoint and transaction lookups through the implicit archival fallback built into Sui's JSON-RPC, which Sui's [deprecation timeline](https://docs.sui.io/develop/accessing-data/json-rpc-migration) disconnects at the end of September 2026. Do not build on JSON-RPC reads below `lowestAvailableCheckpoint`.
 
 For data older than the window, query an archival service — see Sui's [Archival Store and Service](https://docs.sui.io/develop/accessing-data/archival-store).
 
