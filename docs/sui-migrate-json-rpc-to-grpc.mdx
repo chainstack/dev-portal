@@ -1,36 +1,36 @@
 ---
 title: "Migrate Sui from JSON-RPC to gRPC and GraphQL"
-description: "Sui Foundation is retiring its public JSON-RPC, with mainnet endpoints going offline the week of Jul 27, 2026. Migrate call by call to gRPC and GraphQL on Chainstack, where all three interfaces run on the same node and JSON-RPC keeps working."
+description: "Sui Foundation's public endpoints no longer serve JSON-RPC, and Sui removes JSON-RPC from the full node code in mid-October 2026. Migrate call by call to gRPC and GraphQL on Chainstack, where all three interfaces run on the same node."
 ---
 
-Sui Foundation is shutting down its **public** JSON-RPC endpoints. On Chainstack, your Sui node serves JSON-RPC and gRPC on the **same endpoint**, and Sui Mainnet Global Nodes also serve GraphQL on it. You migrate call by call — keep using JSON-RPC while you port each call to gRPC or GraphQL, with no provider switch and no re-sync.
+Sui is deprecating JSON-RPC, and Sui Foundation's **public** endpoints no longer serve it. On Chainstack, your Sui node serves JSON-RPC and gRPC on the **same endpoint**, and Sui Mainnet Global Nodes also serve GraphQL on it. You migrate call by call — keep using JSON-RPC while you port each call to gRPC or GraphQL, with no provider switch and no re-sync.
 
 <Warning>
-  Apps calling Sui Foundation's public JSON-RPC endpoint `fullnode.mainnet.sui.io` stop working when Sui disables mainnet JSON-RPC the week of Jul 27, 2026. Sui fully decommissions public JSON-RPC by mid-Oct 2026.
+  JSON-RPC calls to Sui Foundation's public endpoint `fullnode.mainnet.sui.io` return `-32601 Method not found`. Sui removes JSON-RPC from the full node code in mid-October 2026.
 </Warning>
 
-Sui Foundation retires its public mainnet JSON-RPC in stages, per [Sui's migration guide](https://docs.sui.io/develop/accessing-data/json-rpc-migration):
+Sui retires JSON-RPC on Mainnet in stages, per [Sui's migration guide](https://docs.sui.io/develop/accessing-data/json-rpc-migration):
 
 | Milestone | Date |
 | --- | --- |
-| Mainnet JSON-RPC disabled on Sui full nodes | Week of Jul 27, 2026 |
+| JSON-RPC disabled on Sui Foundation's Mainnet full nodes | Week of Jul 27, 2026 |
 | Sui stops publishing JSON-RPC snapshots | End of Aug 2026 |
 | Implicit fallback to the archival service disconnected | End of Sep 2026 |
-| Full decommission and code removal | Mid-Oct 2026 |
+| Full decommission of JSON-RPC from full nodes, including code removal | Mid-Oct 2026 |
 
 Sui publishes this timeline for mainnet only and does not give a separate testnet date.
 
-## What is actually being deprecated
+## What is being deprecated
 
-Only Sui Foundation's **public good** JSON-RPC endpoints are being turned off. JSON-RPC is deprecated in the `sui-node` software but not removed — node operators can keep JSON-RPC serving. Your **Chainstack Sui JSON-RPC endpoint keeps working**, so the deadline is not a hard cutover for Chainstack customers: you can keep calling JSON-RPC while you port your code to gRPC on the same endpoint.
+Sui deprecates JSON-RPC in two steps. Sui Foundation has already turned off JSON-RPC on its **public** endpoints. In mid-October 2026, Sui removes JSON-RPC from the full node code itself. Your **Chainstack Sui endpoint still serves JSON-RPC**, so you can keep calling it while you port your code to gRPC and GraphQL on the same endpoint — plan to finish that move rather than stay on JSON-RPC.
 
-The reason to migrate anyway is that gRPC is the interface Sui invests in going forward. gRPC uses HTTP/2 and Protocol Buffers for binary serialization, which makes payloads smaller and adds server-side streaming — you subscribe to new checkpoints instead of polling for them.
+gRPC and GraphQL are the interfaces Sui supports going forward. gRPC uses HTTP/2 and Protocol Buffers for binary serialization, which makes payloads smaller and adds server-side streaming — you subscribe to new checkpoints instead of polling for them.
 
 On Chainstack, the migration is **JSON-RPC → gRPC and GraphQL**, and all three run on the same node:
 
 - Move performance-sensitive and streaming workloads to **gRPC** — backends, indexers, typed clients, low-latency lookups, transaction submission, and checkpoint streaming.
 - Move filtered and paginated queries to **GraphQL** on Mainnet — transactions by address, events by type, and objects by owner and type. These are the methods with no gRPC equivalent. See [Sui GraphQL endpoint](/docs/sui-graphql-endpoint).
-- Keep anything you have not ported yet on **JSON-RPC**. It stays up on your Chainstack endpoint, including on Testnet, which does not serve GraphQL.
+- Keep anything you have not ported yet on **JSON-RPC**. Your Chainstack endpoint still serves it, including on Testnet, which does not serve GraphQL.
 
 ## Chainstack Sui endpoints
 
@@ -81,7 +81,7 @@ Sui's gRPC API is organized into services under `sui.rpc.v2`. Most read and writ
 
 ### No gRPC equivalent — use GraphQL
 
-These methods have no gRPC equivalent. On Mainnet, use the GraphQL query in the table. They also keep working on your Chainstack JSON-RPC endpoint, which is the path on Testnet.
+These methods have no gRPC equivalent. On Mainnet, use the GraphQL query in the table. Your Chainstack JSON-RPC endpoint still serves them, which is the path on Testnet.
 
 | JSON-RPC method | GraphQL query |
 | --- | --- |
