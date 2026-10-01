@@ -26,6 +26,42 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
   + `data` — the call data, typically including the function signature and parameters.
 * `blockParameter` — a string specifying the block number (in hexadecimal) or one of the strings `"earliest"`, `"latest"`, or `"pending"`, indicating the blockchain state to use for the call. Most commonly, `"latest"` is used.
 
+### State override (optional)
+
+`eth_call` accepts an optional third parameter: a state override set that changes account state for this call only. Nothing is written to the chain. The set is an object keyed by account address, and each address can override:
+
+* `balance` — the account balance in wei, hex-encoded
+* `nonce` — the account nonce, hex-encoded
+* `code` — the bytecode to run at the address
+* `state` — storage slot values that replace the account's entire storage
+* `stateDiff` — storage slot values to change, keeping the rest of the storage
+
+This example puts bytecode that returns `42` at an unused address, then calls that address:
+
+```bash
+curl --request POST \
+  --url CHAINSTACK_NODE_URL \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "eth_call",
+    "params": [
+      { "to": "0x00000000000000000000000000000000c0ffee42", "data": "0x" },
+      "latest",
+      { "0x00000000000000000000000000000000c0ffee42": { "code": "0x602a60005260206000f3" } }
+    ]
+  }'
+```
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": "0x000000000000000000000000000000000000000000000000000000000000002a"
+}
+```
+
 ## Response
 
 * `result` — the result of the call, encoded as a hexadecimal string. The format of the result depends on the function called.

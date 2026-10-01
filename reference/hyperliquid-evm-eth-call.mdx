@@ -22,10 +22,11 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 
 ## Parameters
 
-The method takes two parameters:
+The method takes two parameters and an optional third:
 
 1. **Transaction call object** - Contains the call details
 2. **Block parameter** - Specifies which block state to use
+3. **State override** (optional) - Changes account state for this call only
 
 ### Transaction call object
 
@@ -39,6 +40,42 @@ The method takes two parameters:
 ### Block parameter
 
 * Block identifier: `"latest"` (only the latest block is supported on Hyperliquid)
+
+### State override (optional)
+
+`eth_call` accepts an optional third parameter: a state override set that changes account state for this call only. Nothing is written to the chain. The set is an object keyed by account address, and each address can override:
+
+* `balance` — the account balance in wei, hex-encoded
+* `nonce` — the account nonce, hex-encoded
+* `code` — the bytecode to run at the address
+* `state` — storage slot values that replace the account's entire storage
+* `stateDiff` — storage slot values to change, keeping the rest of the storage
+
+This example puts bytecode that returns `42` at an unused address, then calls that address:
+
+```bash
+curl --request POST \
+  --url YOUR_CHAINSTACK_ENDPOINT/evm \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "eth_call",
+    "params": [
+      { "to": "0x00000000000000000000000000000000c0ffee42", "data": "0x" },
+      "latest",
+      { "0x00000000000000000000000000000000c0ffee42": { "code": "0x602a60005260206000f3" } }
+    ]
+  }'
+```
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": "0x000000000000000000000000000000000000000000000000000000000000002a"
+}
+```
 
 ## Response
 
