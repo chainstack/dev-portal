@@ -1,0 +1,264 @@
+---
+title: "Elysium tooling"
+description: "Connect MetaMask, ethers.js, viem, web3.py, Foundry, and Hardhat to an Elysium Testnet node on Chainstack. Chain configuration, the HYPE gas token, contract verification on Blockscout, and the Elysium behaviors that affect tooling."
+---
+
+Elysium is an Arbitrum Orbit chain from Kinetiq that settles to HyperEVM. It runs the standard EVM, so the Ethereum libraries and frameworks work against an Elysium node without modification. The differences are in the chain configuration: chain ID `99801`, HYPE as the gas token, and a Blockscout API for contract verification.
+
+## Chain configuration
+
+Chainstack serves Elysium Testnet. Kinetiq has not published the Elysium Mainnet network details yet.
+
+| Property | Value |
+|----------|-------|
+| Network | Elysium Testnet |
+| Chain ID | `99801` |
+| Native gas currency | HYPE |
+| Decimals | `18` |
+| Parent chain | HyperEVM Testnet (chain ID `998`) |
+| RPC URL | your Chainstack [Elysium endpoint](/docs/manage-your-node#view-node-access-and-credentials) |
+| Multicall3 | `0xcA11bde05977b3631167028862bE2a173976CA11` |
+| Block explorer | [elysium.kinetiq.xyz/testnet-explorer](https://elysium.kinetiq.xyz/testnet-explorer) |
+| Contract verification API | `https://elysium.kinetiq.xyz/api` (Blockscout) |
+| Faucet | [elysium.kinetiq.xyz/testnet-faucet](https://elysium.kinetiq.xyz/testnet-faucet) |
+| Bridge from HyperEVM Testnet | [elysium.kinetiq.xyz/testnet-bridge](https://elysium.kinetiq.xyz/testnet-bridge) |
+
+Elysium's HYPE comes from HyperEVM through a 1:1 bridge, so you can fund an Elysium Testnet account from the faucet or by bridging testnet HYPE from HyperEVM Testnet.
+
+See [Elysium methods](/docs/elysium-methods) for per-method availability.
+
+## MetaMask
+
+Add Elysium Testnet as a custom network. On Chainstack, get your [Elysium endpoint](/docs/manage-your-node#view-node-access-and-credentials), then in MetaMask select **Add a custom network** and fill in:
+
+* Network name — Elysium Testnet
+* Default RPC URL — your Chainstack Elysium endpoint
+* Chain ID — `99801`
+* Currency symbol — HYPE
+* Block explorer URL — `https://explorer-elysium-testnet.t.conduit.xyz`
+
+The block explorer URL is the explorer that Conduit, the chain's operator, hosts for Elysium Testnet. MetaMask builds transaction links as `<explorer URL>/tx/<hash>`, and this explorer serves that path. The Kinetiq explorer at [elysium.kinetiq.xyz/testnet-explorer](https://elysium.kinetiq.xyz/testnet-explorer) shows the same chain but serves transactions at `/transaction/<hash>`.
+
+## ethers.js
+
+Install [ethers.js](https://docs.ethers.org/):
+
+<CodeGroup>
+```shell Shell
+npm install ethers
+```
+</CodeGroup>
+
+<CodeGroup>
+```javascript index.js
+const { JsonRpcProvider, formatEther } = require("ethers");
+
+const provider = new JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function main() {
+  const network = await provider.getNetwork();
+  console.log("Chain ID:", network.chainId.toString());
+
+  const block = await provider.getBlockNumber();
+  console.log("Block:", block);
+
+  const balance = await provider.getBalance("0xb9D83D298D46C4dd73618F19a2A40084Ce36476a");
+  console.log("Balance:", formatEther(balance), "HYPE");
+}
+
+main();
+```
+</CodeGroup>
+
+To receive new blocks as Elysium produces them, connect to the WSS endpoint and subscribe:
+
+<CodeGroup>
+```javascript index.js
+const { WebSocketProvider } = require("ethers");
+
+const provider = new WebSocketProvider("CHAINSTACK_WSS_URL");
+
+provider.on("block", (blockNumber) => {
+  console.log("New block:", blockNumber);
+});
+```
+</CodeGroup>
+
+## viem
+
+Elysium is not in viem's bundled chain list, so define it with `defineChain`:
+
+<Warning>
+  The `elysiumTestnet` export in `viem/chains` is a different chain: Vulcan Forged's Elysium Testnet, chain ID `1338`, with LAVA as its currency. Importing it for Kinetiq's Elysium gives you the wrong currency symbol and explorer links, and `http()` without a URL falls back to the Vulcan Forged RPC. Define chain `99801` yourself.
+</Warning>
+
+<CodeGroup>
+```shell Shell
+npm install viem
+```
+</CodeGroup>
+
+<CodeGroup>
+```javascript index.mjs
+import { createPublicClient, http, defineChain, formatEther } from "viem";
+
+export const elysiumTestnet = defineChain({
+  id: 99801,
+  name: "Elysium Testnet",
+  testnet: true,
+  nativeCurrency: { decimals: 18, name: "HYPE", symbol: "HYPE" },
+  rpcUrls: { default: { http: ["CHAINSTACK_NODE_URL"] } },
+  contracts: {
+    multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11" },
+  },
+});
+
+const client = createPublicClient({ chain: elysiumTestnet, transport: http() });
+
+console.log("Chain ID:", await client.getChainId());
+console.log("Block:", await client.getBlockNumber());
+
+const balance = await client.getBalance({
+  address: "0xb9D83D298D46C4dd73618F19a2A40084Ce36476a",
+});
+console.log("Balance:", formatEther(balance), "HYPE");
+```
+</CodeGroup>
+
+The `multicall3` entry lets `client.multicall` batch contract reads into a single `eth_call`.
+
+## web3.py
+
+Install [web3.py](https://web3py.readthedocs.io/):
+
+<CodeGroup>
+```shell Shell
+pip install web3
+```
+</CodeGroup>
+
+<CodeGroup>
+```python main.py
+from web3 import Web3
+
+web3 = Web3(Web3.HTTPProvider("CHAINSTACK_NODE_URL"))
+
+print("Connected:", web3.is_connected())
+print("Chain ID:", web3.eth.chain_id)
+print("Block:", web3.eth.block_number)
+
+address = Web3.to_checksum_address("0xb9d83d298d46c4dd73618f19a2a40084ce36476a")
+balance = web3.eth.get_balance(address)
+print("Balance:", web3.from_wei(balance, "ether"), "HYPE")
+```
+</CodeGroup>
+
+<Note>
+  web3.py rejects lowercase addresses with `InvalidAddress`. Wrap any address you did not get from the library itself in `Web3.to_checksum_address()`, as in the `main.py` example.
+</Note>
+
+## Foundry
+
+Install [Foundry](https://getfoundry.sh/) and pass your Chainstack endpoint with `--rpc-url`.
+
+Read chain data with `cast`:
+
+<CodeGroup>
+```shell Shell
+cast chain-id --rpc-url CHAINSTACK_NODE_URL
+cast block-number --rpc-url CHAINSTACK_NODE_URL
+cast balance 0xb9D83D298D46C4dd73618F19a2A40084Ce36476a --ether --rpc-url CHAINSTACK_NODE_URL
+```
+</CodeGroup>
+
+Deploy a contract with `forge create`. Without `--broadcast`, `forge create` only simulates the deployment.
+
+<CodeGroup>
+```shell Shell
+forge create src/Counter.sol:Counter \
+  --rpc-url CHAINSTACK_NODE_URL \
+  --private-key YOUR_PRIVATE_KEY \
+  --broadcast
+```
+</CodeGroup>
+
+Verify the deployed contract on the Elysium Testnet Blockscout. The API does not need a key.
+
+<CodeGroup>
+```shell Shell
+forge verify-contract DEPLOYED_CONTRACT_ADDRESS src/Counter.sol:Counter \
+  --chain 99801 \
+  --verifier blockscout \
+  --verifier-url https://elysium.kinetiq.xyz/api/ \
+  --watch
+```
+</CodeGroup>
+
+The explorer link that `forge verify-contract` prints leaves out the `/testnet-explorer` path. Open the verified contract at `https://elysium.kinetiq.xyz/testnet-explorer/address/DEPLOYED_CONTRACT_ADDRESS`.
+
+## Hardhat
+
+In a [Hardhat 3](https://hardhat.org/) project that uses `@nomicfoundation/hardhat-toolbox-viem`, add Elysium Testnet to `hardhat.config.ts`. The `chainDescriptors` entry gives `hardhat verify` the address of the Elysium Testnet Blockscout API.
+
+<CodeGroup>
+```typescript hardhat.config.ts
+import { configVariable, defineConfig } from "hardhat/config";
+import hardhatToolboxViem from "@nomicfoundation/hardhat-toolbox-viem";
+
+export default defineConfig({
+  plugins: [hardhatToolboxViem],
+  solidity: "0.8.28",
+  networks: {
+    elysiumTestnet: {
+      type: "http",
+      url: configVariable("ELYSIUM_RPC_URL"),
+      accounts: [configVariable("ELYSIUM_PRIVATE_KEY")],
+    },
+  },
+  chainDescriptors: {
+    99801: {
+      name: "Elysium Testnet",
+      blockExplorers: {
+        blockscout: {
+          name: "Elysium Testnet Explorer",
+          url: "https://elysium.kinetiq.xyz/testnet-explorer",
+          apiUrl: "https://elysium.kinetiq.xyz/api",
+        },
+      },
+    },
+  },
+});
+```
+</CodeGroup>
+
+`configVariable` reads `ELYSIUM_RPC_URL` and `ELYSIUM_PRIVATE_KEY` from environment variables or the Hardhat keystore, which keeps the endpoint and the key out of the config file.
+
+Deploy with an Ignition module, for example `ignition/modules/Counter.ts`:
+
+<CodeGroup>
+```typescript ignition/modules/Counter.ts
+import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
+
+export default buildModule("CounterModule", (m) => {
+  const counter = m.contract("Counter");
+  return { counter };
+});
+```
+</CodeGroup>
+
+<CodeGroup>
+```shell Shell
+npx hardhat ignition deploy ignition/modules/Counter.ts --network elysiumTestnet
+npx hardhat verify blockscout --network elysiumTestnet DEPLOYED_CONTRACT_ADDRESS
+```
+</CodeGroup>
+
+## Elysium behaviors that affect tooling
+
+**A HYPE transfer needs more than 21,000 gas.** Nitro adds the cost of posting the transaction to the parent chain to its gas, reported as `gasUsedForL1` in the receipt, so a plain transfer uses about 21,140 gas and `eth_estimateGas` returns more than 21,000. A transaction with a hard-coded gas limit of `21000` returns `-32000 intrinsic gas too low`. ethers.js, viem, web3.py, Foundry, and Hardhat all estimate gas when you don't set a limit.
+
+**HyperCore precompiles are not available.** Elysium does not have HyperEVM's HyperCore read precompiles (`0x0000000000000000000000000000000000000800` and up) or the CoreWriter contract (`0x3333333333333333333333333333333333333333`). A call to one of these addresses succeeds and returns empty data, as a call to any address without code does, so a contract ported from HyperEVM reverts when it decodes the result, not at the call. Kinetiq plans a HyperCore market-data precompile and an `ElysiumCoreWriter` predeploy for an ArbOS upgrade after the Mainnet launch. See [Building on Elysium](https://elysium.kinetiq.xyz/docs/building-on-elysium).
+
+**Pending transactions are never delivered.** Elysium has a single sequencer and no public mempool. `eth_subscribe("newPendingTransactions")` and `eth_newPendingTransactionFilter` return an ID but deliver nothing, so an ethers.js `provider.on("pending")` listener never fires. Watch new blocks or transaction receipts instead. See [Pending transactions are accepted but never delivered](/docs/elysium-methods#pending-transactions-are-accepted-but-never-delivered).
+
+**Block-count limits cover little time.** Elysium produces about four blocks per second, so limits defined in blocks span much less time than on Ethereum. A 10,000-block `eth_getLogs` request covers about 40 minutes of chain time, and `eth_getProof` serves state from less than 127 blocks behind the tip, about 30 seconds. Paginate log backfills accordingly. See [EVM range limits](/docs/limits#evm-range-limits) and [EVM `eth_getProof` history limits](/docs/limits#evm-eth_getproof-history-limits).
