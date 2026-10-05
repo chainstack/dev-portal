@@ -1,31 +1,31 @@
 ---
 title: "Bitcoin tooling"
-description: Connect to your Chainstack Bitcoin node using JSON-RPC API with curl or Postman, and set up Bitcoin Core for direct blockchain interaction.
+description: "Connect to a Chainstack Bitcoin node over JSON-RPC with curl, Python, and JavaScript on Mainnet, Testnet (testnet3), Signet Testnet, and Testnet4."
 ---
 
 Get started with a [reliable Bitcoin RPC endpoint](https://chainstack.com/build-better-with-bitcoin/) to use the tools below.
 
+Chainstack Bitcoin nodes serve the Bitcoin Core [JSON-RPC API](https://developer.bitcoin.org/reference/rpc/) over HTTPS. Send requests with curl or any HTTP client. The same calls work on Mainnet, Testnet (testnet3), Signet Testnet, and Testnet4.
+
 ## JSON-RPC API
-
-Interact with your Bitcoin nodes using [JSON-RPC API](https://en.bitcoin.it/wiki/API_reference_\(JSON-RPC\)#JSON-RPC).
-
-Use [curl](https://curl.haxx.se) or [Postman](https://www.getpostman.com) to invoke [Bitcoin API methods](https://bitcoin.org/en/developer-reference#bitcoin-core-apis).
 
 To get basic network information from your Bitcoin node HTTPS endpoint, call `getblockchaininfo`:
 
 <CodeGroup>
-  ```bash cURL
-  curl YOUR_CHAINSTACK_ENDPOINT -d '{"method":"getblockchaininfo","params":[],"id":1}'
-  ```
+```bash cURL
+curl YOUR_CHAINSTACK_ENDPOINT \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"1.0","id":1,"method":"getblockchaininfo","params":[]}'
+```
 </CodeGroup>
 
-where YOUR\_CHAINSTACK\_ENDPOINT is your node HTTPS endpoint protected either with the key or password
+where YOUR\_CHAINSTACK\_ENDPOINT is your node HTTPS endpoint protected either with the key or password. See [node access details](/docs/manage-your-node#view-node-access-and-credentials).
 
-## Testnet, Signet Testnet, and Testnet4
+To call methods from Postman, use the [Bitcoin RPC methods Postman collection](/reference/bitcoin-rpc-methods-postman-collection).
 
-Testnet (testnet3), Signet Testnet, and Testnet4 endpoints take the same JSON-RPC calls as Bitcoin Mainnet. Before your application sends transactions, check that `chain` in `getblockchaininfo` is `test`, `signet`, or `testnet4`, because testnet addresses look the same on every testnet. For network parameters and how the testnets differ, see [Bitcoin testnets](/docs/bitcoin-testnets).
+`bitcoin-cli` connects over plain HTTP only, so it cannot call a Chainstack HTTPS endpoint. Use curl or an HTTP client library.
 
-### Python (requests)
+## Python
 
 Install [requests](https://pypi.org/project/requests/):
 
@@ -69,13 +69,13 @@ else:
 ```
 </CodeGroup>
 
-On Testnet4, `estimatesmartfee` often has no estimate for short targets, so the `main.py` example falls back to the node's minimum mempool fee. See [Fee estimation on Testnet4](/docs/bitcoin-testnets#fee-estimation-on-testnet4).
+On Mainnet, the `main.py` example prints `Chain: main`, the block height, and a fee rate for confirmation within 6 blocks. For a password-protected endpoint, put the credentials in the URL, as in `https://USERNAME:PASSWORD@HOSTNAME`, and requests sends them as HTTP basic authentication.
 
 <Note>
   python-bitcoinlib 0.12.2 rejects HTTPS URLs in `bitcoin.rpc.Proxy` with `Unsupported URL scheme 'https'`, so send JSON-RPC to a Chainstack endpoint with an HTTP client such as requests.
 </Note>
 
-### JavaScript (bitcoinjs-lib)
+## JavaScript
 
 Install [bitcoinjs-lib](https://github.com/bitcoinjs/bitcoinjs-lib) with its key-pair dependencies. The example needs Node.js 20 or later, which `ecpair` requires, and uses the built-in `fetch`.
 
@@ -111,12 +111,10 @@ async function rpc(method, params = []) {
 const { chain, blocks } = await rpc("getblockchaininfo");
 console.log("Chain:", chain, "Blocks:", blocks);
 
+const network = chain === "main" ? bitcoin.networks.bitcoin : bitcoin.networks.testnet;
 const ECPair = ECPairFactory(ecc);
-const keyPair = ECPair.makeRandom({ network: bitcoin.networks.testnet });
-const { address } = bitcoin.payments.p2wpkh({
-  pubkey: keyPair.publicKey,
-  network: bitcoin.networks.testnet,
-});
+const keyPair = ECPair.makeRandom({ network });
+const { address } = bitcoin.payments.p2wpkh({ pubkey: keyPair.publicKey, network });
 console.log("Address:", address);
 
 const result = await rpc("validateaddress", [address]);
@@ -124,40 +122,27 @@ console.log("Valid on", chain + ":", result.isvalid);
 ```
 </CodeGroup>
 
-bitcoinjs-lib has no separate Signet Testnet or Testnet4 network, and `networks.testnet` produces `tb1` addresses that are valid on all three testnets. On a Testnet4 endpoint, the `index.mjs` example prints `Chain: testnet4`, a new `tb1q` address, and `Valid on testnet4: true`.
+The `index.mjs` example picks the bitcoinjs-lib network from `chain`, generates a new native SegWit address for it, and checks the address with `validateaddress`. On Mainnet, it prints `Chain: main`, a `bc1q` address, and `Valid on main: true`.
 
-## Python
-
-Work with Bitcoin from your Python application.
-
-1. Install [bitcoincli](https://github.com/chainstack/bitcoincli).
-2. Configure the client to use `host` and `port` of the node HTTPS endpoint, the corresponding node `username`, and `password`:
-
-   <CodeGroup>
-     ```python Python
-     from bitcoincli import Bitcoin
-
-     host = "nd-123-456-789.p2pify.com"
-     port = "443"
-     username = "user-name"
-     password = "pass-word-pass-word-pass-word"
-
-     bitcoin = Bitcoin(username, password, host, port)
-     ```
-   </CodeGroup>
-3. Invoke any methods from the [Bitcoin API specification](https://bitcoin.org/en/developer-reference#bitcoin-core-apis):
-
-   <CodeGroup>
-     ```python Python
-     info = bitcoin.getblockchaininfo()
-     print(info)
-     ```
-   </CodeGroup>
-
-The example code above should output basic network information:
+The built-in `fetch` rejects a URL that includes credentials, with `TypeError: Request cannot be constructed from a URL that includes credentials`. For a password-protected endpoint, send the credentials in an `Authorization` header instead:
 
 <CodeGroup>
-  ```python Python
-  {u'pruned': False, u'blocks': 603580, u'chainwork': u'00000000000000000000000000000000000000000a0baf330c67a89653c67005', u'chain': u'main', u'difficulty': 12720005267390.51, u'bip9_softforks': {u'csv': {u'status': u'active', u'since': 419328, u'timeout': 1493596800, u'startTime': 1462060800}, u'segwit': {u'status': u'active', u'since': 481824, u'timeout': 1510704000, u'startTime': 1479168000}}, u'warnings': u'', u'softforks': [{u'version': 2, u'id': u'bip34', u'reject': {u'status': True}}, {u'version': 3, u'id': u'bip66', u'reject': {u'status': True}}, {u'version': 4, u'id': u'bip65', u'reject': {u'status': True}}], u'initialblockdownload': False, u'headers': 603580, u'mediantime': 1573647950, u'verificationprogress': 0.9999919488385801, u'bestblockhash': u'000000000000000000068b536474a44f9e0a0a0ab6be75d9afdaddc8c513bcea', u'size_on_disk': 282597514457}
-  ```
+```javascript auth.mjs
+const ENDPOINT = "https://HOSTNAME";
+const AUTHORIZATION = "Basic " + Buffer.from("USERNAME:PASSWORD").toString("base64");
+
+const response = await fetch(ENDPOINT, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Authorization: AUTHORIZATION },
+  body: JSON.stringify({ jsonrpc: "1.0", id: 1, method: "getblockcount", params: [] }),
+});
+console.log("Blocks:", (await response.json()).result);
+```
 </CodeGroup>
+
+## Testnet, Signet Testnet, and Testnet4
+
+Testnet (testnet3), Signet Testnet, and Testnet4 endpoints take the same JSON-RPC calls as Bitcoin Mainnet, so the Python and JavaScript examples run on them unchanged. Before your application sends transactions, check that `chain` in `getblockchaininfo` is `test`, `signet`, or `testnet4`, because testnet addresses look the same on every testnet. For network parameters and how the testnets differ, see [Bitcoin testnets](/docs/bitcoin-testnets).
+
+- bitcoinjs-lib has no separate Signet Testnet or Testnet4 network. `networks.testnet` produces `tb1` addresses that are valid on all three testnets, which is the network the `index.mjs` example selects for any `chain` other than `main`.
+- On Testnet4, `estimatesmartfee` often has no estimate for short targets, so the `main.py` example falls back to the node's minimum mempool fee. See [Fee estimation on Testnet4](/docs/bitcoin-testnets#fee-estimation-on-testnet4).
