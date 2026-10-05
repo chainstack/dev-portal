@@ -1364,6 +1364,253 @@ paths:
           "$ref": "#/components/responses/ForbiddenError"
         '404':
           "$ref": "#/components/responses/NotFoundError"
+  "/v2/nodes/{node_id}/access-rules/":
+    parameters:
+    - "$ref": "#/components/parameters/NodeIdPath"
+    get:
+      operationId: listNodeAccessRulesV2
+      summary: List node access rules
+      description: |
+        List the access rules on a node. Access rules restrict who can send requests to the node endpoints — by IP address or by the HTTP `Origin` header.
+        <br> Access rules are available only on [Global Nodes](/docs/global-elastic-node). Calling this endpoint for a node without the access rules feature returns `403`.
+      parameters:
+      - "$ref": "#/components/parameters/NodeAccessRuleTypeFilter"
+      - "$ref": "#/components/parameters/NodeAccessRuleStatusFilter"
+      - "$ref": "#/components/parameters/Pagination"
+      tags:
+      - Node access rules V2
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                allOf:
+                - "$ref": "#/components/schemas/Pagination"
+                - type: object
+                  properties:
+                    results:
+                      type: array
+                      items:
+                        "$ref": "#/components/schemas/NodeAccessRuleV2"
+              examples:
+                list:
+                  value:
+                    count: 2
+                    next:
+                    previous:
+                    results:
+                    - id: NAR-123-456-789
+                      node_id: ND-123-456-789
+                      type: ip
+                      value: 203.0.113.10
+                      status: activated
+                      created_at: '2026-10-01T09:30:00.000000Z'
+                      updated_at: '2026-10-01T09:45:00.000000Z'
+                    - id: NAR-987-654-321
+                      node_id: ND-123-456-789
+                      type: origin
+                      value: "*.example.com"
+                      status: deactivated
+                      created_at: '2026-10-02T11:00:00.000000Z'
+                      updated_at: '2026-10-02T11:00:00.000000Z'
+          description: ''
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+        '404':
+          "$ref": "#/components/responses/NotFoundError"
+    post:
+      operationId: createNodeAccessRuleV2
+      summary: Create node access rule
+      description: |
+        Create an access rule on a node. A new rule starts as `deactivated` — activate it with [Update node access rule](/reference/chainstack-platform-api-v2-update-node-access-rule) or [Bulk update node access rules status](/reference/chainstack-platform-api-v2-bulk-update-node-access-rules-status) to enforce it.
+        <br> Access rules are available only on [Global Nodes](/docs/global-elastic-node), and your organization's plan must include them. Otherwise, the request returns `403`.
+      tags:
+      - Node access rules V2
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/NodeAccessRuleCreateV2"
+            examples:
+              ip:
+                summary: Allow an IP address
+                value:
+                  type: ip
+                  value: 203.0.113.10
+              origin:
+                summary: Allow an origin and its subdomains
+                value:
+                  type: origin
+                  value: "*.example.com"
+        required: true
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/NodeAccessRuleV2"
+              examples:
+                rule:
+                  value:
+                    id: NAR-123-456-789
+                    node_id: ND-123-456-789
+                    type: ip
+                    value: 203.0.113.10
+                    status: deactivated
+                    created_at: '2026-10-01T09:30:00.000000Z'
+                    updated_at: '2026-10-01T09:30:00.000000Z'
+          description: ''
+        '400':
+          "$ref": "#/components/responses/ValidationError"
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+        '404':
+          "$ref": "#/components/responses/NotFoundError"
+  "/v2/nodes/{node_id}/access-rules/{id}/":
+    parameters:
+    - "$ref": "#/components/parameters/NodeIdPath"
+    - "$ref": "#/components/parameters/Id"
+    get:
+      operationId: retrieveNodeAccessRuleV2
+      summary: Retrieve node access rule
+      description: Retrieve an access rule on a node.
+      tags:
+      - Node access rules V2
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/NodeAccessRuleV2"
+              examples:
+                rule:
+                  value:
+                    id: NAR-123-456-789
+                    node_id: ND-123-456-789
+                    type: ip
+                    value: 203.0.113.10
+                    status: activated
+                    created_at: '2026-10-01T09:30:00.000000Z'
+                    updated_at: '2026-10-01T09:45:00.000000Z'
+          description: ''
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+        '404':
+          "$ref": "#/components/responses/NotFoundError"
+    patch:
+      operationId: updateNodeAccessRuleV2
+      summary: Update node access rule
+      description: |
+        Change an access rule's value, activate it, or deactivate it. The rule's `type` can't be changed — create a new rule instead.
+      tags:
+      - Node access rules V2
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/NodeAccessRuleUpdateV2"
+            examples:
+              activate:
+                summary: Activate a rule
+                value:
+                  status: activated
+              value:
+                summary: Change the allowed IP address
+                value:
+                  value: 198.51.100.24
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/NodeAccessRuleV2"
+              examples:
+                rule:
+                  value:
+                    id: NAR-123-456-789
+                    node_id: ND-123-456-789
+                    type: ip
+                    value: 203.0.113.10
+                    status: activated
+                    created_at: '2026-10-01T09:30:00.000000Z'
+                    updated_at: '2026-10-01T09:45:00.000000Z'
+          description: ''
+        '400':
+          "$ref": "#/components/responses/ValidationError"
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+        '404':
+          "$ref": "#/components/responses/NotFoundError"
+    delete:
+      operationId: deleteNodeAccessRuleV2
+      summary: Delete node access rule
+      description: |
+        Delete an access rule from a node.
+        <br> When a node has no access rules left, the node endpoints accept requests from any IP address and origin, subject to the endpoint authentication.
+      tags:
+      - Node access rules V2
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '204':
+          description: No response body
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+        '404':
+          "$ref": "#/components/responses/NotFoundError"
+  "/v2/nodes/{node_id}/access-rules/bulk-update-status/":
+    parameters:
+    - "$ref": "#/components/parameters/NodeIdPath"
+    post:
+      operationId: bulkUpdateNodeAccessRulesStatusV2
+      summary: Bulk update node access rules status
+      description: |
+        Activate or deactivate every access rule on a node in one request.
+        <br> Deactivating all rules lifts the restriction: the node endpoints then accept requests from any IP address and origin, subject to the endpoint authentication.
+      tags:
+      - Node access rules V2
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/NodeAccessRulesBulkStatusV2"
+            examples:
+              activate:
+                summary: Activate all rules
+                value:
+                  status: activated
+        required: true
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '200':
+          description: All access rules on the node now have the requested status. No response body.
+        '400':
+          "$ref": "#/components/responses/ValidationError"
+        '401':
+          "$ref": "#/components/responses/UnauthorizedError"
+        '403':
+          "$ref": "#/components/responses/ForbiddenError"
+        '404':
+          "$ref": "#/components/responses/NotFoundError"
   "/v2/reporting/node-usage/":
     get:
       operationId: listNodeUsageV2
@@ -3027,6 +3274,96 @@ components:
         name:
           type: string
           description: Name of the node.
+    NodeAccessRuleV2:
+      type: object
+      properties:
+        id:
+          type: string
+          readOnly: true
+          description: ID of the access rule.
+          example: NAR-123-456-789
+        node_id:
+          type: string
+          readOnly: true
+          description: ID of the node the rule belongs to.
+          example: ND-123-456-789
+        type:
+          type: string
+          readOnly: true
+          enum:
+          - ip
+          - origin
+          description: |
+            Rule type:
+            * `ip` — allow requests from an IP address.
+            * `origin` — allow requests whose HTTP `Origin` header matches the value.
+        value:
+          type: string
+          readOnly: true
+          description: The allowed IP address or origin.
+          example: 203.0.113.10
+        status:
+          type: string
+          readOnly: true
+          enum:
+          - activated
+          - deactivated
+          description: Whether the rule is enforced. New rules start as `deactivated`.
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the rule was created.
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          description: When the rule was last changed.
+    NodeAccessRuleCreateV2:
+      type: object
+      required:
+      - type
+      - value
+      properties:
+        type:
+          type: string
+          enum:
+          - ip
+          - origin
+          description: |
+            Rule type:
+            * `ip` — allow requests from an IP address.
+            * `origin` — allow requests whose HTTP `Origin` header matches the value.
+        value:
+          type: string
+          description: |
+            The value to allow:
+            * For `ip` — an IPv4 or IPv6 address, for example `203.0.113.10`.
+            * For `origin` — a host name (`example.com`), a host name with a wildcard for its subdomains (`*.example.com`), or `*` for any origin. Up to 65 characters, no spaces.
+          example: 203.0.113.10
+    NodeAccessRuleUpdateV2:
+      type: object
+      properties:
+        value:
+          type: string
+          description: The new value, in the format the rule's type requires — see `value` in [Create node access rule](/reference/chainstack-platform-api-v2-create-node-access-rule).
+        status:
+          type: string
+          enum:
+          - activated
+          - deactivated
+          description: Activate or deactivate the rule.
+    NodeAccessRulesBulkStatusV2:
+      type: object
+      required:
+      - status
+      properties:
+        status:
+          type: string
+          enum:
+          - activated
+          - deactivated
+          description: The status to set on every access rule on the node.
   responses:
     ValidationError:
       description: Validation error.
@@ -3243,6 +3580,34 @@ components:
       description: A unique value identifying the Object.
       schema:
         type: string
+    NodeIdPath:
+      name: node_id
+      in: path
+      required: true
+      description: ID of the node.
+      schema:
+        type: string
+        example: ND-123-456-789
+    NodeAccessRuleTypeFilter:
+      name: type
+      required: false
+      in: query
+      description: Filter by rule type.
+      schema:
+        type: string
+        enum:
+        - ip
+        - origin
+    NodeAccessRuleStatusFilter:
+      name: status
+      required: false
+      in: query
+      description: Filter by rule status.
+      schema:
+        type: string
+        enum:
+        - activated
+        - deactivated
     NetworkOrdering:
       name: order_by
       required: false
