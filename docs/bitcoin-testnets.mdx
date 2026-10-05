@@ -1,6 +1,6 @@
 ---
 title: "Bitcoin testnets: Testnet, Signet Testnet, and Testnet4"
-description: "Compare the Bitcoin test networks on Chainstack — Testnet (testnet3), Signet Testnet, and Testnet4 — with network parameters, address formats, fee estimation on Testnet4, and a checklist for moving from Testnet (testnet3) to Testnet4."
+description: "Compare Testnet (testnet3), Signet Testnet, and Testnet4, the Bitcoin test networks on Chainstack, with network parameters, address formats, fee estimation on Testnet4, and a checklist for moving from Testnet (testnet3) to Testnet4."
 ---
 
 Chainstack serves three Bitcoin test networks on Global Nodes: Testnet (testnet3), Signet Testnet, and Testnet4. Use Signet Testnet or Testnet4 for new work. Bitcoin Core marks testnet3 as deprecated, and Testnet4 replaces it with consensus rules that stop CPU miners from flooding the chain with blocks.
@@ -9,13 +9,13 @@ Every Bitcoin network on Chainstack, including the testnets, runs Bitcoin Core n
 
 ## Which Bitcoin testnet to use
 
-Testnet4 is the general-purpose public testnet that replaces Testnet (testnet3). Signet Testnet is the testnet that nobody can flood with blocks or reorganize, because every block needs a signature.
+Testnet4 is the general-purpose public testnet that replaces Testnet (testnet3). Signet Testnet is the testnet that unauthorized miners cannot flood with blocks, because every block needs a signature from the signing keys.
 
 | Network | Who produces blocks | Block production | Use it for |
 | ------- | ------------------- | ---------------- | ---------- |
 | Testnet (testnet3) | Anyone, by proof of work | Deprecated in Bitcoin Core since version 28.0. Prone to block storms, which have pushed the chain past 5 million blocks. | Existing integrations that have not moved to Testnet4 |
 | Signet Testnet | Holders of the default signet signing keys, by proof of work plus a signature ([BIP325](https://github.com/bitcoin/bips/blob/master/bip-0325.mediawiki)) | Blocks target a 10-minute interval, and only the signing keys can add blocks, so the chain has no block storms | Integration tests and demos that need a stable chain |
-| Testnet4 | Anyone, by proof of work | Follows [BIP94](https://github.com/bitcoin/bips/blob/master/bip-0094.mediawiki). A block mined more than 20 minutes after the previous one may use the minimum difficulty, so many blocks are mined at minimum difficulty and carry only the coinbase transaction. | Wallets, exchanges, and services that need a public proof-of-work testnet in place of Testnet (testnet3) |
+| Testnet4 | Anyone, by proof of work | Follows [BIP94](https://github.com/bitcoin/bips/blob/master/bip-0094.mediawiki). A block mined more than 20 minutes after the previous one may use the minimum difficulty, and blocks often carry only the coinbase transaction. | Wallets, exchanges, and services that need a public proof-of-work testnet in place of Testnet (testnet3) |
 
 ## Network parameters
 
@@ -33,7 +33,7 @@ The `chain` value and the genesis block hash identify each network. The Bitcoin 
 | Block explorer | [mempool.space/testnet](https://mempool.space/testnet) | [mempool.space/signet](https://mempool.space/signet) | [mempool.space/testnet4](https://mempool.space/testnet4) |
 
 <Note>
-  `bitcoin-cli` connects over plain HTTP only. Bitcoin Core removed RPC TLS support in version 0.12, so `bitcoin-cli` cannot call a Chainstack HTTPS endpoint. Use curl or an HTTP client library, as shown in [Bitcoin tooling](/docs/bitcoin-tooling#signet-testnet-and-testnet4).
+  `bitcoin-cli` connects over plain HTTP only. Bitcoin Core removed RPC TLS support in version 0.12, so `bitcoin-cli` cannot call a Chainstack HTTPS endpoint. Use curl or an HTTP client library, as shown in [Bitcoin tooling](/docs/bitcoin-tooling#testnet-signet-testnet-and-testnet4).
 </Note>
 
 ## Why an address does not identify its testnet
@@ -63,13 +63,13 @@ Bitcoin libraries follow the same encodings. In bitcoinjs-lib, `networks.testnet
 
 ## Fee estimation on Testnet4
 
-Most Testnet4 blocks carry only the coinbase transaction, so `estimatesmartfee` often lacks data for short confirmation targets and returns `"errors": ["Insufficient data or no feerate found"]` instead of a `feerate`. Longer targets, such as 144 or 1008 blocks, usually return a fee rate.
+Testnet4 blocks often carry only the coinbase transaction, so `estimatesmartfee` often lacks data for short confirmation targets and returns `"errors": ["Insufficient data or no feerate found"]` instead of a `feerate`. Longer targets, such as 144 or 1008 blocks, usually return a fee rate.
 
 When `estimatesmartfee` returns no estimate, fall back to `mempoolminfee` from `getmempoolinfo`, the lowest fee rate the node accepts into its mempool. Signet Testnet blocks carry regular traffic, and `estimatesmartfee` returns a fee rate for short targets there.
 
 ## Move from Testnet (testnet3) to Testnet4
 
-Testnet4 keeps the consensus rules of Testnet (testnet3) and adds the BIP94 rules, so software that works on Testnet (testnet3) needs only the Testnet4 network parameters. To move an integration:
+Testnet4 keeps the consensus rules of Testnet (testnet3) and adds the BIP94 rules, so an application that reads and writes through a node's JSON-RPC API needs only the Testnet4 network parameters. Software that validates blocks itself must also enforce the BIP94 rules, or it can follow a chain that Testnet4 nodes reject. To move an integration:
 
 1. Deploy a Bitcoin Testnet4 [Global Node](/docs/global-elastic-node) on Chainstack and replace your Testnet (testnet3) endpoint with it.
 2. Check that `chain` is `testnet4` when your application starts.
@@ -101,7 +101,7 @@ The address string is valid on Testnet4, because the encodings are the same, but
 
 ### Is historical data available on the testnets?
 
-Yes. Chainstack Bitcoin testnet nodes keep every block from genesis and have `txindex` enabled, so `getrawtransaction` returns any transaction by its ID. Historical address queries need an address indexer such as electrs. See [Bitcoin methods](/docs/bitcoin-methods).
+Yes. Chainstack Bitcoin testnet nodes keep every block from genesis and have `txindex` enabled, so `getrawtransaction` returns any transaction by its ID except the genesis block coinbase, which Bitcoin Core does not treat as an ordinary transaction. Read the genesis coinbase with `getblock` at verbosity `2`. Historical address queries need an address indexer such as electrs. See [Bitcoin methods](/docs/bitcoin-methods).
 
 ### Does Chainstack offer regtest?
 

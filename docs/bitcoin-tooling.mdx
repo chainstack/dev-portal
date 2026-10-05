@@ -21,11 +21,11 @@ To get basic network information from your Bitcoin node HTTPS endpoint, call `ge
 
 where YOUR\_CHAINSTACK\_ENDPOINT is your node HTTPS endpoint protected either with the key or password
 
-## Signet Testnet and Testnet4
+## Testnet, Signet Testnet, and Testnet4
 
-Signet Testnet and Testnet4 endpoints take the same JSON-RPC calls as Bitcoin Mainnet. Before your application sends transactions, check that `chain` in `getblockchaininfo` is `signet` or `testnet4`, because testnet addresses look the same on every testnet. For network parameters and how the testnets differ, see [Bitcoin testnets](/docs/bitcoin-testnets).
+Testnet (testnet3), Signet Testnet, and Testnet4 endpoints take the same JSON-RPC calls as Bitcoin Mainnet. Before your application sends transactions, check that `chain` in `getblockchaininfo` is `test`, `signet`, or `testnet4`, because testnet addresses look the same on every testnet. For network parameters and how the testnets differ, see [Bitcoin testnets](/docs/bitcoin-testnets).
 
-### Python
+### Python (requests)
 
 Install [requests](https://pypi.org/project/requests/):
 
@@ -46,7 +46,10 @@ def rpc(method, params=None):
     response = requests.post(
         ENDPOINT,
         json={"jsonrpc": "1.0", "id": 1, "method": method, "params": params or []},
+        timeout=30,
     )
+    if "application/json" not in response.headers.get("Content-Type", ""):
+        raise RuntimeError(f"HTTP {response.status_code}: {response.text.strip()}")
     body = response.json()
     if body.get("error"):
         raise RuntimeError(body["error"]["message"])
@@ -72,9 +75,9 @@ On Testnet4, `estimatesmartfee` often has no estimate for short targets, so the 
   python-bitcoinlib 0.12.2 rejects HTTPS URLs in `bitcoin.rpc.Proxy` with `Unsupported URL scheme 'https'`, so send JSON-RPC to a Chainstack endpoint with an HTTP client such as requests.
 </Note>
 
-### JavaScript
+### JavaScript (bitcoinjs-lib)
 
-Install [bitcoinjs-lib](https://github.com/bitcoinjs/bitcoinjs-lib) with its key-pair dependencies. The example uses the built-in `fetch` from Node.js 18 or later.
+Install [bitcoinjs-lib](https://github.com/bitcoinjs/bitcoinjs-lib) with its key-pair dependencies. The example needs Node.js 20 or later, which `ecpair` requires, and uses the built-in `fetch`.
 
 <CodeGroup>
 ```shell Shell
@@ -95,7 +98,11 @@ async function rpc(method, params = []) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ jsonrpc: "1.0", id: 1, method, params }),
+    signal: AbortSignal.timeout(30000),
   });
+  if (!response.headers.get("content-type")?.includes("application/json")) {
+    throw new Error(`HTTP ${response.status}: ${(await response.text()).trim()}`);
+  }
   const body = await response.json();
   if (body.error) throw new Error(body.error.message);
   return body.result;
@@ -117,7 +124,7 @@ console.log("Valid on", chain + ":", result.isvalid);
 ```
 </CodeGroup>
 
-bitcoinjs-lib has no separate Signet Testnet or Testnet4 network, and `networks.testnet` produces `tb1` addresses that are valid on both. On a Testnet4 endpoint, the `index.mjs` example prints `Chain: testnet4`, a new `tb1q` address, and `Valid on testnet4: true`.
+bitcoinjs-lib has no separate Signet Testnet or Testnet4 network, and `networks.testnet` produces `tb1` addresses that are valid on all three testnets. On a Testnet4 endpoint, the `index.mjs` example prints `Chain: testnet4`, a new `tb1q` address, and `Valid on testnet4: true`.
 
 ## Python
 
