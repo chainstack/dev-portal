@@ -7,7 +7,7 @@ The Chainstack platform API allows you to manage your infrastructure programmati
 
 The API has two versions:
 
-* **v2 (recommended)** — manage deployment options, projects, and nodes.
+* **v2 (recommended)** — manage your organization, deployment options, projects, nodes, node access rules, and node usage reports.
 * **v1** — manage organizations, projects, networks, nodes, and faucets.
 
 ## Create API key
@@ -52,3 +52,35 @@ Click the edit icon next to the key you want to delete.
 Click **Delete**.
 </Step>
 </Steps>
+
+## Errors
+
+Every error response has the same JSON body:
+
+```json
+{
+  "error": {
+    "code": "invalid",
+    "message": "A human-readable description of the error.",
+    "fields": {
+      "name": ["This field is required."]
+    }
+  }
+}
+```
+
+The `fields` object appears only on validation errors. Nested fields are flattened with dots — for example, `nodes.0.configuration.archive`.
+
+| Status | `code` | Meaning |
+|---|---|---|
+| `400` | `invalid` | The request body or parameters failed validation. |
+| `401` | `not_authenticated` | The request has no `Authorization: Bearer YOUR_CHAINSTACK_API_KEY` header. |
+| `401` | `authentication_failed` | The API key is invalid, deleted, or expired. |
+| `403` | `permission_denied` | The action isn't allowed. Every write also returns this code while the platform is under maintenance — retry later — or while your organization has outstanding invoices. The message says which. |
+| `403` | `protected` | The resource can't be deleted yet — for example, a project that still has nodes. |
+| `403` | `quota_exceeded` | Your plan doesn't include what you requested — for example, a deployment option or a feature. |
+| `403` | `extra_usage_required` | The resource needs pay-as-you-go enabled on the **Billing** page. |
+| `404` | `not_found` | The resource doesn't exist or belongs to another organization. |
+| `405` | `method_not_allowed` | The method isn't supported — for example, `PUT`. Use `PATCH` to update a resource. |
+| `415` | `unsupported_media_type` | The request body isn't JSON on an endpoint that accepts only JSON, such as node access rules. |
+| `429` | `throttled` | Too many requests. Wait the number of seconds in the `Retry-After` header before retrying. |
