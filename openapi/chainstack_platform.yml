@@ -71,10 +71,13 @@ paths:
     get:
       operationId: listAllProjects
       summary: List all Projects
-      description: List all projects your organization is part of.
+      description: |
+        List all projects your organization is part of.
+        <br> This endpoint paginates with `limit` and `offset` (default and maximum `limit`: 100) and ignores `page`. To get further results, follow the `next` URL in the response.
       parameters:
       - "$ref": "#/components/parameters/ProjectOrdering"
-      - "$ref": "#/components/parameters/Pagination"
+      - "$ref": "#/components/parameters/Limit"
+      - "$ref": "#/components/parameters/Offset"
       - "$ref": "#/components/parameters/OrganizationIdFilter"
       - "$ref": "#/components/parameters/NameFilter"
       - "$ref": "#/components/parameters/ProjectTypeFilter"
@@ -203,7 +206,9 @@ paths:
     delete:
       operationId: deleteProject
       summary: Delete Project
-      description: Delete the project.
+      description: Delete the project. The project must be empty — if it still has active
+        nodes or subgraphs, the API refuses with `403` and error code `protected`. Delete
+        its nodes first.
       tags:
       - Project
       security:
@@ -217,10 +222,9 @@ paths:
     get:
       operationId: retrieveProjectMembers
       summary: Retrieve Project members
-      description: Retrieve members of a consortium project.
+      description: Retrieve members of a consortium project. The response is a plain array, not paginated.
       parameters:
       - "$ref": "#/components/parameters/Id"
-      - "$ref": "#/components/parameters/Pagination"
       tags:
       - Project
       security:
@@ -230,24 +234,15 @@ paths:
           content:
             application/json:
               schema:
-                allOf:
-                - "$ref": "#/components/schemas/Pagination"
-                - type: object
-                  properties:
-                    results:
-                      type: array
-                      items:
-                        "$ref": "#/components/schemas/ProjectMember"
+                type: array
+                items:
+                  "$ref": "#/components/schemas/ProjectMember"
               examples:
                 list:
                   value:
-                    count: 1
-                    next: 
-                    previous: 
-                    results:
-                    - id: RG-123-456
-                      name: My organization
-                      email: john.smith@example.com
+                  - id: RG-123-456
+                    name: My organization
+                    email: john.smith@example.com
           description: ''
         '404':
           "$ref": "#/components/responses/NotFoundError"
@@ -645,7 +640,9 @@ paths:
     post:
       operationId: createNode
       summary: Create Node
-      description: Create Node
+      description: |
+        Create a shared node. Dedicated nodes can't be created through the API — see [Dedicated nodes](/docs/dedicated-node).
+        <br> Some protocols require `configuration.client`. When a protocol, network, and configuration combination isn't valid, the `400` response lists the valid combinations.
       tags:
       - Node
       requestBody:
@@ -845,6 +842,59 @@ paths:
           "$ref": "#/components/responses/ValidationError"
         '429':
           "$ref": "#/components/responses/TooManyRequestsError"
+  "/v2/organization/":
+    get:
+      operationId: getOrganizationInfoV2
+      summary: Get organization name and ID
+      description: Get the name and ID of your organization.
+      tags:
+      - Organization V2
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Organization"
+              examples:
+                organization:
+                  value:
+                    id: RG-123-456
+                    name: My organization
+          description: ''
+    patch:
+      operationId: updateOrganizationInfoV2
+      summary: Update organization name
+      description: Change the name of your organization.
+      tags:
+      - Organization V2
+      requestBody:
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/OrganizationUpdate"
+            examples:
+              organization:
+                value:
+                  name: My organization
+        required: true
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Organization"
+              examples:
+                organization:
+                  value:
+                    id: RG-123-456
+                    name: My organization
+          description: ''
+        '400':
+          "$ref": "#/components/responses/ValidationError"
   "/v2/deployment-options/":
     get:
       operationId: listDeploymentOptions
@@ -916,10 +966,13 @@ paths:
     get:
       operationId: listAllProjectsV2
       summary: List all projects
-      description: List all projects your organization is part of.
+      description: |
+        List all projects your organization is part of.
+        <br> This endpoint paginates with `limit` and `offset` (default and maximum `limit`: 100) and ignores `page`. To get further results, follow the `next` URL in the response.
       parameters:
       - "$ref": "#/components/parameters/ProjectOrdering"
-      - "$ref": "#/components/parameters/Pagination"
+      - "$ref": "#/components/parameters/Limit"
+      - "$ref": "#/components/parameters/Offset"
       - "$ref": "#/components/parameters/OrganizationIdFilter"
       - "$ref": "#/components/parameters/NameFilter"
       - "$ref": "#/components/parameters/ProjectTypeFilter"
@@ -1113,7 +1166,9 @@ paths:
     delete:
       operationId: deleteProjectV2
       summary: Delete project
-      description: Delete the project.
+      description: Delete the project. The project must be empty — if it still has active
+        nodes or subgraphs, the API refuses with `403` and error code `protected`. Delete
+        its nodes first.
       tags:
       - Project V2
       security:
@@ -1125,6 +1180,34 @@ paths:
           "$ref": "#/components/responses/UnauthorizedError"
         '403':
           "$ref": "#/components/responses/ForbiddenError"
+        '404':
+          "$ref": "#/components/responses/NotFoundError"
+  "/v2/projects/{id}/members/":
+    get:
+      operationId: retrieveProjectMembersV2
+      summary: Retrieve project members
+      description: Retrieve members of a consortium project. The response is a plain array, not paginated.
+      parameters:
+      - "$ref": "#/components/parameters/Id"
+      tags:
+      - Project V2
+      security:
+      - APIKeyAuthentication: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  "$ref": "#/components/schemas/ProjectMember"
+              examples:
+                list:
+                  value:
+                  - id: RG-123-456
+                    name: My organization
+                    email: john.smith@example.com
+          description: ''
         '404':
           "$ref": "#/components/responses/NotFoundError"
   "/v2/nodes/":
@@ -1161,7 +1244,7 @@ paths:
                     results:
                     - id: ND-123-456-789
                       name: My Ethereum node
-                      network: mainnet
+                      network: ethereum-mainnet
                       protocol: ethereum
                       project: PR-123-456-789
                       cloud: CC-0001
@@ -1188,7 +1271,10 @@ paths:
     post:
       operationId: createNodeV2
       summary: Create node
-      description: Create a new node in the specified project and blockchain.
+      description: |
+        Create a new node in the specified project and blockchain. Get valid `blockchain` and `cloud` IDs from [List deployment options](/reference/chainstack-platform-api-v2-list-deployment-options).
+        <br> A `blockchain` and `cloud` pair that your plan doesn't offer returns `403` with code `quota_exceeded`. A dedicated `blockchain` ID returns `400` — dedicated nodes can't be created through the API.
+        <br> The node is created with the platform's default add-ons, such as MEV protection.
       tags:
       - Node V2
       requestBody:
@@ -1217,7 +1303,7 @@ paths:
                   value:
                     id: ND-123-456-789
                     name: My Ethereum node
-                    network: mainnet
+                    network: ethereum-mainnet
                     protocol: ethereum
                     project: PR-123-456-789
                     cloud: CC-0001
@@ -1265,7 +1351,7 @@ paths:
                   value:
                     id: ND-123-456-789
                     name: My Ethereum node
-                    network: mainnet
+                    network: ethereum-mainnet
                     protocol: ethereum
                     project: PR-123-456-789
                     cloud: CC-0001
@@ -1319,7 +1405,7 @@ paths:
                   value:
                     id: ND-123-456-789
                     name: My new node name
-                    network: mainnet
+                    network: ethereum-mainnet
                     protocol: ethereum
                     project: PR-123-456-789
                     cloud: CC-0001
@@ -1617,7 +1703,7 @@ paths:
       summary: List node usage
       description: |
         List per-node usage metrics for your organization — compute hours, GB-hours, request units, and bloXroute requests — bucketed by day or hour.
-        <br> When `date_from` and `date_to` are omitted, the report covers your organization's current metered billing period. Usage data is retained for 2 months — `date_from` cannot be earlier than the first day of the previous calendar month.
+        <br> When `date_from` and `date_to` are omitted, the report covers your organization's current metered billing period. Usage data is kept for 60 days — `date_from` cannot be earlier than the start of the UTC day 60 days before the request.
         <br> The response is paginated at 100 rows per page and includes dataset-wide totals for the selected filters.
         <br> Rate limit: 60 requests per minute per organization.
       parameters:
@@ -1630,6 +1716,7 @@ paths:
       - "$ref": "#/components/parameters/NodeUsageGranularity"
       - "$ref": "#/components/parameters/NodeUsageOrdering"
       - "$ref": "#/components/parameters/Pagination"
+      - "$ref": "#/components/parameters/NodeUsagePageSize"
       tags:
       - Node usage V2
       security:
@@ -1697,7 +1784,7 @@ paths:
       summary: Export node usage to CSV
       description: |
         Download the full node usage report for your organization as a CSV file. Accepts the same filters as the list endpoint and returns every matching row without pagination.
-        <br> When `date_from` and `date_to` are omitted, the report covers your organization's current metered billing period. Usage data is retained for 2 months — `date_from` cannot be earlier than the first day of the previous calendar month.
+        <br> When `date_from` and `date_to` are omitted, the report covers your organization's current metered billing period. Usage data is kept for 60 days — `date_from` cannot be earlier than the start of the UTC day 60 days before the request.
         <br> The `Date` column renders as `YYYY-MM-DD` with `granularity=day` and as `YYYY-MM-DDTHH:00:00Z` with `granularity=hour`. Metrics that don't apply to a node are empty cells.
         <br> Rate limit: 5 requests per minute per organization.
       parameters:
@@ -1986,25 +2073,9 @@ components:
       - starting
     Protocol:
       type: string
-      enum:
-      - ethereum
-      - polygon-pos
-      - bsc
-      - avalanche
-      - arbitrum
-      - near
-      - aurora
-      - gnosis
-      - cronos
-      - fantom
-      - starknet
-      - harmony
-      - tezos
-      - fuse
-      - bitcoin
+      example: ethereum
       description: |
-        Protocol.
-        <br>See also [Supported protocols](https://docs.chainstack.com/platform/supported-protocols).
+        Protocol, for example `ethereum`. Any protocol the platform offers is accepted — see [Protocols and networks](/docs/protocols-networks).
     BaseNetwork:
       type: object
       properties:
@@ -2041,11 +2112,8 @@ components:
           type: string
           description: |
             Network to join.
-            <br>See also [Ethereum networks](https://docs.chainstack.com/operations/ethereum/networks).
-          enum:
-          - ethereum-mainnet
-          - ethereum-ropsten-testnet
-          - ethereum-rinkeby-testnet
+            <br>Any network the platform offers for the protocol is accepted — see [Protocols and networks](/docs/protocols-networks).
+          example: ethereum-mainnet
     PolygonPoSNetworkConfiguration:
       type: object
       description: Polygon PoS network configuration.
@@ -2054,10 +2122,8 @@ components:
           type: string
           description: |
             Network to join.
-            <br>See also [Polygon PoS networks](https://docs.chainstack.com/operations/polygon/networks).
-          enum:
-          - polygon-pos-mainnet
-          - polygon-pos-testnet
+            <br>Any network the platform offers for the protocol is accepted — see [Protocols and networks](/docs/protocols-networks).
+          example: polygon-pos-mainnet
     BinanceSmartChainNetworkConfiguration:
       type: object
       description: Binance Smart Chain network configuration.
@@ -2066,10 +2132,8 @@ components:
           type: string
           description: |
             Network to join.
-            <br>See also [Binance Smart Chain networks](https://docs.chainstack.com/operations/bsc/networks).
-          enum:
-          - bsc-mainnet
-          - bsc-testnet
+            <br>Any network the platform offers for the protocol is accepted — see [Protocols and networks](/docs/protocols-networks).
+          example: bsc-mainnet
     AvalancheNetworkConfiguration:
       type: object
       description: Avalanche network configuration.
@@ -2078,10 +2142,8 @@ components:
           type: string
           description: |
             Network to join.
-            <br>See also [Avalanche networks](https://docs.chainstack.com/operations/avalanche/networks).
-          enum:
-          - avalanche-mainnet
-          - avalanche-testnet
+            <br>Any network the platform offers for the protocol is accepted — see [Protocols and networks](/docs/protocols-networks).
+          example: avalanche-mainnet
     ArbitrumNetworkConfiguration:
       type: object
       description: Arbitrum network configuration.
@@ -2090,10 +2152,8 @@ components:
           type: string
           description: |
             Network to join.
-            <br>See also [Arbitrum networks](https://docs.chainstack.com/operations/arbitrum/networks).
-          enum:
-          - arbitrum-mainnet
-          - arbitrum-goerli
+            <br>Any network the platform offers for the protocol is accepted — see [Protocols and networks](/docs/protocols-networks).
+          example: arbitrum-mainnet
     NearNetworkConfiguration:
       type: object
       description: Near network configuration.
@@ -2102,10 +2162,8 @@ components:
           type: string
           description: |
             Network to join.
-            <br>See also [Near networks](https://docs.chainstack.com/operations/near/networks).
-          enum:
-          - near-mainnet
-          - near-testnet
+            <br>Any network the platform offers for the protocol is accepted — see [Protocols and networks](/docs/protocols-networks).
+          example: near-mainnet
     AuroraNetworkConfiguration:
       type: object
       description: Aurora network configuration.
@@ -2114,10 +2172,8 @@ components:
           type: string
           description: |
             Network to join.
-            <br>See also [Aurora networks](https://docs.chainstack.com/operations/aurora/networks).
-          enum:
-          - aurora-mainnet
-          - aurora-testnet
+            <br>Any network the platform offers for the protocol is accepted — see [Protocols and networks](/docs/protocols-networks).
+          example: aurora-mainnet
     GnosisNetworkConfiguration:
       type: object
       description: Gnosis network configuration.
@@ -2126,10 +2182,8 @@ components:
           type: string
           description: |
             Network to join.
-            <br>See also [Gnosis networks](https://docs.chainstack.com/operations/gnosis/networks).
-          enum:
-          - gnosis-mainnet
-          - gnosis-testnet
+            <br>Any network the platform offers for the protocol is accepted — see [Protocols and networks](/docs/protocols-networks).
+          example: gnosis-mainnet
     CronosNetworkConfiguration:
       type: object
       description: Cronos network configuration.
@@ -2138,10 +2192,8 @@ components:
           type: string
           description: |
             Network to join.
-            <br>See also [Cronos networks](https://docs.chainstack.com/operations/cronos/networks).
-          enum:
-          - cronos-mainnet
-          - cronos-testnet
+            <br>Any network the platform offers for the protocol is accepted — see [Protocols and networks](/docs/protocols-networks).
+          example: cronos-mainnet
     FantomNetworkConfiguration:
       type: object
       description: Fantom network configuration.
@@ -2150,10 +2202,8 @@ components:
           type: string
           description: |
             Network to join.
-            <br>See also [Fantom networks](https://docs.chainstack.com/operations/fantom/networks).
-          enum:
-          - fantom-mainnet
-          - fantom-testnet
+            <br>Any network the platform offers for the protocol is accepted — see [Protocols and networks](/docs/protocols-networks).
+          example: fantom-mainnet
     TezosNetworkConfiguration:
       type: object
       description: Tezos network configuration.
@@ -2162,10 +2212,8 @@ components:
           type: string
           description: |
             Network to join.
-            <br>See also [Tezos networks](https://docs.chainstack.com/operations/tezos/networks).
-          enum:
-          - tezos-mainnet
-          - tezos-testnet
+            <br>Any network the platform offers for the protocol is accepted — see [Protocols and networks](/docs/protocols-networks).
+          example: tezos-mainnet
     SolanaNetworkConfiguration:
       type: object
       description: Solana network configuration.
@@ -2174,10 +2222,8 @@ components:
           type: string
           description: |
             Network to join.
-            <br>See also [Solana networks](https://docs.chainstack.com/operations/solana/networks).
-          enum:
-          - solana-mainnet
-          - solana-devnet
+            <br>Any network the platform offers for the protocol is accepted — see [Protocols and networks](/docs/protocols-networks).
+          example: solana-mainnet
     FuseNetworkConfiguration:
       type: object
       description: Fuse network configuration.
@@ -2186,10 +2232,8 @@ components:
           type: string
           description: |
             Network to join.
-            <br>See also [Fuse networks](https://docs.chainstack.com/operations/fuse/networks).
-          enum:
-          - fuse-mainnet
-          - fuse-testnet
+            <br>Any network the platform offers for the protocol is accepted — see [Protocols and networks](/docs/protocols-networks).
+          example: fuse-mainnet
     BitcoinNetworkConfiguration:
       type: object
       description: Bitcoin network configuration.
@@ -2198,10 +2242,8 @@ components:
           type: string
           description: |
             Network to join.
-            <br>See also [Bitcoin networks](https://docs.chainstack.com/operations/bitcoin/networks).
-          enum:
-          - bitcoin-mainnet
-          - bitcoin-testnet
+            <br>Any network the platform offers for the protocol is accepted — see [Protocols and networks](/docs/protocols-networks).
+          example: bitcoin-mainnet
     StarknetNetworkConfiguration:
       type: object
       description: StarkNet network configuration.
@@ -2210,9 +2252,8 @@ components:
           type: string
           description: |
             Network to join.
-            <br>See also [StarkNet networks](https://docs.chainstack.com/operations/starknet/networks).
-          enum:
-          - starknet-mainnet
+            <br>Any network the platform offers for the protocol is accepted — see [Protocols and networks](/docs/protocols-networks).
+          example: starknet-mainnet
     HarmonyNetworkConfiguration:
       type: object
       description: Harmony network configuration.
@@ -2221,10 +2262,8 @@ components:
           type: string
           description: |
             Network to join.
-            <br>See also [Harmony networks](https://docs.chainstack.com/operations/harmony/networks).
-          enum:
-          - harmony-mainnet
-          - harmony-devnet
+            <br>Any network the platform offers for the protocol is accepted — see [Protocols and networks](/docs/protocols-networks).
+          example: harmony-mainnet
     Configuration:
       oneOf:
       - "$ref": "#/components/schemas/EthereumNetworkConfiguration"
@@ -2247,48 +2286,21 @@ components:
     NodeTypeEnum:
       type: string
       description: |
-        Type of the node.
-        <br>Available types:
-        * `shared` — only for `ethereum`, `polygon-pos`, `bsc`, `avalanche`, `fantom`, `tezos`, `bitcoin`
-        * `dedicated` — for all protocols
+        Type of the node: `shared` or `dedicated`.
+        <br> Only `shared` nodes can be created through the API. Dedicated nodes are ordered on request — see [Dedicated nodes](/docs/dedicated-node) — and are returned with type `dedicated`.
       enum:
       - shared
       - dedicated
     Provider:
       type: string
-      enum:
-      - aws
-      - azure
-      - gcloud
-      - vzo
+      example: aws
       description: |
-        Cloud provider.
-        <br>See also [Supported cloud providers](https://docs.chainstack.com/platform/supported-cloud-hosting-providers).
+        Cloud provider, for example `aws`. To find the providers and regions you can deploy to, use [List deployment options](/reference/chainstack-platform-api-v2-list-deployment-options); see also [Nodes, clouds, regions, and locations](/docs/nodes-clouds-regions-and-locations).
     Region:
       type: string
-      enum:
-      - asia-southeast1
-      - ap-southeast-1
-      - us-west-2
-      - us-east-1
-      - uksouth
-      - eu3
+      example: us-east-1
       description: |
-        Regions the nodes are deployed to.
-
-        Available for `gcloud`:
-        * `asia-southeast1`
-
-        Available for `aws`:
-        * `ap-southeast-1`
-        * `us-west-2`
-        * `us-east-1`
-
-        Available for `azure`:
-        * `uksouth`
-
-        Available for `vzo`:
-        * `eu3`
+        Region the node is deployed to, for example `us-east-1`. To find the providers and regions you can deploy to, use [List deployment options](/reference/chainstack-platform-api-v2-list-deployment-options); see also [Nodes, clouds, regions, and locations](/docs/nodes-clouds-regions-and-locations).
     EthereumNodeDetails:
       type: object
       description: Ethereum node details.
@@ -2666,6 +2678,7 @@ components:
         '
       readOnly: true
       enum:
+      - requested
       - pending
       - running
       - maintenance
@@ -3214,7 +3227,7 @@ components:
         network:
           type: string
           readOnly: true
-          description: Network name.
+          description: Network identifier from the platform catalog, for example `ethereum-mainnet`.
         protocol:
           type: string
           readOnly: true
@@ -3240,7 +3253,9 @@ components:
         details:
           type: object
           readOnly: true
-          description: Protocol-specific attributes.
+          description: |
+            Protocol-specific attributes: `https_endpoint`, `wss_endpoint`, and `api_namespaces`, plus, depending on the protocol, fields such as `beacon_endpoint`, `graphql_endpoint`, `grpc_endpoint`, and `grpc_x_token`. Dedicated nodes can also return `metrics_endpoint` — see [Dedicated node monitoring](/docs/dedicated-node-monitoring).
+            <br> Endpoint URLs include the node's auth token, and `grpc_x_token` is the token itself — treat them as secrets.
         blockchain:
           type: string
           description: Blockchain identifier.
@@ -3476,6 +3491,32 @@ components:
       description: A page number within the paginated result set.
       schema:
         type: integer
+    Limit:
+      name: limit
+      required: false
+      in: query
+      description: Number of results to return per page. Default and maximum `100`.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+    Offset:
+      name: offset
+      required: false
+      in: query
+      description: The initial index from which to return the results.
+      schema:
+        type: integer
+        minimum: 0
+    NodeUsagePageSize:
+      name: page_size
+      required: false
+      in: query
+      description: Number of rows per page, from `1` to `100`. Default `100`.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
     NodeUsageDateFrom:
       name: date_from
       required: false
@@ -3483,7 +3524,7 @@ components:
       description: |
         Start of the reporting period, inclusive, as an ISO 8601 datetime.
         <br> Defaults to the start of your organization's current metered billing period.
-        <br> Cannot be earlier than the first day of the previous calendar month — usage data is retained for 2 months.
+        <br> Cannot be earlier than the start of the UTC day 60 days before the request — usage data is kept for 60 days.
       schema:
         type: string
         format: date-time
@@ -3779,7 +3820,7 @@ components:
           network: ethereum-mainnet
         nodes:
         - name: My Ethereum node
-          type: dedicated
+          type: shared
           role: peer
           provider: gcloud
           region: asia-southeast1
@@ -3793,7 +3834,7 @@ components:
           network: polygon-pos-mainnet
         nodes:
         - name: My Polygon PoS node
-          type: dedicated
+          type: shared
           role: peer
           provider: gcloud
           region: asia-southeast1
@@ -3807,7 +3848,7 @@ components:
           network: bsc-mainnet
         nodes:
         - name: My Binance Smart Chain node
-          type: dedicated
+          type: shared
           role: peer
           provider: gcloud
           region: asia-southeast1
@@ -3821,7 +3862,7 @@ components:
           network: avalanche-mainnet
         nodes:
         - name: My Avalanche node
-          type: dedicated
+          type: shared
           role: peer
           provider: vzo
           region: eu1
