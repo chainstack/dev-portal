@@ -1,0 +1,244 @@
+---
+title: "Ink tooling"
+description: "Connect MetaMask, ethers.js, viem, web3.py, Foundry, and Hardhat to an Ink Mainnet node on Chainstack. Chain configuration, L1 data fees, contract verification on Blockscout, and the Ink behaviors that affect tooling."
+---
+
+Ink is an [OP Stack](https://docs.optimism.io/) layer 2 that settles to Ethereum and uses ETH for gas, so the standard Ethereum libraries and frameworks work against an Ink node without modification. Chainstack serves Ink Mainnet on Global Nodes with archive data and both the `debug_*` and `trace_*` namespaces. See [Debug and trace APIs](/docs/debug-and-trace-apis#ink).
+
+## Chain configuration
+
+| Property | Value |
+|----------|-------|
+| Network | Ink Mainnet |
+| Chain ID | `57073` |
+| Native gas currency | ETH |
+| Decimals | `18` |
+| Block time | About 1 second |
+| RPC URL | your Chainstack [Ink endpoint](/docs/manage-your-node#view-node-access-and-credentials) |
+| Multicall3 | `0xcA11bde05977b3631167028862bE2a173976CA11` |
+| Block explorer | [explorer.inkonchain.com](https://explorer.inkonchain.com) |
+| Contract verification API | `https://explorer.inkonchain.com/api` (Blockscout) |
+
+## MetaMask
+
+Add Ink as a custom network. On Chainstack, get your [Ink endpoint](/docs/manage-your-node#view-node-access-and-credentials), then in MetaMask select **Add a custom network** and fill in:
+
+* Network name — Ink
+* Default RPC URL — your Chainstack Ink endpoint
+* Chain ID — `57073`
+* Currency symbol — ETH
+* Block explorer URL — `https://explorer.inkonchain.com`
+
+## ethers.js
+
+Install [ethers.js](https://docs.ethers.org/):
+
+<CodeGroup>
+```shell Shell
+npm install ethers
+```
+</CodeGroup>
+
+<CodeGroup>
+```javascript index.js
+const { JsonRpcProvider, formatEther } = require("ethers");
+
+const provider = new JsonRpcProvider("CHAINSTACK_NODE_URL");
+
+async function main() {
+  const network = await provider.getNetwork();
+  console.log("Chain ID:", network.chainId.toString());
+
+  const block = await provider.getBlockNumber();
+  console.log("Block:", block);
+
+  const balance = await provider.getBalance("0x4200000000000000000000000000000000000016");
+  console.log("Balance:", formatEther(balance), "ETH");
+}
+
+main();
+```
+</CodeGroup>
+
+To receive new blocks as Ink produces them, connect to the WSS endpoint and subscribe:
+
+<CodeGroup>
+```javascript index.js
+const { WebSocketProvider } = require("ethers");
+
+const provider = new WebSocketProvider("CHAINSTACK_WSS_URL");
+
+provider.on("block", (blockNumber) => {
+  console.log("New block:", blockNumber);
+});
+```
+</CodeGroup>
+
+## viem
+
+viem ships an `ink` chain definition in `viem/chains`. Its default RPC URLs are Ink's public endpoints, so pass your Chainstack endpoint to `http()`. The `publicActionsL2` extension from `viem/op-stack` adds OP Stack actions such as L1 data fee estimation.
+
+<CodeGroup>
+```shell Shell
+npm install viem
+```
+</CodeGroup>
+
+<CodeGroup>
+```javascript index.mjs
+import { createPublicClient, http, formatEther, parseEther } from "viem";
+import { ink } from "viem/chains";
+import { publicActionsL2 } from "viem/op-stack";
+
+const client = createPublicClient({
+  chain: ink,
+  transport: http("CHAINSTACK_NODE_URL"),
+}).extend(publicActionsL2());
+
+console.log("Chain ID:", await client.getChainId());
+console.log("Block:", await client.getBlockNumber());
+
+const balance = await client.getBalance({
+  address: "0x4200000000000000000000000000000000000016",
+});
+console.log("Balance:", formatEther(balance), "ETH");
+
+const transfer = {
+  account: "0x4200000000000000000000000000000000000016",
+  to: "0x4200000000000000000000000000000000000016",
+  value: parseEther("0.001"),
+};
+console.log("L1 data fee:", formatEther(await client.estimateL1Fee(transfer)), "ETH");
+console.log("Total fee:", formatEther(await client.estimateTotalFee(transfer)), "ETH");
+```
+</CodeGroup>
+
+`estimateL1Fee` and `estimateTotalFee` estimate without sending anything, but the `account` must hold enough ETH for the `value`. Replace it with your own address. See [L1 data fees](#l1-data-fees-are-charged-on-top-of-gas).
+
+## web3.py
+
+Install [web3.py](https://web3py.readthedocs.io/):
+
+<CodeGroup>
+```shell Shell
+pip install web3
+```
+</CodeGroup>
+
+<CodeGroup>
+```python main.py
+from web3 import Web3
+
+web3 = Web3(Web3.HTTPProvider("CHAINSTACK_NODE_URL"))
+
+print("Connected:", web3.is_connected())
+print("Chain ID:", web3.eth.chain_id)
+print("Block:", web3.eth.block_number)
+
+address = Web3.to_checksum_address("0x4200000000000000000000000000000000000016")
+balance = web3.eth.get_balance(address)
+print("Balance:", web3.from_wei(balance, "ether"), "ETH")
+```
+</CodeGroup>
+
+## Foundry
+
+Install [Foundry](https://getfoundry.sh/) and pass your Chainstack endpoint with `--rpc-url`.
+
+Read chain data with `cast`:
+
+<CodeGroup>
+```shell Shell
+cast chain-id --rpc-url CHAINSTACK_NODE_URL
+cast block-number --rpc-url CHAINSTACK_NODE_URL
+cast balance 0x4200000000000000000000000000000000000016 --ether --rpc-url CHAINSTACK_NODE_URL
+```
+</CodeGroup>
+
+Deploy a contract with `forge create`. Without `--broadcast`, `forge create` only simulates the deployment.
+
+<CodeGroup>
+```shell Shell
+forge create src/Counter.sol:Counter \
+  --rpc-url CHAINSTACK_NODE_URL \
+  --private-key YOUR_PRIVATE_KEY \
+  --broadcast
+```
+</CodeGroup>
+
+Verify the deployed contract on the Ink Blockscout. The API does not need a key.
+
+<CodeGroup>
+```shell Shell
+forge verify-contract DEPLOYED_CONTRACT_ADDRESS src/Counter.sol:Counter \
+  --chain 57073 \
+  --verifier blockscout \
+  --verifier-url https://explorer.inkonchain.com/api/ \
+  --watch
+```
+</CodeGroup>
+
+## Hardhat
+
+In a [Hardhat 3](https://hardhat.org/) project that uses `@nomicfoundation/hardhat-toolbox-viem`, add Ink to `hardhat.config.ts`. Hardhat already includes the Ink Blockscout explorer for chain `57073`, so `hardhat verify` needs no extra configuration.
+
+<CodeGroup>
+```typescript hardhat.config.ts
+import { configVariable, defineConfig } from "hardhat/config";
+import hardhatToolboxViem from "@nomicfoundation/hardhat-toolbox-viem";
+
+export default defineConfig({
+  plugins: [hardhatToolboxViem],
+  solidity: "0.8.28",
+  networks: {
+    ink: {
+      type: "http",
+      url: configVariable("INK_RPC_URL"),
+      accounts: [configVariable("INK_PRIVATE_KEY")],
+    },
+  },
+});
+```
+</CodeGroup>
+
+`configVariable` reads `INK_RPC_URL` and `INK_PRIVATE_KEY` from environment variables or the Hardhat keystore, which keeps the endpoint and the key out of the config file.
+
+Deploy with an Ignition module, for example `ignition/modules/Counter.ts`:
+
+<CodeGroup>
+```typescript ignition/modules/Counter.ts
+import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
+
+export default buildModule("CounterModule", (m) => {
+  const counter = m.contract("Counter");
+  return { counter };
+});
+```
+</CodeGroup>
+
+<CodeGroup>
+```shell Shell
+npx hardhat ignition deploy ignition/modules/Counter.ts --network ink
+npx hardhat verify blockscout --network ink DEPLOYED_CONTRACT_ADDRESS
+```
+</CodeGroup>
+
+## Ink behaviors that affect tooling
+
+### L1 data fees are charged on top of gas
+
+Every Ink transaction pays an L1 data fee for posting its data to Ethereum, in addition to the L2 execution fee. `eth_estimateGas` covers only L2 execution, and the total cost of a transaction is `gasUsed × effectiveGasPrice + l1Fee`. Transaction receipts carry the L1 portion in the `l1Fee`, `l1GasUsed`, `l1GasPrice`, and `l1BlobBaseFee` fields.
+
+To estimate the L1 data fee before sending, call `getL1Fee` on the `GasPriceOracle` predeploy at `0x420000000000000000000000000000000000000F`, or use viem's `estimateL1Fee` and `estimateTotalFee`, as in the [viem](#viem) example.
+
+### Pending transactions are never delivered
+
+Ink is an OP Stack chain, so pending transactions stay with the sequencer. `eth_subscribe("newPendingTransactions")` and `eth_newPendingTransactionFilter` return an ID but deliver nothing, and `txpool_status` always reads empty. See [What gives you mempool access](/docs/mempool-configuration#what-gives-you-mempool-access).
+
+### Filters are node-local
+
+A [Global Node](/docs/global-elastic-node) endpoint is load balanced across backends, and a filter created by `eth_newFilter` or `eth_newBlockFilter` lives on the backend that created it. A follow-up `eth_getFilterChanges` that lands elsewhere returns `-32602 filter not found`. Poll `eth_getLogs` over an explicit block range instead, or hold a WSS subscription, which keeps one connection to one backend for its lifetime.
+
+### Block-count limits and the proof window
+
+Ink produces a block about every second, so a 10,000-block `eth_getLogs` request covers under 3 hours of chain time. `eth_getProof` serves the latest block only. See [EVM range limits](/docs/limits#evm-range-limits) and [EVM `eth_getProof` history limits](/docs/limits#evm-eth_getproof-history-limits).
