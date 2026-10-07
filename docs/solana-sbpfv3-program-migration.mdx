@@ -1,0 +1,430 @@
+---
+title: "Solana: Rebuild your programs for sBPFv3"
+description: "SIMD-0500 makes sBPFv3 the only format Solana accepts for program deployments and upgrades. Check which format your programs use, rebuild with Agave 4.3.0 or Anchor 1.2, fix hand-declared syscalls, and deploy through your Chainstack endpoint."
+---
+
+**TLDR:**
+* [SIMD-0500](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0500-disable-deployment-of-sbpf-v0-v1-v2.md) makes sBPFv3 the only bytecode format a Solana cluster accepts when you deploy, upgrade, or finalize a program. It is expected on Mainnet with Agave 4.4 in November 2026.
+* Programs already on chain keep running in the format they were built in. The next upgrade of a v0, v1, or v2 program has to ship a v3 build, and the program ID stays the same.
+* `cargo build-sbf` still builds sBPFv0 unless you pass `--arch v3`. Anchor 1.2.0 and later build v3 by default.
+* A program that declares syscalls in its own `extern "C"` block fails to link as v3. Declare them through `solana-define-syscall` instead.
+* `solana-test-validator` 4.3.0 already enforces SIMD-0500, so a default v0 build fails to deploy to a local validator today.
+
+## Main article
+
+Every Solana program is compiled to sBPF bytecode before it is deployed. Mainnet runs programs in four sBPF versions, v0 to v3, and most deployed programs are still v0. SIMD-0500 stops new v0, v1, and v2 code from reaching the chain so that the older formats can eventually be retired.
+
+The rule is gated behind the `B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g` feature. sBPFv3 deployment itself has been enabled on Mainnet since slot 428,976,000 on June 26, 2026, under the `5cC3foj77CWun58pC51ebHFUWavHWKarWyR5UUik7dnC` feature, so you can rebuild and upgrade now.
+
+<Info>
+To follow along with the deploy and call examples, you need a Solana node endpoint. See [Solana tooling](/docs/solana-tooling) to get set up.
+</Info>
+
+## What sBPFv3 changes
+
+sBPFv3 is the combination of three proposals:
+
+* Static syscalls ([SIMD-0178](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0178-static-syscalls.md)) — a syscall is an ordinary `call` instruction whose immediate value is the murmur3 hash of the syscall name, fixed at link time. Validators no longer patch syscall addresses into a copy of the program when they load it.
+* Stricter ELF headers ([SIMD-0189](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0189-sbpf-stricter-elf-headers.md)) — a v3 file carries no dynamic linking sections and no `PT_DYNAMIC` program header.
+* eBPF ISA compatibility ([SIMD-0377](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0377-ebpf-isa-compatibility.md)) — the instruction set matches the eBPF that the LLVM BPF backend generates.
+
+The version is stored in the `e_flags` field of the ELF header: `0x0` for v0 and `0x3` for v3.
+
+For most programs, the source code does not change and rebuilding with a current toolchain is the whole migration. The exception is a program that declares syscalls by hand. See [Hand-declared syscalls fail to link](#hand-declared-syscalls-fail-to-link).
+
+## What SIMD-0500 blocks
+
+Once the feature is active, the upgradeable loader rejects a v0, v1, or v2 ELF in three instructions:
+
+| Action | Loader instruction | CLI command | v0, v1, or v2 ELF |
+| ------ | ------------------ | ----------- | ----------------- |
+| Deploy | `DeployWithMaxDataLen` | `solana program deploy` | Rejected |
+| Upgrade | `Upgrade` | `solana program deploy --program-id` | Rejected |
+| Finalize | `SetAuthority` with no new authority | `solana program set-upgrade-authority --final` | Rejected |
+| Execute | — | — | Runs as before |
+
+Writing a buffer, extending a program, and closing an account are not affected. A rejected deployment fails in simulation:
+
+```text
+Error: Deploying program failed: RPC response error -32002: Transaction simulation failed: Error processing Instruction 1: invalid account data for instruction; 7 log messages:
+  Program 11111111111111111111111111111111 invoke [1]
+  Program 11111111111111111111111111111111 success
+  Program BPFLoaderUpgradeab1e11111111111111111111111 invoke [1]
+  Program 11111111111111111111111111111111 invoke [2]
+  Program 11111111111111111111111111111111 success
+  Detected sbpf_version required by the executable which are not enabled
+  Program BPFLoaderUpgradeab1e11111111111111111111111 failed: invalid account data for instruction
+```
+
+By then, the CLI has already written the program to a buffer account, so a rejected deployment leaves the buffer and its rent behind. List and reclaim your buffers with:
+
+```bash
+solana program show --buffers --url YOUR_CHAINSTACK_ENDPOINT
+solana program close --buffers --url YOUR_CHAINSTACK_ENDPOINT
+```
+
+## Check the activation status
+
+Query both features through your endpoint:
+
+```bash
+solana feature status \
+  5cC3foj77CWun58pC51ebHFUWavHWKarWyR5UUik7dnC \
+  B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g \
+  --url YOUR_CHAINSTACK_ENDPOINT | head -3
+```
+
+On Mainnet, before SIMD-0500 activates:
+
+```text
+Feature                                      | Status                  | Activation Slot | Description
+5cC3foj77CWun58pC51ebHFUWavHWKarWyR5UUik7dnC | active since epoch 993  | 428976000       | SIMD-0178, SIMD-0189 and SIMD-0377: Enable deployment and execution of SBPFv3 programs
+B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g | inactive                | NA              | SIMD-0500: Disable deployment of SBPF v0, v1 and v2 programs
+```
+
+## Check which format a program uses
+
+For a program you built, read the ELF header of the `.so` file:
+
+```bash
+readelf -h target/deploy/hello_sbpf.so | grep Flags
+```
+
+```text
+  Flags:                             0x0
+```
+
+`0x0` is v0, and `0x3` is v3. `readelf` comes with GNU binutils on Linux. On macOS, use the `llvm-readelf` that `cargo build-sbf` installs with its platform tools, for example `~/.cache/solana/v1.57/platform-tools/llvm/bin/llvm-readelf` for Agave 4.3.0.
+
+For a program that is already deployed, dump its ELF through your endpoint and read the same field:
+
+```bash
+solana program dump YOUR_PROGRAM_ID program.so --url YOUR_CHAINSTACK_ENDPOINT
+readelf -h program.so | grep Flags
+```
+
+Any program that shows `0x0`, `0x1`, or `0x2` needs a v3 build before its next upgrade.
+
+## Install the toolchain
+
+Install the Agave 4.3.0 release of the Solana CLI:
+
+```bash
+sh -c "$(curl -sSfL https://release.anza.xyz/v4.3.0/install)"
+cargo build-sbf --version
+```
+
+```text
+cargo-build-sbf 4.3.0
+platform-tools v1.57
+```
+
+<Note>
+`cargo build-sbf` needs the `cargo` that rustup installs. A `cargo` from another package manager, such as Homebrew, fails with `error: no such command: +1.95.0-sbpf-solana-v1.57`.
+</Note>
+
+Solana lists these minimum versions for sBPFv3 builds:
+
+| Component | Minimum version |
+| --------- | --------------- |
+| Solana CLI (Agave) | 4.3.0 |
+| `solana-program` crates | 2.3.0 |
+| Anchor | 0.30.2, 0.31.2, 0.32.2, or 1.2.0 |
+| Pinocchio | 0.10 |
+
+## Rebuild a native or Pinocchio program
+
+This minimal program logs a message with `msg!`:
+
+<CodeGroup>
+```toml Cargo.toml
+[package]
+name = "hello_sbpf"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+solana-program = "5.1.0"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+```
+
+```rust src/lib.rs
+use solana_program::{
+    account_info::AccountInfo, entrypoint, entrypoint::ProgramResult, msg, pubkey::Pubkey,
+};
+
+entrypoint!(process_instruction);
+
+pub fn process_instruction(
+    _program_id: &Pubkey,
+    _accounts: &[AccountInfo],
+    _instruction_data: &[u8],
+) -> ProgramResult {
+    msg!("Hello, sBPFv3!");
+    Ok(())
+}
+```
+</CodeGroup>
+
+Build it for v3:
+
+```bash
+cargo build-sbf --arch v3
+readelf -h target/deploy/hello_sbpf.so | grep Flags
+```
+
+```text
+  Flags:                             0x3
+```
+
+The same command builds a Pinocchio program. Pinocchio 0.11 re-exports the `solana-define-syscall` declarations as `pinocchio::syscalls`, so a program that calls syscalls through that module links as v3 without changes.
+
+## Rebuild an Anchor program
+
+Anchor 1.2.0 and later pass `--arch v3` to `cargo build-sbf`, so `anchor build` produces a v3 program:
+
+```bash
+avm install 1.2.1
+avm use 1.2.1
+anchor build
+```
+
+Update `anchor-lang` in your program's `Cargo.toml` to the same version as the CLI.
+
+On Anchor 0.30.2, 0.31.2, and 0.32.2, `anchor build` still produces v0. Arguments after `--` go to `cargo build-sbf`, but Anchor also passes them to the IDL build, which rejects `--arch`. Build the program and the IDL in two steps:
+
+```bash
+anchor build --no-idl -- --arch v3
+mkdir -p target/idl target/types
+anchor idl build -o target/idl/PROGRAM_NAME.json -t target/types/PROGRAM_NAME.ts
+```
+
+`anchor idl build` does not create its output directories, which is why the `mkdir` step comes first.
+
+## Hand-declared syscalls fail to link
+
+A v0 program can declare a syscall in its own `extern "C"` block, because the loader resolves the name when it loads the program:
+
+```rust src/lib.rs
+use solana_program::{account_info::AccountInfo, entrypoint, entrypoint::ProgramResult, pubkey::Pubkey};
+
+unsafe extern "C" {
+    fn sol_log_(message: *const u8, len: u64);
+}
+
+entrypoint!(process_instruction);
+
+pub fn process_instruction(
+    _program_id: &Pubkey,
+    _accounts: &[AccountInfo],
+    _instruction_data: &[u8],
+) -> ProgramResult {
+    let message = "Hello, sBPFv3!";
+    unsafe { sol_log_(message.as_ptr(), message.len() as u64) };
+    Ok(())
+}
+```
+
+sBPFv3 has no load-time resolution, so `cargo build-sbf --arch v3` fails at the link step:
+
+```text
+error: linking with `rust-lld` failed: exit status: 1
+  = note: rust-lld: error: undefined symbol: sol_log_
+```
+
+Take the declaration from `solana-define-syscall` instead:
+
+```bash
+cargo add solana-define-syscall
+```
+
+Import the syscall from `solana_define_syscall::definitions` and keep the rest of the program as it is:
+
+```rust src/lib.rs
+use solana_define_syscall::definitions::sol_log_;
+use solana_program::{account_info::AccountInfo, entrypoint, entrypoint::ProgramResult, pubkey::Pubkey};
+
+entrypoint!(process_instruction);
+
+pub fn process_instruction(
+    _program_id: &Pubkey,
+    _accounts: &[AccountInfo],
+    _instruction_data: &[u8],
+) -> ProgramResult {
+    let message = "Hello, sBPFv3!";
+    unsafe { sol_log_(message.as_ptr(), message.len() as u64) };
+    Ok(())
+}
+```
+
+For a syscall that `definitions` does not include, declare it with the `define_syscall!` macro instead of an `extern "C"` block. The macro emits the hash-based call for v3 and an `extern "C"` declaration for older versions. In macro form, the `sol_log_` declaration is:
+
+```rust
+use solana_define_syscall::define_syscall;
+
+define_syscall!(fn sol_log_(message: *const u8, len: u64));
+```
+
+Agave 4.3.0 catches a hand-declared syscall at build time, and older toolchains do not. With Agave 4.2.2, `cargo build-sbf --arch v3` builds the `extern "C"` version without an error, and the 4.2.2 CLI deploys it. The unresolved call never reaches the syscall, so every invocation fails with `exceeded max BPF to BPF call depth`. The 4.3.0 CLI refuses such a file before it sends anything, with `Verifier error: Invalid function at instruction <N> (local pre-flight)`.
+
+<Warning>
+Build and deploy v3 programs with Agave 4.3.0 or later.
+</Warning>
+
+## Deploy through your Chainstack endpoint
+
+Deploy a new program:
+
+```bash
+solana program deploy target/deploy/hello_sbpf.so --url YOUR_CHAINSTACK_ENDPOINT
+```
+
+```text
+Program Id: 56SsH1vms2jVCKTxYkBVrCfu8D3Bpc4PY6HAGkoyoDqd
+
+Signature: 3hB4frof2FEaLnWAYW4NGN9G5xs4KQ9NELhvdkiStXpabxg8Qk5LAEqX1rn6Mk6LHBnhCS2ZxT8CcunV8C8Kx4QD
+```
+
+To upgrade an existing program, pass its address with `--program-id` and sign with its upgrade authority, which is your default keypair unless you set `--upgrade-authority`. Upgrading a v0 program with a v3 build keeps the program ID, so clients and PDAs derived from it are unaffected:
+
+```bash
+solana program deploy target/deploy/hello_sbpf.so \
+  --program-id YOUR_PROGRAM_ID \
+  --url YOUR_CHAINSTACK_ENDPOINT
+```
+
+### Call the program
+
+This script sends one instruction to the program with [Solana Kit](https://github.com/anza-xyz/kit) and prints the transaction logs:
+
+```bash
+npm install @solana/kit
+```
+
+```javascript call.mjs
+import {
+  address,
+  appendTransactionMessageInstruction,
+  createKeyPairSignerFromBytes,
+  createSolanaRpc,
+  createSolanaRpcSubscriptions,
+  createTransactionMessage,
+  getSignatureFromTransaction,
+  pipe,
+  sendAndConfirmTransactionFactory,
+  setTransactionMessageFeePayerSigner,
+  setTransactionMessageLifetimeUsingBlockhash,
+  signTransactionMessageWithSigners,
+} from "@solana/kit";
+import { readFileSync } from "node:fs";
+
+const rpc = createSolanaRpc("YOUR_CHAINSTACK_ENDPOINT");
+const rpcSubscriptions = createSolanaRpcSubscriptions("YOUR_CHAINSTACK_WSS_ENDPOINT");
+
+const keypairBytes = new Uint8Array(JSON.parse(readFileSync("YOUR_KEYPAIR_PATH", "utf8")));
+const payer = await createKeyPairSignerFromBytes(keypairBytes);
+const programAddress = address(process.argv[2]);
+
+const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+const message = pipe(
+  createTransactionMessage({ version: 0 }),
+  (m) => setTransactionMessageFeePayerSigner(payer, m),
+  (m) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
+  (m) => appendTransactionMessageInstruction({ programAddress }, m),
+);
+
+const transaction = await signTransactionMessageWithSigners(message);
+await sendAndConfirmTransactionFactory({ rpc, rpcSubscriptions })(transaction, {
+  commitment: "confirmed",
+});
+
+const signature = getSignatureFromTransaction(transaction);
+const result = await rpc
+  .getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 })
+  .send();
+console.log("Signature:", signature);
+console.log(result.meta.logMessages.join("\n"));
+```
+
+```bash
+node call.mjs 56SsH1vms2jVCKTxYkBVrCfu8D3Bpc4PY6HAGkoyoDqd
+```
+
+```text
+Signature: 2DtWUuTzGC8nSsmsudn32ELgbo7jiMGLVYtX13pFmN8EU5VeSunsfNq4eXYcmYpu4zVWaZTfrtUxPoGp6oMSsVYm
+Program 56SsH1vms2jVCKTxYkBVrCfu8D3Bpc4PY6HAGkoyoDqd invoke [1]
+Program log: Hello, sBPFv3!
+Program 56SsH1vms2jVCKTxYkBVrCfu8D3Bpc4PY6HAGkoyoDqd consumed 145 of 200000 compute units
+Program 56SsH1vms2jVCKTxYkBVrCfu8D3Bpc4PY6HAGkoyoDqd success
+```
+
+A program becomes callable in the slot after its deployment. A call sent in the same slot fails with `Program is not deployed`.
+
+## Test locally
+
+`solana-test-validator` 4.3.0 starts with every feature active, SIMD-0500 included, so it rejects a v0 build with the same error as above. To deploy a v0 build locally, start the validator with the feature turned off:
+
+```bash
+solana-test-validator --reset \
+  --deactivate-feature B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g
+```
+
+To rehearse the Mainnet upgrade with SIMD-0500 active, dump your current program and load it into the local validator at genesis, which bypasses the deployment check. Set the upgrade authority to the address of the keypair you deploy with, then upgrade the program with your v3 build:
+
+```bash
+solana program dump YOUR_PROGRAM_ID current.so --url YOUR_CHAINSTACK_ENDPOINT
+solana-test-validator --reset \
+  --upgradeable-program YOUR_PROGRAM_ID current.so YOUR_UPGRADE_AUTHORITY_ADDRESS
+```
+
+In a second terminal:
+
+```bash
+solana program deploy target/deploy/hello_sbpf.so --program-id YOUR_PROGRAM_ID --url localhost
+```
+
+The preloaded v0 program runs until the upgrade, the upgrade with the v3 build succeeds, and an upgrade with a v0 build fails.
+
+## Verified builds
+
+[solana-verify](https://github.com/solana-foundation/solana-verifiable-build) picks its Docker build image from the Solana version of your project. Programs that don't depend on `solana-program`, such as Pinocchio programs, set the version in the root `Cargo.toml`:
+
+```toml Cargo.toml
+[workspace.metadata.cli]
+solana = "4.3.0"
+```
+
+`solana-verify build` and `solana-verify verify-from-repo` take an `--arch` flag that defaults to `v0`. Pass `--arch v3` to both, so the verified build matches the v3 program on chain.
+
+## Readiness checklist
+
+<Steps>
+  <Step title="Inventory your programs">
+    Dump each upgradeable program you own with `solana program dump` and read its `Flags` field. Anything other than `0x3` needs a v3 build before its next upgrade.
+  </Step>
+  <Step title="Update the toolchain">
+    Install Agave 4.3.0 and, for Anchor projects, Anchor 1.2.0 or later.
+  </Step>
+  <Step title="Build for v3">
+    Use `cargo build-sbf --arch v3`, or `anchor build` on Anchor 1.2.0 and later. Confirm `Flags: 0x3` before you deploy.
+  </Step>
+  <Step title="Replace hand-declared syscalls">
+    Move every `extern "C"` syscall declaration to `solana-define-syscall`.
+  </Step>
+  <Step title="Rehearse the upgrade locally">
+    Preload the current program into `solana-test-validator` and upgrade it with the v3 build.
+  </Step>
+  <Step title="Upgrade before you have to">
+    sBPFv3 deployment is already enabled on Mainnet. Upgrading now leaves no v0 program to block a later hotfix.
+  </Step>
+</Steps>
+
+## Additional resources
+
+* [SIMD-0500: disable deployment of SBPF v0, v1, and v2](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0500-disable-deployment-of-sbpf-v0-v1-v2.md)
+* [sBPFv3 programs](https://solana.com/upgrades/sbpfv3-programs) on solana.com
+* [Solana: Anchor development](/docs/solana-anchor-development)
+* [Solana: Pinocchio vs Quasar](/docs/solana-pinocchio-vs-quasar)
+* [Solana tooling](/docs/solana-tooling)
