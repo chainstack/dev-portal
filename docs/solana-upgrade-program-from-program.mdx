@@ -1,0 +1,528 @@
+---
+title: "Solana: Upgrade a program from another program"
+description: "Make a PDA the upgrade authority of a Solana program and upgrade it through a cross-program invocation. Covers which loader instructions a program can call, extending ProgramData for a larger build, closing PDA-owned buffers, and handing the authority back."
+---
+
+**TLDR:**
+* A program can hold another program's upgrade authority through a PDA and upgrade it with a cross-program invocation (CPI) to the upgradeable loader. Multisig and governance programs use this to put upgrades behind their own approval rules.
+* Through CPI, a program can call only the loader's `Upgrade`, `SetAuthority`, `SetAuthorityChecked`, and `Close` instructions. Writing a buffer, deploying a new program, and extending a program stay top-level instructions that your wallet sends.
+* `ExtendProgram` needs no authority signature, so your wallet can grow a PDA-controlled program before a larger build goes in. Each extension adds at least 10,240 bytes.
+* A buffer handed to the PDA can only be closed by the PDA. Give the upgrading program a close instruction, or the buffer's rent stays locked.
+* Once SIMD-0500 activates, the buffer has to hold an sBPFv3 build, whoever signs the upgrade. See [Solana: Rebuild your programs for sBPFv3](/docs/solana-sbpfv3-program-migration).
+
+## Main article
+
+Every program deployed with the upgradeable loader, `BPFLoaderUpgradeab1e11111111111111111111111`, has an upgrade authority: the one address that can replace its code. The authority does not have to be a wallet. Set it to a program derived address (PDA), and only the program that derives the PDA can sign for it, which it does with `invoke_signed`. That program decides when an upgrade goes through.
+
+This guide builds an upgrader program that holds a PDA authority, hands a second program to it, and upgrades that program to a larger build through CPI. The examples use Devnet through a Chainstack endpoint.
+
+<Info>
+To follow along, you need a Solana node endpoint and the Agave 4.3.0 toolchain. See [Solana tooling](/docs/solana-tooling) and [Install the toolchain](/docs/solana-sbpfv3-program-migration#install-the-toolchain).
+</Info>
+
+## What a program can call on the loader
+
+The runtime filters CPIs to the upgradeable loader by instruction:
+
+| Loader instruction | Through CPI | Purpose |
+| ------------------ | ----------- | ------- |
+| `InitializeBuffer` | Rejected | Create a buffer for a new build |
+| `Write` | Rejected | Upload bytes into a buffer |
+| `DeployWithMaxDataLen` | Rejected | Deploy a new program |
+| `Upgrade` | Allowed | Replace a program's code with a buffer's |
+| `SetAuthority` | Allowed | Change a program's or buffer's authority |
+| `Close` | Allowed | Close a buffer or program and reclaim its lamports |
+| `ExtendProgram` | Rejected | Grow a program's ProgramData account |
+| `SetAuthorityChecked` | Allowed | Change an authority, with the new authority signing |
+
+A rejected CPI fails the calling program before the loader runs:
+
+```text
+Program 6kCVB6cmBk9cXDfUgVvbcVj7q22EcPJGGqPFiN9Htzav failed: Program BPFLoaderUpgradeab1e11111111111111111111111 not supported by inner instructions
+```
+
+So the work splits in two. Your wallet uploads the new build to a buffer and extends the program when the build grows. The upgrader program signs the upgrade itself.
+
+## Write the upgrader program
+
+The upgrader derives its authority PDA from the seed `upgrade_authority` and the admin's address. Each admin gets a separate PDA, and the upgrader signs with it only when that admin signs the transaction. It has three instructions:
+
+* `0` — upgrade the target program from a buffer that the PDA owns.
+* `1` — hand the upgrade authority back to the admin wallet.
+* `2` — close a buffer that the PDA owns and return its lamports to the admin.
+
+<CodeGroup>
+```toml Cargo.toml
+[package]
+name = "upgrader"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+solana-program = "5.1.0"
+solana-sdk-ids = "3.1.0"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+```
+
+```rust src/lib.rs
+use solana_program::{
+    account_info::{AccountInfo, next_account_info},
+    entrypoint,
+    entrypoint::ProgramResult,
+    instruction::{AccountMeta, Instruction},
+    program::invoke_signed,
+    program_error::ProgramError,
+    pubkey::Pubkey,
+};
+use solana_sdk_ids::bpf_loader_upgradeable::ID as LOADER_V3;
+
+entrypoint!(process_instruction);
+
+const AUTHORITY_SEED: &[u8] = b"upgrade_authority";
+
+// Loader-v3 instruction tags, serialized as little-endian u32.
+const LOADER_UPGRADE: [u8; 4] = [3, 0, 0, 0];
+const LOADER_CLOSE: [u8; 4] = [5, 0, 0, 0];
+const LOADER_SET_AUTHORITY_CHECKED: [u8; 4] = [7, 0, 0, 0];
+
+pub fn process_instruction(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    instruction_data: &[u8],
+) -> ProgramResult {
+    let accounts_iter = &mut accounts.iter();
+    let admin = next_account_info(accounts_iter)?;
+    let authority = next_account_info(accounts_iter)?;
+
+    // The authority PDA is derived from the admin's address, so only that admin can sign with it.
+    if !admin.is_signer {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
+    let (expected_authority, bump) =
+        Pubkey::find_program_address(&[AUTHORITY_SEED, admin.key.as_ref()], program_id);
+    if authority.key != &expected_authority {
+        return Err(ProgramError::InvalidSeeds);
+    }
+    let signer_seeds: &[&[u8]] = &[AUTHORITY_SEED, admin.key.as_ref(), &[bump]];
+
+    match instruction_data.first() {
+        // 0: upgrade the target program from a buffer that the PDA owns.
+        Some(0) => {
+            let program = next_account_info(accounts_iter)?;
+            let programdata = next_account_info(accounts_iter)?;
+            let buffer = next_account_info(accounts_iter)?;
+            let rent = next_account_info(accounts_iter)?;
+            let clock = next_account_info(accounts_iter)?;
+
+            let upgrade = Instruction::new_with_bytes(
+                LOADER_V3,
+                &LOADER_UPGRADE,
+                vec![
+                    AccountMeta::new(*programdata.key, false),
+                    AccountMeta::new(*program.key, false),
+                    AccountMeta::new(*buffer.key, false),
+                    AccountMeta::new(*admin.key, false), // receives the buffer's lamports
+                    AccountMeta::new_readonly(*rent.key, false),
+                    AccountMeta::new_readonly(*clock.key, false),
+                    AccountMeta::new_readonly(*authority.key, true),
+                ],
+            );
+            invoke_signed(
+                &upgrade,
+                &[
+                    programdata.clone(),
+                    program.clone(),
+                    buffer.clone(),
+                    admin.clone(),
+                    rent.clone(),
+                    clock.clone(),
+                    authority.clone(),
+                ],
+                &[signer_seeds],
+            )
+        }
+        // 1: hand the upgrade authority back to the admin wallet.
+        Some(1) => {
+            let programdata = next_account_info(accounts_iter)?;
+
+            let hand_back = Instruction::new_with_bytes(
+                LOADER_V3,
+                &LOADER_SET_AUTHORITY_CHECKED,
+                vec![
+                    AccountMeta::new(*programdata.key, false),
+                    AccountMeta::new_readonly(*authority.key, true),
+                    AccountMeta::new_readonly(*admin.key, true),
+                ],
+            );
+            invoke_signed(
+                &hand_back,
+                &[programdata.clone(), authority.clone(), admin.clone()],
+                &[signer_seeds],
+            )
+        }
+        // 2: close a buffer that the PDA owns and return its lamports to the admin.
+        Some(2) => {
+            let buffer = next_account_info(accounts_iter)?;
+
+            let close = Instruction::new_with_bytes(
+                LOADER_V3,
+                &LOADER_CLOSE,
+                vec![
+                    AccountMeta::new(*buffer.key, false),
+                    AccountMeta::new(*admin.key, false),
+                    AccountMeta::new_readonly(*authority.key, true),
+                ],
+            );
+            invoke_signed(
+                &close,
+                &[buffer.clone(), admin.clone(), authority.clone()],
+                &[signer_seeds],
+            )
+        }
+        _ => Err(ProgramError::InvalidInstructionData),
+    }
+}
+```
+</CodeGroup>
+
+The program writes each loader instruction as its 4-byte tag, a little-endian `u32`. The instruction builders in `solana-loader-v3-interface` need that crate's `wincode` feature, which takes this program from 17 KB to about 50 KB and raises the rent to deploy it about threefold.
+
+Build it for sBPFv3:
+
+```bash
+cargo build-sbf --arch v3
+```
+
+## Write the program to upgrade
+
+The target is a minimal program in a crate named `greeter`. Version 1 logs a fixed message:
+
+<CodeGroup>
+```toml Cargo.toml
+[package]
+name = "greeter"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+solana-program = "5.1.0"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+```
+
+```rust src/lib.rs
+use solana_program::{
+    account_info::AccountInfo, entrypoint, entrypoint::ProgramResult, msg, pubkey::Pubkey,
+};
+
+entrypoint!(process_instruction);
+
+pub fn process_instruction(
+    _program_id: &Pubkey,
+    _accounts: &[AccountInfo],
+    _instruction_data: &[u8],
+) -> ProgramResult {
+    msg!("Greeter version 1");
+    Ok(())
+}
+```
+</CodeGroup>
+
+Version 2 formats its output, which pulls in more code and makes the build larger:
+
+```rust src/lib.rs
+use solana_program::{
+    account_info::AccountInfo, entrypoint, entrypoint::ProgramResult, msg, pubkey::Pubkey,
+};
+
+entrypoint!(process_instruction);
+
+pub fn process_instruction(
+    _program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    instruction_data: &[u8],
+) -> ProgramResult {
+    msg!(
+        "Greeter version 2: {} accounts, {} bytes of data",
+        accounts.len(),
+        instruction_data.len()
+    );
+    Ok(())
+}
+```
+
+Build version 1 with `cargo build-sbf --arch v3` and keep the version 2 source for later.
+
+## Deploy both programs
+
+Deploy the upgrader and version 1 of the target:
+
+```bash
+solana program deploy upgrader/target/deploy/upgrader.so --url YOUR_CHAINSTACK_ENDPOINT
+solana program deploy greeter/target/deploy/greeter.so --url YOUR_CHAINSTACK_ENDPOINT
+```
+
+```text
+Program Id: GpL5HDHkWq92CCN6mrYnNqVy2qRBmDF3hPCenqV3gHMX
+Program Id: EdnRnFuQkAKiK1Xb9enrx7pE1N4wN8mTP21A72EYfhX5
+```
+
+## Hand the upgrade authority to the PDA
+
+Derive the PDA for your wallet:
+
+```bash
+solana find-program-derived-address YOUR_UPGRADER_PROGRAM_ID \
+  string:upgrade_authority pubkey:YOUR_WALLET_ADDRESS
+```
+
+```text
+CgviYcgMm668ZeHFh3MEE5HXAmc3HEMU6kDJ4c1WNkMr
+```
+
+Make it the target's upgrade authority. By default, the CLI requires the new authority to sign, which a PDA cannot do, so skip that check:
+
+```bash
+solana program set-upgrade-authority YOUR_TARGET_PROGRAM_ID \
+  --new-upgrade-authority YOUR_AUTHORITY_PDA \
+  --skip-new-upgrade-authority-signer-check \
+  --url YOUR_CHAINSTACK_ENDPOINT
+```
+
+```text
+Account Type: Program
+Authority: CgviYcgMm668ZeHFh3MEE5HXAmc3HEMU6kDJ4c1WNkMr
+```
+
+From here on, your wallet can no longer upgrade the target directly. Only the upgrader can.
+
+## Prepare the new build
+
+Build version 2 and upload it to a buffer, then give the buffer to the same PDA. The loader requires the buffer and the program to have the same authority:
+
+```bash
+cargo build-sbf --arch v3
+solana program write-buffer greeter/target/deploy/greeter.so --url YOUR_CHAINSTACK_ENDPOINT
+solana program set-buffer-authority YOUR_BUFFER_ADDRESS \
+  --new-buffer-authority YOUR_AUTHORITY_PDA \
+  --url YOUR_CHAINSTACK_ENDPOINT
+```
+
+```text
+Buffer: 218ZhdtyMtVAom7P6ZA5uGjq3A2819r914bHmQj3aJ4W
+Account Type: Buffer
+Authority: CgviYcgMm668ZeHFh3MEE5HXAmc3HEMU6kDJ4c1WNkMr
+```
+
+### Extend the program when the build grows
+
+A program's ProgramData account holds its current build and nothing more: after the version 1 deployment, `solana program show` reports a `Data Length` of 9,152 bytes, the size of that `.so` file. Version 2 is 14,592 bytes. An upgrade to a larger build fails with `ProgramData account not large enough` until you extend the program.
+
+`ExtendProgram` cannot go through CPI, and it does not need the upgrade authority to sign, so your wallet sends it. Every extension adds at least 10,240 bytes, the minimum set by [SIMD-0431](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0431-minimum-extend-program-size.md):
+
+```bash
+solana program extend YOUR_TARGET_PROGRAM_ID 10240 --url YOUR_CHAINSTACK_ENDPOINT
+```
+
+```text
+Extended Program Id EdnRnFuQkAKiK1Xb9enrx7pE1N4wN8mTP21A72EYfhX5 by 10240 bytes
+```
+
+The loader treats an extension like a deployment in that slot. An upgrade in the same slot fails with `Program was deployed in this block already`, so wait for the next slot before you upgrade.
+
+## Upgrade through the upgrader
+
+This client sends the upgrader's instructions with [Solana Kit](https://github.com/anza-xyz/kit). It derives the authority PDA and the target's ProgramData address, then passes the accounts each instruction reads:
+
+```bash
+npm install @solana/kit
+```
+
+```javascript upgrade.mjs
+import {
+  AccountRole,
+  address,
+  appendTransactionMessageInstruction,
+  createKeyPairSignerFromBytes,
+  createSolanaRpc,
+  createSolanaRpcSubscriptions,
+  createTransactionMessage,
+  getAddressEncoder,
+  getProgramDerivedAddress,
+  getSignatureFromTransaction,
+  pipe,
+  sendAndConfirmTransactionFactory,
+  setTransactionMessageFeePayerSigner,
+  setTransactionMessageLifetimeUsingBlockhash,
+  signTransactionMessageWithSigners,
+} from "@solana/kit";
+import { readFileSync } from "node:fs";
+
+const rpc = createSolanaRpc("YOUR_CHAINSTACK_ENDPOINT");
+const rpcSubscriptions = createSolanaRpcSubscriptions("YOUR_CHAINSTACK_WSS_ENDPOINT");
+
+const UPGRADER = address("YOUR_UPGRADER_PROGRAM_ID");
+const TARGET = address("YOUR_TARGET_PROGRAM_ID");
+const LOADER_V3 = address("BPFLoaderUpgradeab1e11111111111111111111111");
+const SYSVAR_RENT = address("SysvarRent111111111111111111111111111111111");
+const SYSVAR_CLOCK = address("SysvarC1ock11111111111111111111111111111111");
+
+const keypairBytes = new Uint8Array(JSON.parse(readFileSync("YOUR_KEYPAIR_PATH", "utf8")));
+const admin = await createKeyPairSignerFromBytes(keypairBytes);
+const encodeAddress = getAddressEncoder().encode;
+
+const [authority] = await getProgramDerivedAddress({
+  programAddress: UPGRADER,
+  seeds: ["upgrade_authority", encodeAddress(admin.address)],
+});
+const [programData] = await getProgramDerivedAddress({
+  programAddress: LOADER_V3,
+  seeds: [encodeAddress(TARGET)],
+});
+
+function actionAccounts(action, buffer) {
+  switch (action) {
+    case "upgrade":
+      return [
+        0,
+        [
+          { address: TARGET, role: AccountRole.WRITABLE },
+          { address: programData, role: AccountRole.WRITABLE },
+          { address: address(buffer), role: AccountRole.WRITABLE },
+          { address: SYSVAR_RENT, role: AccountRole.READONLY },
+          { address: SYSVAR_CLOCK, role: AccountRole.READONLY },
+        ],
+      ];
+    case "hand-back":
+      return [1, [{ address: programData, role: AccountRole.WRITABLE }]];
+    case "close-buffer":
+      return [2, [{ address: address(buffer), role: AccountRole.WRITABLE }]];
+    default:
+      throw new Error(`Unknown action: ${action}`);
+  }
+}
+
+const [action, buffer] = process.argv.slice(2);
+const [discriminator, accounts] = actionAccounts(action, buffer);
+const instruction = {
+  programAddress: UPGRADER,
+  accounts: [
+    { address: admin.address, role: AccountRole.WRITABLE_SIGNER, signer: admin },
+    { address: authority, role: AccountRole.READONLY },
+    ...accounts,
+    { address: LOADER_V3, role: AccountRole.READONLY },
+  ],
+  data: new Uint8Array([discriminator]),
+};
+
+const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+const message = pipe(
+  createTransactionMessage({ version: 0 }),
+  (m) => setTransactionMessageFeePayerSigner(admin, m),
+  (m) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
+  (m) => appendTransactionMessageInstruction(instruction, m),
+);
+
+const transaction = await signTransactionMessageWithSigners(message);
+await sendAndConfirmTransactionFactory({ rpc, rpcSubscriptions })(transaction, {
+  commitment: "confirmed",
+});
+
+const signature = getSignatureFromTransaction(transaction);
+const result = await rpc
+  .getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 })
+  .send();
+console.log("Signature:", signature);
+console.log(result.meta.logMessages.join("\n"));
+```
+
+Run the upgrade with the buffer address:
+
+```bash
+node upgrade.mjs upgrade 218ZhdtyMtVAom7P6ZA5uGjq3A2819r914bHmQj3aJ4W
+```
+
+```text
+Signature: 46YCoGfAJ6NchL2rwhQa5BwrWEp5nD8fiW3gDP1KRZYZP51F5fEZMBZWDoSBwxbDcRZjmENsFRRotgb5jQ1cFgnu
+Program GpL5HDHkWq92CCN6mrYnNqVy2qRBmDF3hPCenqV3gHMX invoke [1]
+Program BPFLoaderUpgradeab1e11111111111111111111111 invoke [2]
+Upgraded program EdnRnFuQkAKiK1Xb9enrx7pE1N4wN8mTP21A72EYfhX5
+Program BPFLoaderUpgradeab1e11111111111111111111111 success
+Program GpL5HDHkWq92CCN6mrYnNqVy2qRBmDF3hPCenqV3gHMX consumed 10899 of 200000 compute units
+Program GpL5HDHkWq92CCN6mrYnNqVy2qRBmDF3hPCenqV3gHMX success
+```
+
+The upgrade keeps the program ID, closes the buffer, and returns the buffer's lamports to the admin. Calling the target with the `call.mjs` script from [Call the program](/docs/solana-sbpfv3-program-migration#call-the-program) now runs version 2:
+
+```text
+Signature: 3fgRquCqHE7vZqMJAbENzYc4zX516Pr3WPURHGJFZxuVQHvogqS9uBhX5ZwdBjR7a5WXMP7wHRxZ4XiQZmaPJabF
+Program EdnRnFuQkAKiK1Xb9enrx7pE1N4wN8mTP21A72EYfhX5 invoke [1]
+Program log: Greeter version 2: 0 accounts, 0 bytes of data
+Program EdnRnFuQkAKiK1Xb9enrx7pE1N4wN8mTP21A72EYfhX5 consumed 766 of 200000 compute units
+Program EdnRnFuQkAKiK1Xb9enrx7pE1N4wN8mTP21A72EYfhX5 success
+```
+
+## Close buffers that the PDA owns
+
+A buffer that you give to the PDA and never use for an upgrade still holds rent. Your wallet cannot close it, and `solana program close` fails with `Buffer account authority Some(<PDA>) does not match Some(<wallet>)`. Close it through the upgrader instead:
+
+```bash
+node upgrade.mjs close-buffer YOUR_BUFFER_ADDRESS
+```
+
+```text
+Signature: 3Mh7uSAtTY82nuNTcsWmL5detEJv68S4azGiwkgK2gnq3dUhhYki9opx4zgip6U19cffMTqckztarC6PAWgMYgnU
+Program GpL5HDHkWq92CCN6mrYnNqVy2qRBmDF3hPCenqV3gHMX invoke [1]
+Program BPFLoaderUpgradeab1e11111111111111111111111 invoke [2]
+Closed Buffer 3eZWWrBStyRTLDyRkEe71Tr6XuwDnnz6ydCQd5Cca4W7
+Program BPFLoaderUpgradeab1e11111111111111111111111 success
+Program GpL5HDHkWq92CCN6mrYnNqVy2qRBmDF3hPCenqV3gHMX consumed 9440 of 200000 compute units
+Program GpL5HDHkWq92CCN6mrYnNqVy2qRBmDF3hPCenqV3gHMX success
+```
+
+## Hand the authority back
+
+To return the target to direct wallet control, call the hand-back instruction. It uses `SetAuthorityChecked`, which requires the new authority to sign. The admin signs the transaction, so the authority cannot go to an address nobody controls:
+
+```bash
+node upgrade.mjs hand-back
+```
+
+```text
+Signature: huL6KTJuuZkMebnKHS5mmaSHB6hHg7muojDbzcsVkgRUphMTBWk6RonU1ACvcj2UUbiFT8PZTUon4sMuS3q1akb
+Program GpL5HDHkWq92CCN6mrYnNqVy2qRBmDF3hPCenqV3gHMX invoke [1]
+Program BPFLoaderUpgradeab1e11111111111111111111111 invoke [2]
+New authority 8diQptTPMvxFooDa7TfWSkbjbxB5Yg4RR3EbBCa6yWou
+Program BPFLoaderUpgradeab1e11111111111111111111111 success
+Program GpL5HDHkWq92CCN6mrYnNqVy2qRBmDF3hPCenqV3gHMX consumed 9484 of 200000 compute units
+Program GpL5HDHkWq92CCN6mrYnNqVy2qRBmDF3hPCenqV3gHMX success
+```
+
+## Errors
+
+| Message in the logs | Cause |
+| ------------------- | ----- |
+| `Program BPFLoaderUpgradeab1e11111111111111111111111 not supported by inner instructions` | The program called a loader instruction that CPI does not allow. Send it as a top-level instruction. |
+| `ProgramData account not large enough` | The new build is larger than the ProgramData account. Run `solana program extend` first. |
+| `ExtendProgram requires a minimum of 10240 additional bytes or to extend to maximum size` | The extension is smaller than 10,240 bytes. |
+| `Program was deployed in this block already` | The upgrade landed in the same slot as a deployment or an extension. Send it again in a later slot. |
+| `Buffer and upgrade authority don't match` | The buffer's authority is not the PDA. Run `solana program set-buffer-authority`. |
+| `Incorrect upgrade authority provided` | The PDA that signed is not the program's upgrade authority, for example because a different admin called the upgrader. |
+| `Detected sbpf_version required by the executable which are not enabled` | The buffer holds a v0, v1, or v2 build on a cluster where SIMD-0500 is active. Rebuild with `--arch v3`. |
+| `missing signature for supplied pubkey` | `solana program set-upgrade-authority` was run without `--skip-new-upgrade-authority-signer-check` for a PDA. |
+
+## Before you use this in production
+
+* Gate the upgrade instruction. The example accepts any upgrade the admin signs, while a production upgrader checks multisig approvals, a timelock, or a governance vote before it calls `Upgrade`.
+* Check what the buffer holds. The upgrader installs whatever bytes the buffer contains, so compare the buffer's hash with your verified build, for example with `solana-verify get-buffer-hash`.
+* Protect the upgrader itself. Whoever controls the upgrader's own upgrade authority can replace its rules, so put that authority behind the same controls or make the upgrader immutable.
+
+## Additional resources
+
+* [Solana: Rebuild your programs for sBPFv3](/docs/solana-sbpfv3-program-migration)
+* [Solana: Program derived addresses and cross-program invocations](/docs/solana-program-derived-addresses-and-cross-program-invocations)
+* [SIMD-0431: minimum extend program size](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0431-minimum-extend-program-size.md)
+* [Agave CPI loader filter](https://github.com/anza-xyz/agave/blob/v4.3.0/program-runtime/src/cpi.rs) — `check_authorized_program` in Agave 4.3.0
