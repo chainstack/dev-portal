@@ -1,0 +1,272 @@
+---
+title: "Solana: Rent reduction and reclaiming excess rent"
+description: "SIMD-0437 lowers Solana's rent-exempt minimum in five steps. Check the current rate through your endpoint and reclaim the excess lamports from token accounts, mints, stake accounts, and your own program's PDAs."
+---
+
+**TLDR:**
+* [SIMD-0437](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0437-incremental-rent-reduction.md) lowers the rent rate from 6,960 to 696 lamports per byte in five feature-gated steps. Steps 1 and 2 are active on Mainnet, so the rate is 5,080 lamports per byte and a token account needs 1,488,440 lamports instead of 2,039,280.
+* Existing accounts keep their balances. Anything above the new minimum is excess that the account's authority can withdraw, and each later step frees more.
+* Token accounts and mints, under both the Token and Token-2022 programs, release it through the `WithdrawExcessLamports` instruction. Stake accounts release it through a normal stake withdrawal. A PDA releases it only through an instruction in the program that owns it.
+* If the rate is ever reset to 6,960 under SIMD-0438, accounts you have reclaimed stay valid as long as they do not grow or change owner.
+* Read minimums from `getMinimumBalanceForRentExemption` rather than hardcoding them.
+
+## Main article
+
+Every Solana account holds a minimum balance, its rent-exempt minimum, which is refunded in full when the account closes. The minimum is the account's size plus 128 bytes of metadata, multiplied by the rate in lamports per byte:
+
+```text
+minimum balance = (128 + data size in bytes) × lamports per byte
+```
+
+The rate was 6,960 lamports per byte from Solana's launch until September 2026. SIMD-0437 lowers it to 696 in five steps, each behind its own feature gate. A step activates only after a risk review of the previous one, and the [SIMD-0438](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0438-rent-increase-safeguard.md) feature can reset the rate to 6,960 if state grows too fast.
+
+<Info>
+To follow along, you need a Solana node endpoint. See [Solana tooling](/docs/solana-tooling) to get set up.
+</Info>
+
+## Reduction schedule
+
+| Step | Feature | Lamports per byte | Empty account (0 bytes) | Mint (82 bytes) | Token account (165 bytes) | Stake account (200 bytes) |
+| ---- | ------- | ----------------- | ----------------------- | --------------- | ------------------------- | ------------------------- |
+| Before SIMD-0437 | — | 6,960 | 890,880 | 1,461,600 | 2,039,280 | 2,282,880 |
+| 1 | `4a6f7o7iTcA8hRDCrPLkSatnt5Ykxiu36wo5p1Tt12wC` | 6,333 | 810,624 | 1,329,930 | 1,855,569 | 2,077,224 |
+| 2 | `61BtM7BkDEE8Yq5fskEVAQT9mYA8qCejJWoLe5apqg81` | 5,080 | 650,240 | 1,066,800 | 1,488,440 | 1,666,240 |
+| 3 | `rntCigrTppP5JdZz7K8TyN9sMzLdAcXp8SejYpVpX6D` | 2,575 | 329,600 | 540,750 | 754,475 | 844,600 |
+| 4 | `rntD7invRBswCAdKtRsh1G4psKjrPdS3BKqtnA78C7N` | 1,322 | 169,216 | 277,620 | 387,346 | 433,616 |
+| 5 | `rntTjNZ9boq8owDxjGVFHPfWNQPDaKiM5JcjxmDGg47` | 696 | 89,088 | 146,160 | 203,928 | 228,288 |
+
+All amounts are in lamports. On Mainnet, step 1 activated at slot 444,096,000 on September 3, 2026, and step 2 at slot 446,256,000 on September 11, 2026. Solana expects steps 3–5 with Agave 4.4 in November 2026. The SIMD-0438 reset is gated by `rnt8ZQpz2HYhX3DkYBDGjJS1a36mYq69oXka7JrhEdi`.
+
+## Check the current rate
+
+Query the six features through your endpoint:
+
+```bash
+solana feature status \
+  4a6f7o7iTcA8hRDCrPLkSatnt5Ykxiu36wo5p1Tt12wC \
+  61BtM7BkDEE8Yq5fskEVAQT9mYA8qCejJWoLe5apqg81 \
+  rntCigrTppP5JdZz7K8TyN9sMzLdAcXp8SejYpVpX6D \
+  rntD7invRBswCAdKtRsh1G4psKjrPdS3BKqtnA78C7N \
+  rntTjNZ9boq8owDxjGVFHPfWNQPDaKiM5JcjxmDGg47 \
+  rnt8ZQpz2HYhX3DkYBDGjJS1a36mYq69oXka7JrhEdi \
+  --url YOUR_CHAINSTACK_ENDPOINT | head -7
+```
+
+On Mainnet, after step 2:
+
+```text
+Feature                                      | Status                  | Activation Slot | Description
+4a6f7o7iTcA8hRDCrPLkSatnt5Ykxiu36wo5p1Tt12wC | active since epoch 1028 | 444096000       | SIMD-0437-1: Set lamports per byte to 6333
+61BtM7BkDEE8Yq5fskEVAQT9mYA8qCejJWoLe5apqg81 | active since epoch 1033 | 446256000       | SIMD-0437-2: Set lamports per byte to 5080
+rnt8ZQpz2HYhX3DkYBDGjJS1a36mYq69oXka7JrhEdi  | inactive                | NA              | SIMD-0438: Reset lamports per byte to legacy value of 6960
+rntCigrTppP5JdZz7K8TyN9sMzLdAcXp8SejYpVpX6D  | inactive                | NA              | SIMD-0437-3: Set lamports per byte to 2575
+rntD7invRBswCAdKtRsh1G4psKjrPdS3BKqtnA78C7N  | inactive                | NA              | SIMD-0437-4: Set lamports per byte to 1322
+rntTjNZ9boq8owDxjGVFHPfWNQPDaKiM5JcjxmDGg47  | inactive                | NA              | SIMD-0437-5: Set lamports per byte to 696
+```
+
+The minimum for a given size comes from [getMinimumBalanceForRentExemption](/reference/solana-getminimumbalanceforrentexemption), which the CLI wraps as `solana rent`:
+
+```bash
+solana rent 165 --lamports --url YOUR_CHAINSTACK_ENDPOINT
+```
+
+```text
+Rent-exempt minimum: 1488440 lamports
+```
+
+<Note>
+`solana-test-validator` 4.3.0 starts at 6,960 lamports per byte, even with `--clone-feature-set`, which marks the rent features active without applying their rates. A reclaim script finds no excess on a local validator, so test it on Devnet, where steps 1 and 2 are active as on Mainnet.
+</Note>
+
+## What happens to existing accounts
+
+The reduction does not move any lamports. An account created before a step keeps its balance, and everything above the new minimum for its size becomes excess. How you withdraw the excess depends on the program that owns the account:
+
+| Account | Owner | How to reclaim |
+| ------- | ----- | -------------- |
+| Wallet | System Program | Nothing to reclaim. The whole balance is yours, and a new wallet account needs only the lower minimum. |
+| Token account, mint, or multisig | Token or Token-2022 program | `WithdrawExcessLamports`, signed by the account's authority |
+| Wrapped SOL account | Token program | Not supported. Close the account to recover its rent. |
+| Stake account | Stake program | `solana withdraw-stake`, signed by the withdraw authority |
+| PDA of your program | Your program | An instruction in your program that moves the excess |
+| PDA of another program | That program | Only if the program provides an instruction for it |
+
+If SIMD-0438 ever resets the rate, the protocol keeps reclaimed accounts valid. Under [SIMD-0392](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0392-rent-increase-adaptations.md), active on Mainnet since slot 443,664,000, a transaction can leave an account below the current minimum as long as the account does not grow, does not change owner, and does not lose lamports below its starting balance. Only new allocations pay the higher rate.
+
+## Reclaim from token accounts and mints
+
+The `WithdrawExcessLamports` instruction moves an account's lamports above its current minimum to a destination you choose. Who signs depends on the account:
+
+* Token account — the owner.
+* Mint — the mint authority. A mint without a mint authority accepts the mint account's own keypair instead.
+* Multisig — the multisig's signers.
+
+This script finds the wallet's token accounts under both token programs, adds any mints passed as arguments, and withdraws the excess from each one in batches of 20:
+
+```bash
+npm install @solana/kit @solana-program/token @solana-program/token-2022
+```
+
+```javascript reclaim.mjs
+import {
+  address,
+  appendTransactionMessageInstructions,
+  createKeyPairSignerFromBytes,
+  createSolanaRpc,
+  createSolanaRpcSubscriptions,
+  createTransactionMessage,
+  getSignatureFromTransaction,
+  pipe,
+  sendAndConfirmTransactionFactory,
+  setTransactionMessageFeePayerSigner,
+  setTransactionMessageLifetimeUsingBlockhash,
+  signTransactionMessageWithSigners,
+} from "@solana/kit";
+import { TOKEN_PROGRAM_ADDRESS, getWithdrawExcessLamportsInstruction } from "@solana-program/token";
+import { TOKEN_2022_PROGRAM_ADDRESS } from "@solana-program/token-2022";
+import { readFileSync } from "node:fs";
+
+const rpc = createSolanaRpc("YOUR_CHAINSTACK_ENDPOINT");
+const rpcSubscriptions = createSolanaRpcSubscriptions("YOUR_CHAINSTACK_WSS_ENDPOINT");
+
+const keypairBytes = new Uint8Array(JSON.parse(readFileSync("YOUR_KEYPAIR_PATH", "utf8")));
+const owner = await createKeyPairSignerFromBytes(keypairBytes);
+
+// The current rent-exempt minimum for each account size.
+const minimums = new Map();
+async function minimumBalance(space) {
+  if (!minimums.has(space)) {
+    minimums.set(space, await rpc.getMinimumBalanceForRentExemption(space).send());
+  }
+  return minimums.get(space);
+}
+
+// Token accounts that the wallet owns, under both token programs.
+const candidates = [];
+for (const programId of [TOKEN_PROGRAM_ADDRESS, TOKEN_2022_PROGRAM_ADDRESS]) {
+  const { value } = await rpc
+    .getTokenAccountsByOwner(owner.address, { programId }, { encoding: "jsonParsed" })
+    .send();
+  for (const { pubkey, account } of value) {
+    // Wrapped SOL accounts are not supported. Close them to recover their rent.
+    if (account.data.parsed.info.isNative) continue;
+    candidates.push({ source: pubkey, account });
+  }
+}
+
+// Mints that the wallet is the mint authority of, passed as arguments.
+for (const mint of process.argv.slice(2)) {
+  const { value: account } = await rpc.getAccountInfo(address(mint), { encoding: "base64" }).send();
+  candidates.push({ source: address(mint), account });
+}
+
+const instructions = [];
+let total = 0n;
+for (const { source, account } of candidates) {
+  const excess = account.lamports - (await minimumBalance(account.space));
+  if (excess <= 0n) continue;
+  console.log(`${source}: ${excess} lamports`);
+  total += excess;
+  instructions.push(
+    getWithdrawExcessLamportsInstruction(
+      { source, destination: owner.address, authority: owner },
+      { programAddress: account.owner },
+    ),
+  );
+}
+console.log(`Reclaimable: ${total} lamports from ${instructions.length} accounts`);
+
+// Send up to 20 withdrawals per transaction.
+const sendAndConfirm = sendAndConfirmTransactionFactory({ rpc, rpcSubscriptions });
+for (let i = 0; i < instructions.length; i += 20) {
+  const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+  const message = pipe(
+    createTransactionMessage({ version: 0 }),
+    (m) => setTransactionMessageFeePayerSigner(owner, m),
+    (m) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
+    (m) => appendTransactionMessageInstructions(instructions.slice(i, i + 20), m),
+  );
+  const transaction = await signTransactionMessageWithSigners(message);
+  await sendAndConfirm(transaction, { commitment: "confirmed" });
+  console.log("Signature:", getSignatureFromTransaction(transaction));
+}
+```
+
+Run it with the addresses of mints for which your wallet is the mint authority, or with no arguments for token accounts only:
+
+```bash
+node reclaim.mjs Cta7RoJvr8PJ7L7xDUEx9WAMu2TCvV4VmiZKEE1h1hDM 7965FTkGwwZD1pMi1hmCQY7yaV7jJ39dJMpFthNv8s5K
+```
+
+```text
+QAxn6PHjrHXy9tKowjqFxLAFCaXkEUEYQ13uCmr5zfv: 550840 lamports
+7qEdMgtNGzUGr6zQwQRS8cnquqNfnF69B9Epycb8wp3W: 550840 lamports
+48Zw7z7v41DFgLQMmEzUUCzcWPrk7NEd95USSsDeNR7J: 560240 lamports
+Cta7RoJvr8PJ7L7xDUEx9WAMu2TCvV4VmiZKEE1h1hDM: 394800 lamports
+7965FTkGwwZD1pMi1hmCQY7yaV7jJ39dJMpFthNv8s5K: 394800 lamports
+Reclaimable: 2451520 lamports from 5 accounts
+Signature: 5fsr25YqbhyPYBxJT5yxD2kzCPUJcq5boDENDdzshNrgqiRW615QWkPAMBr15y5oKcEvSAYEfEFWXze2eM94VYxk
+```
+
+The five accounts in this run are two Token program accounts, a Token-2022 account, a Token program mint, and a Token-2022 mint, all funded at the rate before SIMD-0437. One transaction reclaimed 2,451,520 lamports for a 5,000-lamport fee. A second run reports `Reclaimable: 0 lamports from 0 accounts` until the next step activates.
+
+`WithdrawExcessLamports` fails on a wrapped SOL account with `Instruction does not support native tokens`, and on a mint without a mint authority with `Account does not support specified authority type` unless the mint account itself signs.
+
+## Reclaim from stake accounts
+
+The stake program computes a stake account's reserve from the current rate, so the excess on an older stake account can be withdrawn like any other unstaked balance. `solana stake-account` shows the reserve that the stake program applies:
+
+```bash
+solana stake-account YOUR_STAKE_ACCOUNT --url YOUR_CHAINSTACK_ENDPOINT
+```
+
+```text
+Balance: 0.00228288 SOL
+Rent Exempt Reserve: 0.00166624 SOL
+Stake account is undelegated
+Stake Authority: 8diQptTPMvxFooDa7TfWSkbjbxB5Yg4RR3EbBCa6yWou
+Withdraw Authority: 8diQptTPMvxFooDa7TfWSkbjbxB5Yg4RR3EbBCa6yWou
+```
+
+This undelegated account holds the reserve from before SIMD-0437, so 616,640 lamports are excess at step 2. Withdraw them with the withdraw authority:
+
+```bash
+solana withdraw-stake YOUR_STAKE_ACCOUNT YOUR_WALLET_ADDRESS 0.00061664 \
+  --url YOUR_CHAINSTACK_ENDPOINT
+```
+
+For a delegated account, the withdrawable amount is the balance minus the delegated stake and the current reserve. A withdrawal above that fails with `insufficient funds for instruction`.
+
+<Note>
+The `meta.rentExemptReserve` field in parsed stake account data always reads `2282880`, the value before SIMD-0437. The stake program writes that fixed value for compatibility and ignores it, so compute the reserve with `getMinimumBalanceForRentExemption(200)`.
+</Note>
+
+## Reclaim from your program's PDAs
+
+Only the program that owns an account can debit it, so excess rent on your program's PDAs stays there until your program moves it. An instruction that has already checked the authority's signature and the PDA's seeds can transfer the excess directly:
+
+```rust src/lib.rs
+// `vault` is a PDA owned by this program; `authority` receives the excess.
+if vault.owner != program_id {
+    return Err(ProgramError::IncorrectProgramId);
+}
+let minimum = Rent::get()?.minimum_balance(vault.data_len());
+let excess = vault.lamports().saturating_sub(minimum);
+**vault.try_borrow_mut_lamports()? -= excess;
+**authority.try_borrow_mut_lamports()? += excess;
+Ok(())
+```
+
+The PDA keeps exactly the current minimum for its size. Programs that you do not control need their own instruction for this, and many programs have none.
+
+## When to reclaim
+
+Each step makes more of the same balance withdrawable, and every reclaim costs a transaction fee of 5,000 lamports for up to 20 accounts in this script. A token account created before SIMD-0437 frees 550,840 lamports at step 2 and 1,835,352 lamports in total after step 5. Running the reclaim after each activation collects the excess as it appears. Waiting until step 5 collects all of it in one pass.
+
+## Additional resources
+
+* [SIMD-0437: incremental rent reduction](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0437-incremental-rent-reduction.md)
+* [SIMD-0438: rent increase safeguard](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0438-rent-increase-safeguard.md)
+* [SIMD-0392: rent increase adaptations](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0392-rent-increase-adaptations.md)
+* [Reduced rent](https://solana.com/upgrades/reduced-rent) on solana.com
+* [Solana: p-token batch instruction](/docs/solana-ptoken-batch-instruction)
