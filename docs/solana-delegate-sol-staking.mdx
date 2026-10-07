@@ -22,9 +22,9 @@ A stake account is a regular account owned by the Stake program, with three thin
 Two limits decide how much SOL the account needs:
 
 - Minimum delegation — the network rejects delegations below `getStakeMinimumDelegation()`, currently **1 SOL** (1,000,000,000 lamports). Delegating less returns the Stake program error `InsufficientDelegation` (custom error `0xc`).
-- Rent exemption — a 200-byte stake account needs **2,282,880 lamports** (about 0.00228288 SOL) to be rent-exempt, from `getMinimumBalanceForRentExemption(StakeProgram.space)`.
+- Rent exemption — a 200-byte stake account needs `getMinimumBalanceForRentExemption(StakeProgram.space)` lamports to be rent-exempt: **1,666,240 lamports** (about 0.00166624 SOL) at the current rate. The rate falls as [Solana's rent reduction](/docs/solana-rent-reduction-reclaim-excess-rent) proceeds, so read it from the RPC instead of hardcoding it.
 
-So a stake account that delegates the 1 SOL minimum must be funded with `2,282,880 + 1,000,000,000 = 1,002,282,880` lamports (about 1.00228288 SOL), plus a little SOL in your wallet for transaction fees.
+So a stake account that delegates the 1 SOL minimum must be funded with `1,666,240 + 1,000,000,000 = 1,001,666,240` lamports (about 1.00166624 SOL) at the current rate, plus a little SOL in your wallet for transaction fees.
 
 <Info>
 **Prerequisites**
@@ -236,6 +236,8 @@ The parsed output shows the authorities, the rent-exempt reserve, and the delega
   "type": "delegated"
 }
 ```
+
+The `rentExemptReserve` field always reads `2282880`, the reserve before the rent reduction. The Stake program writes that fixed value and applies the current minimum instead.
 
 Your stake does not earn rewards immediately. It **warms up** and becomes fully active at the start of the epoch after `activationEpoch`. Track the current epoch with [`getEpochInfo`](/reference/solana-getepochinfo). To unstake later, the staker authority calls `StakeProgram.deactivate` (the stake cools down over the next epoch), then the withdrawer calls `StakeProgram.withdraw` to move the SOL back out.
 
