@@ -1,7 +1,7 @@
 ---
 title: starknet_estimateMessageFee | Starknet
 openapi: /openapi/starknet_node_api/starknet_estimateMessageFee.json POST /365cf697a3ad6d950b4c4a911e2e4f4d
-description: "Starknet API method that returns an estimate of the fee for a given message. starknet_estimateMessageFee on Starknet via Chainstack."
+description: "Starknet API method that returns the fee estimate for an L1 to L2 message sent from Ethereum. starknet_estimateMessageFee on Starknet via Chainstack."
 ---
 
 <Note>
@@ -11,9 +11,9 @@ For the latest version of the publicly maintained OpenRPC spec, see the [Starkne
 </Note>
 
 
-Starknet API method that returns an estimate of the fee for a given message.
+Starknet API method that returns the fee estimate for an L1 to L2 message, which is a message that an Ethereum contract sends to a Starknet contract.
 
-It provides an estimate of the maximum amount of fee required to process the message based on the network's current state and the message's parameters. A client or wallet can use this estimate to determine the appropriate amount of fee to include in a message to ensure that the network processes it.
+The estimate covers the `l1_handler` transaction that the message triggers on Starknet. You pay this fee on Ethereum when you send the message through the Starknet core contract. The returned `overall_fee` is at least 50,000,000,000,000 wei (0.00005 ETH).
 
 <Visibility for="humans">
 <Check>
@@ -28,18 +28,28 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 
 ## Parameters
 
-* `message` — the message to estimate, which includes the following fields:
-  + `to` — the string of the address to which the message is directed, a wallet, or a smart contract.
-  + `data` — additional data to be sent with the message, usually used to invoke functions from smart contracts as a string of the hash of the method signature and encoded parameters.
+* `message` — the L1 to L2 message to estimate, with the following fields:
+  + `from_address` — the address of the Ethereum contract that sends the message.
+  + `to_address` — the address of the Starknet contract that receives the message.
+  + `entry_point_selector` — the selector of the `l1_handler` function in the receiving contract.
+  + `payload` — the message payload as an array of field elements.
 * `block_id` — the hash of the requested block, or number (height) of the requested block, or a block tag, for the block referencing the state or call the transaction on.
 
 ## Response
 
-* `result` — the estimated amount of fee needed, represented as a hexadecimal string.
+* `result` — the fee estimate, with the following fields. Numeric values are hexadecimal strings.
+  + `l1_gas_consumed` — the Ethereum gas the message consumes.
+  + `l1_gas_price` — the Ethereum gas price used in the estimate, in wei.
+  + `l2_gas_consumed` — the Starknet gas the message consumes.
+  + `l2_gas_price` — the Starknet gas price used in the estimate, in wei.
+  + `l1_data_gas_consumed` — the Ethereum data gas the message consumes.
+  + `l1_data_gas_price` — the Ethereum data gas price used in the estimate, in wei.
+  + `overall_fee` — the fee for the message, in wei. The value is at least 50,000,000,000,000 wei (0.00005 ETH). When the gas amounts multiplied by their prices add up to less than that, `overall_fee` is exactly 50,000,000,000,000 wei.
+  + `unit` — the fee unit, always `WEI`.
 
 ## Use case
 
-A practical use case for `starknet_estimateMessageFee` is to calculate the fee required for a message that interacts with a contract on Starknet. The fee is an important factor in messages, as it determines the amount of fees that need to be paid by the sender to the network for processing the message.
+A practical use case for `starknet_estimateMessageFee` is to set the fee for a message that you send from Ethereum to Starknet. The message fee is the ETH value sent with the `sendMessageToL2` call to the Starknet core contract, so pass the returned `overall_fee` as that value.
 
 ## Deprecated feeder gateway method
 
