@@ -1,0 +1,476 @@
+---
+title: "Elysium: Trace internal calls and HYPE transfers"
+description: "Trace an Elysium transaction with debug_traceTransaction on a Chainstack node to see every internal call, the HYPE that contracts moved, the calls that reverted, and how Nitro split the fee."
+---
+
+A transaction receipt on Elysium shows whether the transaction succeeded and which events it emitted. It doesn't list the calls that contracts made to each other, and it has no record of HYPE that a contract sends, because a HYPE transfer emits no event. `debug_traceTransaction` replays the transaction on your Elysium node and returns all of these calls as a tree. In this tutorial, you build a Node.js script that traces an Elysium Testnet transaction and prints its internal calls, the HYPE they moved, the calls that failed, and where the fee went.
+
+<Visibility for="humans">
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+</Visibility>
+
+**TLDR:**
+* `debug_traceTransaction` with `callTracer` returns every internal call of an Elysium transaction, including the HYPE that contracts send to each other.
+* Elysium runs Nitro, so the top-level call also lists the balance changes outside EVM execution: the upfront gas payment, the refund, and the fees collected.
+* The script names each contract and function from the Elysium Testnet Blockscout and prints a readable call tree.
+* For a flat list of calls to store in a database, use `flatCallTracer`.
+
+## Prerequisites
+
+* A Chainstack account with an Elysium Testnet node. The `debug_*` methods need a paid plan. See [Debug and trace APIs](/docs/debug-and-trace-apis#elysium).
+* Node.js 20 or later.
+
+## Get an Elysium node
+
+1. [Sign up with Chainstack](https://console.chainstack.com/).
+1. [Deploy a node](/docs/manage-your-networks) on Elysium Testnet.
+1. Copy the node's HTTPS endpoint. See [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
+
+## The example transaction
+
+This tutorial traces a token sale on Elysium Testnet, transaction [`0x6034ffc6c2209586e0787f18b0f11805c18dd432618d42c377d0b56433899508`](https://elysium.kinetiq.xyz/testnet-explorer/transaction/0x6034ffc6c2209586e0787f18b0f11805c18dd432618d42c377d0b56433899508). The sender called `sell` on the `SignalCurveHypeRouter` contract, attached no HYPE, and received HYPE for the tokens.
+
+Elysium's Global Nodes serve traces back to genesis, so you can trace this transaction or any other Elysium Testnet transaction.
+
+## Step 1. Trace the transaction with cURL
+
+Call `debug_traceTransaction` with `callTracer`. The `onlyTopCall` option returns only the top-level call:
+
+```bash cURL
+curl YOUR_CHAINSTACK_ENDPOINT \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "debug_traceTransaction",
+    "params": [
+      "0x6034ffc6c2209586e0787f18b0f11805c18dd432618d42c377d0b56433899508",
+      {"tracer": "callTracer", "tracerConfig": {"onlyTopCall": true}}
+    ]
+  }'
+```
+
+```json JSON
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "beforeEVMTransfers": [
+      {
+        "purpose": "feePayment",
+        "from": "0x7c7C1dec39f30C90be787282a874BA09161b327c",
+        "to": null,
+        "value": "0x42e0ec072a00"
+      }
+    ],
+    "afterEVMTransfers": [
+      {
+        "purpose": "gasRefund",
+        "from": null,
+        "to": "0x7c7C1dec39f30C90be787282a874BA09161b327c",
+        "value": "0x1f7425274d00"
+      },
+      {
+        "purpose": "feeCollection",
+        "from": null,
+        "to": "0x252431E84D5E22435A0c833C2220770c52F59633",
+        "value": "0x236c913af400"
+      },
+      {
+        "purpose": "feeCollection",
+        "from": null,
+        "to": "0xa4B00000000000000000000000000000000000F6",
+        "value": "0x35a4e900"
+      }
+    ],
+    "from": "0x7c7c1dec39f30c90be787282a874ba09161b327c",
+    "gas": "0xb386a",
+    "gasUsed": "0x5f17d",
+    "to": "0x75d98c98f92d1f5d65ca6a962f36476be34c64ae",
+    "input": "0xff0efdf9000000000000000000000000a28c20bdd75645923bfffcb153802b2da12ded88000000000000000000000000000000000000000000056bdf765503c8c44268fa000000000000000000000000000000000000000000000000041919720ed09e230000000000000000000000007c7c1dec39f30c90be787282a874ba09161b327c000000000000000000000000000000000000000000000000000000006ac767410000000000000000000000000000000000000000000000000000000000000001",
+    "output": "0x0000000000000000000000000000000000000000000000000423b244aa1db702",
+    "value": "0x0",
+    "type": "CALL"
+  }
+}
+```
+
+In the top-level call:
+
+* `value` is `0x0` — the sender attached no HYPE.
+* `output` is the return value of `sell`, the HYPE the sender received: `0x423b244aa1db702` wei, or 0.298278008318179074 HYPE.
+* `beforeEVMTransfers` and `afterEVMTransfers` are Nitro fields that list the balance changes outside EVM execution. See [Where the fee went](#where-the-fee-went).
+
+For what the other fields mean, see [Reading EVM traces: callTracer and prestateTracer](/docs/reading-evm-traces-with-calltracer-and-prestatetracer).
+
+Without `onlyTopCall`, the same request returns all 87 calls of the transaction, nested. The script in the next steps turns them into a readable tree.
+
+## Step 2. Set up the project
+
+```shell Shell
+mkdir elysium-trace && cd elysium-trace
+npm init -y
+npm install viem
+```
+
+## Step 3. Write the script
+
+Create `trace-elysium-tx.mjs` and replace `YOUR_CHAINSTACK_ENDPOINT` with your Elysium node's HTTPS endpoint:
+
+```javascript trace-elysium-tx.mjs
+import {
+  createPublicClient,
+  defineChain,
+  formatEther,
+  http,
+  parseAbi,
+  toFunctionSelector,
+} from "viem";
+
+const RPC_URL = "YOUR_CHAINSTACK_ENDPOINT";
+const EXPLORER_API = "https://elysium.kinetiq.xyz/api/v2";
+const SIGNATURE_API = "https://api.4byte.sourcify.dev/signature-database/v1/lookup";
+
+// Nitro system addresses: the ArbOwnerPublic precompile and the pool that receives L1 posting fees
+const ARB_OWNER_PUBLIC = "0x000000000000000000000000000000000000006b";
+const L1_PRICER_FUNDS_POOL = "0xa4b00000000000000000000000000000000000f6";
+
+// Frame types that move HYPE. A DELEGATECALL frame repeats its parent's value without moving it.
+const VALUE_TRANSFER_TYPES = new Set(["CALL", "CREATE", "CREATE2", "SELFDESTRUCT"]);
+
+const elysiumTestnet = defineChain({
+  id: 99801,
+  name: "Elysium Testnet",
+  testnet: true,
+  nativeCurrency: { decimals: 18, name: "HYPE", symbol: "HYPE" },
+  rpcUrls: { default: { http: [RPC_URL] } },
+});
+
+const client = createPublicClient({ chain: elysiumTestnet, transport: http() });
+
+const txHash = process.argv[2];
+if (!txHash) {
+  console.error("Usage: node trace-elysium-tx.mjs <transaction hash>");
+  process.exit(1);
+}
+
+async function getJson(url) {
+  try {
+    const response = await fetch(url);
+    return response.ok ? await response.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+// Label and function names for an address, from the Elysium Blockscout.
+// A proxy also gets the functions of its implementation contracts.
+const contracts = new Map();
+async function contractInfo(address) {
+  const key = (address ?? "").toLowerCase();
+  if (!contracts.has(key)) {
+    contracts.set(key, (async () => {
+      const info = { label: key || "(no address)", functions: new Map() };
+      if (!key) return info;
+      const details = await getJson(`${EXPLORER_API}/addresses/${key}`);
+      if (!details?.is_contract) return info;
+      const implementationName = details.implementations?.find((i) => i.name)?.name;
+      info.label = details.token?.symbol ?? implementationName ?? details.name ?? key;
+      const sources = [key, ...(details.implementations ?? []).map((i) => i.address_hash)];
+      for (const source of sources) {
+        const contract = await getJson(`${EXPLORER_API}/smart-contracts/${source}`);
+        for (const item of contract?.abi ?? []) {
+          if (item.type === "function") info.functions.set(toFunctionSelector(item), item.name);
+        }
+      }
+      return info;
+    })());
+  }
+  return contracts.get(key);
+}
+
+// Fallback for selectors that no verified ABI covers
+async function lookupSelectors(selectors) {
+  const names = new Map();
+  if (selectors.size === 0) return names;
+  const data = await getJson(`${SIGNATURE_API}?function=${[...selectors].join(",")}`);
+  for (const [selector, matches] of Object.entries(data?.result?.function ?? {})) {
+    const match = matches?.find((m) => m.hasVerifiedContract);
+    if (match) names.set(selector, `${match.name.split("(")[0]}*`);
+  }
+  return names;
+}
+
+let trace;
+try {
+  trace = await client.request({
+    method: "debug_traceTransaction",
+    params: [txHash, { tracer: "callTracer" }],
+  });
+} catch (error) {
+  console.error(`Cannot trace ${txHash}: ${error.details ?? error.message}`);
+  process.exit(1);
+}
+const receipt = await client.request({
+  method: "eth_getTransactionReceipt",
+  params: [txHash],
+});
+
+// Flatten the call tree into rows, folding each proxy's DELEGATECALL into the call that reached the proxy
+const rows = [];
+function walk(frame, depth, parent) {
+  const isProxyForward =
+    frame.type === "DELEGATECALL" &&
+    parent &&
+    frame.from === parent.to &&
+    frame.input === parent.input;
+  if (!isProxyForward) rows.push({ frame, depth, parent });
+  const childDepth = isProxyForward ? depth : depth + 1;
+  for (const child of frame.calls ?? []) walk(child, childDepth, frame);
+}
+walk(trace, 0, null);
+
+function hasError(frame) {
+  return Boolean(frame.error) || (frame.calls ?? []).some(hasError);
+}
+
+for (const { frame } of rows) await contractInfo(frame.to);
+const unknown = new Set();
+const selectorOf = (frame) => (frame.input ?? "0x").slice(0, 10);
+for (const { frame } of rows) {
+  const selector = selectorOf(frame);
+  if (frame.type.startsWith("CREATE") || selector.length < 10) continue;
+  if (!(await contractInfo(frame.to)).functions.has(selector)) unknown.add(selector);
+}
+const looked = await lookupSelectors(unknown);
+
+async function name(address) {
+  const { label } = await contractInfo(address);
+  return !address || label === address.toLowerCase() ? label : `${label} (${address})`;
+}
+
+async function describe(frame) {
+  const info = await contractInfo(frame.to);
+  const selector = selectorOf(frame);
+  if (frame.type.startsWith("CREATE") || selector.length < 10) return name(frame.to);
+  const fn = info.functions.get(selector) ?? looked.get(selector) ?? selector;
+  return info.label === frame.to.toLowerCase()
+    ? `${frame.to}.${fn}`
+    : `${info.label}.${fn} (${frame.to})`;
+}
+
+console.log(`Transaction ${txHash}`);
+console.log(`From: ${receipt.from}`);
+console.log(`Status: ${receipt.status === "0x1" ? "success" : "failed"}`);
+
+console.log("\nCall tree (successful STATICCALLs hidden):");
+for (const { frame, depth } of rows) {
+  if (frame.type === "STATICCALL" && !hasError(frame)) continue;
+  const value = BigInt(frame.value ?? "0x0");
+  let line = `${"  ".repeat(depth)}${frame.type} ${await describe(frame)}`;
+  if (value > 0n) line += ` value ${formatEther(value)} HYPE`;
+  if (frame.error) line += ` -> ${frame.revertReason ?? frame.error}`;
+  console.log(line);
+}
+
+console.log("\nInternal HYPE transfers:");
+for (const { frame, depth } of rows) {
+  const value = BigInt(frame.value ?? "0x0");
+  if (depth > 0 && VALUE_TRANSFER_TYPES.has(frame.type) && value > 0n) {
+    console.log(`  ${formatEther(value)} HYPE from ${await name(frame.from)} to ${await name(frame.to)}`);
+  }
+}
+
+console.log("\nFailed calls:");
+for (const { frame, parent } of rows) {
+  if (!frame.error) continue;
+  const caller = parent ? (await contractInfo(frame.from)).label : "sender";
+  console.log(`  ${await describe(frame)} called by ${caller}: ${frame.revertReason ?? frame.error}`);
+}
+
+const block = BigInt(receipt.blockNumber);
+const [infraFeeAccount, networkFeeAccount] = await Promise.all(
+  ["getInfraFeeAccount", "getNetworkFeeAccount"].map((functionName) =>
+    client.readContract({
+      address: ARB_OWNER_PUBLIC,
+      abi: parseAbi([`function ${functionName}() view returns (address)`]),
+      functionName,
+      blockNumber: block,
+    })
+  )
+);
+
+function feeLabel(transfer) {
+  const to = transfer.to?.toLowerCase();
+  if (transfer.purpose === "feePayment") return "paid upfront for the gas limit";
+  if (transfer.purpose === "gasRefund") return "refund for unused gas";
+  if (to === L1_PRICER_FUNDS_POOL) return "L1 posting fee";
+  if (to === infraFeeAccount.toLowerCase() || to === networkFeeAccount.toLowerCase()) return "execution fee";
+  return transfer.purpose;
+}
+
+console.log("\nFee transfers outside EVM execution:");
+for (const transfer of [...(trace.beforeEVMTransfers ?? []), ...(trace.afterEVMTransfers ?? [])]) {
+  const party = transfer.from ?? transfer.to;
+  console.log(
+    `  ${transfer.purpose.padEnd(13)} ${formatEther(BigInt(transfer.value)).padEnd(22)} HYPE ${party}  ${feeLabel(transfer)}`
+  );
+}
+```
+
+How the script reads the trace:
+
+* Contract names come from the Elysium Testnet Blockscout API at `https://elysium.kinetiq.xyz/api/v2` — the token symbol first, then the implementation name for a proxy, then the contract name. Function names come from the verified ABIs of the contract and of a proxy's implementations.
+* When no verified ABI covers a selector, the script looks it up in the [Sourcify signature database](https://4byte.sourcify.dev) and marks the name with `*`. A selector can match more than one signature, so a marked name is a likely match, not a verified one.
+* A proxy forwards a call to its implementation with a `DELEGATECALL` that carries the same input. The script folds that `DELEGATECALL` into the call that reached the proxy, so each proxied call takes one line.
+* The call tree hides a `STATICCALL` that succeeded, unless a call inside it failed. A `STATICCALL` reads state and can't change it or move HYPE.
+* HYPE moves only in `CALL`, `CREATE`, `CREATE2`, and `SELFDESTRUCT` frames. A `DELEGATECALL` frame repeats its parent's `value` without moving HYPE, so the script doesn't count it.
+* The script labels each fee transfer by its recipient. It reads the infrastructure and network fee accounts from the `ArbOwnerPublic` precompile at `0x000000000000000000000000000000000000006b`, and it recognizes the L1 pricer funds pool at `0xA4B00000000000000000000000000000000000F6`, which collects L1 posting fees.
+
+## Step 4. Run the script
+
+```shell Shell
+node trace-elysium-tx.mjs 0x6034ffc6c2209586e0787f18b0f11805c18dd432618d42c377d0b56433899508
+```
+
+```text Output
+Transaction 0x6034ffc6c2209586e0787f18b0f11805c18dd432618d42c377d0b56433899508
+From: 0x7c7c1dec39f30c90be787282a874ba09161b327c
+Status: success
+
+Call tree (successful STATICCALLs hidden):
+CALL SignalCurveHypeRouter.sell (0x75d98c98f92d1f5d65ca6a962f36476be34c64ae)
+  CALL ELI.transferFrom (0x5c1217c53cb0a6f848c9895c67becfb33e2fbf49)
+    STATICCALL SignalProjectXAverageGuard.isPool (0xc8e6fab2c78b6e209ab355c248568e049dc30ad5)
+      STATICCALL SignalCurveHypeRouter.0xc45a0155 (0x75d98c98f92d1f5d65ca6a962f36476be34c64ae) -> execution reverted
+  CALL ELI.approve (0x5c1217c53cb0a6f848c9895c67becfb33e2fbf49)
+  CALL SignalProjectXV2Router.swapExactTokensForTokensSupportingFeeOnTransferTokens (0x645f45ac6b7701a53049e70c8eec608007917b36)
+    CALL ELI.transferFrom (0x5c1217c53cb0a6f848c9895c67becfb33e2fbf49)
+      STATICCALL SignalProjectXAverageGuard.isPool (0xc8e6fab2c78b6e209ab355c248568e049dc30ad5)
+        STATICCALL SignalCurveHypeRouter.0xc45a0155 (0x75d98c98f92d1f5d65ca6a962f36476be34c64ae) -> execution reverted
+    CALL UNI-V2.swap (0xa591ff46fbbd69fc82852455c6bb50451a0d492a)
+      CALL WHYPE.transfer* (0xcd57f65c2b0e5881cfc2e609f7cd53b746e1f234)
+  CALL ELI.approve (0x5c1217c53cb0a6f848c9895c67becfb33e2fbf49)
+  CALL WHYPE.withdraw* (0xcd57f65c2b0e5881cfc2e609f7cd53b746e1f234)
+    CALL SignalCurveHypeRouter (0x75d98c98f92d1f5d65ca6a962f36476be34c64ae) value 0.298278008318179074 HYPE
+  CALL 0x7c7c1dec39f30c90be787282a874ba09161b327c value 0.298278008318179074 HYPE
+
+Internal HYPE transfers:
+  0.298278008318179074 HYPE from WHYPE (0xcd57f65c2b0e5881cfc2e609f7cd53b746e1f234) to SignalCurveHypeRouter (0x75d98c98f92d1f5d65ca6a962f36476be34c64ae)
+  0.298278008318179074 HYPE from SignalCurveHypeRouter (0x75d98c98f92d1f5d65ca6a962f36476be34c64ae) to 0x7c7c1dec39f30c90be787282a874ba09161b327c
+
+Failed calls:
+  SignalCurveHypeRouter.0xc45a0155 (0x75d98c98f92d1f5d65ca6a962f36476be34c64ae) called by SignalProjectXAverageGuard: execution reverted
+  SignalCurveHypeRouter.0xc45a0155 (0x75d98c98f92d1f5d65ca6a962f36476be34c64ae) called by SignalProjectXAverageGuard: execution reverted
+
+Fee transfers outside EVM execution:
+  feePayment    0.0000735338           HYPE 0x7c7C1dec39f30C90be787282a874BA09161b327c  paid upfront for the gas limit
+  gasRefund     0.0000345837           HYPE 0x7c7C1dec39f30C90be787282a874BA09161b327c  refund for unused gas
+  feeCollection 0.0000389492           HYPE 0x252431E84D5E22435A0c833C2220770c52F59633  execution fee
+  feeCollection 0.0000000009           HYPE 0xa4B00000000000000000000000000000000000F6  L1 posting fee
+```
+
+The script works on any Elysium Testnet transaction hash.
+
+## Read the output
+
+### Where the HYPE came from
+
+The call tree shows the sale step by step:
+
+1. `sell` moves the sender's ELI tokens to the router with `transferFrom`.
+1. The router swaps the ELI for WHYPE, the wrapped HYPE token, through `SignalProjectXV2Router` and a Uniswap V2-style pair. The pair sends the WHYPE to the router.
+1. The router calls `withdraw` on WHYPE, and WHYPE sends 0.298278008318179074 HYPE to the router.
+1. The router sends the same 0.298278008318179074 HYPE to the sender.
+
+The receipt of this transaction has 11 events, among them `Transfer` events for ELI and WHYPE and the router's own `CurveRouted` event, which reports the amount received. No event records HYPE moving from WHYPE to the router or from the router to the sender. Those two transfers are in the trace only, and the script lists them under `Internal HYPE transfers`.
+
+### Calls that failed inside a successful transaction
+
+Both failed calls use the selector `0xc45a0155`, which is `factory()`. `SignalProjectXAverageGuard.isPool` checks whether an address is a liquidity pool by calling `factory()` on it with a low-level `staticcall`. The router has no `factory` function, so the call reverts, `isPool` returns `false`, and the token transfer continues.
+
+A failed call inside a successful transaction means that the calling contract handled the failure. When a whole transaction fails, start from the deepest call with an error, which is where the revert started. See [Reverts](/docs/reading-evm-traces-with-calltracer-and-prestatetracer#reverts).
+
+### Where the fee went
+
+Nitro charges and distributes the transaction fee outside EVM execution and records each balance change in `beforeEVMTransfers` and `afterEVMTransfers` on the top-level call. The example transaction set a gas price of 0.12 gwei, but the receipt's `effectiveGasPrice` is the block's 0.1 gwei base fee, and every fee transfer uses the base fee:
+
+| Purpose | Account | HYPE | Calculation |
+|---------|---------|------|-------------|
+| `feePayment` | Sender | 0.0000735338 | Gas limit 735,338 × base fee, taken before execution |
+| `gasRefund` | Sender | 0.0000345837 | Unused gas 345,837 (735,338 − 389,501 used) × base fee |
+| `feeCollection` | `0x252431E84D5E22435A0c833C2220770c52F59633` | 0.0000389492 | Execution gas 389,492 (389,501 used − 9 `gasUsedForL1`) × base fee |
+| `feeCollection` | `0xA4B00000000000000000000000000000000000F6` | 0.0000000009 | `gasUsedForL1` 9 × base fee |
+
+The refund and the two fee collections add up to the upfront payment.
+
+The two `feeCollection` recipients:
+
+* `0x252431E84D5E22435A0c833C2220770c52F59633` — Elysium's infrastructure fee account, which is also its network fee account. `getInfraFeeAccount()` and `getNetworkFeeAccount()` on `ArbOwnerPublic` both return this address. The infrastructure fee account receives the execution gas at the minimum base fee. When the base fee exceeds the minimum, a second `feeCollection` entry pays the difference to the network fee account. In the example, the base fee equals the 0.1 gwei minimum, so the transaction has one execution fee entry.
+* `0xA4B00000000000000000000000000000000000F6` — Nitro's L1 pricer funds pool. It collects the L1 posting fee, the cost of posting the transaction to HyperEVM, which the receipt reports as `gasUsedForL1`.
+
+## Store internal calls with flatCallTracer
+
+To store internal calls in a database, `flatCallTracer` returns the same calls as a flat array in the Parity trace format, one entry per call:
+
+```bash cURL
+curl YOUR_CHAINSTACK_ENDPOINT \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "debug_traceTransaction",
+    "params": [
+      "0x6034ffc6c2209586e0787f18b0f11805c18dd432618d42c377d0b56433899508",
+      {"tracer": "flatCallTracer"}
+    ]
+  }'
+```
+
+The result has 87 entries. This entry is the transfer of 0.298278008318179074 HYPE from the router to the sender:
+
+```json JSON
+{
+  "action": {
+    "callType": "call",
+    "from": "0x75d98c98f92d1f5d65ca6a962f36476be34c64ae",
+    "gas": "0x3ceba",
+    "input": "0x",
+    "to": "0x7c7c1dec39f30c90be787282a874ba09161b327c",
+    "value": "0x423b244aa1db702"
+  },
+  "blockHash": "0xab38a555d6bb42acf24e3ccee3fa9bc767eb8ee9ef8e8fb0c41bb78f5c18342d",
+  "blockNumber": 5169291,
+  "result": {
+    "gasUsed": "0x0",
+    "output": "0x"
+  },
+  "subtraces": 0,
+  "traceAddress": [
+    24
+  ],
+  "transactionHash": "0x6034ffc6c2209586e0787f18b0f11805c18dd432618d42c377d0b56433899508",
+  "transactionPosition": 3,
+  "type": "call"
+}
+```
+
+* `traceAddress` — the call's position in the tree. `[24]` is the call at index 24, counting from 0, among the calls that the top-level call made. The top-level call has `traceAddress` `[]`.
+* `subtraces` — the number of calls that this call made.
+* `action.value` — the HYPE moved, in wei.
+
+On Elysium, the first entry, the top-level call, also carries `beforeEVMTransfers` and `afterEVMTransfers`. To trace a whole block, pass the same tracer to `debug_traceBlockByNumber` or `debug_traceBlockByHash`.
+
+## See also
+
+* [Reading EVM traces: callTracer and prestateTracer](/docs/reading-evm-traces-with-calltracer-and-prestatetracer) — what each trace field means, and `debug_traceCall` for tracing a call before you send it.
+* [Elysium methods](/docs/elysium-methods) — the tracers and debug methods available on Elysium.
+* [Elysium tooling](/docs/elysium-tooling) — the chain configuration and libraries for Elysium Testnet.
