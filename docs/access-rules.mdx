@@ -20,11 +20,18 @@ There are two types of access rules you can configure:
 
 ## How access rules work
 
-When a request is made to your node endpoint, Chainstack checks it against your configured access rules:
+Chainstack checks IP address rules and allowed origin rules separately, and a request must pass the check for every rule type that has active rules. Within one rule type, matching any one active rule is enough:
 
-* If you have access rules configured — The request is only processed if it matches at least one of your rules
-* If no access rules are configured — All requests are processed (subject to your normal authentication)
-* If a request doesn't match any rule — The request is rejected with an error response
+* No active rules — the node endpoints accept requests from any IP address and origin, subject to your normal authentication.
+* Only IP address rules active — the request must come from one of the allowed IP addresses.
+* Only allowed origin rules active — the request must send an `Origin` header that matches one of the allowed origins.
+* Both rule types active — the request must come from an allowed IP address and also send an allowed `Origin` header.
+
+The node endpoints reject a request that fails a check with HTTP `403`. A new rule starts deactivated and has no effect until you activate it. Activating, deactivating, or deleting a rule takes effect within about 10 seconds.
+
+<Warning>
+  Allowed origin rules block every request that doesn't send an `Origin` header, even when the request comes from an allowed IP address. Browsers send the `Origin` header automatically, but server-side code, scripts, and `curl` usually don't. If a browser app and a backend both call the same node, use a separate node for each: allowed origin rules on the node the browser app calls, and IP address rules on the node the backend calls.
+</Warning>
 
 ## Adding access rules
 
@@ -62,7 +69,7 @@ Allowed origin rules restrict access based on the HTTP `Origin` header sent by b
     In the **Add access rule** modal, select **Allowed origin**.
   </Step>
   <Step>
-    Enter the origin URL in the input field (e.g., `myapp.com`, or `myapp.example.com`, or `*.myapp.com`).
+    Enter the origin host name in the input field, without `https://` or a path (for example, `myapp.com`, `myapp.example.com`, or `*.myapp.com`).
   </Step>
   <Step>
     Click **Create** to save the rule.
@@ -77,10 +84,12 @@ You can activate and deactivate the created access rules at any time.
 **Supported origin formats:**
 
 * **Specific domains**: `myapp.com`, `app.example.com`
-* **Wildcards**: `*.example.com` (matches any subdomain of example.com)
+* **Wildcards**: `*.example.com` (matches example.com and any subdomain of example.com)
+
+Enter the host name only, without a scheme such as `https://` or a path such as `/app`. A browser's `Origin` header carries the scheme and host but no path, and the rule matches on the host.
 
 <Info>
-  Wildcard rules use the `*` character to match any subdomain. For example, `*.example.com` will match `app.example.com`, `api.example.com`, and `staging.example.com`.
+  Wildcard rules use the `*` character to match any subdomain. For example, `*.example.com` matches `example.com`, `app.example.com`, `api.example.com`, and `staging.example.com`, but not `myexample.com`.
 </Info>
 
 ### Adding an IP address rule
@@ -97,6 +106,9 @@ IP address rules restrict access to specific IP addresses.
   <Step>
     Click **Create** to save the rule.
   </Step>
+  <Step>
+    Hover over the created rule, click the edit pencil icon, and click **Activate**.
+  </Step>
 </Steps>
 
 **Supported IP formats:**
@@ -105,8 +117,7 @@ IP address rules restrict access to specific IP addresses.
 * **IPv6 addresses**: `2001:db8::1`
 
 <Info>
-  Adding multiple origins or IP addresses is not supported at once is not supported. Add them one by one per created rule.
-  CIDR is not supported.
+  Each rule holds one IP address. To allow several addresses, create one rule per address. CIDR ranges aren't supported.
 </Info>
 
 ## Managing access rules
