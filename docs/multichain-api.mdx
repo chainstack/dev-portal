@@ -1,123 +1,150 @@
 ---
-title: "Use one API key across multiple chains with Multichain API"
-description: "Create a multichain endpoint on Chainstack, attach your Global Nodes and Dedicated Nodes, and call every attached chain with a single API key."
+title: "Use Multichain API"
+description: "Create a multichain endpoint on Chainstack, attach your Global Nodes and Dedicated Nodes, and call every attached node with one auth token."
 ---
 
-A multichain endpoint gives you one API key that works on every Global Node and Dedicated Node you attach to it. You create the endpoint on Chainstack, add the nodes you want, and use the same key in the URL of each chain instead of managing one key per node.
+Multichain API gives you one auth token for several nodes. You create a multichain endpoint on Chainstack, attach the Global Nodes and Dedicated Nodes you want, and put the multichain auth token in the URL of each node instead of managing one auth token per node.
 
 <Info>
-  Multichain API is available on every plan, including Developer.
+  Multichain API is available on every plan, including the Developer plan.
 </Info>
 
 ## What is a multichain endpoint?
 
-A multichain endpoint is a named group of your existing nodes with one shared API key. The key authorizes requests to each node in the group, so you can put a single secret in your environment variables or CI instead of one per chain. Your nodes, their own endpoint URLs, and their own API keys stay as they are.
+A multichain endpoint is a named group of your existing nodes with one shared multichain auth token:
 
-An endpoint can hold the following:
+* The multichain auth token authorizes requests to each node in the group, so you keep a single secret in your environment variables or CI instead of one per node.
+* Your nodes keep their own endpoint URLs and [auth tokens](/docs/authentication-methods-for-different-scenarios), and those auth tokens keep working.
+
+A multichain endpoint can hold the following:
 
 * One [Global Node](/docs/global-elastic-node) per protocol and network
 * Any number of [Dedicated Nodes](/docs/dedicated-node)
 
-Regional Nodes can't be attached. The same node can belong to several endpoints.
+You can't attach [Trader Nodes](/docs/trader-node). The same node can belong to several multichain endpoints.
 
-## Create an endpoint
+## Create a multichain endpoint
 
 <Steps>
   <Step title="Open Multichain API">
     On Chainstack, click **Multichain API** in the left menu.
   </Step>
-  <Step title="Name the endpoint">
-    Click **Create endpoint**, enter a name, and click **Create endpoint** again. The name is up to 30 characters. Chainstack opens the new endpoint's page, which shows the API key.
-    <Check>The endpoint appears in the **Multichain API** list with a masked API key.</Check>
+  <Step title="Name the multichain endpoint">
+    Click **Create endpoint**, enter a name of up to 30 characters, and click **Create endpoint** in the dialog. The name field starts with your organization name and the current date and time, which you can keep or replace.
+    <Check>Chainstack opens the new multichain endpoint's page, and the multichain auth token is under **API key**.</Check>
   </Step>
 </Steps>
 
-<Frame>
-  <img src="/images/docs/multichain-api-create-endpoint.png" alt="The Create endpoint dialog on Chainstack with a name field prefilled with a default name and Cancel and Create endpoint buttons" />
-</Frame>
+After you create a multichain endpoint:
 
-A new endpoint has a key and no nodes. The key authorizes nothing until you add a node. The **Multichain API** page lists your endpoints with their node count, a shortened API key, and the creation date.
+* The multichain endpoint has a multichain auth token and no nodes, so the multichain auth token authorizes nothing until you attach a node.
+* The **Multichain API** page lists the multichain endpoint with its node count, a shortened multichain auth token, and the creation date.
 
-<Frame>
-  <img src="/images/docs/multichain-api-endpoints-list.png" alt="The Multichain API page on Chainstack listing two endpoints with their node count, shortened API key, and creation date" />
-</Frame>
-
-## Add nodes to an endpoint
+## Attach nodes to a multichain endpoint
 
 <Steps>
-  <Step title="Open the endpoint">
-    On Chainstack, click **Multichain API** and click the endpoint name.
+  <Step title="Open the multichain endpoint">
+    On Chainstack, click **Multichain API** and click the name of the multichain endpoint.
   </Step>
   <Step title="Add the nodes">
-    In **Connected nodes**, click **Add node**. Search for a node by name, or filter the list by type (**Global** or **Dedicated**), and click **Add** next to each node you want. Click **Done** when finished.
-    <Check>The nodes appear in **Connected nodes**, and each one is listed in the **Node** selector under **Connection details**.</Check>
+    Under **Connected nodes**, click **Add node**. Search for a node by name or filter the list by type (**Global** or **Dedicated**), and click **Add** next to each node you want. Click **Done** when finished.
+    <Check>The nodes appear under **Connected nodes** and in the **Node** selector under **Connection details**.</Check>
   </Step>
 </Steps>
 
-<Frame>
-  <img src="/images/docs/multichain-api-add-nodes.png" alt="The Add nodes dialog on Chainstack with a search field, a type filter, and a list of nodes with an Add button next to each" />
-</Frame>
+When you manage the nodes of a multichain endpoint:
 
-You can add or remove nodes one at a time at any time. The API key stays the same.
+* You can add or remove nodes at any time, and the multichain auth token stays the same.
+* Chainstack dims a node that you can't add. Hover over the node's **Add** button to see the reason, for example, that a multichain endpoint can't hold two Global Nodes for the same protocol and network.
 
-A node that can't be added is dimmed in the list, and hovering over it shows the reason. For example, an endpoint can't hold a second Global Node for the same protocol and network.
+## Call a node with the multichain auth token
 
-## Call a chain with the key
+The multichain auth token takes the place of the node's own auth token in the node's endpoint URLs. To get a URL:
 
-Each attached node has its own URL on the endpoint page. To get it, open the endpoint, select a node in **Connection details**, and copy the **HTTPS endpoint** or the **WSS endpoint**. The key is already part of the URL.
+1. Open the multichain endpoint.
+2. Select a node under **Connection details**.
+3. Copy the URL you need. The URL already contains the multichain auth token.
 
-For a Global Node, the URL uses the `core.chainstack.com` host with the chain and network in the subdomain. A Dedicated Node uses its own host, so copy the URL from **Connection details** instead of building it yourself.
+How you use the multichain auth token depends on the node and the endpoint:
 
-The following example sends the same request to an attached Ethereum Mainnet Global Node and an attached Solana Mainnet Global Node with one key:
+* Global Node — the URL uses the `core.chainstack.com` host with the protocol and network in the subdomain.
+* Dedicated Node — the URL uses the node's own host, so copy the URL from **Connection details** instead of building it yourself.
+* REST API — the multichain auth token sits before the API path, the same as a node's auth token.
+* gRPC endpoint — use the node's own x-token, as described in [gRPC access via x-token](/docs/authentication-methods-for-different-scenarios#grpc-access-via-x-token).
+* Node that is stopped or in maintenance — you can attach the node, but **Connection details** shows no URLs for the node until it is running again.
+
+To call attached Ethereum Mainnet, Solana Mainnet, and Aptos Mainnet Global Nodes with one multichain auth token, put the multichain auth token in each node's URL:
 
 ```bash cURL
-export CHAINSTACK_MULTICHAIN_KEY="YOUR_MULTICHAIN_API_KEY"
+export CHAINSTACK_MULTICHAIN_TOKEN="YOUR_MULTICHAIN_AUTH_TOKEN"
 
-curl -X POST "https://ethereum-mainnet.core.chainstack.com/$CHAINSTACK_MULTICHAIN_KEY" \
+curl -X POST "https://ethereum-mainnet.core.chainstack.com/$CHAINSTACK_MULTICHAIN_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
 
-curl -X POST "https://solana-mainnet.core.chainstack.com/$CHAINSTACK_MULTICHAIN_KEY" \
+curl -X POST "https://solana-mainnet.core.chainstack.com/$CHAINSTACK_MULTICHAIN_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"getSlot","params":[],"id":1}'
+
+curl "https://aptos-mainnet.core.chainstack.com/$CHAINSTACK_MULTICHAIN_TOKEN/v1"
 ```
 
-Replace `YOUR_MULTICHAIN_API_KEY` with the key from your endpoint page. Each call returns a normal JSON-RPC result for its chain.
+Replace `YOUR_MULTICHAIN_AUTH_TOKEN` with the multichain auth token from the multichain endpoint's page. Each call returns the protocol's normal response: a JSON-RPC result for Ethereum and Solana, and the ledger information for Aptos.
 
-<Check>A request to an attached chain returns a valid response. A request to a chain that isn't attached returns `401 Unauthorized`.</Check>
+<Check>A request to an attached node returns a normal response. A request to a node that isn't attached returns `401 Unauthorized`.</Check>
 
-## How requests are handled
+## How Chainstack handles requests with the multichain auth token
 
-* Requests to a chain follow the node behind it — the rate limits and [access rules](/docs/access-rules) you set on that node apply.
-* A request with the key to a chain whose node isn't attached to the endpoint returns `401 Unauthorized`.
-* When you delete a node on Chainstack, the node is removed from its endpoints automatically. The endpoint and its key stay.
-* Removing the last node from an endpoint leaves the endpoint and its key in place with no nodes.
-* A node that isn't running has no connection details until it runs again.
+* A request with the multichain auth token gets the same handling as a request with the node's own auth token, so the node's rate limits and [access rules](/docs/access-rules) apply.
+* A request with the multichain auth token to a node that isn't attached to the multichain endpoint returns `401 Unauthorized` with the message `Access token missing or invalid. Make sure you are using the correct node endpoint.`
+* A WSS connection with the multichain auth token to a node that isn't attached fails with `401` during the handshake.
+* When you delete a node on Chainstack, Chainstack removes the node from its multichain endpoints. The multichain endpoints and their multichain auth tokens stay.
+* Removing the last node from a multichain endpoint leaves the multichain endpoint and its multichain auth token in place with no nodes.
 
-## Find the API key
+## Find the multichain auth token
 
-Open the endpoint on the **Multichain API** page. The full key is under **API key**, and **Copy** puts it on your clipboard. The key starts with `mt_` and is always available on the endpoint page. The list shows a shortened key, and its copy button copies the full value.
+The multichain auth token starts with `mt_`. To copy the multichain auth token, use either of the following:
 
-Treat the key as a secret. See [Best practices for securing your Chainstack endpoint](/docs/best-practices-for-securing-your-chainstack-endpoint) for guidance.
+* The multichain endpoint's page — the full multichain auth token is always under **API key**, and **Copy** puts it on your clipboard.
+* The **Multichain API** page — the list shows a shortened multichain auth token, and its copy icon copies the full value.
 
-## Replace an API key
+Treat the multichain auth token as a secret. See [Best practices for securing your Chainstack endpoint](/docs/best-practices-for-securing-your-chainstack-endpoint) for guidance.
 
-An endpoint's key can't be rotated. To replace a key, for example after it leaks:
+## Replace a multichain auth token
+
+You can't rotate the multichain auth token of a multichain endpoint. To replace the multichain auth token, for example after it leaks:
 
 <Steps>
-  <Step title="Create a new endpoint">
-    Create an endpoint and add the same nodes to it.
+  <Step title="Create a new multichain endpoint">
+    Create a multichain endpoint and attach the same nodes to it.
   </Step>
   <Step title="Update your applications">
-    Switch your environment variables or CI secrets to the new key.
+    Switch your environment variables or CI secrets to the new multichain auth token.
   </Step>
-  <Step title="Delete the old endpoint">
-    Open the old endpoint and delete it, as described in the next section.
+  <Step title="Delete the old multichain endpoint">
+    Delete the old multichain endpoint, as described in [Remove a node or delete a multichain endpoint](#remove-a-node-or-delete-a-multichain-endpoint).
   </Step>
 </Steps>
 
-## Remove a node or delete an endpoint
+## Remove a node or delete a multichain endpoint
 
-To remove a node from an endpoint, open the endpoint, and click the trash icon next to the node in **Connected nodes**. Requests to that chain with the key return `401 Unauthorized`, and the other chains keep working.
+To remove a node from a multichain endpoint, do one of the following:
 
-To delete an endpoint, click **Delete endpoint** on its page, or click the trash icon in its row on the **Multichain API** list. The confirmation shows how many nodes the key stops working on. After you click **Yes, I'm sure**, the key stops working on every attached node. This action can't be undone, and your nodes are not deleted.
+* Open the multichain endpoint and click the trash icon next to the node under **Connected nodes**.
+* Click **Remove** next to the node in the **Add nodes** dialog.
+
+After you remove a node:
+
+* Requests to the removed node with the multichain auth token return `401 Unauthorized`.
+* The other nodes in the multichain endpoint keep working.
+
+To delete a multichain endpoint:
+
+1. Click **Delete endpoint** on the multichain endpoint's page, or hover over the multichain endpoint's row on the **Multichain API** page and click the trash icon.
+2. In the **Delete endpoint** dialog, click **Yes, I'm sure**. If the multichain endpoint has nodes, the dialog shows how many nodes the multichain auth token stops working on.
+
+After you delete a multichain endpoint:
+
+* The multichain auth token stops working on every attached node.
+* You can't undo the deletion.
+* Your nodes stay as they are.
