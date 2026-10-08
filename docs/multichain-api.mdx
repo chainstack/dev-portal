@@ -3,7 +3,7 @@ title: "Use one API key across multiple chains with Multichain API"
 description: "Create a multichain endpoint on Chainstack, attach your Global Nodes and Dedicated Nodes, and call every attached chain with a single API key."
 ---
 
-A multichain endpoint gives you one API key that works on every Global Node and Dedicated Node you attach to it. You create the endpoint on Chainstack, add the nodes you want, and use the same key in the URL of each chain instead of managing one key per node.
+A multichain endpoint gives you one API key that works on every Global Node and Dedicated Node you attach to it. You create the endpoint on Chainstack, add the nodes you want, and use the same key in the URL of each chain instead of managing one auth token per node.
 
 <Info>
   Multichain API is available on every plan, including Developer.
@@ -11,7 +11,7 @@ A multichain endpoint gives you one API key that works on every Global Node and 
 
 ## What is a multichain endpoint?
 
-A multichain endpoint is a named group of your existing nodes with one shared API key. The key authorizes requests to each node in the group, so you can put a single secret in your environment variables or CI instead of one per chain. Your nodes, their own endpoint URLs, and their own API keys stay as they are.
+A multichain endpoint is a named group of your existing nodes with one shared API key. The key authorizes requests to each node in the group, so you can put a single secret in your environment variables or CI instead of one per chain. Your nodes keep their own endpoint URLs and [auth tokens](/docs/authentication-methods-for-different-scenarios), and those auth tokens keep working.
 
 An endpoint can hold the following:
 
@@ -64,11 +64,11 @@ A node that can't be added is dimmed in the list, and hovering over it shows the
 
 ## Call a chain with the key
 
-Each attached node has its own URL on the endpoint page. To get it, open the endpoint, select a node in **Connection details**, and copy the **HTTPS endpoint** or the **WSS endpoint**. The key is already part of the URL.
+The key takes the place of the node's auth token in the node's own endpoint URL. Every HTTPS and WSS URL the node offers works with the key, including the Ethereum consensus client endpoint, and REST APIs such as Aptos and TON. To get a URL, open the endpoint, select a node in **Connection details**, and copy the endpoint you need. The key is already part of the URL.
 
 For a Global Node, the URL uses the `core.chainstack.com` host with the chain and network in the subdomain. A Dedicated Node uses its own host, so copy the URL from **Connection details** instead of building it yourself.
 
-The following example sends the same request to an attached Ethereum Mainnet Global Node and an attached Solana Mainnet Global Node with one key:
+To call an attached Ethereum Mainnet, Solana Mainnet, and Aptos Mainnet Global Node with one key, put the key in each node's URL:
 
 ```bash cURL
 export CHAINSTACK_MULTICHAIN_KEY="YOUR_MULTICHAIN_API_KEY"
@@ -80,16 +80,18 @@ curl -X POST "https://ethereum-mainnet.core.chainstack.com/$CHAINSTACK_MULTICHAI
 curl -X POST "https://solana-mainnet.core.chainstack.com/$CHAINSTACK_MULTICHAIN_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"getSlot","params":[],"id":1}'
+
+curl "https://aptos-mainnet.core.chainstack.com/$CHAINSTACK_MULTICHAIN_KEY/v1"
 ```
 
-Replace `YOUR_MULTICHAIN_API_KEY` with the key from your endpoint page. Each call returns a normal JSON-RPC result for its chain.
+Replace `YOUR_MULTICHAIN_API_KEY` with the key from your endpoint page. Each call returns the chain's normal response: a JSON-RPC result for Ethereum and Solana, and the ledger information for Aptos. For a REST API, the key sits in the same place as an auth token, before the API path.
 
 <Check>A request to an attached chain returns a valid response. A request to a chain that isn't attached returns `401 Unauthorized`.</Check>
 
 ## How requests are handled
 
-* Requests to a chain follow the node behind it — the rate limits and [access rules](/docs/access-rules) you set on that node apply.
-* A request with the key to a chain whose node isn't attached to the endpoint returns `401 Unauthorized`.
+* A request with the key gets the same handling as a request with the node's own auth token, so the node's rate limits and [access rules](/docs/access-rules) apply.
+* A request with the key to a chain whose node isn't attached to the endpoint returns `401 Unauthorized` with the message `Access token missing or invalid. Make sure you are using the correct node endpoint.` Chainstack refuses a WSS connection to such a chain with `401` during the handshake.
 * When you delete a node on Chainstack, the node is removed from its endpoints automatically. The endpoint and its key stay.
 * Removing the last node from an endpoint leaves the endpoint and its key in place with no nodes.
 * A node that isn't running has no connection details until it runs again.
