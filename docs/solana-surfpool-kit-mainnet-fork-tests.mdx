@@ -1,0 +1,271 @@
+---
+title: "Solana: Mainnet fork tests with the Surfpool Kit plugin"
+description: "Run TypeScript tests against Solana Mainnet state forked from your Chainstack endpoint with the Surfpool Kit plugin: fund wallets with cheatcodes, send SPL token transfers locally, profile compute units, and move the clock forward."
+---
+
+**TLDR:**
+* The Surfpool Kit plugin, `@solana/surfpool/kit`, starts a local Surfnet inside your test process and connects a [Solana Kit](https://github.com/anza-xyz/kit) client to it, with a funded payer and typed cheatcodes.
+* Pass your Chainstack Solana Mainnet endpoint as `remoteRpcUrl`, and the Surfnet forks Mainnet: each account is copied from your endpoint the first time something reads it, and every transaction runs locally. Without `remoteRpcUrl`, the Surfnet is offline and Mainnet accounts don't exist in it.
+* The test suite in this guide reads the real USDC mint, gives a wallet 1,000 USDC with a cheatcode, sends a transfer, profiles compute units without sending, and moves the clock forward 30 days. A run takes about 2 seconds and sends 12 read requests to your endpoint.
+* Set `slotTimeMs: 400` if your code depends on slots or epochs. With the default 1 ms slot, moving the clock forward 30 days advances 6,000 epochs instead of 15.
+
+## Main article
+
+[Surfpool](/docs/solana-surfpool) is a local Solana network that forks Mainnet on demand. The [Solana: Surfpool quick-start](/docs/solana-surfpool) covers the `surfpool` CLI. This guide covers the Kit plugin, which runs the same Surfnet inside a Node.js process, so a TypeScript test suite can start a fresh fork for each test file and drive it through a Kit client.
+
+The fork is lazy. Your tests use real Mainnet accounts, such as token mints, programs, and pools, without a clone list or a snapshot, and nothing they do reaches Mainnet.
+
+<Info>
+To follow along, you need a Solana Mainnet node endpoint. See [Solana tooling](/docs/solana-tooling) to get set up.
+</Info>
+
+## Requirements
+
+- Node.js 20.18 or later, which `@solana/kit` 8 requires.
+- macOS (Apple silicon or Intel) or Linux x64 with glibc. `@solana/surfpool` ships its native Surfnet build only for these platforms. On other platforms, run the `surfpool` CLI and connect to it with the plugin's attach mode, described in the [Surfpool Kit plugin documentation](https://solana.com/docs/tools/surfpool/sdk/kit-plugin).
+
+## Set up the project
+
+```bash
+mkdir surfpool-fork-tests && cd surfpool-fork-tests
+npm init -y
+npm install --save-dev @solana/kit @solana/surfpool @solana/kit-plugin-rpc @solana/kit-plugin-signer @solana/sysvars @solana-program/token
+```
+
+This guide uses `@solana/kit` 8.4.0, `@solana/surfpool` 1.6.1, `@solana/kit-plugin-rpc` 0.18.0, `@solana/kit-plugin-signer` 0.18.0, `@solana/sysvars` 8.4.0, and `@solana-program/token` 0.17.0.
+
+Two of these packages need care:
+
+- `@solana/surfpool` 1.6.1 requires the 0.18 line of `@solana/kit-plugin-rpc` and `@solana/kit-plugin-signer`. Installing all the packages in one command lets npm pick 0.18. Requesting 0.19 explicitly fails with `ERESOLVE`.
+- `@solana/sysvars` provides `fetchSysvarClock`. Kit 8 doesn't re-export it from `@solana/kit`.
+
+## How the fork reaches your endpoint
+
+The Surfnet calls your Chainstack endpoint only to read state:
+
+- At startup, it reads the genesis hash, epoch info, the epoch schedule, and one sysvar account. The local clock starts at your endpoint's current slot and epoch.
+- The first time your code or a transaction reads an account, the Surfnet fetches it with `getAccountInfo` or `getMultipleAccounts`. Later reads use the local copy, so the copy doesn't follow changes on Mainnet.
+- Transactions run only in the local Surfnet. The Surfnet never sends a transaction to your endpoint.
+
+Each Surfnet starts with a new payer funded with 10 SOL, available as `client.payer`.
+
+## Write the test suite
+
+The suite uses the Node.js built-in test runner, so it needs no test framework. It reads your endpoint from the `CHAINSTACK_ENDPOINT` environment variable.
+
+```javascript fork.test.mjs
+import assert from "node:assert/strict";
+import { after, before, describe, it } from "node:test";
+import {
+  address,
+  appendTransactionMessageInstructions,
+  createClient,
+  createSolanaRpc,
+  createTransactionMessage,
+  fetchEncodedAccount,
+  generateKeyPairSigner,
+  getBase64EncodedWireTransaction,
+  pipe,
+  setTransactionMessageFeePayerSigner,
+  setTransactionMessageLifetimeUsingBlockhash,
+  signTransactionMessageWithSigners,
+} from "@solana/kit";
+import { surfpool } from "@solana/surfpool/kit";
+import { fetchSysvarClock } from "@solana/sysvars";
+import {
+  TOKEN_PROGRAM_ADDRESS,
+  fetchMint,
+  fetchToken,
+  findAssociatedTokenPda,
+  getCreateAssociatedTokenIdempotentInstructionAsync,
+  getTransferCheckedInstruction,
+  tokenProgram,
+} from "@solana-program/token";
+
+const CHAINSTACK_ENDPOINT = process.env.CHAINSTACK_ENDPOINT;
+const USDC_MINT = address("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+const ONE_USDC = 1_000_000n;
+
+async function usdcAccountOf(owner) {
+  const [tokenAccount] = await findAssociatedTokenPda({
+    owner,
+    mint: USDC_MINT,
+    tokenProgram: TOKEN_PROGRAM_ADDRESS,
+  });
+  return tokenAccount;
+}
+
+describe("USDC on a Solana Mainnet fork", () => {
+  const mainnet = createSolanaRpc(CHAINSTACK_ENDPOINT);
+  let client;
+
+  before(async () => {
+    client = await createClient()
+      .use(surfpool({ surfnet: { remoteRpcUrl: CHAINSTACK_ENDPOINT, slotTimeMs: 400 } }))
+      .use(tokenProgram());
+  });
+
+  after(() => client.surfnet.stop());
+
+  it("reads the USDC mint from mainnet", async () => {
+    const forked = await fetchMint(client.rpc, USDC_MINT);
+    const live = await fetchMint(mainnet, USDC_MINT);
+
+    assert.equal(forked.data.decimals, 6);
+    assert.deepEqual(forked.data.mintAuthority, live.data.mintAuthority);
+  });
+
+  it("transfers USDC without touching mainnet", async () => {
+    await client.cheatcodes
+      .setTokenAccount(client.payer.address, USDC_MINT, { amount: 1_000n * ONE_USDC })
+      .send();
+    const recipient = await generateKeyPairSigner();
+
+    await client.token.instructions
+      .transferToATA({
+        mint: USDC_MINT,
+        authority: client.payer,
+        recipient: recipient.address,
+        amount: 250n * ONE_USDC,
+        decimals: 6,
+      })
+      .sendTransaction();
+
+    const payerAccount = await fetchToken(client.rpc, await usdcAccountOf(client.payer.address));
+    const recipientAddress = await usdcAccountOf(recipient.address);
+    const recipientAccount = await fetchToken(client.rpc, recipientAddress);
+    assert.equal(payerAccount.data.amount, 750n * ONE_USDC);
+    assert.equal(recipientAccount.data.amount, 250n * ONE_USDC);
+
+    const onMainnet = await fetchEncodedAccount(mainnet, recipientAddress);
+    assert.equal(onMainnet.exists, false);
+  });
+
+  it("profiles a transfer without sending it", async (t) => {
+    await client.cheatcodes
+      .setTokenAccount(client.payer.address, USDC_MINT, { amount: 1_000n * ONE_USDC })
+      .send();
+    const recipient = await generateKeyPairSigner();
+    const recipientAddress = await usdcAccountOf(recipient.address);
+
+    const createRecipientAccount = await getCreateAssociatedTokenIdempotentInstructionAsync({
+      payer: client.payer,
+      owner: recipient.address,
+      mint: USDC_MINT,
+    });
+    const transfer = getTransferCheckedInstruction({
+      source: await usdcAccountOf(client.payer.address),
+      mint: USDC_MINT,
+      destination: recipientAddress,
+      authority: client.payer,
+      amount: 250n * ONE_USDC,
+      decimals: 6,
+    });
+    const { value: latestBlockhash } = await client.rpc.getLatestBlockhash().send();
+    const message = pipe(
+      createTransactionMessage({ version: 0 }),
+      (m) => setTransactionMessageFeePayerSigner(client.payer, m),
+      (m) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
+      (m) => appendTransactionMessageInstructions([createRecipientAccount, transfer], m),
+    );
+    const transaction = await signTransactionMessageWithSigners(message);
+
+    const profile = await client.cheatcodes
+      .profileTransaction(getBase64EncodedWireTransaction(transaction), "usdc-transfer")
+      .send();
+
+    assert.equal(profile.transactionProfile.errorMessage, null);
+    t.diagnostic(`compute units: ${profile.transactionProfile.computeUnitsConsumed}`);
+
+    const afterProfile = await fetchEncodedAccount(client.rpc, recipientAddress);
+    assert.equal(afterProfile.exists, false);
+  });
+
+  it("moves the clock forward 30 days", async (t) => {
+    const start = await fetchSysvarClock(client.rpc);
+    const thirtyDays = 30n * 24n * 60n * 60n;
+
+    await client.cheatcodes
+      .timeTravel({ absoluteTimestamp: (start.unixTimestamp + thirtyDays) * 1000n })
+      .send();
+
+    const end = await fetchSysvarClock(client.rpc);
+    assert.equal(end.unixTimestamp - start.unixTimestamp, thirtyDays);
+    t.diagnostic(`epoch ${start.epoch} -> ${end.epoch}, slot ${start.slot} -> ${end.slot}`);
+  });
+});
+```
+
+### Start and stop the fork
+
+The `before` hook builds the client. `surfpool()` starts the Surfnet and installs `client.rpc`, `client.payer`, `client.cheatcodes`, and `client.surfnet`. The `surfnet` options go to the native Surfnet: `remoteRpcUrl` turns on the fork, and `slotTimeMs: 400` matches Mainnet's slot time. `tokenProgram()` from `@solana-program/token` adds the Token program's instructions and accounts as `client.token`.
+
+The `after` hook calls `client.surfnet.stop()`, which closes the Surfnet's local HTTP and WebSocket servers and frees their ports. Node.js runs each test file in its own process, so each file gets its own Surfnet.
+
+### Read Mainnet state
+
+The first test reads the USDC mint twice: through the fork and directly from your endpoint. The forked copy has the same decimals and mint authority as the account on Mainnet.
+
+### Fund a wallet and send a transfer
+
+The `setTokenAccount` cheatcode writes the payer's USDC token account, creating it if needed, with a balance of 1,000 USDC. No faucet or swap is involved, and the USDC mint authority doesn't sign anything.
+
+`client.token.instructions.transferToATA` creates the recipient's associated token account and transfers 250 USDC. `sendTransaction()` plans the transaction, adds a `SetComputeUnitLimit` instruction with an estimated limit, signs it with the payer, and sends it to the Surfnet. The test then checks both balances, and checks that the recipient's token account doesn't exist on Mainnet.
+
+### Profile compute units
+
+The `profileTransaction` cheatcode runs a signed transaction against the fork and returns its compute units, logs, and account states, without changing any account. The test confirms that the recipient's token account still doesn't exist after profiling.
+
+The test builds this transaction by hand rather than with `planTransaction()`. A planned transaction carries a `SetComputeUnitLimit` instruction with a limit of 0, which `sendTransaction()` replaces with an estimate when it sends. Profiling a planned transaction as it is fails with `Computational budget exceeded`.
+
+### Move the clock
+
+The `timeTravel` cheatcode takes `absoluteTimestamp` in milliseconds and moves the Clock sysvar to that time. Use it to test vesting schedules, lockups, and other time-based logic.
+
+The Surfnet converts the time difference into slots using `slotTimeMs`. With `slotTimeMs: 400`, moving 30 days forward advances about 6.48 million slots and 15 epochs, as on Mainnet. With the default of 1 ms, the same move advances about 2.59 billion slots and 6,000 epochs.
+
+## Run the tests
+
+```bash
+CHAINSTACK_ENDPOINT=YOUR_CHAINSTACK_ENDPOINT node --test
+```
+
+On Node.js 24, the output looks like this:
+
+```text
+▶ USDC on a Solana Mainnet fork
+  ✔ reads the USDC mint from mainnet (444.605625ms)
+  ✔ transfers USDC without touching mainnet (471.001583ms)
+  ✔ profiles a transfer without sending it (298.677291ms)
+  ℹ compute units: 13630
+  ✔ moves the clock forward 30 days (8.218292ms)
+  ℹ epoch 1054 -> 1069, slot 455644639 -> 462124638
+✔ USDC on a Solana Mainnet fork (1873.32875ms)
+ℹ tests 4
+ℹ suites 1
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2014.683083
+```
+
+The compute units change from run to run because each run uses a new recipient. Creating the recipient's associated token account searches for a valid address, and each extra search step costs 1,500 compute units.
+
+## Why a Mainnet account is not found
+
+`surfpool()` without `remoteRpcUrl` starts an offline Surfnet. It still has a funded payer, but no Mainnet accounts, so reading the USDC mint fails:
+
+```text
+Account not found at address: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+```
+
+If a test that worked against Mainnet state fails with `Account not found`, check that `remoteRpcUrl` is set and that `CHAINSTACK_ENDPOINT` holds your endpoint.
+
+## See also
+
+- [Solana: Surfpool quick-start](/docs/solana-surfpool) — the `surfpool` CLI, Anchor integration, and the full cheatcode list.
+- [Solana: Fast unit testing with LiteSVM](/docs/solana-litesvm-testing) — unit tests without RPC or Mainnet state.
+- [Surfpool Kit plugin documentation](https://solana.com/docs/tools/surfpool/sdk/kit-plugin) — attach mode, the standalone cheatcodes client, and every plugin option.
+- [solana-foundation/surfpool](https://github.com/solana-foundation/surfpool) — Surfpool source; the Node.js package and Kit plugin live in `crates/sdk-node`.
