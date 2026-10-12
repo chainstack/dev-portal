@@ -73,7 +73,7 @@ paths:
       summary: List all Projects
       description: |
         List all projects your organization is part of.
-        <br> This endpoint paginates with `limit` and `offset` (default and maximum `limit`: 100) and ignores `page`. To get further results, follow the `next` URL in the response.
+        <br> This endpoint paginates with `limit` and `offset` (default and maximum `limit`: 100) and ignores `page`. To get the next page, increase `offset` by `limit`, for example `?limit=100&offset=100`.
       parameters:
       - "$ref": "#/components/parameters/ProjectOrdering"
       - "$ref": "#/components/parameters/Limit"
@@ -900,9 +900,9 @@ paths:
       operationId: listDeploymentOptions
       summary: List deployment options
       description: |
-        List all available deployment options for your organization.
-        Returns the deployable nodes matrix filtered to shared node types on global clouds.
-        Each option includes the blockchain ID, cloud ID, protocol, network, and available features.
+        List the deployment options your organization's plan allows. Each option is a blockchain and cloud combination you can deploy a node to, on both global and regional clouds. The list depends on your plan, so it differs between organizations.
+        <br> Each option includes the blockchain ID, cloud ID, cloud provider, region, protocol, network, and available features. On regional clouds, full and archive nodes of the same network can have separate blockchain IDs, so check `features` before you pick one.
+        <br> This endpoint takes no query parameters and returns all options in one response, without pagination.
       tags:
       - Deployment Options
       security:
@@ -919,44 +919,50 @@ paths:
                     options:
                     - blockchain: BC-000-000-008
                       cloud: CC-0016
-                      region: us-east-1
-                      provider: aws
+                      region: global1
+                      provider: chainstack_global
                       protocol: ethereum
                       network: ethereum-mainnet
                       features:
                       - full
-                    - blockchain: BC-000-000-017
-                      cloud: CC-0016
-                      region: us-east-1
-                      provider: aws
+                      - archive
+                      - debug_trace
+                    - blockchain: BC-264-711-131
+                      cloud: CC-0025
+                      region: ash1
+                      provider: chainstack_managed
                       protocol: ethereum
-                      network: ethereum-sepolia-testnet
+                      network: ethereum-mainnet
                       features:
                       - full
+                    - blockchain: BC-263-699-222
+                      cloud: CC-0025
+                      region: ash1
+                      provider: chainstack_managed
+                      protocol: ethereum
+                      network: ethereum-mainnet
+                      features:
+                      - archive
+                      - debug_trace
                     - blockchain: BC-000-000-015
                       cloud: CC-0016
-                      region: us-east-1
-                      provider: aws
+                      region: global1
+                      provider: chainstack_global
                       protocol: solana
                       network: solana-mainnet
                       features:
                       - full
+                      - archive
                     - blockchain: BC-000-000-006
                       cloud: CC-0016
-                      region: us-east-1
-                      provider: aws
+                      region: global1
+                      provider: chainstack_global
                       protocol: bsc
                       network: bsc-mainnet
                       features:
                       - full
-                    - blockchain: BC-000-000-010
-                      cloud: CC-0016
-                      region: us-east-1
-                      provider: aws
-                      protocol: polygon-pos
-                      network: polygon-pos-mainnet
-                      features:
-                      - full
+                      - archive
+                      - debug_trace
           description: ''
         '401':
           "$ref": "#/components/responses/UnauthorizedError"
@@ -968,7 +974,7 @@ paths:
       summary: List all projects
       description: |
         List all projects your organization is part of.
-        <br> This endpoint paginates with `limit` and `offset` (default and maximum `limit`: 100) and ignores `page`. To get further results, follow the `next` URL in the response.
+        <br> This endpoint paginates with `limit` and `offset` (default and maximum `limit`: 100) and ignores `page`. To get the next page, increase `offset` by `limit`, for example `?limit=100&offset=100`.
       parameters:
       - "$ref": "#/components/parameters/ProjectOrdering"
       - "$ref": "#/components/parameters/Limit"
@@ -1004,7 +1010,6 @@ paths:
                       name: My project
                       description: My project description
                       type: public
-                      members: 0
                       networks: 1
                       creator:
                         id: UR-111-111-111
@@ -1052,7 +1057,6 @@ paths:
                     name: My project
                     description: My project description
                     type: public
-                    members: 0
                     networks: 0
                     creator:
                       id: UR-111-111-111
@@ -1094,7 +1098,6 @@ paths:
                     name: My project
                     description: My project description
                     type: public
-                    members: 0
                     networks: 1
                     creator:
                       id: UR-111-111-111
@@ -1143,7 +1146,6 @@ paths:
                     name: My updated project
                     description: Updated description
                     type: public
-                    members: 0
                     networks: 1
                     creator:
                       id: UR-111-111-111
@@ -2013,7 +2015,7 @@ components:
           readOnly: true
           description: |
             Number of members invited to the consortium project.
-            <br>Only for the `consortium` project.
+            <br>Returned only for `consortium` projects. The response for a `public` project doesn't include this field.
         networks:
           type: integer
           readOnly: true
@@ -3164,11 +3166,11 @@ components:
         region:
           type: string
           description: Cloud region identifier.
-          example: us-east-1
+          example: global1
         provider:
           type: string
           description: Cloud provider name.
-          example: aws
+          example: chainstack_global
         protocol:
           type: string
           description: The blockchain protocol name.
@@ -3179,11 +3181,13 @@ components:
           example: ethereum-mainnet
         features:
           type: array
-          description: List of available features for this deployment option.
+          description: List of available features for this deployment option, for example `full`, `archive`, and `debug_trace`.
           items:
             type: string
           example:
           - full
+          - archive
+          - debug_trace
       required:
       - blockchain
       - cloud
