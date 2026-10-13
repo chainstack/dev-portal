@@ -1,0 +1,112 @@
+---
+title: "Hyperliquid peering"
+noindex: true
+description: "Reserve a gossip slot for your own Hyperliquid non-validator node on Chainstack peers. $449 per month per node IP, open access, 99.9% uptime SLA."
+---
+
+Hyperliquid peering gives the Hyperliquid node you run yourself a *peering slot* on Chainstack peers, so your node has a dedicated upstream instead of competing for public root peers. One peering slot costs \$449 per month and covers one node IP address.
+
+You keep operating your own node. Chainstack holds a peering slot for your node IP address on Chainstack peers and tells you which Chainstack peers to connect to.
+
+<Note>
+Hyperliquid peering is for teams that run their own Hyperliquid non-validator node. If you want Chainstack to run the node for you, see [Dedicated Nodes](/docs/dedicated-node).
+</Note>
+
+## Why Hyperliquid peering matters
+
+A Hyperliquid node typically streams data from one upstream peer at a time, so the node is only as fast and as reliable as that peer. When the peer is slow, the node falls behind. When the peer drops, the node stops advancing until it finds a new one.
+
+The public root peers returned by the `gossipRootIps` request to the Hyperliquid info endpoint are shared by every node on the network. Their slots fill up and their addresses change, so the peer your node gets is a matter of chance. A peering slot on Chainstack peers removes that chance: your node's IP address is on the allowlist of every Chainstack peer, and Chainstack holds the peering slot for your node whether or not the network is busy.
+
+## What Hyperliquid peering includes
+
+Each peering slot includes the following:
+
+| Included | Detail |
+| --- | --- |
+| Peering slot | One peering slot covers one node IP address. Chainstack allowlists that IP address on every Chainstack peer. |
+| Chainstack peers | Two Chainstack peers in Tokyo. Point your node at both, so your node can fail over if one peer is unavailable. |
+| Full gossip | Blocks, and mempool transactions when `split_client_blocks` is enabled on your node. |
+| Uptime service level agreement (SLA) | 99.9% per calendar month. |
+| Price | \$449 per month per peering slot, billed monthly through Stripe. No bandwidth or egress charges. |
+
+## Pricing and open access
+
+Hyperliquid peering costs \$449 per month per peering slot, billed monthly through Stripe, with no usage, bandwidth, or egress charges. Every customer pays the same price, connects to the same set of Chainstack peers, and gets the same priority. Chainstack does not give any customer, such as a market maker, preferential treatment.
+
+To peer more than one node, request a peering slot for each node IP address.
+
+## Requirements for your node
+
+Before you request Hyperliquid peering, confirm the following about your node:
+
+- Ports `4001` and `4002` are open to the public internet. Hyperliquid uses these ports for peer-to-peer (P2P) gossip, and peers deprioritize a node that does not accept inbound connections on ports `4001` and `4002`.
+- The node has a static public IP address. Chainstack allowlists that exact IP address, so dynamic IP addresses and NAT pools with changing IP addresses do not work.
+- The node is a Hyperliquid non-validator node on Hyperliquid mainnet.
+
+## How to set up Hyperliquid peering
+
+Setting up Hyperliquid peering takes three steps: you send your node's IP address, Chainstack allowlists that IP address and returns the Chainstack peer IP addresses, and you point your node at those peers.
+
+<Steps>
+  <Step title="Request a peering slot">
+    Email [support@chainstack.com](mailto:support@chainstack.com) with the subject "Hyperliquid peering" and include the public IP address of each node you want to peer, one IP address per peering slot.
+
+    Chainstack support allowlists your node IP address and replies with the Chainstack peer IP addresses.
+  </Step>
+  <Step title="Point your node at Chainstack peers">
+    Write the Chainstack peer IP addresses into `~/override_gossip_config.json` on your node:
+
+    ```json override_gossip_config.json
+    {
+      "root_node_ips": [
+        { "Ip": "<CHAINSTACK_PEER_1>" },
+        { "Ip": "<CHAINSTACK_PEER_2>" }
+      ],
+      "try_new_peers": false,
+      "chain": "Mainnet",
+      "reserved_peer_ips": []
+    }
+    ```
+
+    Replace `<CHAINSTACK_PEER_1>` and `<CHAINSTACK_PEER_2>` with the IP addresses from Chainstack support.
+
+    With `try_new_peers` set to `false`, your node pulls data only from Chainstack peers. With `try_new_peers` set to `true`, your node can also connect to public peers it discovers. Your node then keeps syncing if both Chainstack peers become unreachable, but your node may stream from a public peer instead of a Chainstack peer.
+
+    To receive mempool transactions, also set `split_client_blocks` to `true` in the same file. Mempool transactions reach your node only when every peer between your node and the validators has `split_client_blocks` enabled, and Chainstack peers have `split_client_blocks` enabled.
+  </Step>
+  <Step title="Restart and verify">
+    Restart your Hyperliquid node. Your node is receiving data when your node keeps writing new files to `~/hl/data/replica_cmds`. The following command lists files written in the last minute:
+
+    ```bash
+    find ~/hl/data/replica_cmds -type f -newermt '-1 minute' | tail -5
+    ```
+
+    If the command returns no files, or your Hyperliquid node logs show repeated peer disconnects, send the logs to [support@chainstack.com](mailto:support@chainstack.com).
+  </Step>
+</Steps>
+
+## What Hyperliquid peering does not include
+
+Hyperliquid peering gives your own node a reliable upstream. Hyperliquid peering does not include RPC access, the Info API, or data services.
+
+To query Hyperliquid without running a node, use a Hyperliquid Global Node or Dedicated Node on Chainstack:
+
+- [Hyperliquid tooling](/docs/hyperliquid-tooling) — set up the Hyperliquid Python SDK and connect to Hyperliquid through Chainstack RPC nodes.
+- [Hyperliquid node configuration](/docs/hyperliquid-node-configuration) — the `/evm` and `/nanoreth` paths on every Hyperliquid node on Chainstack.
+- [Global Nodes](/docs/global-elastic-node) — globally distributed Hyperliquid nodes on Chainstack.
+- [Dedicated Nodes](/docs/dedicated-node) — a Dedicated Hyperliquid mainnet node that Chainstack runs for your workload only.
+
+## Hyperliquid peering FAQ
+
+<AccordionGroup>
+  <Accordion title="How much traffic should my node expect?">
+    Based on observed mempool volume, full gossip with mempool transactions is roughly 1 TB per day and grows during volatile markets. Size your server's bandwidth, disk, and retention for that volume. Chainstack does not charge for this traffic.
+  </Accordion>
+  <Accordion title="What happens if my node's IP address changes?">
+    Email the new IP address to [support@chainstack.com](mailto:support@chainstack.com) and keep the old IP address running until Chainstack confirms the change. With `try_new_peers` set to `false`, a node whose IP address is not on the allowlist has no peer to fall back to and stops syncing.
+  </Accordion>
+  <Accordion title="Can I peer a testnet node?">
+    No. Hyperliquid peering is available for Hyperliquid mainnet nodes only.
+  </Accordion>
+</AccordionGroup>
