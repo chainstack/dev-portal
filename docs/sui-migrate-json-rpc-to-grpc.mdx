@@ -1,44 +1,43 @@
 ---
 title: "Migrate Sui from JSON-RPC to gRPC and GraphQL"
-description: "Sui Foundation's public endpoints no longer serve JSON-RPC, and Sui removes JSON-RPC from the full node code in mid-October 2026. Migrate call by call to gRPC and GraphQL on Chainstack, where all three interfaces run on the same node."
+description: "Sui removes JSON-RPC from the full node in v1.82. Migrate call by call to gRPC and GraphQL on Chainstack, on the same endpoint and auth token."
 ---
 
-Sui is deprecating JSON-RPC, and Sui Foundation's **public** endpoints no longer serve it. On Chainstack, your Sui node serves JSON-RPC and gRPC on the **same endpoint**, and Sui Mainnet Global Nodes also serve GraphQL on it. You migrate call by call — keep using JSON-RPC while you port each call to gRPC or GraphQL, with no provider switch and no re-sync.
+Sui removes JSON-RPC from the full node in v1.82, so no Sui node serves JSON-RPC after the upgrade. On Chainstack, your Sui node serves gRPC, and Sui Mainnet Global Nodes also serve GraphQL, on the **same endpoint** and auth token. Port each JSON-RPC call to its gRPC or GraphQL equivalent with the [method mapping](#method-mapping), with no provider switch and no re-sync.
 
 <Warning>
-  JSON-RPC calls to Sui Foundation's public endpoint `fullnode.mainnet.sui.io` return `-32601 Method not found`. Sui removes JSON-RPC from the full node code in mid-October 2026.
+  Sui Testnet nodes on Chainstack no longer serve JSON-RPC. Sui Mainnet nodes stop serving it when they upgrade to v1.82, after Sui releases v1.82 for Mainnet.
 </Warning>
 
-Sui retires JSON-RPC on Mainnet in stages, per [Sui's migration guide](https://docs.sui.io/develop/accessing-data/json-rpc-migration):
+Sui retires JSON-RPC in stages, per [Sui's migration guide](https://docs.sui.io/develop/accessing-data/json-rpc-migration):
 
 | Milestone | Date |
 | --- | --- |
 | JSON-RPC disabled on Sui Foundation's Mainnet full nodes | Week of Jul 27, 2026 |
 | Sui stops publishing JSON-RPC snapshots | End of Aug 2026 |
 | Implicit fallback to the archival service disconnected | End of Sep 2026 |
-| Full decommission of JSON-RPC from full nodes, including code removal | Mid-Oct 2026 |
+| JSON-RPC removed from the full node code in v1.82 | Testnet: Oct 15, 2026. Mainnet: with the v1.82 Mainnet release |
 
-Sui publishes this timeline for mainnet only and does not give a separate testnet date.
+Sui's guide gives Mainnet dates only. The Testnet date is when the Testnet network activated the v1.82 protocol.
 
-## What is being deprecated
+## What is being removed
 
-Sui deprecates JSON-RPC in two steps. Sui Foundation has already turned off JSON-RPC on its **public** endpoints. In mid-October 2026, Sui removes JSON-RPC from the full node code itself. Your **Chainstack Sui endpoint still serves JSON-RPC**, so you can keep calling it while you port your code to gRPC and GraphQL on the same endpoint — plan to finish that move rather than stay on JSON-RPC.
+Sui removes JSON-RPC in two steps. Sui Foundation turned off JSON-RPC on its **public** endpoints in July 2026. Sui v1.82 then removes the JSON-RPC service from the full node code itself, so a node on v1.82 does not serve JSON-RPC at all. Node operators cannot keep JSON-RPC enabled, because a node on an older version stops when the network activates the v1.82 protocol.
 
 gRPC and GraphQL are the interfaces Sui supports going forward. gRPC uses HTTP/2 and Protocol Buffers for binary serialization, which makes payloads smaller and adds server-side streaming — you subscribe to new checkpoints instead of polling for them.
 
-On Chainstack, the migration is **JSON-RPC → gRPC and GraphQL**, and all three run on the same node:
+On Chainstack, the migration is **JSON-RPC → gRPC and GraphQL**, and both run on the same node:
 
 - Move performance-sensitive and streaming workloads to **gRPC** — backends, indexers, typed clients, low-latency lookups, transaction submission, and checkpoint streaming.
 - Move filtered and paginated queries to **GraphQL** on Mainnet — transactions by address, events by type, and objects by owner and type. These are the methods with no gRPC equivalent. See [Sui GraphQL endpoint](/docs/sui-graphql-endpoint).
-- Keep anything you have not ported yet on **JSON-RPC**. Your Chainstack endpoint still serves it, including on Testnet, which does not serve GraphQL.
+- On Testnet, which has no GraphQL endpoint, use **gRPC**.
 
 ## Chainstack Sui endpoints
 
-All three interfaces are on the same node. Copy your JSON-RPC endpoint (shown below as `YOUR_CHAINSTACK_ENDPOINT`, with its auth token built in) from Chainstack — see [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials). The gRPC endpoint is the host and port below, and the GraphQL endpoint is the JSON-RPC endpoint with `/graphql` appended.
+Both interfaces are on the same node. Copy your HTTPS endpoint (shown below as `YOUR_CHAINSTACK_ENDPOINT`, with its auth token built in) from Chainstack — see [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials). The gRPC endpoint is the host and port below, and the GraphQL endpoint is the HTTPS endpoint with `/graphql` appended.
 
 | Interface | Endpoint | Authentication |
 | --- | --- | --- |
-| JSON-RPC (HTTPS) | `YOUR_CHAINSTACK_ENDPOINT` | auth token or basic auth, built into the endpoint |
 | gRPC | `sui-mainnet.core.chainstack.com:443` | `x-token` metadata header |
 | GraphQL (Mainnet) | `YOUR_CHAINSTACK_ENDPOINT/graphql` | auth token, basic auth, or `x-token` header |
 
@@ -81,7 +80,7 @@ Sui's gRPC API is organized into services under `sui.rpc.v2`. Most read and writ
 
 ### No gRPC equivalent — use GraphQL
 
-These methods have no gRPC equivalent. On Mainnet, use the GraphQL query in the table. Your Chainstack JSON-RPC endpoint still serves them, which is the path on Testnet.
+These methods have no gRPC equivalent. On Mainnet, use the GraphQL query in the table. Testnet has no GraphQL endpoint, so these queries are available on Mainnet only.
 
 | JSON-RPC method | GraphQL query |
 | --- | --- |
@@ -89,22 +88,22 @@ These methods have no gRPC equivalent. On Mainnet, use the GraphQL query in the 
 | `suix_queryEvents` | `events` with a `filter` |
 | `sui_getCheckpoints` | `checkpoints` |
 | `suix_getStakes` | `objects` on an `address`, filtered by type `0x3::staking_pool::StakedSui` |
-| `suix_getValidatorsApy` | No GraphQL field — keep on JSON-RPC |
-| `suix_subscribeEvent`, `suix_subscribeTransaction` | No GraphQL subscriptions — keep on the JSON-RPC WebSocket endpoint, or stream checkpoints over gRPC |
+| `suix_getValidatorsApy` | No GraphQL field. Derive APY from each validator's staking pool exchange rates across epochs, or use a staking analytics provider |
+| `suix_subscribeEvent`, `suix_subscribeTransaction` | No GraphQL subscriptions. Stream checkpoints over gRPC with `SubscriptionService/SubscribeCheckpoints` and filter transactions and events client-side |
 
 Filtered `transactions` and all `events` queries cover about the most recent 90 days, a shorter window than point lookups. See [How far back GraphQL history goes](/docs/sui-graphql-endpoint#how-far-back-graphql-history-goes).
 
 ### Indexer and analytics methods
 
-A few JSON-RPC methods return aggregated analytics that come from Sui's indexer layer, not from a full node. A full node — Sui's or Chainstack's — does not serve them over JSON-RPC or gRPC (calling them on Chainstack returns `-32601 Method not found`). Get the underlying data these way:
+A few JSON-RPC methods return aggregated analytics that come from Sui's indexer layer, not from a full node. A full node — Sui's or Chainstack's — does not serve them over gRPC. Get the underlying data these ways:
 
 | JSON-RPC method | What to use instead |
 | --- | --- |
-| `suix_getEpochs` | On Mainnet, list epochs with the GraphQL `epochs` query; epochs that started before the GraphQL history window return `null` fields. For the current epoch's validators, committee, and gas price, call `suix_getLatestSuiSystemState` (JSON-RPC) or `LedgerService/GetEpoch` (gRPC). |
+| `suix_getEpochs` | On Mainnet, list epochs with the GraphQL `epochs` query; epochs that started before the GraphQL history window return `null` fields. For the current epoch's validators, committee, and gas price, call `LedgerService/GetEpoch` (gRPC). |
 | `suix_getNetworkMetrics`, `suix_getAddressMetrics`, `suix_getMoveCallMetrics` | Network analytics (TPS, active addresses, popular calls). Derive them by indexing your Chainstack node's checkpoint stream (gRPC `SubscriptionService/SubscribeCheckpoints`) into your own store, or use a Sui analytics provider. Most applications do not need these. |
 
 <Note>
-  gRPC streaming exposes only `SubscribeCheckpoints`, not per-event subscriptions. For event streams, keep `suix_subscribeEvent` on the JSON-RPC WebSocket, or subscribe to checkpoints over gRPC and filter client-side.
+  gRPC streaming exposes only `SubscribeCheckpoints`, not per-event subscriptions. For event streams, subscribe to checkpoints over gRPC and filter events client-side.
 </Note>
 
 ## gRPC quickstart
@@ -203,8 +202,8 @@ In TypeScript, use the official Sui SDK (`@mysten/sui`). Its **default gRPC-Web 
 
 ## Next steps
 
-- [Sui tooling](/docs/sui-tooling) — SDKs, JSON-RPC, gRPC, and GraphQL connection setup.
-- [Sui gRPC endpoint](/docs/sui-grpc-endpoint) — checkpoint retention, authentication, and how Chainstack fronts every interface on one node.
+- [Sui tooling](/docs/sui-tooling) — SDKs, gRPC, and GraphQL connection setup.
+- [Sui gRPC endpoint](/docs/sui-grpc-endpoint) — checkpoint retention and authentication.
 - [Sui GraphQL endpoint](/docs/sui-graphql-endpoint) — GraphQL authentication, filters, history windows, and limits.
 - [Sui gRPC overview](https://docs.sui.io/concepts/grpc-overview) — Sui's own gRPC reference.
 - [Sui JSON-RPC migration guide](https://sdk.mystenlabs.com/sui/migrations/sui-2.0/json-rpc-migration) — the upstream mapping and SDK migration notes.
