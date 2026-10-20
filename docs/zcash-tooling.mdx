@@ -1,0 +1,206 @@
+---
+title: "Zcash tooling"
+description: "Connect to a Chainstack Zcash node over JSON-RPC with curl, Python, and JavaScript on Mainnet and Testnet. Network details, the transparent address index, shielded pool state methods, and the methods available on Zebra."
+---
+
+Chainstack Zcash nodes run [Zebra](https://github.com/ZcashFoundation/zebra), the Zcash Foundation's node, and serve its Bitcoin-style [JSON-RPC API](https://docs.rs/zebra-rpc/latest/zebra_rpc/methods/trait.RpcServer.html) over HTTPS. Send requests with curl or any HTTP client. The same calls work on Zcash Mainnet and Testnet, and the nodes serve transparent transaction history from the first block.
+
+## Network details
+
+| Property | Mainnet | Testnet |
+|----------|---------|---------|
+| `chain` in `getblockchaininfo` | `main` | `test` |
+| Currency | ZEC | TAZ |
+| Smallest unit | zatoshi, 1 ZEC = 100,000,000 zatoshis | zatoshi |
+| Transparent address prefixes | `t1`, `t3` | `tm`, `t2` |
+| Block explorer | [mainnet.zcashexplorer.app](https://mainnet.zcashexplorer.app) | [testnet.zcashexplorer.app](https://testnet.zcashexplorer.app) |
+
+## JSON-RPC API
+
+To get basic network information from your Zcash node HTTPS endpoint, call `getblockchaininfo`:
+
+<CodeGroup>
+```bash cURL
+curl YOUR_CHAINSTACK_ENDPOINT \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"1.0","id":1,"method":"getblockchaininfo","params":[]}'
+```
+</CodeGroup>
+
+where YOUR\_CHAINSTACK\_ENDPOINT is your node HTTPS endpoint protected either with the key or password. See [node access details](/docs/manage-your-node#view-node-access-and-credentials).
+
+The response lists the network upgrades and their activation heights in `upgrades`, and the balances of the transparent and shielded pools in `valuePools`.
+
+## Address index
+
+Zebra indexes transparent addresses, so you can look up an address's balance, transaction history, and unspent outputs without running an indexer. Each method takes an object with an `addresses` array:
+
+* `getaddressbalance` — the current balance and the total received, in zatoshis.
+* `getaddresstxids` — the IDs of the transactions that touch the addresses, optionally limited to a block range with `start` and `end`.
+* `getaddressutxos` — the unspent outputs of the addresses, with the amount of each in the `satoshis` field, in zatoshis.
+
+<CodeGroup>
+```bash getaddressbalance
+curl YOUR_CHAINSTACK_ENDPOINT \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"1.0","id":1,"method":"getaddressbalance","params":[{"addresses":["t3Vz22vK5z2LcKEdg16Yv4FFneEL1zg9ojd"]}]}'
+```
+
+```bash getaddresstxids
+curl YOUR_CHAINSTACK_ENDPOINT \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"1.0","id":1,"method":"getaddresstxids","params":[{"addresses":["t3Vz22vK5z2LcKEdg16Yv4FFneEL1zg9ojd"],"start":1,"end":1000}]}'
+```
+</CodeGroup>
+
+The address index covers transparent addresses only. Shielded balances and shielded transaction history are visible only to the holder of the viewing key, through a wallet that scans the chain.
+
+## Shielded pool state
+
+Zebra serves the state of the Sapling and Orchard note commitment trees, which wallets use to sync and to build shielded transactions:
+
+* `z_gettreestate` — the note commitment tree state of the Sapling and Orchard pools at a block, by height or hash.
+* `z_getsubtreesbyindex` — the roots of complete note commitment subtrees for `sapling` or `orchard`, from a start index.
+* `z_validateaddress` — validates a transparent, Sapling, or unified address and returns its type.
+* `z_listunifiedreceivers` — returns the receivers that a unified address contains.
+
+<CodeGroup>
+```bash z_getsubtreesbyindex
+curl YOUR_CHAINSTACK_ENDPOINT \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"1.0","id":1,"method":"z_getsubtreesbyindex","params":["orchard",0,2]}'
+```
+</CodeGroup>
+
+## Python
+
+Install [requests](https://pypi.org/project/requests/):
+
+<CodeGroup>
+```shell Shell
+pip install requests
+```
+</CodeGroup>
+
+<CodeGroup>
+```python main.py
+import requests
+
+ENDPOINT = "YOUR_CHAINSTACK_ENDPOINT"
+ZATOSHIS_PER_ZEC = 100_000_000
+
+
+def rpc(method, params=None):
+    response = requests.post(
+        ENDPOINT,
+        json={"jsonrpc": "1.0", "id": 1, "method": method, "params": params or []},
+        timeout=30,
+    )
+    if "application/json" not in response.headers.get("Content-Type", ""):
+        raise RuntimeError(f"HTTP {response.status_code}: {response.text.strip()}")
+    body = response.json()
+    if body.get("error"):
+        raise RuntimeError(body["error"]["message"])
+    return body["result"]
+
+
+info = rpc("getblockchaininfo")
+print("Chain:", info["chain"])
+print("Blocks:", info["blocks"])
+
+address = "t3Vz22vK5z2LcKEdg16Yv4FFneEL1zg9ojd"
+balance = rpc("getaddressbalance", [{"addresses": [address]}])
+print("Balance (ZEC):", balance["balance"] / ZATOSHIS_PER_ZEC)
+print("Received (ZEC):", balance["received"] / ZATOSHIS_PER_ZEC)
+
+txids = rpc("getaddresstxids", [{"addresses": [address], "start": 1, "end": 1000}])
+print("Transactions in blocks 1 to 1000:", len(txids))
+```
+</CodeGroup>
+
+On Mainnet, the `main.py` example prints `Chain: main`, the block height, and the balance and history of the address that received the founders' reward in block 1. On Testnet, replace the address with a Testnet address, which starts with `tm` or `t2`. For a password-protected endpoint, put the credentials in the URL, as in `https://USERNAME:PASSWORD@HOSTNAME`, and requests sends them as HTTP basic authentication.
+
+## JavaScript
+
+The example uses the built-in `fetch` in Node.js 18 or later, so it needs no packages.
+
+<CodeGroup>
+```javascript index.mjs
+const ENDPOINT = "YOUR_CHAINSTACK_ENDPOINT";
+const ZATOSHIS_PER_ZEC = 100_000_000;
+
+async function rpc(method, params = []) {
+  const response = await fetch(ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "1.0", id: 1, method, params }),
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!response.headers.get("content-type")?.includes("application/json")) {
+    throw new Error(`HTTP ${response.status}: ${(await response.text()).trim()}`);
+  }
+  const body = await response.json();
+  if (body.error) throw new Error(body.error.message);
+  return body.result;
+}
+
+const blocks = await rpc("getblockcount");
+console.log("Blocks:", blocks);
+
+const address = "t3Vz22vK5z2LcKEdg16Yv4FFneEL1zg9ojd";
+const utxos = await rpc("getaddressutxos", [{ addresses: [address] }]);
+const total = utxos.reduce((sum, utxo) => sum + utxo.satoshis, 0);
+console.log("Unspent outputs:", utxos.length);
+console.log("Spendable (ZEC):", total / ZATOSHIS_PER_ZEC);
+
+const mempool = await rpc("getrawmempool");
+console.log("Transactions in mempool:", mempool.length);
+```
+</CodeGroup>
+
+The built-in `fetch` rejects a URL that includes credentials, with `TypeError: Request cannot be constructed from a URL that includes credentials`. For a password-protected endpoint, send the credentials in an `Authorization` header instead:
+
+<CodeGroup>
+```javascript auth.mjs
+const ENDPOINT = "https://HOSTNAME";
+const AUTHORIZATION = "Basic " + Buffer.from("USERNAME:PASSWORD").toString("base64");
+
+const response = await fetch(ENDPOINT, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Authorization: AUTHORIZATION },
+  body: JSON.stringify({ jsonrpc: "1.0", id: 1, method: "getblockcount", params: [] }),
+});
+console.log("Blocks:", (await response.json()).result);
+```
+</CodeGroup>
+
+## Available methods
+
+Chainstack Zcash nodes serve these Zebra JSON-RPC methods on Mainnet and Testnet:
+
+| Category | Methods |
+|----------|---------|
+| Blockchain | `getblockchaininfo`, `getblockcount`, `getbestblockhash`, `getbestblockheightandhash`, `getblockhash`, `getblock`, `getblockheader`, `getdifficulty` |
+| Transactions | `getrawtransaction`, `gettxout`, `sendrawtransaction` |
+| Address index | `getaddressbalance`, `getaddresstxids`, `getaddressutxos` |
+| Shielded pool state | `z_gettreestate`, `z_getsubtreesbyindex`, `z_validateaddress`, `z_listunifiedreceivers` |
+| Mempool | `getrawmempool`, `getmempoolinfo` |
+| Mining information | `getmininginfo`, `getnetworksolps`, `getnetworkhashps`, `getblocksubsidy` |
+| Node and network | `getinfo`, `getnetworkinfo`, `getpeerinfo`, `ping`, `getdeprecationinfo` |
+| Utilities | `validateaddress`, `getstandardfee` |
+
+The mining methods `getblocktemplate` and `submitblock` and the node control methods `stop`, `addnode`, `generate`, `invalidateblock`, and `reconsiderblock` are not available. A call returns error code `-32601`.
+
+## Zcash behaviors that affect tooling
+
+### JSON-RPC over HTTPS only
+
+Zebra serves JSON-RPC over HTTP, so Chainstack Zcash endpoints have no WebSocket endpoint and no subscriptions. To follow new blocks, poll `getbestblockhash` or `getblockcount`. Mainnet produces a block about every 75 seconds.
+
+### Amounts come in two units
+
+Transaction outputs report each amount twice, as `value` in ZEC and `valueZat` in zatoshis. The address index methods report amounts in zatoshis only, and `getaddressutxos` names the field `satoshis`. Use the zatoshi fields for arithmetic to avoid floating-point rounding.
+
+### Wallet methods are not part of Zebra
+
+Zebra is a full node without a built-in wallet, so the wallet methods of the deprecated `zcashd` node, such as `z_sendmany`, `z_getbalance`, and `listunspent`, do not exist. Build and sign transactions with a Zcash wallet library, then broadcast them with `sendrawtransaction`.
