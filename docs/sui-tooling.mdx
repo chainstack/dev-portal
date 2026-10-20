@@ -1,21 +1,21 @@
 ---
 title: "Sui tooling"
-description: "Sui blockchain development tools guide. Use gRPC, GraphQL, JSON-RPC, the TypeScript SDK, Rust SDK, Python pysui, and Go SDK to build Sui applications with Chainstack."
+description: "Sui blockchain development tools guide. Use gRPC, GraphQL, the TypeScript SDK, Rust SDK, Python pysui, and Go SDK to build Sui applications with Chainstack."
 ---
 
-Get started with a [reliable Sui RPC endpoint](https://chainstack.com/build-better-with-sui/) to use the tools below. Your Chainstack Sui node serves gRPC and JSON-RPC on the same endpoint, and Sui Mainnet Global Nodes also serve GraphQL.
+Get started with a [reliable Sui RPC endpoint](https://chainstack.com/build-better-with-sui/) to use the tools below. Your Chainstack Sui node serves gRPC, and Sui Mainnet Global Nodes also serve GraphQL on the same endpoint.
 
 <Warning>
-  Sui Foundation's public endpoints no longer serve JSON-RPC, and Sui removes JSON-RPC from the full node code in mid-October 2026. Your Chainstack endpoint still serves JSON-RPC; plan your move to gRPC and GraphQL — see [Migrate Sui from JSON-RPC to gRPC and GraphQL](/docs/sui-migrate-json-rpc-to-grpc).
+  Sui removes JSON-RPC from the full node in v1.82. Sui Testnet nodes no longer serve JSON-RPC, and Sui Mainnet nodes stop serving it with the v1.82 upgrade — see [Migrate Sui from JSON-RPC to gRPC and GraphQL](/docs/sui-migrate-json-rpc-to-grpc).
 </Warning>
 
 ## Extended history
 
-Sui Global Nodes are [Extended](/docs/extended-nodes). The node holds a window of checkpoints from `lowestAvailableCheckpoint` to the tip, not the full ledger from genesis. `LedgerService/GetServiceInfo` reports the current window — see [Checkpoint retention](/docs/sui-grpc-endpoint#checkpoint-retention) for how the window applies to gRPC and JSON-RPC.
+Sui Global Nodes are [Extended](/docs/extended-nodes). The node holds a window of checkpoints from `lowestAvailableCheckpoint` to the tip, not the full ledger from genesis. `LedgerService/GetServiceInfo` reports the current window — see [Checkpoint retention](/docs/sui-grpc-endpoint#checkpoint-retention) for how the window applies to gRPC and GraphQL.
 
 ## gRPC API
 
-Sui nodes on Chainstack support gRPC for high-performance access. gRPC uses HTTP/2 and Protocol Buffers for binary serialization, which makes payloads smaller and adds server-side streaming — ideal for indexers, backends, and low-latency lookups. gRPC is the forward path as Sui deprecates JSON-RPC.
+Sui nodes on Chainstack support gRPC for high-performance access. gRPC uses HTTP/2 and Protocol Buffers for binary serialization, which makes payloads smaller and adds server-side streaming — ideal for indexers, backends, and low-latency lookups. gRPC replaces JSON-RPC, which Sui removes from the full node in v1.82.
 
 ### Endpoint and authentication
 
@@ -157,7 +157,7 @@ In TypeScript, use the official `@mysten/sui` SDK. Its default gRPC-Web transpor
 
 ## GraphQL API
 
-Sui Mainnet Global Nodes serve Sui's GraphQL RPC at `YOUR_CHAINSTACK_ENDPOINT/graphql`, with the same auth token as JSON-RPC. Use GraphQL for filtered, paginated reads — transactions by address, events by type, objects by owner and type — that have no gRPC equivalent. GraphQL is not available on Sui Testnet.
+Sui Mainnet Global Nodes serve Sui's GraphQL RPC at `YOUR_CHAINSTACK_ENDPOINT/graphql`, with the same auth token as your HTTPS endpoint. Use GraphQL for filtered, paginated reads — transactions by address, events by type, objects by owner and type — that have no gRPC equivalent. GraphQL is not available on Sui Testnet.
 
 In TypeScript, use `SuiGraphQLClient` from the official `@mysten/sui` SDK:
 
@@ -186,61 +186,9 @@ console.log(result.data);
 
 Filtered queries and events keep a shorter history window than point lookups. For authentication options, filters, history windows, and query limits, see [Sui GraphQL endpoint](/docs/sui-graphql-endpoint).
 
-## JSON-RPC API
-
-Interact with your Sui node using the [Sui JSON-RPC API](https://docs.sui.io/sui-api-ref). Sui's public endpoints no longer serve JSON-RPC, but your Chainstack endpoint does, so JSON-RPC remains a path while you migrate to gRPC and GraphQL.
-
-Use your Chainstack Sui RPC endpoint to make API calls. Example to get the latest checkpoint:
-
-<CodeGroup>
-  ```bash cURL
-  curl --request POST \
-    --url YOUR_CHAINSTACK_ENDPOINT \
-    --header 'Content-Type: application/json' \
-    --data '{
-      "jsonrpc": "2.0",
-      "id": 1,
-      "method": "sui_getLatestCheckpointSequenceNumber",
-      "params": []
-    }'
-  ```
-
-  ```javascript JavaScript
-  const response = await fetch('YOUR_CHAINSTACK_ENDPOINT', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'sui_getLatestCheckpointSequenceNumber',
-      params: []
-    })
-  });
-  
-  const data = await response.json();
-  console.log(data.result);
-  ```
-
-  ```python Python
-  import requests
-  
-  payload = {
-      "jsonrpc": "2.0",
-      "id": 1,
-      "method": "sui_getLatestCheckpointSequenceNumber",
-      "params": []
-  }
-  
-  response = requests.post('YOUR_CHAINSTACK_ENDPOINT', json=payload)
-  print(response.json()['result'])
-  ```
-</CodeGroup>
-
 ## Sui TypeScript SDK
 
-The [Sui TypeScript SDK](https://github.com/MystenLabs/sui/tree/main/sdk/typescript) is the official SDK for building Sui applications.
+The [Sui TypeScript SDK](https://github.com/MystenLabs/ts-sdks/tree/main/packages/sui) is the official SDK for building Sui applications. Use its gRPC client, `SuiGrpcClient`, for reads and transactions, and `SuiGraphQLClient` for filtered queries — see [GraphQL API](#graphql-api).
 
 ### Installation
 
@@ -249,61 +197,65 @@ npm install @mysten/sui
 ```
 
 <Note>
-The SDK was renamed from `@mysten/sui.js` to `@mysten/sui`, and the JSON-RPC client is now `SuiJsonRpcClient` from `@mysten/sui/jsonRpc` (previously `SuiClient` from `@mysten/sui.js/client`). See the [SDK 2.0 migration guide](https://sdk.mystenlabs.com/sui/migrations/sui-2.0).
+The SDK's JSON-RPC client, `SuiJsonRpcClient` from `@mysten/sui/jsonRpc`, stops working when JSON-RPC is removed. `SuiGrpcClient` covers the same reads and transactions through methods such as `getObject`, `listOwnedObjects`, `getBalance`, and `signAndExecuteTransaction`. See the [SDK 2.0 migration guide](https://sdk.mystenlabs.com/sui/migrations/sui-2.0).
 </Note>
 
 ### Basic usage
 
 <CodeGroup>
   ```typescript Connection
-  import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
-  
+  import { SuiGrpcClient } from '@mysten/sui/grpc';
+
   // Connect to your Chainstack node
-  const client = new SuiJsonRpcClient({
-    url: 'YOUR_CHAINSTACK_ENDPOINT'
+  const client = new SuiGrpcClient({
+    network: 'mainnet',
+    baseUrl: 'YOUR_CHAINSTACK_SUI_HTTPS_ENDPOINT',
   });
-  
-  // Get the latest checkpoint
-  const checkpoint = await client.getLatestCheckpointSequenceNumber();
-  console.log('Latest checkpoint:', checkpoint);
+
+  // Get the reference gas price for the current epoch
+  const { referenceGasPrice } = await client.getReferenceGasPrice();
+  console.log('Reference gas price:', referenceGasPrice);
   ```
 
   ```typescript Query Objects
-  import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
-  
-  const client = new SuiJsonRpcClient({
-    url: 'YOUR_CHAINSTACK_ENDPOINT'
+  import { SuiGrpcClient } from '@mysten/sui/grpc';
+
+  const client = new SuiGrpcClient({
+    network: 'mainnet',
+    baseUrl: 'YOUR_CHAINSTACK_SUI_HTTPS_ENDPOINT',
   });
-  
+
   // Get objects owned by an address
-  const objects = await client.getOwnedObjects({
-    owner: '0x...',
-    options: {
-      showType: true,
-      showContent: true,
-    }
+  const { objects } = await client.listOwnedObjects({
+    owner: 'SUI_ADDRESS',
+    limit: 10,
   });
+
+  for (const object of objects) {
+    console.log(object.objectId, object.type);
+  }
   ```
 
   ```typescript Send Transaction
-  import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
+  import { SuiGrpcClient } from '@mysten/sui/grpc';
   import { Transaction } from '@mysten/sui/transactions';
   import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
-  
-  const client = new SuiJsonRpcClient({
-    url: 'YOUR_CHAINSTACK_ENDPOINT'
+
+  const client = new SuiGrpcClient({
+    network: 'mainnet',
+    baseUrl: 'YOUR_CHAINSTACK_SUI_HTTPS_ENDPOINT',
   });
-  
+
   const keypair = Ed25519Keypair.generate();
   const tx = new Transaction();
-  
+
   // Replace with your object ID and recipient address
   const objectId = 'YOUR_OBJECT_ID';
   const recipient = 'RECIPIENT_ADDRESS';
-  
+
   // Add transaction commands
   tx.transferObjects([objectId], recipient);
-  
+
   // Sign and execute
   const result = await client.signAndExecuteTransaction({
     signer: keypair,
@@ -314,39 +266,45 @@ The SDK was renamed from `@mysten/sui.js` to `@mysten/sui`, and the JSON-RPC cli
 
 ## Sui Rust SDK
 
-The [Sui Rust SDK](https://github.com/MystenLabs/sui/tree/main/crates/sui-sdk) provides comprehensive Rust bindings for Sui.
+The [`sui-rpc`](https://github.com/MystenLabs/sui-rust-sdk/tree/master/crates/sui-rpc) crate from Mysten Labs' Sui Rust SDK is a gRPC client for Sui, published on crates.io.
 
 ### Installation
 
 Add to your `Cargo.toml`:
 
 ```toml
-sui-sdk = { git = "https://github.com/mystenlabs/sui", package = "sui-sdk" }
-tokio = { version = "1.2", features = ["full"] }
-anyhow = "1.0" 
+sui-rpc = "0.4"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
 ```
 
 ### Basic usage
 
 ```rust
-use sui_sdk::SuiClientBuilder;
+use sui_rpc::client::{Client, HeadersInterceptor};
+use sui_rpc::proto::sui::rpc::v2::GetServiceInfoRequest;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let sui = SuiClientBuilder::default()
-        .build("YOUR_CHAINSTACK_ENDPOINT")
-        .await?;
-    
-    let checkpoint = sui.read_api().get_latest_checkpoint_sequence_number().await?;
-    println!("Latest checkpoint: {}", checkpoint);
-    
+async fn main() -> anyhow::Result<()> {
+    let mut headers = HeadersInterceptor::new();
+    headers.headers_mut().insert("x-token", "YOUR_X_TOKEN".parse()?);
+
+    let mut client = Client::new("https://sui-mainnet.core.chainstack.com")?.with_headers(headers);
+
+    let info = client
+        .ledger_client()
+        .get_service_info(GetServiceInfoRequest::default())
+        .await?
+        .into_inner();
+    println!("Chain: {:?}, checkpoint: {:?}", info.chain, info.checkpoint_height);
+
     Ok(())
 }
 ```
 
 ## Python SDK (pysui)
 
-[pysui](https://github.com/FrankC01/pysui) is a community-maintained Python SDK for Sui.
+[pysui](https://github.com/FrankC01/pysui) is a community-maintained Python SDK for Sui. pysui 1.x connects over gRPC and GraphQL, and its gRPC client is async. pysui reads its connection settings from a configuration folder, so the example creates one with a Chainstack profile on the first run and passes your x-token as a header on every call.
 
 ### Installation
 
@@ -357,23 +315,51 @@ pip install pysui
 ### Basic usage
 
 ```python
-from pysui import SuiConfig, SyncClient
+import asyncio
+from pathlib import Path
 
-# Configure client with your Chainstack endpoint
-config = SuiConfig.custom_config(
-    rpc_url="YOUR_CHAINSTACK_ENDPOINT"
-)
+from pysui import PysuiConfiguration
+from pysui.sui.sui_common.config.confgroup import NetworkType
+from pysui.sui.sui_grpc.pgrpc_clients import GrpcProtocolClient
+import pysui.sui.sui_grpc.pgrpc_requests as rn
 
-client = SyncClient(config)
+CONFIG_DIR = Path("~/.pysui-chainstack").expanduser()
 
-# Get latest checkpoint
-checkpoint = client.get_latest_checkpoint_sequence_number()
-print(f"Latest checkpoint: {checkpoint.result_data}")
+# Create a pysui configuration with a Chainstack profile on first run
+try:
+    cfg = PysuiConfiguration(from_cfg_path=str(CONFIG_DIR), group_name="chainstack")
+except ValueError:
+    cfg = PysuiConfiguration.initialize_config(
+        in_folder=CONFIG_DIR,
+        init_groups=[{"name": "chainstack", "make_active": True}],
+    )
+    cfg.new_profile(
+        profile_name="mainnet",
+        url="https://sui-mainnet.core.chainstack.com:443",
+        network_type=NetworkType.PRODUCTION,
+        make_active=True,
+        in_group="chainstack",
+    )
+
+
+async def main():
+    client = GrpcProtocolClient(pysui_config=cfg, default_header={"x-token": "YOUR_X_TOKEN"})
+    result = await client.execute_grpc_request(request=rn.GetServiceInfo())
+    if result.is_ok():
+        print(f"Latest checkpoint: {result.result_data.checkpoint_height}")
+    else:
+        print(result.result_string)
+    await client.close()
+
+
+asyncio.run(main())
 ```
+
+For a complete pysui program, see [Sui: On-chain validator analytics with pysui](/docs/sui-on-chain-validator-analytics-with-pysui).
 
 ## Go SDK
 
-The [Sui Go SDK](https://github.com/block-vision/sui-go-sdk) provides Go language bindings for Sui.
+The [Sui Go SDK](https://github.com/block-vision/sui-go-sdk) from BlockVision provides Go language bindings for Sui, including a gRPC client. The client dials without TLS by default, so pass TLS credentials for your Chainstack endpoint.
 
 ### Installation
 
@@ -389,18 +375,34 @@ package main
 import (
     "context"
     "fmt"
-    "github.com/block-vision/sui-go-sdk/sui"
+    "log"
+
+    "github.com/block-vision/sui-go-sdk/common/grpcconn"
+    v2 "github.com/block-vision/sui-go-sdk/pb/sui/rpc/v2"
+    "google.golang.org/grpc"
+    "google.golang.org/grpc/credentials"
 )
 
 func main() {
-    client := sui.NewSuiClient("YOUR_CHAINSTACK_ENDPOINT")
-    
+    client := grpcconn.NewSuiGrpcClientWithAuth(
+        "sui-mainnet.core.chainstack.com:443",
+        "YOUR_X_TOKEN",
+        grpcconn.WithDialOptions(grpc.WithTransportCredentials(credentials.NewTLS(nil))),
+    )
+    defer client.Close()
+
     ctx := context.Background()
-    checkpoint, err := client.SuiGetLatestCheckpointSequenceNumber(ctx)
+
+    ledger, err := client.LedgerService(ctx)
     if err != nil {
-        panic(err)
+        log.Fatal(err)
     }
-    
-    fmt.Printf("Latest checkpoint: %s\n", checkpoint)
+
+    info, err := ledger.GetServiceInfo(ctx, &v2.GetServiceInfoRequest{})
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    fmt.Printf("Chain: %s, checkpoint: %d\n", info.GetChain(), info.GetCheckpointHeight())
 }
 ```
