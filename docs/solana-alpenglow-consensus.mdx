@@ -22,13 +22,13 @@ To test your integration, you'll want a [Chainstack Solana RPC](https://chainsta
 
 Alpenglow is a new consensus protocol designed by [Anza](https://www.anza.xyz/blog/alpenglow-a-new-consensus-for-solana), first presented in May 2025. The design has two parts:
 
-* Votor: the voting and finalization engine that replaces TowerBFT.
-* Rotor: a planned block-propagation layer that would eventually replace Turbine.
+* Votor — the voting and finalization engine that replaces TowerBFT.
+* Rotor — a planned block-propagation layer that would eventually replace Turbine.
 
 The governance proposal that was actually approved, [SIMD-0326](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0326-alpenglow.md), covers Votor and the related economic changes. Rotor is explicitly held back for a separate proposal.
 
 <Info>
-  **Status as of October 2026.** Alpenglow ships in Agave 4.3. It activated on devnet on September 25, 2026, and testnet runs it too. Mainnet activates in epoch 1064, estimated to start on October 21, 2026, at approximately 13:20 UTC. Epoch start times drift with slot timing, so track the epoch rather than the clock. See the [Solana Alpenglow upgrade page](https://solana.com/upgrades/alpenglow) for the current status.
+  **Status as of October 2026.** Alpenglow runs on devnet and testnet and activates on mainnet in epoch 1064, estimated to start on October 21, 2026, at approximately 13:20 UTC; track the epoch rather than the clock, and see the [Solana Alpenglow upgrade page](https://solana.com/upgrades/alpenglow) for the current status.
 </Info>
 
 <Note>
@@ -45,7 +45,7 @@ At a high level, here is the before-and-after. Note that several rows are delibe
 | Voting | On-chain vote transactions | Off-chain BLS votes aggregated into certificates |
 | Timing | Proof of History | \~200ms slots plus local timeouts |
 | Block propagation | Turbine | Turbine, unchanged (Rotor is a later upgrade) |
-| Validator vote cost | Vote transaction fees | Admission ticket per epoch, burned |
+| Validator vote cost | Vote transaction fees | 0.8 SOL admission ticket per epoch, burned |
 | Byzantine tolerance | \~33% | 20%, plus 20% crash tolerance |
 
 ### Votor: voting and finality, rebuilt
@@ -72,7 +72,7 @@ Two side effects matter if you read ledger data directly. Tick entries leave the
 
 Because votes move off-chain, the on-chain vote transactions that dominate Solana today disappear. Roughly 60% of all Solana transactions are currently validator votes. Removing them frees a large share of block space for user transactions.
 
-Vote fees are replaced by a Validator Admission Ticket (VAT): a fee charged once per epoch, deducted before a validator is admitted for the next epoch and then burned. Voting validators need to hold at least 0.8 SOL above the rent-exempt minimum in the vote account to pay it. Two caveats are worth stating plainly:
+Vote fees are replaced by a Validator Admission Ticket (VAT): a 0.8 SOL fee charged once per epoch, deducted before a validator is admitted for the next epoch and then burned. Voting validators need to hold at least 0.8 SOL above the rent-exempt minimum in the vote account to pay it. Two caveats are worth stating plainly:
 
 * The VAT is burned rather than redistributed, which removes the per-epoch vote-fee flow that reached block proposers. Some validators have flagged this as a meaningful economic change, not a pure saving.
 * Lower running costs reduce the barrier to entry. Independent estimates put the minimum profitable stake dropping from roughly 4,850 SOL to roughly 450 SOL, though the exact figure depends on the SOL price.
@@ -109,9 +109,9 @@ This is where most teams will actually feel Alpenglow. Even though it is an L1 c
 
 Solana exposes three commitment levels on TowerBFT:
 
-* `processed`: the most recent block, which may still be on a fork.
-* `confirmed`: voted on by the cluster, available in roughly 500–600ms (optimistic).
-* `finalized`: rooted and deterministic, available in roughly 12.8s.
+* `processed` — the most recent block, which may still be on a fork.
+* `confirmed` — voted on by the cluster, available in roughly 500–600ms (optimistic).
+* `finalized` — rooted and deterministic, available in roughly 12.8s.
 
 Under Alpenglow, `confirmed` and `finalized` become the same: both point to the latest block with a finalization certificate. The practical consequences:
 
@@ -166,18 +166,18 @@ If you run a validator, check three things before epoch 1064 starts:
 
 ## Timeline
 
-* September 2025: validator governance approved SIMD-0326 with 98.27% of votes in favor (52% of stake participated).
-* December 2025: demonstrated publicly at Breakpoint.
-* May 2026: went live on the community test cluster, including the live "Alpenswitch" migration from TowerBFT.
-* July 22, 2026: the VAT feature activated on mainnet.
-* September 25, 2026: Alpenglow activated on devnet. Testnet also runs it.
-* October 2026: the slot time reduction from 400ms to 200ms completed.
-* October 21, 2026 (estimated): mainnet activation in epoch 1064.
+* September 2025 — validator governance approved SIMD-0326 with 98.27% of votes in favor (52% of stake participated).
+* December 2025 — demonstrated publicly at Breakpoint.
+* May 2026 — went live on the community test cluster, including the live "Alpenswitch" migration from TowerBFT.
+* July 22, 2026 — the VAT feature activated on mainnet.
+* September 25, 2026 — Alpenglow activated on devnet. Testnet also runs it.
+* October 2026 — the slot time reduction from 400ms to 200ms completed.
+* October 21, 2026 (estimated) — mainnet activation in epoch 1064.
 
 ## Avoid these assumptions
 
-* Assuming block propagation changes. Rotor is not in this upgrade. Turbine is unchanged, so bandwidth and relay assumptions hold for now.
-* Hardcoding `confirmed` as the fast path. Once `confirmed` and `finalized` collapse, the optimistic-versus-deterministic trade-off your code relies on goes away.
-* Expecting `finalized` to stay \~12.8s. It will not after activation, but equally, do not assume the collapse has happened before activation. Check `getAgGenesisCert` rather than the calendar.
+* Assuming block propagation changes — Rotor is not in this upgrade. Turbine is unchanged, so bandwidth and relay assumptions hold for now.
+* Hardcoding `confirmed` as the fast path — once `confirmed` and `finalized` collapse, the optimistic-versus-deterministic trade-off your code relies on goes away.
+* Expecting `finalized` to stay \~12.8s — it will not after activation, but equally, do not assume the collapse has happened before activation. Check `getAgGenesisCert` rather than the calendar.
 
 Alpenglow is a large change, but most of the preparation for it is unglamorous and code-level: find your commitment-level assumptions, move from polling to push, plan for the migration period, and make your streaming and caching layers finality-aware.
