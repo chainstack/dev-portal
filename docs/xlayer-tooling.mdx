@@ -244,7 +244,30 @@ X Layer sets the L1 fee scalars in the `GasPriceOracle` predeploy at `0x42000000
 
 ### Pending transactions are never delivered
 
-X Layer is an OP Stack chain, so pending transactions stay with the sequencer. `eth_subscribe("newPendingTransactions")` and `eth_newPendingTransactionFilter` return an ID but deliver nothing, and `txpool_status` always reads empty. The `pending` block tag returns the latest block, not the Flashblocks preconfirmation state that X Layer's own Flashblocks RPC serves. See [What gives you mempool access](/docs/mempool-configuration#what-gives-you-mempool-access).
+X Layer is an OP Stack chain, so pending transactions stay with the sequencer. `eth_subscribe("newPendingTransactions")` and `eth_newPendingTransactionFilter` return an ID but deliver nothing, and `txpool_status` always reads empty. To follow transactions before the sequencer seals their block on X Layer Mainnet, use [Flashblocks on X Layer Mainnet](#flashblocks-on-x-layer-mainnet). See [What gives you mempool access](/docs/mempool-configuration#what-gives-you-mempool-access).
+
+### Flashblocks on X Layer Mainnet
+
+Chainstack X Layer Mainnet endpoints serve Flashblocks, the sequencer's preconfirmations of the block in progress. X Layer Testnet endpoints do not.
+
+* `eth_getBlockByNumber("pending")` on Mainnet returns the next block with the transactions preconfirmed so far, and the block gains transactions until the sequencer seals it. On Testnet, the `pending` tag returns the latest block.
+* `eth_flashblocksEnabled` returns `true` on Mainnet and `false` on Testnet.
+* `eth_subscribe("flashblocks", filter)` over the WebSocket endpoint streams preconfirmed block headers and transactions on Mainnet. Each event has a `type` of `header` or `transaction`.
+
+The `flashblocks` subscription filter takes these fields:
+
+* `headerInfo` — `true` to receive `header` events for the block in progress, several per block as preconfirmations arrive.
+* `subTxFilter.subscribeAddresses` — receive only transactions whose sender, recipient, or log-emitting contract is one of these addresses.
+* `subTxFilter.txInfo` — `true` to include the full transaction in each `transaction` event.
+* `subTxFilter.txReceipt` — `true` to include the receipt in each `transaction` event.
+
+This subscription streams every preconfirmed transaction that calls the L1 attributes predeploy, with its receipt, one transaction per block:
+
+<CodeGroup>
+```json Request
+{"jsonrpc":"2.0","id":1,"method":"eth_subscribe","params":["flashblocks",{"subTxFilter":{"subscribeAddresses":["0x4200000000000000000000000000000000000015"],"txInfo":true,"txReceipt":true}}]}
+```
+</CodeGroup>
 
 ### Block-count limits and the proof window
 
