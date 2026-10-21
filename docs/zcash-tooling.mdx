@@ -13,7 +13,10 @@ Chainstack Zcash nodes run [Zebra](https://github.com/ZcashFoundation/zebra), th
 | Currency | ZEC | TAZ |
 | Smallest unit | zatoshi, 1 ZEC = 100,000,000 zatoshis | zatoshi |
 | Transparent address prefixes | `t1`, `t3` | `tm`, `t2` |
-| Block explorer | [mainnet.zcashexplorer.app](https://mainnet.zcashexplorer.app) | [testnet.zcashexplorer.app](https://testnet.zcashexplorer.app) |
+| Block explorer | [mainnet.zcashexplorer.app](https://mainnet.zcashexplorer.app) | [testnet.zecblock.com](https://testnet.zecblock.com) |
+| Faucet | — | [faucet.testnet.valargroup.dev](https://faucet.testnet.valargroup.dev) |
+
+Zcash Testnet activated Network Upgrade 7 (NU7) at block 4,465,026. Software without NU7 support stayed on a chain that split from Testnet at that block, so before you compare results with an explorer or another node, check that it returns the same block hash at height 4,465,026 as your Chainstack endpoint.
 
 ## JSON-RPC API
 
@@ -57,10 +60,10 @@ The address index covers transparent addresses only. Shielded balances and shiel
 
 ## Shielded pool state
 
-Zebra serves the state of the Sapling and Orchard note commitment trees, which wallets use to sync and to build shielded transactions:
+Zebra serves the state of the Sapling, Orchard, and Ironwood note commitment trees, which wallets use to sync and to build shielded transactions:
 
-* `z_gettreestate` — the note commitment tree state of the Sapling and Orchard pools at a block, by height or hash.
-* `z_getsubtreesbyindex` — the roots of complete note commitment subtrees for `sapling` or `orchard`, from a start index.
+* `z_gettreestate` — the note commitment tree state of the Sapling, Orchard, and Ironwood pools at a block, by height or hash.
+* `z_getsubtreesbyindex` — the roots of complete note commitment subtrees for `sapling`, `orchard`, or `ironwood`, from a start index.
 * `z_validateaddress` — validates a transparent, Sapling, or unified address and returns its type.
 * `z_listunifiedreceivers` — returns the receivers that a unified address contains.
 
@@ -118,7 +121,7 @@ print("Transactions in blocks 1 to 1000:", len(txids))
 ```
 </CodeGroup>
 
-On Mainnet, the `main.py` example prints `Chain: main`, the block height, and the balance and history of the address that received the founders' reward in block 1. On Testnet, replace the address with a Testnet address, which starts with `tm` or `t2`. For a password-protected endpoint, put the credentials in the URL, as in `https://USERNAME:PASSWORD@HOSTNAME`, and requests sends them as HTTP basic authentication.
+On Mainnet, the `main.py` example prints `Chain: main`, the block height, and the balance and history of the address that received the founders' reward in block 1. On Testnet, replace the address with `t2UNzUUx8mWBCRYPRezvA363EYXyEpHokyi`, which received the founders' reward in Testnet block 1, and read the amounts as TAZ. For a password-protected endpoint, put the credentials in the URL, as in `https://USERNAME:PASSWORD@HOSTNAME`, and requests sends them as HTTP basic authentication.
 
 ## JavaScript
 
@@ -189,17 +192,25 @@ Chainstack Zcash nodes serve these Zebra JSON-RPC methods on Mainnet and Testnet
 | Node and network | `getinfo`, `getnetworkinfo`, `getpeerinfo`, `ping`, `getdeprecationinfo` |
 | Utilities | `validateaddress`, `getstandardfee` |
 
-The mining methods `getblocktemplate` and `submitblock` and the node control methods `stop`, `addnode`, `generate`, `invalidateblock`, and `reconsiderblock` are not available. A call returns error code `-32601`.
+The mining methods `getblocktemplate` and `submitblock` and the node control methods `stop`, `addnode`, `generate`, `invalidateblock`, and `reconsiderblock` are not available. A call returns HTTP status `403` with error code `-32601`.
 
 ## Zcash behaviors that affect tooling
 
 ### JSON-RPC over HTTPS only
 
-Zebra serves JSON-RPC over HTTP, so Chainstack Zcash endpoints have no WebSocket endpoint and no subscriptions. To follow new blocks, poll `getbestblockhash` or `getblockcount`. Mainnet produces a block about every 75 seconds.
+Zebra serves JSON-RPC over HTTP, so Chainstack Zcash endpoints have no WebSocket endpoint and no subscriptions. To follow new blocks, poll `getbestblockhash` or `getblockcount`. Mainnet produces a block about every 75 seconds. Testnet produces a block about every 25 seconds, the NU7 block time.
 
 ### Amounts come in two units
 
 Transaction outputs report each amount twice, as `value` in ZEC and `valueZat` in zatoshis. The address index methods report amounts in zatoshis only, and `getaddressutxos` names the field `satoshis`. Use the zatoshi fields for arithmetic to avoid floating-point rounding.
+
+### The address index does not check the network
+
+The address index methods accept an address from the other network and return an empty result instead of an error. A Mainnet address sent to a Testnet endpoint returns a zero balance and no transactions. Check an address with `validateaddress` first, which returns `"isvalid": false` for an address from the other network.
+
+### `getbestblockheightandhash` returns the hash as bytes
+
+`getbestblockheightandhash` returns the block hash as an array of 32 numbers in reverse byte order, not as a hex string. For the hex string, call `getbestblockhash`, or reverse the array and hex-encode it.
 
 ### Wallet methods are not part of Zebra
 
