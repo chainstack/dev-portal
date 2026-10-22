@@ -1,20 +1,20 @@
 ---
 title: "Solana: Alpenglow consensus explained"
-description: "What Solana's Alpenglow upgrade changes: Votor consensus, sub-second finality, and the end of on-chain vote transactions. Plus how to prepare your RPC integration."
+description: "What Solana's Alpenglow upgrade changes: Votor consensus, sub-second finality, and the end of on-chain vote transactions. Plus what changed for RPC integrations."
 ---
 
 **TLDR:**
-* Alpenglow is the biggest change to Solana's consensus since launch: it replaces TowerBFT with Votor and removes Proof of History (PoH) from consensus, targeting \~100–150ms finality instead of today's \~12.8s.
-* Validator governance approved it (SIMD-0326) in September 2025. It already runs on devnet and testnet, and mainnet activates in epoch 1064, which Solana estimates to start on October 21, 2026, at approximately 13:20 UTC.
+* Alpenglow is the biggest change to Solana's consensus since launch: it replaces TowerBFT with Votor and removes Proof of History (PoH) from consensus, targeting \~100–150ms finality instead of TowerBFT's \~12.8s.
+* Validator governance approved it (SIMD-0326) in September 2025. After running on devnet and testnet, it activated on mainnet on October 21, 2026, in epoch 1064.
 * This first upgrade ships Votor only. Rotor, the planned Turbine replacement, is deferred to a separate later proposal, so block propagation does not change yet.
-* On-chain vote transactions go away. Today they are roughly 60% of all Solana transactions, so this frees block space and reshapes validator economics.
+* On-chain vote transactions are gone. They were roughly 60% of all Solana transactions, so removing them frees block space and reshapes validator economics.
 * For RPC and node operators, the headline is finality: the `confirmed` and `finalized` commitment levels collapse into one near-instant certificate, so audit any code that hardcodes `confirmed` or polls for finality.
 
 ## Main article
 
-Alpenglow is the most significant change to Solana's core protocol since the network launched. It rebuilds how validators agree on the chain, the part of Solana that decides which blocks are real and when they are final. The goal is to take finality from the current \~12.8 seconds down to around 100–150 milliseconds, which is a category change rather than an incremental speedup.
+Alpenglow is the most significant change to Solana's core protocol since the network launched. It rebuilds how validators agree on the chain, the part of Solana that decides which blocks are real and when they are final. The goal is to take finality from TowerBFT's \~12.8 seconds down to around 100–150 milliseconds, which is a category change rather than an incremental speedup.
 
-If you build on Solana or run infrastructure for it, Alpenglow changes assumptions you have probably baked into your code, your streaming pipelines, and your caching. This guide explains what Alpenglow is, what it changes under the hood, what happens during the mainnet switch, and, most importantly for a node and RPC audience, what you should prepare for.
+If you build on Solana or run infrastructure for it, Alpenglow changes assumptions you have probably baked into your code, your streaming pipelines, and your caching. This guide explains what Alpenglow is, what it changes under the hood, what happened during the mainnet switch, and, most importantly for a node and RPC audience, what changes for your integration.
 
 To test your integration, you'll want a [Chainstack Solana RPC](https://chainstack.com/build-better-with-solana/) endpoint. For the building blocks this guide assumes, see [Solana: blocks vs slots explained](/docs/understanding-the-difference-between-blocks-and-slots-on-solana) and [Solana: understanding block time](/docs/solana-understanding-block-time).
 
@@ -28,7 +28,7 @@ Alpenglow is a new consensus protocol designed by [Anza](https://www.anza.xyz/bl
 The governance proposal that was actually approved, [SIMD-0326](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0326-alpenglow.md), covers Votor and the related economic changes. Rotor is explicitly held back for a separate proposal.
 
 <Info>
-  **Status as of October 2026.** Alpenglow runs on devnet and testnet and activates on mainnet in epoch 1064, estimated to start on October 21, 2026, at approximately 13:20 UTC; track the epoch rather than the clock, and see the [Solana Alpenglow upgrade page](https://solana.com/upgrades/alpenglow) for the current status.
+  **Status.** Alpenglow runs on mainnet, devnet, and testnet. On mainnet, epoch 1064 started on October 21, 2026, at 13:36 UTC, and the cluster switched to Alpenglow at slot 459,653,000, about 18 minutes later. See the [Solana Alpenglow upgrade page](https://solana.com/upgrades/alpenglow) for the current status.
 </Info>
 
 <Note>
@@ -70,7 +70,7 @@ Two side effects matter if you read ledger data directly. Tick entries leave the
 
 ### The end of vote transactions
 
-Because votes move off-chain, the on-chain vote transactions that dominate Solana today disappear. Roughly 60% of all Solana transactions are currently validator votes. Removing them frees a large share of block space for user transactions.
+Because votes moved off-chain, the on-chain vote transactions that dominated Solana are gone. Before Alpenglow, roughly 60% of all Solana transactions were validator votes. Removing them frees a large share of block space for user transactions.
 
 Vote fees are replaced by a Validator Admission Ticket (VAT): a 0.8 SOL fee charged once per epoch, deducted before a validator is admitted for the next epoch and then burned. Voting validators need to hold at least 0.8 SOL above the rent-exempt minimum in the vote account to pay it. Two caveats are worth stating plainly:
 
@@ -85,38 +85,38 @@ Alpenglow uses what Anza calls a 20+20 model: safety holds as long as 20% or les
 
 It is easy to read about Alpenglow and assume block propagation is changing, since much of the public commentary focuses on Rotor, the proposed single-hop, erasure-coded successor to Turbine. For this upgrade, it is not. Rotor is split into its own future proposal that has no number or activation date yet, and Turbine stays in place. If you are planning around bandwidth, relays, or shred propagation, nothing changes on that front with this upgrade.
 
-## What happens during the mainnet switch
+## What happened during the mainnet switch
 
 The switch follows [SIMD-0384](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0384-alpenglow-migration.md):
 
-1. Epoch 1064 starts and the feature gate activates. The cluster keeps running TowerBFT for the first 5,000 slots, about 18 minutes.
-2. From slot 459,653,000, blocks carry only vote transactions and nodes stop sending commitment updates to RPC. User transactions are not included in this period.
-3. Once validators with at least 82% of stake sign a genesis certificate, nodes drop the vote-only blocks after the Alpenglow genesis block and continue under Alpenglow. Confirmed user transactions are not rolled back.
+1. Epoch 1064 started on October 21, 2026, at 13:36 UTC, and the feature gate activated. The cluster kept running TowerBFT for the first 5,000 slots, about 18 minutes.
+2. From slot 459,653,000, blocks carried only vote transactions and nodes stopped sending commitment updates to RPC. User transactions were not included in this period.
+3. Once validators with at least 82% of stake signed a genesis certificate, nodes dropped the vote-only blocks after the Alpenglow genesis block and continued under Alpenglow. Confirmed user transactions were not rolled back.
 
-For your application, this means:
+During the migration period:
 
-* Transactions sent during the migration period do not land. If a transaction does not confirm, wait until the switch is complete before you sign it again, then check its status with the `finalized` commitment.
-* Subscriptions at `confirmed` or `finalized` pause during the migration period, so make sure your clients handle a pause.
-* Streams at `processed` can show vote-only blocks that the network later drops. Do not treat data from those slots as final.
+* Transactions sent in this period did not land, and clients had to sign them again after the switch.
+* Subscriptions at `confirmed` or `finalized` paused.
+* Streams at `processed` showed vote-only blocks that the network then dropped. If you index across the switch, data captured at `processed` from those slots is not part of the chain.
 
-To check whether a cluster has switched, call `getAgGenesisCert`. It returns `null` while the cluster is still on TowerBFT and the Alpenglow genesis certificate after the switch. Use this call rather than a date or a version string, because devnet, testnet, and mainnet each switch at their own slot.
+To check whether a cluster runs Alpenglow, call `getAgGenesisCert`. It returns `null` on a cluster still on TowerBFT and the Alpenglow genesis certificate after the switch. On mainnet and devnet, it returns the certificate.
 
 ## What Alpenglow means for RPC and node operators
 
-This is where most teams will actually feel Alpenglow. Even though it is an L1 consensus change, it reshapes assumptions buried in client code, streaming pipelines, and caches. The work below is the difference between a smooth activation and a scramble.
+This is where most teams feel Alpenglow. Even though it is an L1 consensus change, it reshapes assumptions buried in client code, streaming pipelines, and caches.
 
 ### Commitment levels collapse into one
 
-Solana exposes three commitment levels on TowerBFT:
+On TowerBFT, Solana's three commitment levels meant:
 
 * `processed` — the most recent block, which may still be on a fork.
 * `confirmed` — voted on by the cluster, available in roughly 500–600ms (optimistic).
 * `finalized` — rooted and deterministic, available in roughly 12.8s.
 
-Under Alpenglow, `confirmed` and `finalized` become the same: both point to the latest block with a finalization certificate. The practical consequences:
+Under Alpenglow, `confirmed` and `finalized` are the same: both point to the latest block with a finalization certificate. The practical consequences:
 
 * Code that defaults to `confirmed` to "go fast" while accepting rollback risk no longer has a meaningful trade-off to make.
-* After Alpenglow is live, point new code at `finalized`. Do not switch earlier: on TowerBFT, `finalized` still means a 12.8-second wait. `confirmed` keeps working on activation day and is removed in a later release.
+* Point new code at `finalized`, which now arrives as fast as `confirmed`. `confirmed` keeps working and is removed in a later release.
 * In [getSignatureStatuses](/reference/solana-getsignaturestatuses), the `confirmations` count comes from TowerBFT vote lockouts. Under Alpenglow, it stays at `0` until the transaction is final and then becomes `null`. If your code waits for a number of confirmations, check `confirmationStatus` instead.
 * The [getBlockCommitment](/reference/solana-getblockcommitment) method exposes the TowerBFT lockout structure, which Votor does not use, so its meaning changes fundamentally.
 
@@ -134,24 +134,21 @@ If you consume Geyser or [Yellowstone gRPC](/docs/yellowstone-grpc-geyser-plugin
 
 ### Archival and ledger growth
 
-Removing vote transactions cuts roughly 60% of transaction volume, which means slower ledger growth and smaller snapshots and archives over time. Planned compute-unit and block-size increases will offset some of that, so the net effect is not yet settled. Note also that the ledger changes shape at activation: historical data before Alpenglow contains vote transactions, and data after it does not. This is relevant for anyone indexing or running historical queries across the boundary, and for anyone who reports transaction counts or TPS.
+Removing vote transactions cuts roughly 60% of transaction volume, which means slower ledger growth and smaller snapshots and archives over time. Planned compute-unit and block-size increases will offset some of that, so the net effect is not yet settled. Note also that the ledger changed shape at activation: historical data before slot 459,653,000 contains vote transactions, and data after it does not. This is relevant for anyone indexing or running historical queries across the boundary, and for anyone who reports transaction counts or TPS.
 
 ### Validator operators: client version, BLS key, and VAT
 
-If you run a validator, check three things before epoch 1064 starts:
+A mainnet validator needs:
 
-* Run v4.3.2 of an Agave-based client: Agave, Jito-Solana, or Harmonic Salsa. Firedancer and Frankendancer are not supported during the migration.
-* Register a BLS public key on the vote account ([SIMD-0387](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0387-bls-pubkey-management-in-vote-account.md)). Since the VAT feature activated on mainnet on July 22, 2026, validators without a registered BLS key are excluded from the admitted validator set.
-* Hold at least 0.8 SOL above the rent-exempt minimum in the vote account for the VAT. The first fee is charged at the start of epoch 1064 and pays for epoch 1065.
+* v4.3.2 or later of an Agave-based client: Agave, Jito-Solana, or Harmonic Salsa. Firedancer and Frankendancer were not supported during the migration.
+* A BLS public key registered on the vote account ([SIMD-0387](https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0387-bls-pubkey-management-in-vote-account.md)). Since the VAT feature activated on mainnet on July 22, 2026, validators without a registered BLS key are excluded from the admitted validator set.
+* At least 0.8 SOL above the rent-exempt minimum in the vote account for the VAT. The first fee was charged at the start of epoch 1064 and paid for epoch 1065.
 
-### A readiness checklist
+### A migration checklist
 
 <Steps>
   <Step title="Audit commitment assumptions">
     Search your SDKs, RPC handlers, and internal services for hardcoded `confirmed` usage, `confirmations` counts, and signature-status polling loops.
-  </Step>
-  <Step title="Plan for the migration period">
-    Make transaction retries wait until the switch is complete, and make subscriptions and streams handle a pause.
   </Step>
   <Step title="Shift finality detection to push">
     Replace polling with subscriptions, and shorten caches to sub-250ms with certificate-aware invalidation.
@@ -159,8 +156,8 @@ If you run a validator, check three things before epoch 1064 starts:
   <Step title="Review streaming consumers">
     Update Geyser and Yellowstone gRPC consumers for the disappearance of vote transactions, for `bank_id`, and for the new finality cadence.
   </Step>
-  <Step title="Test on devnet">
-    Devnet already runs Alpenglow. Exercise your integration there, and use `getAgGenesisCert` to confirm that a cluster has switched.
+  <Step title="Test against a cluster that runs Alpenglow">
+    Mainnet and devnet both run Alpenglow. Use `getAgGenesisCert` to confirm that a cluster has switched.
   </Step>
 </Steps>
 
@@ -172,12 +169,12 @@ If you run a validator, check three things before epoch 1064 starts:
 * July 22, 2026 — the VAT feature activated on mainnet.
 * September 25, 2026 — Alpenglow activated on devnet. Testnet also runs it.
 * October 2026 — the slot time reduction from 400ms to 200ms completed.
-* October 21, 2026 (estimated) — mainnet activation in epoch 1064.
+* October 21, 2026 — mainnet activation. Epoch 1064 started at 13:36 UTC, and the cluster switched to Alpenglow at slot 459,653,000, about 18 minutes later.
 
 ## Avoid these assumptions
 
 * Assuming block propagation changes — Rotor is not in this upgrade. Turbine is unchanged, so bandwidth and relay assumptions hold for now.
 * Hardcoding `confirmed` as the fast path — once `confirmed` and `finalized` collapse, the optimistic-versus-deterministic trade-off your code relies on goes away.
-* Expecting `finalized` to stay \~12.8s — it will not after activation, but equally, do not assume the collapse has happened before activation. Check `getAgGenesisCert` rather than the calendar.
+* Expecting `finalized` to take \~12.8s — on mainnet, `finalized` now arrives as fast as `confirmed`.
 
-Alpenglow is a large change, but most of the preparation for it is unglamorous and code-level: find your commitment-level assumptions, move from polling to push, plan for the migration period, and make your streaming and caching layers finality-aware.
+Alpenglow is a large change, but most of the preparation for it is unglamorous and code-level: find your commitment-level assumptions, move from polling to push, and make your streaming and caching layers finality-aware.
