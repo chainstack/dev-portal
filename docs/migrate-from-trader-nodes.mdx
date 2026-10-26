@@ -1,0 +1,147 @@
+---
+title: "Migrate from Trader Nodes"
+description: "Move your Trader Node workloads to Global Nodes before Trader Nodes are deprecated on December 1, 2026: find your Trader Nodes, reuse or deploy Global Nodes, update endpoint URLs, reinstall add-ons, and run the migration with an AI agent."
+---
+
+Trader Nodes are deprecated on December 1, 2026, and their endpoints stop working after that date. To keep your application running, point it at a [Global Node](/docs/global-elastic-node) on the same network. The move takes a new endpoint URL and a new auth token; your plan stays the same.
+
+The migration has five steps:
+
+1. Find your Trader Nodes, and delete the ones you no longer use.
+2. For each network, reuse a Global Node you already have, or deploy one.
+3. Replace the Trader Node endpoints in your application.
+4. Reinstall add-ons such as Warp transactions on the Global Node.
+5. Confirm the application works, then delete the Trader Node.
+
+To have an AI coding agent do most of this work, see [Migrate with an AI agent](#migrate-with-an-ai-agent).
+
+## What changes when you move to a Global Node
+
+A Global Node serves the same networks as a Trader Node and adds failover and routing to the nearest location. A few things work differently:
+
+| Area | Trader Node | Global Node |
+| --- | --- | --- |
+| Endpoint host | One host per node, such as `nd-123-456-789.p2pify.com` | One host per network, such as `ethereum-mainnet.core.chainstack.com` |
+| Auth token | The node's own token | A new token. Every node has its own token, and a token can't move from one node to another. |
+| Location | Fixed to one region | Each request routes to the nearest location |
+| Modes | Full or archive, chosen at deployment, one node per mode | Full, archive, and debug and trace on one node, on paid plans |
+| Request units | Billed by the node's mode | Each request is classified on its own. See [request units](/docs/request-units#how-your-node-type-affects-this). |
+| Add-ons | Installed per node | Installed per node. Reinstall them on the Global Node. |
+| Access rules | Not available | [IP and origin allowlists](/docs/access-rules) |
+
+For a workload that must stay in one region, deploy a [Dedicated Node](/docs/dedicated-node) instead.
+
+Harmony isn't available on Global Nodes. To keep a Harmony workload running, [contact us](https://chainstack.com/contact/) about a Dedicated Node.
+
+## How to find your Trader Nodes
+
+A Trader Node is a node whose endpoint host has the form `nd-123-456-789.p2pify.com`. Global Node endpoints use a per-network host that ends in `core.chainstack.com`. Dedicated Nodes also use `nd-…p2pify.com` hosts, and the deprecation doesn't affect them.
+
+With the [Platform API](/reference/chainstack-platform-api-v2-list-all-nodes) or the [Chainstack MCP server](/docs/chainstack-mcp-server):
+
+- Platform API — a Trader Node has `provider` set to `chainstack_managed` or `vzo`. Global Nodes have `chainstack_global` or `chainstack_partner`.
+- MCP server — `list_nodes` returns `node_tier: "Trader"` for each Trader Node.
+
+Before you migrate, check which Trader Nodes still receive traffic on [Node usage](/docs/node-usage). A Trader Node with no requests needs no migration. Delete it, and its slot counts toward your plan's node limit again.
+
+## Reuse a Global Node or deploy a new one
+
+You need one Global Node per network, not one per Trader Node, because a Global Node is load-balanced and serves every region.
+
+- If you already have a Global Node on the same network, you can point the Trader Node's traffic at it. If both nodes carry heavy traffic, deploy a separate Global Node for the Trader Node's workload, so the move doesn't add load to the existing node.
+- If you don't have a Global Node on that network, deploy one from the [Nodes](https://console.chainstack.com/nodes) page and select **Global Node** as the node type. See [Add a node to a network](/docs/manage-your-node#add-a-node-to-a-network). A Global Node is ready in under a second.
+
+## What to do when you reach your plan's node limit
+
+Your plan's node limit counts every node in your organization, including Trader Nodes, so a Global Node may not fit next to the Trader Node it replaces. The [pricing page](https://chainstack.com/pricing/) lists the limit for each plan.
+
+Migrate one network at a time to stay inside the limit:
+
+1. Free one slot. Delete a Trader Node or Global Node that receives no requests, or move the clients of one Trader Node to another Trader Node on the same network and delete it.
+2. Deploy the Global Node for the first network, and update the endpoints for that network.
+3. Delete that network's Trader Nodes. This frees at least one slot for the next network.
+4. Repeat for each network.
+
+If you can't free a slot without downtime, [contact support](https://support.chainstack.com/) for temporary node capacity during the migration.
+
+## How to update the endpoint URLs
+
+Copy each Global Node endpoint from the node's **Access and credentials** on Chainstack, or from `https_endpoint` and `wss_endpoint` in the Platform API. Don't build the host from the network name: some hosts differ from it, for example `polygon-mainnet.core.chainstack.com` for Polygon and `avalanche-fuji.core.chainstack.com` for Avalanche Fuji Testnet.
+
+Most protocols put the auth token at the end of the URL:
+
+```text
+https://ethereum-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN
+wss://ethereum-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN
+```
+
+A few protocols use a path, and the token's position differs:
+
+| Protocol | Global Node URL |
+| --- | --- |
+| Avalanche C-Chain | `https://<host>/ext/bc/C/rpc/YOUR_AUTH_TOKEN`, WSS `wss://<host>/ext/bc/C/ws/YOUR_AUTH_TOKEN` |
+| Avalanche X-Chain | `https://<host>/ext/bc/X/YOUR_AUTH_TOKEN` |
+| Avalanche P-Chain | `https://<host>/ext/bc/P/YOUR_AUTH_TOKEN` |
+| Aptos | `https://<host>/YOUR_AUTH_TOKEN/v1` |
+| Ethereum and Gnosis Chain Beacon Chain API | `https://<host>/beacon/YOUR_AUTH_TOKEN/eth/...` |
+
+On Avalanche, a Trader Node accepts the token before the chain path. A Global Node returns `404` for that URL, so move the token after the path when you switch.
+
+Instead of the token, you can authenticate with the node's username and password through HTTP basic authentication. See [Authentication methods](/docs/authentication-methods-for-different-scenarios).
+
+## How to move add-ons
+
+Add-ons don't move with the endpoint. Install them on the Global Node from the node's **Add-ons** tab.
+
+- [Warp transactions](/docs/warp-transactions) — available on Global Nodes for Ethereum Mainnet, BNB Smart Chain Mainnet, and Solana Mainnet, on paid plans, with [extra usage](/docs/manage-your-billing#manage-the-extra-usage-setting) enabled. Warp transactions can't run on the same node as [MEV protection](/docs/mev-protection) or [optimized submission](/docs/optimized-submission). MEV protection is on by default on a new Global Node for Ethereum and BNB Smart Chain, so disable it before you install Warp transactions.
+- [Unlimited Node](/docs/unlimited-node) and [access rules](/docs/access-rules) — available on Global Nodes only.
+
+## How to finish the migration
+
+You're done with a network when your application runs on the Global Node and the Trader Node receives no requests.
+
+1. Send a test request to each new endpoint, for example `eth_blockNumber` on an EVM chain or `getSlot` on Solana.
+2. Deploy the application change.
+3. On [Node usage](/docs/node-usage), confirm that the Trader Node's requests stop.
+4. Delete the Trader Node. See [Delete a node](/docs/manage-your-node#delete-a-node).
+
+## Migrate with an AI agent
+
+An AI coding agent can run most of the migration with the [Chainstack MCP server](/docs/chainstack-mcp-server): inventory your nodes, deploy Global Nodes, update the endpoints in your code, and delete the Trader Nodes after you confirm. Two steps stay with you: installing add-ons and checking node usage, both on Chainstack.
+
+Set up the MCP server with your Chainstack [API key](https://console.chainstack.com/user/settings/api-keys), then paste this prompt into the agent in your project's repository:
+
+```text
+Fetch docs.chainstack.com/docs/migrate-from-trader-nodes.md and follow the agent instructions to migrate this project from Chainstack Trader Nodes to Global Nodes.
+```
+
+### Agent instructions
+
+Migrate this project from Chainstack Trader Nodes to Global Nodes. Ask the user before every action that creates or deletes a node, and before you change code.
+
+1. **Inventory.**
+   - Call `list_nodes`. Trader Nodes have `node_tier` set to `Trader`; group them by `network`.
+   - For each network, record any existing Global Node (`node_tier` is `Global`).
+   - Search the codebase and configuration files, including `.env` files, for endpoints on `p2pify.com` hosts. Map each endpoint to its node by the `nd-` ID in the host.
+2. **Usage.** Ask the user which Trader Nodes still receive traffic. They can see it on Chainstack under **Node usage**. Offer to delete the Trader Nodes that receive no requests and appear nowhere in the code.
+3. **Plan.**
+   - Show the user a table with one row per network: the Trader Nodes, the existing Global Node to reuse or a note to deploy one, and the files that reference each endpoint.
+   - Wait for approval.
+4. **Migrate one network at a time.** For each network:
+   1. If the plan needs a new Global Node, call `get_deployment_options` and pick the option with `node_tier` `Global` for that `network`. Then call `create_node` with its `blockchain` and `cloud` IDs and the project ID from `list_projects`.
+   2. If `create_node` returns an error that the maximum number of nodes is reached:
+      - Stop and tell the user which network needs a slot.
+      - Offer to delete an unused node, or to move the clients of one Trader Node on the same network to another and delete it.
+      - Otherwise, point the user to support.
+   3. Call `get_node` for the Global Node, and build each URL from its `https_endpoint` or `wss_endpoint`.
+      - For Avalanche, insert the chain path before the token, for example `/ext/bc/C/rpc/<token>`.
+      - For Aptos, keep the token before `/v1`.
+      - For the Ethereum and Gnosis Chain Beacon Chain API, use `/beacon/<token>`.
+   4. Replace the Trader Node endpoints in the code and configuration with the Global Node URLs. Show the diff.
+   5. Send one read request through each new URL, such as `eth_blockNumber`, `getSlot`, or `getblockcount`, and report the result.
+   6. After the user deploys the change and confirms the Trader Node receives no requests, call `delete_node` for that Trader Node.
+5. **Add-ons.** If a Trader Node ran Warp transactions, MEV protection, or optimized submission, tell the user to install the add-on on the Global Node from its **Add-ons** tab on Chainstack. For Warp transactions on Ethereum or BNB Smart Chain, disable MEV protection first.
+6. **Harmony.** If a Trader Node runs Harmony, don't migrate it. Tell the user that Harmony isn't available on Global Nodes, and point them to [contact us](https://chainstack.com/contact/) about a Dedicated Node.
+7. **Report.** List each Trader Node, its replacement Global Node, the files changed, the test result, and any steps left for the user.
+
+Never print auth tokens, passwords, or API keys in the chat or in logs. Keep them in the files the project already uses for configuration.
