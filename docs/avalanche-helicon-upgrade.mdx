@@ -8,6 +8,7 @@ description: What the Avalanche Helicon upgrade (AvalancheGo v1.15.0) changes fo
 * Six Avalanche Community Proposals (ACPs) activate: ACP-194 (continuous execution), ACP-236 (auto-renewed staking), ACP-267 (uptime requirement increase), ACP-273 (reduce minimum staking duration), ACP-283 (dynamic minimum gas price), ACP-285 (reduce minimum consumption rate).
 * Helicon removes C-Chain RPC methods — the `admin`, `warp`, and `personal` namespaces, three `eth` methods, and eight non-trace `debug` methods.
 * On the C-Chain, `latest` and `pending` now resolve to the last executed block, and `safe` and `finalized` to the last settled block.
+* [AvalancheGo v1.15.2](https://github.com/ava-labs/avalanchego/releases/tag/v1.15.2) removes `avax.getAtomicTxStatus`, which v1.15.0 deprecated. Use `avax.getAtomicTx`.
 
 <Warning>
   Helicon is a breaking upgrade for RPC users, unlike the [Granite upgrade](/docs/avalanche-granite-upgrade). A call to `eth_accounts` or to one of the removed `debug` methods fails on an upgraded node. Check your application against the removed methods listed on this page.
@@ -20,7 +21,7 @@ Helicon is a network upgrade for Avalanche that changes how the C-Chain executes
 <Check>
   ### Chainstack nodes run Helicon
 
-  Chainstack Avalanche nodes run AvalancheGo v1.15.0 on both Fuji Testnet and Avalanche Mainnet.
+  Chainstack Avalanche nodes run AvalancheGo v1.15.2 on both Fuji Testnet and Avalanche Mainnet.
 </Check>
 
 `eth_call`, `eth_getLogs`, `eth_sendRawTransaction`, `eth_getBlockByNumber`, the `debug_trace*` methods, and the X-Chain and P-Chain APIs are unaffected. For the full supported surface, see [Avalanche methods](/docs/avalanche-methods).
@@ -77,11 +78,12 @@ The practical effect is that `latest` can lag block acceptance by the execution 
 
 ACP-283 replaces the fixed minimum C-Chain gas price with one that adjusts to network conditions. Read the current value with [`eth_gasPrice`](/reference/avalanche-getgasprice) or `eth_feeHistory` rather than hardcoding a floor, and let `eth_estimateGas` size your gas limit.
 
-## Deprecated methods
+## What AvalancheGo v1.15.2 changes
 
-One RPC method is deprecated rather than removed, and still answers on an upgraded node:
+[AvalancheGo v1.15.2](https://github.com/ava-labs/avalanchego/releases/tag/v1.15.2) removes one C-Chain method that Helicon deprecated, and adds two P-Chain validator fields:
 
-* `avax.getAtomicTxStatus` — replaced by `avax.getAtomicTx`, which returns the transaction together with its block height. Both methods are served at the C-Chain `/ext/bc/C/avax` endpoint.
+* `avax.getAtomicTxStatus` — removed. Use `avax.getAtomicTx` at the C-Chain `/ext/bc/C/avax` endpoint, which returns the transaction together with its block height. For a transaction that isn't accepted, `avax.getAtomicTx` returns an error, where `avax.getAtomicTxStatus` returned a status such as `Unknown`.
+* `platform.getCurrentValidators` — now returns `restakedValidationRewards` and `restakedDelegateeRewards` for validators whose stake renews automatically under ACP-236.
 
 ## The six ACPs
 
@@ -103,3 +105,5 @@ If you build on Avalanche using Chainstack nodes:
 **Re-read your block tags** — if your indexer or bot treats `latest` as the newest accepted block, measure the gap against a block subscription and decide whether your application can tolerate it.
 
 **Stop hardcoding a gas floor** — query the minimum gas price at call time.
+
+**Switch atomic transaction lookups** — replace `avax.getAtomicTxStatus` with `avax.getAtomicTx`, and handle the error it returns for a transaction that isn't accepted yet.
