@@ -190,3 +190,207 @@ When using allowed origin rules with web applications, ensure your application c
 <Info>
   For additional security best practices, see [How to store your Web3 dApp secrets](/docs/how-to-store-your-web3-dapp-secrets-guide-to-environment-variables).
 </Info>
+
+
+
+> ## Documentation Index
+> Fetch the complete documentation index at: https://docs.chainstack.com/llms.txt
+> Use this file to discover all available pages before exploring further.
+
+# Access rules
+
+> Configure IP allowlists, domain allowlists, and HTTP referrer rules to control who can access your Chainstack blockchain node endpoints securely.
+
+> [!NOTE]
+>
+> Access rules are only available for [Global Nodes](https://docs.chainstack.com/docs/global-elastic-node.md).
+
+Access rules provide an additional layer of security for your Chainstack node endpoints by restricting access based on HTTP `Origin` header values or IP addresses.
+
+## What are access rules?
+
+Access rules are security filters that control which sources can send requests to your node endpoints. They work by checking incoming requests against your configured rules before processing them. This helps protect your endpoints from unauthorized access and potential abuse.
+
+There are two types of access rules you can configure:
+
+* **Allowed origins** — Restrict access based on the HTTP `Origin` header, allowing only requests from specific domains or subdomains.
+* **IP addresses** — Restrict access to specific IP addresses.
+
+## How access rules work
+
+Chainstack checks IP address rules and allowed origin rules separately, and a request must pass the check for every rule type that has active rules. Within one rule type, matching any one active rule is enough:
+
+* No active rules — the node endpoints accept requests from any IP address and origin, subject to your normal authentication.
+* Only IP address rules active — the request must come from one of the allowed IP addresses.
+* Only allowed origin rules active — the request must send an `Origin` header that matches one of the allowed origins.
+* Both rule types active — the request must come from an allowed IP address and also send an allowed `Origin` header.
+
+The node endpoints reject a request that fails a check with HTTP `403`. A new rule starts deactivated and has no effect until you activate it. Activating, deactivating, or deleting a rule takes effect within about 10 seconds.
+
+> [!WARNING]
+>
+> Allowed origin rules block every request that doesn't send an `Origin` header, even when the request comes from an allowed IP address. Browsers send the `Origin` header automatically, but server-side code, scripts, and `curl` usually don't. If a browser app and a backend both call the same node, use a separate node for each: allowed origin rules on the node the browser app calls, and IP address rules on the node the backend calls.
+
+## Adding access rules
+
+You can add access rules from your node details page in the Chainstack console, or with the Platform API — see [List node access rules](https://docs.chainstack.com/reference/chainstack-platform-api-v2-list-node-access-rules.md) and the related endpoints.
+
+**Step 1**
+
+Navigate to your [project](https://console.chainstack.com/projects).
+
+**Step 2**
+
+Click on your network.
+
+**Step 3**
+
+Click on your node name.
+
+**Step 4**
+
+Click **Security**.
+
+**Step 5**
+
+Click the **+ Add** button to create a new access rule.
+
+**Step 6**
+
+Hover over the created rule, click the edit pencil icon, and click **Activate**.
+
+You can activate and deactivate the created access rules at any time.
+
+### Adding an allowed origin rule
+
+Allowed origin rules restrict access based on the HTTP `Origin` header sent by browsers and applications.
+
+**Step 1**
+
+In the **Add access rule** modal, select **Allowed origin**.
+
+**Step 2**
+
+Enter the origin host name in the input field, without `https://` or a path (for example, `myapp.com`, `myapp.example.com`, or `*.myapp.com`).
+
+**Step 3**
+
+Click **Create** to save the rule.
+
+**Step 4**
+
+Hover over the created rule, click the edit pencil icon, and click **Activate**.
+
+You can activate and deactivate the created access rules at any time.
+
+**Supported origin formats:**
+
+* **Specific domains**: `myapp.com`, `app.example.com`
+* **Wildcards**: `*.example.com` (matches example.com and any subdomain of example.com)
+
+Enter the host name only, without a scheme such as `https://` or a path such as `/app`. A browser's `Origin` header carries the scheme and host but no path, and the rule matches on the host.
+
+> [!NOTE]
+>
+> Wildcard rules use the `*` character to match any subdomain. For example, `*.example.com` matches `example.com`, `app.example.com`, `api.example.com`, and `staging.example.com`, but not `myexample.com`.
+
+### Adding an IP address rule
+
+IP address rules restrict access to specific IP addresses.
+
+**Step 1**
+
+In the **Add access rule** modal, select **IP address**.
+
+**Step 2**
+
+Enter the IP address in the input field.
+
+**Step 3**
+
+Click **Create** to save the rule.
+
+**Step 4**
+
+Hover over the created rule, click the edit pencil icon, and click **Activate**.
+
+**Supported IP formats:**
+
+* **IPv4 addresses**: `192.168.1.100`
+* **IPv6 addresses**: `2001:db8::1`
+
+> [!NOTE]
+>
+> Each rule holds one IP address. To allow several addresses, create one rule per address. CIDR ranges aren't supported.
+
+## Managing access rules
+
+Once you've added access rules, you can view and manage them from the Access rules section of your node page.
+
+### Viewing existing rules
+
+All your configured access rules are listed in the Access rules section on the **Security** tab.
+
+### Removing access rules
+
+To remove an access rule:
+
+**Step 1**
+
+Navigate to your node's Access rules section.
+
+**Step 2**
+
+Find the rule you want to remove.
+
+**Step 3**
+
+Click the delete button (**X**) next to the rule.
+
+**Step 4**
+
+Confirm the deletion.
+
+## Use cases and examples
+
+### Web application security
+
+Restrict your production node to only accept requests from your application's domain:
+
+```
+Allowed origin: myapp.com
+```
+
+### API server restrictions
+
+If you're running an API server that connects to your Chainstack node, restrict access to your server's IP:
+
+```
+203.0.113.50
+```
+
+### Server access control
+
+Restrict access to a specific server IP address:
+
+```
+203.0.113.25
+```
+
+### Multi-environment setup
+
+For applications with multiple environments, use wildcard rules:
+
+```
+*.mycompany.com
+```
+
+This allows requests from `app.mycompany.com`, `staging.mycompany.com`, `dev.mycompany.com`, etc.
+
+### Browser CORS behavior
+
+When using allowed origin rules with web applications, ensure your application correctly sets the `Origin` header. Modern browsers automatically include this header for cross-origin requests.
+
+> [!NOTE]
+>
+> For additional security best practices, see [How to store your Web3 dApp secrets](https://docs.chainstack.com/docs/how-to-store-your-web3-dapp-secrets-guide-to-environment-variables.md).
