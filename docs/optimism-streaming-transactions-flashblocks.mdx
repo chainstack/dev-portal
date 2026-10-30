@@ -1,12 +1,12 @@
 ---
-title: "Track real-time transactions on Optimism with Flashblocks"
-description: "Optimism exposes Flashblocks through the pending tag, not eth_subscribe. Build a real-time view of pre-confirmed transactions on Optimism by polling the pending block every 250ms, with tested Python and JavaScript."
+title: "Track real-time transactions on Optimism with Subblocks"
+description: "Optimism exposes Subblocks (formerly Flashblocks) through the pending tag, not eth_subscribe. Build a real-time view of pre-confirmed transactions on Optimism by polling the pending block every 200ms, with tested Python and JavaScript."
 ---
 
-Optimism produces Flashblocks — 250 ms pre-confirmation sub-blocks — but exposes them through the standard `pending` block tag, not through WebSocket subscriptions. To follow transactions in real time on Optimism, poll the `pending` block roughly every 250 ms and track the transactions that are new since the last poll. This guide does that with tested Python and JavaScript, then covers the pre-confirmed read methods.
+Optimism produces Subblocks, formerly called Flashblocks: partial blocks with pre-confirmed transactions, about every 200 ms. Optimism exposes them through the standard `pending` block tag, not through dedicated WebSocket subscriptions. To follow transactions in real time on Optimism, poll the `pending` block roughly every 200 ms and track the transactions that are new since the last poll. This guide does that with tested Python and JavaScript, then covers the pre-confirmed read methods.
 
 <Info>
-For how Flashblocks works on Optimism, see [Flashblocks on Optimism](/docs/flashblocks-on-optimism). For Base, which also exposes Flashblocks as WebSocket subscriptions, see [Stream real-time transactions on Base with Flashblocks](/docs/base-streaming-transactions-flashblocks).
+For how Subblocks work on Optimism, see [Subblocks on Optimism](/docs/flashblocks-on-optimism). For Base, which exposes Flashblocks as WebSocket subscriptions, see [Stream real-time transactions on Base with Flashblocks](/docs/base-streaming-transactions-flashblocks).
 </Info>
 
 ## Prerequisites
@@ -16,11 +16,11 @@ For how Flashblocks works on Optimism, see [Flashblocks on Optimism](/docs/flash
 
 ## Why Optimism uses the pending tag, not eth_subscribe
 
-On Optimism, the Flashblocks subscriptions that exist on Base — `eth_subscribe("newFlashblockTransactions")`, `newFlashblocks`, and `pendingLogs` — are not exposed; calling them returns `-32602 Invalid params`. And like every OP Stack chain, Optimism has no public mempool, so `eth_subscribe("newPendingTransactions")` is effectively empty (see [Mempool configurations](/docs/mempool-configuration)). The supported real-time interface is the `pending` block tag, which reflects the latest Flashblock and advances every ~250 ms.
+On Optimism, the Flashblocks subscriptions that exist on Base — `eth_subscribe("newFlashblockTransactions")`, `newFlashblocks`, and `pendingLogs` — are not exposed; calling them returns `-32602 Invalid params`. Like every OP Stack chain, Optimism has no public mempool (see [Mempool configurations](/docs/mempool-configuration)), so `eth_subscribe("newPendingTransactions")` reports only transaction hashes as the sequencer includes them in subblocks. The `pending` block tag gives you the transactions themselves and the pre-confirmed state, and it reflects the latest subblock and advances every ~200 ms.
 
 ## Track pre-confirmed transactions
 
-Poll `eth_getBlockByNumber("pending", false)` every 250 ms and emit transaction hashes you have not seen before. Each poll returns the block the sequencer is currently building; within one block number the transaction list grows every ~250 ms as new Flashblocks arrive.
+Poll `eth_getBlockByNumber("pending", false)` every 200 ms and emit transaction hashes you have not seen before. Each poll returns the block the sequencer is currently building; within one block number the transaction list grows every ~200 ms as new subblocks arrive.
 
 <CodeGroup>
 ```python Python
@@ -47,7 +47,7 @@ while True:
         if tx_hash not in seen:
             seen.add(tx_hash)
             print(tx_hash)
-    time.sleep(0.25)
+    time.sleep(0.2)
 ```
 
 ```javascript JavaScript
@@ -72,7 +72,7 @@ while (true) {
       console.log(txHash);
     }
   }
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  await new Promise((resolve) => setTimeout(resolve, 200));
 }
 ```
 </CodeGroup>
@@ -80,33 +80,33 @@ while (true) {
 You get a continuous flow of newly pre-confirmed transaction hashes:
 
 ```text
-0x2e8bb259f1f2e0744238e591155db3a075d24d84bd77645681b530b9807a5859
-0x7a5a51b32639f5b2a10060c5fc63d90e738d3d2c2d7880c2ca99c7fe1f721737
-0x918d6dda3c534f67aefa91ef517fc0a66af2d5d054f0e341b25ecdc568584830
+0xaf2b57f8c6b2b0d4b52d9c8d3b5d90e92170edcb1bb90b79eefd9327f12272b1
+0xc63e87a5a7b79d1e7dd17bcbaacebc9f7ddbe463dce512374160970714602c2b
+0x06ddb3029829356ca6aed0a7c85b5b7c1bde50c1110d727eeb84c24f86bbe259
 ```
 
-The `seen` set de-duplicates hashes that repeat across polls of the same in-progress block. In a test against Optimism mainnet this emitted roughly 33 new transactions per second, tracking network activity.
+The `seen` set de-duplicates hashes that repeat across polls of the same in-progress block. In a 30-second test against Optimism Mainnet, the script emitted 230 transaction hashes, about 8 per second.
 
 ## How the pending block evolves
 
-Each poll of the `pending` tag returns the same block number with more transactions and a different pre-confirmation hash, until the block seals and the number advances. Sampled every 250 ms:
+Each poll of the `pending` tag returns the same block number with more transactions and a different pre-confirmation hash, until the block seals and the number advances. Polled with a 200 ms pause between requests:
 
 ```text
-#153440621 hash=0x7380844aa8d8 txs=41
-#153440621 hash=0xd94ae98d59f2 txs=86
-#153440621 hash=0x75486d38e01c txs=119
-#153440622 hash=0xf35345a6e335 txs=24
-#153440622 hash=0x55f66d179dc7 txs=45
+#158861051 hash=0x015e2ef4bb2cebaeb45a01963984f21f1200ca7da85fbea5a7f948d0272deaeb txs=14
+#158861051 hash=0x58bafaf684a9490a0fceb3cc6e7b390dcb16c8d39cf8129235d47567e62ffa97 txs=51
+#158861052 hash=0x9380d911407cec3754d9c9f2ebc40912c2e5f35111cab8a36063040ccd3d97e1 txs=7
+#158861052 hash=0x388bed3af1dbdd80b45bc717d268146c9b2fdcf72fda67f002f304d42d4174ac txs=9
+#158861053 hash=0xb65c6556b88fd5bc8cf48cc87fe99f50a67e36d120360f1aae3562a96d89b672 txs=6
 ```
 
-Unlike Base, where the streamed block carries a zero hash until it seals, Optimism's `pending` hash is non-zero and changes with each Flashblock — so track transactions by their own hash, not by the block hash.
+Unlike Base, where the streamed block carries a zero hash until it seals, Optimism's `pending` hash is non-zero and changes with each subblock. The `pending` hash is not the hash of the sealed block, and the `pending` block's `stateRoot` is all zeros. Track transactions by their own hash, not by the block hash.
 
 ## Read pre-confirmed state
 
-The `pending` tag also serves request-response reads against pre-confirmed state, returning answers in ~250 ms instead of waiting ~2 s for the next canonical block:
+The `pending` tag also serves request-response reads against pre-confirmed state, which updates about every 200 ms instead of every 2 s with each canonical block:
 
 * `eth_getBlockByNumber`, `eth_call`, `eth_getBalance`, `eth_getTransactionCount`, `eth_getCode`, `eth_getStorageAt`, and `eth_estimateGas` with the `pending` tag.
-* [`eth_getTransactionReceipt`](/reference/optimism-gettransactionreceipt) and [`eth_getTransactionByHash`](/reference/optimism-gettransactionbyhash) return the pre-confirmed receipt or transaction as soon as it lands in a Flashblock.
+* [`eth_getTransactionReceipt`](/reference/optimism-gettransactionreceipt) and [`eth_getTransactionByHash`](/reference/optimism-gettransactionbyhash) return the pre-confirmed receipt or transaction as soon as it lands in a subblock.
 * [`eth_sendRawTransactionSync`](/reference/optimism-sendrawtransactionsync) submits a signed transaction and returns its pre-confirmed receipt in the same response.
 
 ```bash
@@ -117,14 +117,15 @@ curl -s -X POST YOUR_OPTIMISM_HTTPS_ENDPOINT \
 
 ## Production considerations
 
-* Pre-confirmations are not final. The pending block can change until the 2-second canonical block seals, so for settlement confirm against `latest` or a finalized block.
-* Poll at ~250 ms. That matches the Flashblock cadence; polling much faster mostly returns the same state.
+* Pre-confirmations are not final. The sequencer can abandon or reorganize the block in progress until the 2-second canonical block seals, so for settlement confirm against `latest` or a finalized block.
+* Poll at ~200 ms. That matches the subblock cadence; polling much faster mostly returns the same state.
 * De-duplicate by transaction hash. The same transaction appears in every poll of the block it belongs to until that block seals.
-* `newPendingTransactions` will not help. Optimism has no public mempool, so the subscription is effectively empty — the `pending` tag is the real-time source.
+* A poll that lands after a block seals misses the transactions added to that block since the previous poll. To capture every transaction, also read each sealed block with `eth_getBlockByNumber`.
+* `newPendingTransactions` carries transaction hashes only. Optimism has no public mempool, so the subscription reports a transaction when the sequencer includes it in a subblock. For transaction details, receipts, and pre-confirmed state, use the `pending` tag.
 
 ## Related
 
-* [Flashblocks on Optimism](/docs/flashblocks-on-optimism) — how Flashblocks works on Optimism, including the Optimism vs. Base comparison
+* [Subblocks on Optimism](/docs/flashblocks-on-optimism) — how Subblocks work on Optimism, including the Optimism vs. Base comparison
 * [Stream real-time transactions on Base with Flashblocks](/docs/base-streaming-transactions-flashblocks) — Base's WebSocket-subscription approach
 * [Mempool configurations](/docs/mempool-configuration) — mempool availability by protocol
 * [`eth_getBlockByNumber`](/reference/optimism-getblockbynumber)
