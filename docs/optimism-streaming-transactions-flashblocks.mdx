@@ -6,7 +6,7 @@ description: "Optimism exposes Subblocks (formerly Flashblocks) through the pend
 Optimism produces Subblocks, formerly called Flashblocks: partial blocks with pre-confirmed transactions, about every 200 ms. Optimism exposes them through the standard `pending` block tag, not through dedicated WebSocket subscriptions. To follow transactions in real time on Optimism, poll the `pending` block roughly every 200 ms and track the transactions that are new since the last poll. This guide does that with tested Python and JavaScript, then covers the pre-confirmed read methods.
 
 <Info>
-For how Subblocks work on Optimism, see [Subblocks on Optimism](/docs/flashblocks-on-optimism). For Base, which exposes Flashblocks as WebSocket subscriptions, see [Stream real-time transactions on Base with Flashblocks](/docs/base-streaming-transactions-flashblocks).
+For how Subblocks work on Optimism, see [Subblocks on Optimism](/docs/flashblocks-on-optimism). For Base, which replaced Flashblocks with 200 ms canonical blocks, see [Stream real-time transactions on Base](/docs/base-streaming-transactions).
 </Info>
 
 ## Prerequisites
@@ -16,7 +16,7 @@ For how Subblocks work on Optimism, see [Subblocks on Optimism](/docs/flashblock
 
 ## Why Optimism uses the pending tag, not eth_subscribe
 
-On Optimism, the Flashblocks subscriptions that exist on Base — `eth_subscribe("newFlashblockTransactions")`, `newFlashblocks`, and `pendingLogs` — are not exposed; calling them returns `-32602 Invalid params`. Like every OP Stack chain, Optimism has no public mempool (see [Mempool configurations](/docs/mempool-configuration)), so `eth_subscribe("newPendingTransactions")` reports only transaction hashes as the sequencer includes them in subblocks. The `pending` block tag gives you the transactions themselves and the pre-confirmed state, and it reflects the latest subblock and advances every ~200 ms.
+On Optimism, the Flashblocks subscriptions `eth_subscribe("newFlashblockTransactions")`, `newFlashblocks`, and `pendingLogs` are not exposed; calling them returns `-32602 Invalid params`. Like every OP Stack chain, Optimism has no public mempool (see [Mempool configurations](/docs/mempool-configuration)), so `eth_subscribe("newPendingTransactions")` may deliver few or no transactions. The `pending` block tag gives you the transactions themselves and the pre-confirmed state, and it reflects the latest subblock and advances every ~200 ms.
 
 ## Track pre-confirmed transactions
 
@@ -99,7 +99,7 @@ Each poll of the `pending` tag returns the same block number with more transacti
 #158861053 hash=0xb65c6556b88fd5bc8cf48cc87fe99f50a67e36d120360f1aae3562a96d89b672 txs=6
 ```
 
-Unlike Base, where the streamed block carries a zero hash until it seals, Optimism's `pending` hash is non-zero and changes with each subblock. The `pending` hash is not the hash of the sealed block, and the `pending` block's `stateRoot` is all zeros. Track transactions by their own hash, not by the block hash.
+Optimism's `pending` hash is non-zero and changes with each subblock. The `pending` hash is not the hash of the sealed block, and the `pending` block's `stateRoot` is all zeros. Track transactions by their own hash, not by the block hash.
 
 ## Read pre-confirmed state
 
@@ -126,6 +126,6 @@ curl -s -X POST YOUR_OPTIMISM_HTTPS_ENDPOINT \
 ## Related
 
 * [Subblocks on Optimism](/docs/flashblocks-on-optimism) — how Subblocks work on Optimism, including the Optimism vs. Base comparison
-* [Stream real-time transactions on Base with Flashblocks](/docs/base-streaming-transactions-flashblocks) — Base's WebSocket-subscription approach
+* [Stream real-time transactions on Base](/docs/base-streaming-transactions) — Base's 200 ms blocks over `newHeads` and `logs`
 * [Mempool configurations](/docs/mempool-configuration) — mempool availability by protocol
 * [`eth_getBlockByNumber`](/reference/optimism-getblockbynumber)

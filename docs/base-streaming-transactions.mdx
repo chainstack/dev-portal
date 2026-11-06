@@ -1,0 +1,215 @@
+---
+title: "Stream real-time transactions on Base"
+description: "Base has no public mempool, so pending-transaction filters return empty. Base seals a block every 200 ms, so stream each block's transactions with newHeads and filtered events with logs, with tested Python and JavaScript."
+---
+
+Base has no public mempool — pending transactions are held privately by the sequencer, so `eth_newPendingTransactionFilter` and `eth_subscribe("newPendingTransactions")` return empty. Since the [Denim upgrade](/docs/base-denim-200ms-blocks), Base seals a full canonical block every 200 ms, so the standard `newHeads` and `logs` subscriptions are the real-time stream: `newHeads` notifies about five times per second, and `logs` delivers the matching events of each block. This guide streams transactions block by block and filtered event logs, with tested Python and JavaScript.
+
+## Prerequisites
+
+* A Base Mainnet WebSocket endpoint. On Chainstack, copy the WSS endpoint from your Base node's **Access and credentials** section — it looks like `wss://base-mainnet.core.chainstack.com/<key>`. The examples use `YOUR_CHAINSTACK_WSS_ENDPOINT` as a placeholder.
+* Python 3.8+ with the `websockets` library (`pip install websockets`), or Node.js 22+ (the `WebSocket` client is built in, so there are no dependencies to install).
+
+## Why pending-transaction filters return empty on Base
+
+Base is an OP Stack chain with a single sequencer. Transactions go to the sequencer's private mempool and are never gossiped to RPC nodes, so a node has no public pending transactions to report. `eth_newPendingTransactionFilter` and `eth_subscribe("newPendingTransactions")` are accepted but always return empty — this is by design, not a node error, and it is the same on every Base RPC provider. See [Mempool configurations](/docs/mempool-configuration) for the per-protocol breakdown.
+
+To see transactions as early as possible on Base, stream the sealed blocks instead. A new block arrives every 200 ms.
+
+## Stream transactions block by block
+
+`eth_subscribe("newHeads")` pushes the header of each new block. The header has no transaction list, so request the block by its hash with `eth_getBlockByHash` over the same WebSocket connection. The examples fetch each block without blocking the stream, because notifications arrive about every 200 ms.
+
+<CodeGroup>
+```python Python
+import asyncio
+import itertools
+import json
+
+import websockets
+
+WSS = "YOUR_CHAINSTACK_WSS_ENDPOINT"  # wss://base-mainnet.core.chainstack.com/<key>
+
+
+async def stream_blocks():
+    ids = itertools.count(2)
+    pending = {}  # request id -> future
+
+    async with websockets.connect(WSS, max_size=None) as ws:
+        await ws.send(json.dumps({
+            "jsonrpc": "2.0", "id": 1,
+            "method": "eth_subscribe", "params": ["newHeads"],
+        }))
+
+        async def get_block(block_hash):
+            request_id = next(ids)
+            result = asyncio.get_running_loop().create_future()
+            pending[request_id] = result
+            await ws.send(json.dumps({
+                "jsonrpc": "2.0", "id": request_id,
+                "method": "eth_getBlockByHash", "params": [block_hash, False],
+            }))
+            return await result
+
+        async def on_head(head):
+            block = await get_block(head["hash"])
+            print(int(block["number"], 16), len(block["transactions"]), block["transactions"][0])
+
+        async for raw in ws:
+            message = json.loads(raw)
+            if message.get("method") == "eth_subscription":
+                asyncio.create_task(on_head(message["params"]["result"]))
+            elif message.get("id") in pending:
+                pending.pop(message["id"]).set_result(message["result"])
+
+
+asyncio.run(stream_blocks())
+```
+
+```javascript JavaScript
+// Node.js 22+ has a built-in WebSocket — no dependencies required.
+const WSS = "YOUR_CHAINSTACK_WSS_ENDPOINT"; // wss://base-mainnet.core.chainstack.com/<key>
+
+const ws = new WebSocket(WSS);
+const pending = new Map(); // request id -> resolve
+let nextId = 2;
+
+function getBlock(blockHash) {
+  const id = nextId++;
+  ws.send(JSON.stringify({ jsonrpc: "2.0", id, method: "eth_getBlockByHash", params: [blockHash, false] }));
+  return new Promise((resolve) => pending.set(id, resolve));
+}
+
+ws.addEventListener("open", () => {
+  ws.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_subscribe", params: ["newHeads"] }));
+});
+
+ws.addEventListener("message", async (event) => {
+  const message = JSON.parse(event.data);
+  if (message.method === "eth_subscription") {
+    const block = await getBlock(message.params.result.hash);
+    console.log(parseInt(block.number, 16), block.transactions.length, block.transactions[0]);
+  } else if (pending.has(message.id)) {
+    pending.get(message.id)(message.result);
+    pending.delete(message.id);
+  }
+});
+```
+</CodeGroup>
+
+Each line is a block number, its transaction count, and its first transaction hash. The block number advances by one about every 200 ms:
+
+```text
+53663328 21 0x455f5367df787d949cad4ae58872221cb8fe0c18fee39d100c3485b4bbd79e0d
+53663329 37 0x028e598ff32c310bdbf73c8611f4e3e4d139d79a0c335bd0300f505e5c9fa87b
+53663330 22 0xfa1b64858230f5063d486168921819b8f07bf9cf67b083b177c1a77ccbedce98
+53663331 17 0xa5b1849c691047c5850f8f075e52ce67168dc02b3f0701909d4fc4673eee04b2
+53663332 19 0x0eeaaf0a3bde873d293c9c2042d0ec99efa07b32af6824a1266bab37862b2cbd
+```
+
+The first two transactions in every Base block are system deposit transactions of type `0x7e`: the L1 attributes deposit and the BaseTime deposit. User transactions start at index 2.
+
+### Full transactions and receipts
+
+To get full transaction objects instead of hashes, pass `true` as the second parameter of `eth_getBlockByHash`. To get every receipt in the block, with `status`, `gasUsed`, and `logs`, call [`eth_getBlockReceipts`](/reference/base-getblockreceipts) with the block hash:
+
+```json
+{"jsonrpc": "2.0", "id": 3, "method": "eth_getBlockReceipts", "params": ["0xd13a154b4cdb55927f9aac532770596e417e75355a6cff73e01e17f0e9f6d944"]}
+```
+
+## Stream filtered event logs
+
+`eth_subscribe("logs")` streams the event logs of each new block, filtered by `address` and `topics` the same way as [`eth_getLogs`](/reference/base-getlogs). This example follows USDC transfers on Base:
+
+<CodeGroup>
+```python Python
+import asyncio
+import json
+
+import websockets
+
+WSS = "YOUR_CHAINSTACK_WSS_ENDPOINT"
+USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+
+
+async def stream_logs():
+    async with websockets.connect(WSS) as ws:
+        await ws.send(json.dumps({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "eth_subscribe",
+            "params": ["logs", {"address": USDC, "topics": [TRANSFER]}],
+        }))
+        await ws.recv()  # subscription id
+
+        async for raw in ws:
+            message = json.loads(raw)
+            if message.get("method") == "eth_subscription":
+                log = message["params"]["result"]
+                print(int(log["blockNumber"], 16), log["transactionHash"], int(log["data"], 16))
+
+
+asyncio.run(stream_logs())
+```
+
+```javascript JavaScript
+// Node.js 22+ has a built-in WebSocket — no dependencies required.
+const WSS = "YOUR_CHAINSTACK_WSS_ENDPOINT";
+const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+const TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+const ws = new WebSocket(WSS);
+
+ws.addEventListener("open", () => {
+  ws.send(JSON.stringify({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "eth_subscribe",
+    params: ["logs", { address: USDC, topics: [TRANSFER] }],
+  }));
+});
+
+ws.addEventListener("message", (event) => {
+  const message = JSON.parse(event.data);
+  if (message.method === "eth_subscription") {
+    const log = message.params.result;
+    console.log(parseInt(log.blockNumber, 16), log.transactionHash, BigInt(log.data));
+  }
+});
+```
+</CodeGroup>
+
+Each line is a block number, a transaction hash, and the transferred amount in USDC base units (6 decimals). A transaction that moves USDC several times emits several logs:
+
+```text
+53663156 0x169e3a6fe0b315fb8263d59e1a2d901f7637b327248a582b14ea6d43d3333299 283319093
+53663156 0x31ce66140b55fa5feef338a1957a917824d811c99b0ecea2a01dc6345a80b0d5 544122
+53663156 0x31ce66140b55fa5feef338a1957a917824d811c99b0ecea2a01dc6345a80b0d5 6851
+53663156 0x31ce66140b55fa5feef338a1957a917824d811c99b0ecea2a01dc6345a80b0d5 2037
+```
+
+Each log carries the hash of the sealed block in `blockHash`, so you can match it to the block from `newHeads`.
+
+## Read the latest state over HTTP
+
+For request-response reads, use the `latest` block tag, which advances every 200 ms. Since Denim, the `pending` tag no longer returns preconfirmed Flashblocks state — see [Replace Flashblocks calls](/docs/base-denim-200ms-blocks#replace-flashblocks-calls).
+
+```bash
+curl -s -X POST YOUR_CHAINSTACK_HTTPS_ENDPOINT \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["latest",false]}'
+```
+
+## Production considerations
+
+* Settle against a finalized block. Every 200 ms block goes through the unsafe, safe, and finalized stages, and `newHeads` reports blocks as soon as they are produced. Before you treat a payment as settled, confirm its transaction in a finalized block.
+* Expect about five blocks per second. Process notifications asynchronously, as the examples do, so a slow handler doesn't delay the stream.
+* Re-subscribe on reconnect. A subscription ends when the WebSocket drops, so re-send the `eth_subscribe` request after reconnecting, and fetch the blocks you missed by number.
+* Ranges count blocks. On Base, 10,000 blocks is about 33 minutes. See [Chainstack limits that count blocks](/docs/base-denim-200ms-blocks#chainstack-limits-that-count-blocks).
+
+## See also
+
+* [Base Denim: 200 ms blocks](/docs/base-denim-200ms-blocks) — what changed and how to replace Flashblocks calls
+* [Mempool configurations](/docs/mempool-configuration) — mempool availability by protocol
+* [`eth_unsubscribe`](/reference/base-unsubscribe)
