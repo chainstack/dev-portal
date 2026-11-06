@@ -1,0 +1,74 @@
+---
+title: "Base Denim: 200 ms blocks"
+description: "Base's Denim upgrade replaced 2-second blocks and Flashblocks with a full canonical block every 200 ms. What changed for RPC calls, subscriptions, contracts, and Chainstack limits that count blocks."
+---
+
+Base's Denim upgrade replaced 2-second blocks with a full canonical block every 200 ms, five blocks per second, and retired Flashblocks. Each 200 ms block has its own hash, state root, and receipts, so the standard JSON-RPC methods and subscriptions deliver sub-second data without Flashblocks.
+
+Denim activation dates:
+
+| Network | Denim activation |
+| --- | --- |
+| Base Sepolia | Oct 21, 2026, 18:00 UTC |
+| Base Mainnet | Nov 5, 2026, 18:00 UTC |
+
+## What changed in Denim
+
+Denim changes block production, the Flashblocks interfaces, and how block numbers relate to time:
+
+- Block time — Base produces a canonical block every 200 ms instead of every 2 seconds.
+- Flashblocks — Base no longer produces Flashblocks. The `newFlashblocks`, `newFlashblockTransactions`, and `pendingLogs` subscriptions deliver no notifications.
+- `pending` block tag — Base's guidance is that the `pending` tag and Flashblocks preconfirmation state have no direct equivalent after Denim. Read the latest canonical block or state instead.
+- Block numbers and timestamps — `block.number` advances ten times faster in wall-clock time, while `block.timestamp` still advances in whole seconds, so about five consecutive blocks share the same `timestamp`.
+- System transactions — every block starts with two deposit transactions of type `0x7e`: the L1 attributes deposit to `0x4200000000000000000000000000000000000015` and the BaseTime deposit to `0x4200000000000000000000000000000000000030`. Skip them when you count user transactions in a block.
+
+For Base's specification of the change, see [Denim overview](https://docs.base.org/upgrades/denim/overview) and [200ms blocks](https://docs.base.org/upgrades/denim/200ms-blocks).
+
+## Replace Flashblocks calls
+
+Every Flashblocks call has a canonical replacement. The replacements return data from sealed 200 ms blocks, not preconfirmed data.
+
+| Flashblocks call | Use instead |
+| --- | --- |
+| `eth_subscribe("newFlashblocks")` | `eth_subscribe("newHeads")` |
+| `eth_subscribe("newFlashblockTransactions")` | `eth_subscribe("newHeads")`, then fetch the transactions of each block |
+| `eth_subscribe("pendingLogs")` | `eth_subscribe("logs")` |
+| `eth_getBlockByNumber("pending")` | `eth_getBlockByNumber("latest")` |
+| `eth_getBalance`, `eth_getTransactionCount`, `eth_call`, `eth_estimateGas`, or `eth_simulateV1` at `"pending"` | The same call at `"latest"` |
+| `eth_getLogs` with `toBlock` set to `"pending"` | `eth_getLogs` with `toBlock` set to `"latest"` |
+| `eth_getBlockTransactionCountByNumber("pending")` | `eth_getBlockTransactionCountByNumber("latest")` |
+
+For tested Python and JavaScript that streams transactions and event logs with `newHeads` and `logs`, see [Stream real-time transactions on Base](/docs/base-streaming-transactions). Base's own mapping is in [Migrate from Flashblocks](https://docs.base.org/upgrades/denim/migrate-from-flashblocks).
+
+## Chainstack limits that count blocks
+
+Chainstack limits and billing rules that count blocks cover one tenth of the time they did before Denim. On Base, 1 block is now 200 ms:
+
+| Rule | Blocks | Time on Base |
+| --- | --- | --- |
+| [Archive request](/docs/request-units#full-vs-archive-by-protocol) — a call 127 or more blocks behind the tip costs 2 RUs | 127 | About 25 seconds |
+| [`eth_getLogs` range](/docs/limits) on the Developer plan | 100 | 20 seconds |
+| [`eth_getLogs` range](/docs/limits) on the Growth, Pro, Business, and Enterprise plans | 10,000 | About 33 minutes |
+| [`eth_newFilter` range](/docs/limits) on the Developer plan | 10,000 | About 33 minutes |
+
+A state read for a block older than about 25 seconds is an archive request. To scan a longer period with `eth_getLogs`, split the query into consecutive ranges that fit your plan's cap.
+
+## Update apps and contracts that count blocks
+
+Anything that converts a number of blocks into time needs a factor of ten:
+
+- Timelocks, deadlines, and voting periods — a duration written as a block count elapses ten times sooner. Multiply block-count durations by ten to keep their wall-clock length, and divide per-block caps by ten to keep their per-second limit.
+- Block hash history — the 256-block `BLOCKHASH` window now covers about 51 seconds, and the 8,191-block EIP-2935 history contract covers about 27 minutes. EIP-4788 beacon roots are stored by timestamp, so their window is unchanged.
+- TWAP oracles — accumulators are second-weighted, so TWAP values stay correct, but a fixed number of observations covers less wall-clock history, and long `observe()` lookbacks revert with `OLD` sooner.
+- Polling — a client that polls every 2 seconds now finds about 10 new blocks per poll. Subscribe to `newHeads` instead, or fetch every block in the range since the last poll.
+
+## B20 changes in Denim
+
+Denim also changes two B20 transfer rules: a transfer, mint, or seize to the token's own address reverts with `InvalidReceiver`, and the transfer executor policy now applies to every transfer path. See [B20 changes in Denim](/docs/base-b20-token-standard#b20-changes-in-denim).
+
+## See also
+
+- [Stream real-time transactions on Base](/docs/base-streaming-transactions)
+- [Base methods](/docs/base-methods)
+- [Mempool configurations](/docs/mempool-configuration)
+- Base documentation: [Denim overview](https://docs.base.org/upgrades/denim/overview), [200ms blocks](https://docs.base.org/upgrades/denim/200ms-blocks), [Migrate from Flashblocks](https://docs.base.org/upgrades/denim/migrate-from-flashblocks)

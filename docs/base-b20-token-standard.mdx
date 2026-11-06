@@ -53,13 +53,13 @@ Token addresses are deterministic and encode the variant in the address itself: 
 
 B20 ships a compliance and operations toolkit that an ERC-20 leaves you to build:
 
-- **Role-based access control** — `DEFAULT_ADMIN_ROLE`, `MINT_ROLE`, `BURN_ROLE`, `BURN_BLOCKED_ROLE`, `PAUSE_ROLE`, `UNPAUSE_ROLE`, and `METADATA_ROLE`. The Asset variant adds `OPERATOR_ROLE`. A token can be made permanently admin-less.
-- **Transfer policies** — each token binds allowlist or blocklist policies from the policy registry to per-actor scopes (transfer sender, transfer receiver, mint receiver).
-  <Warning>Every policy scope defaults to `ALWAYS_ALLOW` at creation. An unconfigured B20 is fully open — constrain it intentionally in `initCalls`.</Warning>
-- **Freeze-and-seize** — `burnBlocked` burns from a policy-blocked account, the path regulated issuers need.
+- **Role-based access control** — `DEFAULT_ADMIN_ROLE`, `MINT_ROLE`, `BURN_ROLE`, `BURN_BLOCKED_ROLE`, `SEIZE_ROLE`, `PAUSE_ROLE`, `UNPAUSE_ROLE`, and `METADATA_ROLE`. The Asset variant adds `OPERATOR_ROLE`. A token can be made permanently admin-less.
+- **Policies** — each token binds allowlist or blocklist policies from the policy registry to per-actor scopes: transfer sender, transfer receiver, transfer executor (the account that initiates a transfer), mint receiver, seize exempt, and seize receiver.
+  <Warning>Every policy scope defaults to `ALWAYS_ALLOW` at creation. An unconfigured B20 is fully open, and every account is seize-exempt — constrain it intentionally in `initCalls`.</Warning>
+- **Freeze-and-seize** — `seizeWithMemo` moves a balance from an account that isn't seize-exempt to a destination such as a treasury, and requires `SEIZE_ROLE`. The older `burnBlocked`, which burns from a policy-blocked account, is deprecated.
 - **Supply cap** — an optional cap enforced on every mint.
-- **Granular pause** — pause `TRANSFER`, `MINT`, or `BURN` independently, with separate pause and unpause roles.
-- **Memos** — attach a `bytes32` reference (a payment ID or settlement tag) to transfers, mints, and burns. Each is emitted as a `Memo` event for off-chain reconciliation.
+- **Granular pause** — pause `TRANSFER`, `MINT`, `BURN`, or `SEIZE` independently, with separate pause and unpause roles.
+- **Memos** — attach a `bytes32` reference (a payment ID or settlement tag) to transfers, mints, burns, and seizes. Each is emitted as a `Memo` event for off-chain reconciliation.
 - **ERC-2612 `permit`** and **ERC-7572 `contractURI`** are built in.
 
 ## Availability
@@ -74,6 +74,16 @@ B20 ships with the Beryl upgrade:
 Base mainnet and Base Sepolia both serve the B20 precompiles. New token creation remains gated by the Activation Registry at runtime, so check the target variant before broadcasting a factory call. The [deployment tutorial](/docs/base-tutorial-deploy-a-b20-token) includes the preflight command.
 
 Chainstack Base nodes serve the same precompiles, so you can create and query B20 tokens through your Chainstack Base endpoint.
+
+## B20 changes in Denim
+
+Base's [Denim upgrade](/docs/base-denim-200ms-blocks), active on Base Mainnet since Nov 5, 2026, 18:00 UTC, changes three B20 rules:
+
+- Transfers to the token itself revert — `transfer`, `transferFrom`, their memo variants, `mint`, `mintWithMemo`, `batchMint`, and `seizeWithMemo` revert with `InvalidReceiver` when the recipient is the token's own address, the same way they revert for `address(0)`. A holder sending to themselves still succeeds. To recover a balance credited to the token address before Denim, call `seizeWithMemo(token, treasury, amount, memo)` with `SEIZE_ROLE`; the token address must not be seize-exempt.
+- The executor policy covers every transfer path — `TRANSFER_EXECUTOR_POLICY` now checks `msg.sender` on `transfer`, `transferFrom`, `transferWithMemo`, and `transferFromWithMemo`, including when holders move their own tokens. Before Denim, it checked only `transferFrom` calls made by someone other than the holder. A token that never set the executor policy is unaffected. A token with a restrictive executor policy must authorize the holders who transfer their own tokens, or their transfers revert with `PolicyForbids` for the `TRANSFER_EXECUTOR_POLICY` scope.
+- Policies can be inverted — `invertedPolicyId(policyId)` in the policy registry returns an ID whose `isAuthorized` result is the negation of the base policy. An inverted ID over a policy that doesn't exist returns `false`. Existing policy IDs behave as before.
+
+For Base's specification, see the B20 changes for Denim: [token receiver](https://docs.base.org/base-chain/specs/reference/b20/changelog/03-denim-b20-token-receiver), [transfer executor enforcement](https://docs.base.org/base-chain/specs/reference/b20/changelog/03-denim-b20-transfer-executor-enforcement), and [inverted policies](https://docs.base.org/base-chain/specs/reference/b20/changelog/03-denim-policyregistry-not-policy).
 
 ## Use B20 on Chainstack
 
