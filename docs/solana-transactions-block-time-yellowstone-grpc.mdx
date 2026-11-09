@@ -9,7 +9,7 @@ description: "Join Solana transactions to their block and block time in a single
 * A Yellowstone gRPC transaction update carries the `slot`, but not the block time. Block time arrives only on a block-metadata update.
 * Subscribe to `transactions`, `blocks_meta`, and `slots` on one stream, then join on `slot`: buffer transactions by slot, and stamp them with the block time when that slot's `block_meta` arrives.
 * This is far cheaper than the alternatives — a second full-block stream re-sends every transaction, and a per-block `getBlockTime` adds an RPC round trip to every slot.
-* Run at `confirmed` commitment, drop dead and skipped slots so the buffer can't leak, and answer the server's pings.
+* Run at `finalized` commitment, drop dead and skipped slots so the buffer can't leak, and answer the server's pings.
 
 ## The problem
 
@@ -30,7 +30,7 @@ The join key is `slot`. A block-metadata update for slot N normally arrives *aft
 1. Keep two maps keyed by `slot`: transactions waiting for their block time, and block metadata waiting for late transactions.
 2. When a transaction arrives, stamp and emit it if its `block_meta` is already cached; otherwise buffer it.
 3. When the `block_meta` for slot N arrives, cache it and flush every transaction buffered for slot N.
-4. Evict a slot from both maps once it goes `SLOT_DEAD` or the confirmed tip passes it (a skipped slot).
+4. Evict a slot from both maps once it goes `SLOT_DEAD` or the finalized tip passes it (a skipped slot).
 
 <Tip>
   This pattern uses one filter each of three different types in a single subscribe request, well within the per-type filter limits. See [Yellowstone gRPC Geyser plugin filter limits](/docs/yellowstone-grpc-geyser-plugin#filter-limits) for the full limits.
@@ -71,7 +71,7 @@ You authenticate with an `x-token` metadata header. Take the Geyser endpoint and
 
 ## Build the subscription
 
-Set the commitment to `confirmed`, add the three filters, and exclude votes and failed transactions to cut the volume you process:
+Set the commitment to `finalized`, add the three filters, and exclude votes and failed transactions to cut the volume you process:
 
 ```python
 import geyser_pb2 as pb
@@ -79,7 +79,7 @@ import geyser_pb2 as pb
 
 def build_request(from_slot=None):
     req = pb.SubscribeRequest()
-    req.commitment = pb.CONFIRMED
+    req.commitment = pb.FINALIZED
 
     # transactions: at least one constraint is required (see the warning below)
     txs = req.transactions["txs"]
@@ -154,7 +154,7 @@ responses = stub.Subscribe(
 
 buffer = {}        # slot -> [signature, ...] awaiting block_meta
 meta_by_slot = {}  # slot -> block_meta, cached so late transactions still get stamped
-hi_confirmed = 0   # highest confirmed slot seen
+hi_finalized = 0   # highest finalized slot seen
 
 for update in responses:
     kind = update.WhichOneof("update_oneof")
@@ -181,12 +181,12 @@ for update in responses:
         if s.status == pb.SLOT_DEAD:             # no block will ever be produced
             buffer.pop(s.slot, None)
             meta_by_slot.pop(s.slot, None)
-        elif s.status == pb.SLOT_CONFIRMED:
-            hi_confirmed = max(hi_confirmed, s.slot)
-        # evict slots the confirmed tip has passed: skipped txs and stale cached metas
-        for slot in [k for k in buffer if k + SKIP_MARGIN < hi_confirmed]:
+        elif s.status == pb.SLOT_FINALIZED:
+            hi_finalized = max(hi_finalized, s.slot)
+        # evict slots the finalized tip has passed: skipped txs and stale cached metas
+        for slot in [k for k in buffer if k + SKIP_MARGIN < hi_finalized]:
             buffer.pop(slot, None)
-        for slot in [k for k in meta_by_slot if k + SKIP_MARGIN < hi_confirmed]:
+        for slot in [k for k in meta_by_slot if k + SKIP_MARGIN < hi_finalized]:
             meta_by_slot.pop(slot, None)
 
     elif kind == "ping":
@@ -199,20 +199,20 @@ Every transaction is now emitted with the `block_time` and `blockhash` of the bl
 
 ### Choose the right commitment
 
-Run the association at `confirmed`. At `processed`, both the transaction and its block metadata can be delivered on a fork that the cluster later abandons, so the pairing you compute may belong to a dropped block. At `confirmed`, the slot has been voted on by a supermajority of stake, which makes the pairing reliable. Use `processed` only when you need the lowest possible latency and can treat associations as provisional.
+Run the association at `finalized`. Since [Alpenglow](/docs/solana-alpenglow-consensus), `confirmed` and `finalized` point to the same block — the latest block with a finalization certificate — so `finalized` arrives as fast as `confirmed` and makes the pairing final. At `processed`, both the transaction and its block metadata can be delivered on a fork that the cluster later abandons, so the pairing you compute may belong to a dropped block. Use `processed` only when you need the lowest possible latency and can treat associations as provisional.
 
 ### Drop dead and skipped slots
 
 A buffered slot that never receives a `block_meta` would otherwise sit in memory forever. Two cases cause this:
 
 - Dead slots — the `slots` filter delivers a `SLOT_DEAD` status. Discard anything buffered or cached for that slot.
-- Skipped slots — no block is produced and no status pinpoints the gap, so evict the slot from both maps once the confirmed tip moves past it by a safe margin (`slot + SKIP_MARGIN < hi_confirmed` in the loop above).
+- Skipped slots — no block is produced and no status pinpoints the gap, so evict the slot from both maps once the finalized tip moves past it by a safe margin (`slot + SKIP_MARGIN < hi_finalized` in the loop above).
 
 For why slots and blocks diverge, see [Solana: understanding the difference between blocks and slots](/docs/understanding-the-difference-between-blocks-and-slots-on-solana).
 
 ### Completeness and executed_transaction_count
 
-`block_meta.executed_transaction_count` is the validator's total count of executed transactions for the block, and it includes vote and failed transactions. On Solana, vote transactions alone are roughly three-quarters of block activity, so if you stream with `vote = False` (or filter any other way), your received count will be far lower than `executed_transaction_count`. Use the count as a completeness check only against an unfiltered set. In practice, the arrival of `block_meta` is itself the signal that the slot is sealed.
+`block_meta.executed_transaction_count` is the validator's total count of executed transactions for the block, and it includes failed transactions. Since [Alpenglow](/docs/solana-alpenglow-consensus) moved votes off-chain, blocks no longer contain vote transactions. If you stream with `failed = False` (or filter any other way), your received count is lower than `executed_transaction_count`. Use the count as a completeness check only against an unfiltered set. In practice, the arrival of `block_meta` is itself the signal that the slot is sealed.
 
 <Note>
   The `entries_count` field is present on block metadata but is unreliable on standard validators, so do not use it as a completeness signal.
@@ -226,7 +226,7 @@ The server sends periodic pings; reply with a `SubscribeRequestPing` on the same
 
 ### Recover after a disconnect with from_slot
 
-Track the last slot you cleanly flushed. On reconnect, set `from_slot` to that slot to replay the gap, then de-duplicate the overlap by signature and slot. The replay buffer is a reconnection-recovery mechanism, not a historical backfill: on Global Nodes it holds approximately the last 100 slots (around a minute). Requesting an older slot returns:
+Track the last slot you cleanly flushed. On reconnect, set `from_slot` to that slot to replay the gap, then de-duplicate the overlap by signature and slot. The replay buffer is a reconnection-recovery mechanism, not a historical backfill: on Global Nodes it holds approximately the last 100 slots. Requesting an older slot returns:
 
 ```text
 broadcast from <slot> is not available, last available: <slot>
@@ -247,18 +247,17 @@ def get_block(rpc_url, slot):
         "params": [slot, {
             "encoding": "json", "transactionDetails": "signatures",
             "rewards": False, "maxSupportedTransactionVersion": 1,
-            "commitment": "confirmed",
+            "commitment": "finalized",
         }],
     }
     return requests.post(rpc_url, json=payload, timeout=30).json()["result"]
 ```
 
-For a correctly joined slot, `getBlock`'s `blockTime` equals the `block_time` you received on `block_meta`, its `blockhash` matches, and the length of its `signatures` list equals `executed_transaction_count` — which confirms the count includes votes and failed transactions.
+For a correctly joined slot, `getBlock`'s `blockTime` equals the `block_time` you received on `block_meta`, its `blockhash` matches, and the length of its `signatures` list equals `executed_transaction_count` — which confirms the count includes failed transactions.
 
 ## Caveats
 
-- `block_time` is an estimate. Solana derives it from a stake-weighted mean of validator-submitted timestamps, with capped drift, so treat it as accurate to the second rather than as an exact or security-critical clock. See [Solana: understanding block time](/docs/solana-understanding-block-time).
-- The [Alpenglow consensus upgrade](/docs/solana-alpenglow-consensus) is on the horizon. It collapses the commitment levels and changes how the cluster clock is derived — and it moves votes off-chain, which would reshape the `executed_transaction_count` math above. The stream mechanism in this guide — block time on `block_meta`, joined by `slot` — is expected to carry over, but revisit the block-time derivation when Alpenglow reaches mainnet.
+- `block_time` is an estimate. Since [Alpenglow](/docs/solana-alpenglow-consensus), the leader sets the timestamp for its block within a bounded range, so treat it as accurate to the second rather than as an exact or security-critical clock.
 
 ## Full example
 
@@ -279,7 +278,7 @@ For a correctly joined slot, `getBlock`'s `blockTime` equals the `block_time` yo
 
   def build_request(from_slot=None):
       req = pb.SubscribeRequest()
-      req.commitment = pb.CONFIRMED
+      req.commitment = pb.FINALIZED
       txs = req.transactions["txs"]
       txs.vote = False
       txs.failed = False
@@ -320,7 +319,7 @@ For a correctly joined slot, `getBlock`'s `blockTime` equals the `block_time` yo
 
       buffer = {}
       meta_by_slot = {}
-      hi_confirmed = 0
+      hi_finalized = 0
 
       for update in responses:
           kind = update.WhichOneof("update_oneof")
@@ -353,11 +352,11 @@ For a correctly joined slot, `getBlock`'s `blockTime` equals the `block_time` yo
               if s.status == pb.SLOT_DEAD:
                   buffer.pop(s.slot, None)
                   meta_by_slot.pop(s.slot, None)
-              elif s.status == pb.SLOT_CONFIRMED:
-                  hi_confirmed = max(hi_confirmed, s.slot)
-              for slot in [k for k in buffer if k + SKIP_MARGIN < hi_confirmed]:
+              elif s.status == pb.SLOT_FINALIZED:
+                  hi_finalized = max(hi_finalized, s.slot)
+              for slot in [k for k in buffer if k + SKIP_MARGIN < hi_finalized]:
                   buffer.pop(slot, None)
-              for slot in [k for k in meta_by_slot if k + SKIP_MARGIN < hi_confirmed]:
+              for slot in [k for k in meta_by_slot if k + SKIP_MARGIN < hi_finalized]:
                   meta_by_slot.pop(slot, None)
 
           elif kind == "ping":
