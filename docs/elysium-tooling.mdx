@@ -24,7 +24,7 @@ Chainstack serves Elysium Mainnet and Elysium Testnet.
 
 Elysium's HYPE comes from HyperEVM through a 1:1 bridge. Fund an Elysium Mainnet account by bridging HYPE from HyperEVM, and an Elysium Testnet account from the faucet or by bridging testnet HYPE from HyperEVM Testnet.
 
-The code examples on this page use Elysium Testnet. For Elysium Mainnet, use chain ID `99901`, the Mainnet explorer, and the Mainnet contract verification API.
+Code examples that depend on the network cover both Elysium Mainnet and Elysium Testnet.
 
 See [Elysium methods](/docs/elysium-methods) for per-method availability.
 
@@ -92,7 +92,7 @@ provider.on("block", (blockNumber) => {
 Elysium is not in viem's bundled chain list, so define it with `defineChain`:
 
 <Warning>
-  The `elysiumTestnet` export in `viem/chains` is a different chain: Vulcan Forged's Elysium Testnet, chain ID `1338`, with LAVA as its currency. Importing it for Kinetiq's Elysium gives you the wrong currency symbol and explorer links, and `http()` without a URL falls back to the Vulcan Forged RPC. Define chain `99801` yourself.
+  The `elysiumTestnet` export in `viem/chains` is a different chain: Vulcan Forged's Elysium Testnet, chain ID `1338`, with LAVA as its currency. Importing it for Kinetiq's Elysium gives you the wrong currency symbol and explorer links, and `http()` without a URL falls back to the Vulcan Forged RPC. Define chains `99901` and `99801` yourself.
 </Warning>
 
 <CodeGroup>
@@ -105,18 +105,34 @@ npm install viem
 ```javascript index.mjs
 import { createPublicClient, http, defineChain, formatEther } from "viem";
 
+export const elysiumMainnet = defineChain({
+  id: 99901,
+  name: "Elysium Mainnet",
+  nativeCurrency: { decimals: 18, name: "HYPE", symbol: "HYPE" },
+  rpcUrls: { default: { http: ["CHAINSTACK_NODE_URL"] } },
+  blockExplorers: {
+    default: { name: "Elysium Explorer", url: "https://elysium.kinetiq.xyz" },
+  },
+  contracts: {
+    multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11" },
+  },
+});
+
 export const elysiumTestnet = defineChain({
   id: 99801,
   name: "Elysium Testnet",
   testnet: true,
   nativeCurrency: { decimals: 18, name: "HYPE", symbol: "HYPE" },
   rpcUrls: { default: { http: ["CHAINSTACK_NODE_URL"] } },
+  blockExplorers: {
+    default: { name: "Elysium Testnet Explorer", url: "https://testnet.elysium.kinetiq.xyz" },
+  },
   contracts: {
     multicall3: { address: "0xcA11bde05977b3631167028862bE2a173976CA11" },
   },
 });
 
-const client = createPublicClient({ chain: elysiumTestnet, transport: http() });
+const client = createPublicClient({ chain: elysiumMainnet, transport: http() });
 
 console.log("Chain ID:", await client.getChainId());
 console.log("Block:", await client.getBlockNumber());
@@ -128,7 +144,7 @@ console.log("Balance:", formatEther(balance), "HYPE");
 ```
 </CodeGroup>
 
-The `multicall3` entry lets `client.multicall` batch contract reads into a single `eth_call`.
+The `multicall3` entry lets `client.multicall` batch contract reads into a single `eth_call`. For Elysium Testnet, pass `elysiumTestnet` as the client's `chain` and use your Elysium Testnet endpoint.
 
 ## web3.py
 
@@ -185,10 +201,18 @@ forge create src/Counter.sol:Counter \
 ```
 </CodeGroup>
 
-Verify the deployed contract on the Elysium Testnet Blockscout. The API does not need a key.
+Verify the deployed contract on the Blockscout of the network you deployed to. The API does not need a key.
 
 <CodeGroup>
-```shell Shell
+```shell Mainnet
+forge verify-contract DEPLOYED_CONTRACT_ADDRESS src/Counter.sol:Counter \
+  --chain 99901 \
+  --verifier blockscout \
+  --verifier-url https://elysium.kinetiq.xyz/api/ \
+  --watch
+```
+
+```shell Testnet
 forge verify-contract DEPLOYED_CONTRACT_ADDRESS src/Counter.sol:Counter \
   --chain 99801 \
   --verifier blockscout \
@@ -199,7 +223,7 @@ forge verify-contract DEPLOYED_CONTRACT_ADDRESS src/Counter.sol:Counter \
 
 ## Hardhat
 
-In a [Hardhat 3](https://hardhat.org/) project that uses `@nomicfoundation/hardhat-toolbox-viem`, add Elysium Testnet to `hardhat.config.ts`. The `chainDescriptors` entry gives `hardhat verify` the address of the Elysium Testnet Blockscout API.
+In a [Hardhat 3](https://hardhat.org/) project that uses `@nomicfoundation/hardhat-toolbox-viem`, add Elysium Mainnet and Elysium Testnet to `hardhat.config.ts`. The `chainDescriptors` entries give `hardhat verify` the address of each network's Blockscout API.
 
 <CodeGroup>
 ```typescript hardhat.config.ts
@@ -210,13 +234,28 @@ export default defineConfig({
   plugins: [hardhatToolboxViem],
   solidity: "0.8.28",
   networks: {
+    elysiumMainnet: {
+      type: "http",
+      url: configVariable("ELYSIUM_MAINNET_RPC_URL"),
+      accounts: [configVariable("ELYSIUM_PRIVATE_KEY")],
+    },
     elysiumTestnet: {
       type: "http",
-      url: configVariable("ELYSIUM_RPC_URL"),
+      url: configVariable("ELYSIUM_TESTNET_RPC_URL"),
       accounts: [configVariable("ELYSIUM_PRIVATE_KEY")],
     },
   },
   chainDescriptors: {
+    99901: {
+      name: "Elysium Mainnet",
+      blockExplorers: {
+        blockscout: {
+          name: "Elysium Explorer",
+          url: "https://elysium.kinetiq.xyz",
+          apiUrl: "https://elysium.kinetiq.xyz/api",
+        },
+      },
+    },
     99801: {
       name: "Elysium Testnet",
       blockExplorers: {
@@ -232,7 +271,7 @@ export default defineConfig({
 ```
 </CodeGroup>
 
-`configVariable` reads `ELYSIUM_RPC_URL` and `ELYSIUM_PRIVATE_KEY` from environment variables or the Hardhat keystore, which keeps the endpoint and the key out of the config file.
+`configVariable` reads `ELYSIUM_MAINNET_RPC_URL`, `ELYSIUM_TESTNET_RPC_URL`, and `ELYSIUM_PRIVATE_KEY` from environment variables or the Hardhat keystore, which keeps the endpoints and the key out of the config file. Hardhat reads a network's variables only when a task uses that network, so set the variables for the network you deploy to.
 
 Deploy with an Ignition module, for example `ignition/modules/Counter.ts`:
 
@@ -248,7 +287,12 @@ export default buildModule("CounterModule", (m) => {
 </CodeGroup>
 
 <CodeGroup>
-```shell Shell
+```shell Mainnet
+npx hardhat ignition deploy ignition/modules/Counter.ts --network elysiumMainnet
+npx hardhat verify blockscout --network elysiumMainnet DEPLOYED_CONTRACT_ADDRESS
+```
+
+```shell Testnet
 npx hardhat ignition deploy ignition/modules/Counter.ts --network elysiumTestnet
 npx hardhat verify blockscout --network elysiumTestnet DEPLOYED_CONTRACT_ADDRESS
 ```
