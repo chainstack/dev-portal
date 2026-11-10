@@ -63,7 +63,7 @@ Need a larger range? [Dedicated Nodes](/docs/dedicated-node) support custom bloc
 | Arc, Base, Berachain, Celo, Ethereum Hoodi, Ink, Optimism, Plasma, Ronin, Tempo, Unichain, World Chain, Zora | The latest block only (`latest`) | `-32602` `distance to target block exceeds maximum proof window` |
 | Hyperliquid (HyperEVM), Monad, ZKsync Era | Not served — the network's node client does not implement `eth_getProof`. On ZKsync Era, use `zks_getProof`, which proves storage against an L1 batch | `-32601` `Method not found` |
 | Fantom | Not served — the Sonic node client no longer supports `eth_getProof` on the Fantom chain | `-32000` `method handler crashed` |
-| MegaETH | Not served — MegaETH does not support `eth_getProof` | `-32603` `internal eth error` |
+| MegaETH | Not served — MegaETH does not support `eth_getProof` | `-32004` `eth_getProof is not currently supported by mega-reth` |
 
 Proof generation time grows with block depth. On Ethereum Mainnet, a proof about 9,000 blocks behind the tip takes over a minute, so raise your client's request timeout for deep proofs.
 
@@ -127,10 +127,6 @@ Requesting a tracer that isn't enabled on the node—a custom JavaScript tracer,
 }
 ```
 
-## Ethereum `eth_simulateV1` supports only full node
-
-Running [eth_simulateV1 | Ethereum](/reference/ethereum-simulatev1) will yield only a full node response—i.e. the data from the latest 128 blocks. Archive data is not supported for this call and the node will respond with `missing trie node`.
-
 ## Fantom method limits
 
 The following limits are applied on all subscription plans:
@@ -186,7 +182,9 @@ The following rules also apply:
 
 ## Solana scan method limits
 
-The account-scan methods — [`getProgramAccounts`](/reference/solana-getprogramaccounts), [`getTokenAccountsByOwner`](/reference/solana-gettokenaccountsbyowner), [`getTokenAccountsByDelegate`](/reference/solana-gettokenaccountsbydelegate), and [`getSupply`](/reference/solana-getsupply) — read across a program's accounts, which on a large program can be hundreds of millions of accounts. To keep one heavy scan from tying up a node, Solana Mainnet Global Nodes run each scan under a 60-second execution-time limit and a per-request memory limit, and run a limited number of scans at once. A scan that waits more than 15 seconds for a free scan slot is dropped without running.
+The account-scan methods — [`getProgramAccounts`](/reference/solana-getprogramaccounts), [`getTokenAccountsByOwner`](/reference/solana-gettokenaccountsbyowner), and [`getTokenAccountsByDelegate`](/reference/solana-gettokenaccountsbydelegate) — read across a program's accounts, which on a large program can be hundreds of millions of accounts. To keep one heavy scan from tying up a node, Solana Mainnet Global Nodes run each scan under a 60-second execution-time limit and a per-request memory limit, and run a limited number of scans at once. A scan that waits more than 15 seconds for a free scan slot is dropped without running.
+
+[`getSupply`](/reference/solana-getsupply) normally answers without a scan; in rare cases, such as right after a node restart, it scans under these limits.
 
 A scan that exceeds the execution-time or memory limit is aborted and returns error [`-32012`](/docs/error-reference#json-rpc-error-codes) rather than hanging:
 

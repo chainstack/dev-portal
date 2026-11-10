@@ -34,7 +34,7 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 
 ## The example transaction
 
-This tutorial traces a token sale on Elysium Testnet, transaction [`0x6034ffc6c2209586e0787f18b0f11805c18dd432618d42c377d0b56433899508`](https://elysium.kinetiq.xyz/testnet-explorer/transaction/0x6034ffc6c2209586e0787f18b0f11805c18dd432618d42c377d0b56433899508). The sender called `sell` on the `SignalCurveHypeRouter` contract, attached no HYPE, and received HYPE for the tokens.
+This tutorial traces a token sale on Elysium Testnet, transaction [`0x6034ffc6c2209586e0787f18b0f11805c18dd432618d42c377d0b56433899508`](https://testnet.elysium.kinetiq.xyz/tx/0x6034ffc6c2209586e0787f18b0f11805c18dd432618d42c377d0b56433899508). The sender called `sell` on the `SignalCurveHypeRouter` contract, attached no HYPE, and received HYPE for the tokens.
 
 Elysium's Global Nodes serve traces back to genesis, so you can trace this transaction or any other Elysium Testnet transaction.
 
@@ -135,7 +135,7 @@ import {
 } from "viem";
 
 const RPC_URL = "YOUR_CHAINSTACK_ENDPOINT";
-const EXPLORER_API = "https://elysium.kinetiq.xyz/api/v2";
+const EXPLORER_API = "https://testnet.elysium.kinetiq.xyz/api";
 const SIGNATURE_API = "https://api.4byte.sourcify.dev/signature-database/v1/lookup";
 
 // Nitro system addresses: the ArbOwnerPublic precompile and the pool that receives L1 posting fees
@@ -170,8 +170,27 @@ async function getJson(url) {
   }
 }
 
-// Label and function names for an address, from the Elysium Blockscout.
-// A proxy also gets the functions of its implementation contracts.
+// Verified source of a contract from the Elysium Blockscout, or null if it isn't verified
+async function verifiedSource(address) {
+  const data = await getJson(`${EXPLORER_API}?module=contract&action=getsourcecode&address=${address}`);
+  const source = data?.result?.[0];
+  return source?.ABI?.startsWith("[") ? source : null;
+}
+
+// Token symbol of a contract, or null if it has none
+async function tokenSymbol(address) {
+  try {
+    return await client.readContract({
+      address,
+      abi: parseAbi(["function symbol() view returns (string)"]),
+      functionName: "symbol",
+    });
+  } catch {
+    return null;
+  }
+}
+
+// Label and function names for an address. A proxy also gets the functions of its implementation.
 const contracts = new Map();
 async function contractInfo(address) {
   const key = (address ?? "").toLowerCase();
@@ -179,14 +198,14 @@ async function contractInfo(address) {
     contracts.set(key, (async () => {
       const info = { label: key || "(no address)", functions: new Map() };
       if (!key) return info;
-      const details = await getJson(`${EXPLORER_API}/addresses/${key}`);
-      if (!details?.is_contract) return info;
-      const implementationName = details.implementations?.find((i) => i.name)?.name;
-      info.label = details.token?.symbol ?? implementationName ?? details.name ?? key;
-      const sources = [key, ...(details.implementations ?? []).map((i) => i.address_hash)];
-      for (const source of sources) {
-        const contract = await getJson(`${EXPLORER_API}/smart-contracts/${source}`);
-        for (const item of contract?.abi ?? []) {
+      const code = await client.getCode({ address: key });
+      if (!code || code === "0x") return info;
+      const source = await verifiedSource(key);
+      const implementation =
+        source?.Proxy === "1" && source.Implementation ? await verifiedSource(source.Implementation) : null;
+      info.label = (await tokenSymbol(key)) || implementation?.ContractName || source?.ContractName || key;
+      for (const verified of [source, implementation]) {
+        for (const item of JSON.parse(verified?.ABI ?? "[]")) {
           if (item.type === "function") info.functions.set(toFunctionSelector(item), item.name);
         }
       }
@@ -327,7 +346,7 @@ for (const transfer of [...(trace.beforeEVMTransfers ?? []), ...(trace.afterEVMT
 
 How the script reads the trace:
 
-* Contract names come from the Elysium Testnet Blockscout API at `https://elysium.kinetiq.xyz/api/v2` — the token symbol first, then the implementation name for a proxy, then the contract name. Function names come from the verified ABIs of the contract and of a proxy's implementations.
+* Contract names come from the chain and from the Elysium Testnet Blockscout API at `https://testnet.elysium.kinetiq.xyz/api` — the token symbol that the contract returns first, then the implementation name for a proxy, then the contract name. Function names come from the verified ABIs of the contract and of a proxy's implementation.
 * When no verified ABI covers a selector, the script looks it up in the [Sourcify signature database](https://4byte.sourcify.dev) and marks the name with `*`. A selector can match more than one signature, so a marked name is a likely match, not a verified one.
 * A proxy forwards a call to its implementation with a `DELEGATECALL` that carries the same input. The script folds that `DELEGATECALL` into the call that reached the proxy, so each proxied call takes one line.
 * The call tree hides a `STATICCALL` that succeeded, unless a call inside it failed. A `STATICCALL` reads state and can't change it or move HYPE.
@@ -347,17 +366,17 @@ Status: success
 
 Call tree (successful STATICCALLs hidden):
 CALL SignalCurveHypeRouter.sell (0x75d98c98f92d1f5d65ca6a962f36476be34c64ae)
-  CALL ELI.transferFrom (0x5c1217c53cb0a6f848c9895c67becfb33e2fbf49)
+  CALL ELI.transferFrom* (0x5c1217c53cb0a6f848c9895c67becfb33e2fbf49)
     STATICCALL SignalProjectXAverageGuard.isPool (0xc8e6fab2c78b6e209ab355c248568e049dc30ad5)
       STATICCALL SignalCurveHypeRouter.0xc45a0155 (0x75d98c98f92d1f5d65ca6a962f36476be34c64ae) -> execution reverted
-  CALL ELI.approve (0x5c1217c53cb0a6f848c9895c67becfb33e2fbf49)
+  CALL ELI.approve* (0x5c1217c53cb0a6f848c9895c67becfb33e2fbf49)
   CALL SignalProjectXV2Router.swapExactTokensForTokensSupportingFeeOnTransferTokens (0x645f45ac6b7701a53049e70c8eec608007917b36)
-    CALL ELI.transferFrom (0x5c1217c53cb0a6f848c9895c67becfb33e2fbf49)
+    CALL ELI.transferFrom* (0x5c1217c53cb0a6f848c9895c67becfb33e2fbf49)
       STATICCALL SignalProjectXAverageGuard.isPool (0xc8e6fab2c78b6e209ab355c248568e049dc30ad5)
         STATICCALL SignalCurveHypeRouter.0xc45a0155 (0x75d98c98f92d1f5d65ca6a962f36476be34c64ae) -> execution reverted
     CALL UNI-V2.swap (0xa591ff46fbbd69fc82852455c6bb50451a0d492a)
       CALL WHYPE.transfer* (0xcd57f65c2b0e5881cfc2e609f7cd53b746e1f234)
-  CALL ELI.approve (0x5c1217c53cb0a6f848c9895c67becfb33e2fbf49)
+  CALL ELI.approve* (0x5c1217c53cb0a6f848c9895c67becfb33e2fbf49)
   CALL WHYPE.withdraw* (0xcd57f65c2b0e5881cfc2e609f7cd53b746e1f234)
     CALL SignalCurveHypeRouter (0x75d98c98f92d1f5d65ca6a962f36476be34c64ae) value 0.298278008318179074 HYPE
   CALL 0x7c7c1dec39f30c90be787282a874ba09161b327c value 0.298278008318179074 HYPE
@@ -473,4 +492,4 @@ On Elysium, the first entry, the top-level call, also carries `beforeEVMTransfer
 
 * [Reading EVM traces: callTracer and prestateTracer](/docs/reading-evm-traces-with-calltracer-and-prestatetracer) — what each trace field means, and `debug_traceCall` for tracing a call before you send it.
 * [Elysium methods](/docs/elysium-methods) — the tracers and debug methods available on Elysium.
-* [Elysium tooling](/docs/elysium-tooling) — the chain configuration and libraries for Elysium Testnet.
+* [Elysium tooling](/docs/elysium-tooling) — the chain configuration and libraries for Elysium.
