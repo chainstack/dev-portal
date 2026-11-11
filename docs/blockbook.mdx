@@ -1,0 +1,269 @@
+---
+title: "Blockbook"
+description: "Query Bitcoin address balances, UTXOs, transaction history, and xpub accounts over REST, and subscribe to new blocks and address activity over WebSocket, with the Blockbook add-on for Bitcoin Mainnet Global Nodes."
+---
+
+Blockbook is an add-on for Bitcoin Mainnet [Global Nodes](/docs/global-elastic-node) that indexes the chain by address. With Blockbook, one request returns the balance, UTXOs, or transaction history of any address or extended public key (xpub), and a WebSocket subscription pushes new blocks and address activity to your application.
+
+Blockbook is the open-source blockchain indexer built by [Trezor](https://github.com/trezor/blockbook). Chainstack runs it alongside your Bitcoin node and serves it from a separate endpoint that uses your node's auth token.
+
+<Check>
+  ### Blockbook is available starting from Growth
+
+  Blockbook is a separate paid add-on, available starting from the [Growth plan](https://chainstack.com/pricing/).
+</Check>
+
+<Note>
+  ### Bitcoin Mainnet only
+
+  Blockbook is available on Bitcoin Mainnet Global Nodes. It isn't available on the Bitcoin testnets.
+</Note>
+
+## What Blockbook adds to a Bitcoin node
+
+Bitcoin Core indexes transactions by transaction ID, not by address. Its JSON-RPC API answers address questions with `scantxoutset`, which scans the entire UTXO set on every call, or not at all. Blockbook keeps an address index, so each of these tasks is a single request:
+
+| Task | Bitcoin Core JSON-RPC on a Global Node | Blockbook |
+| --- | --- | --- |
+| Get the balance of an address | `scantxoutset`, which scans the entire UTXO set | `GET /api/v2/address/{address}` |
+| List the UTXOs of an address | `scantxoutset` | `GET /api/v2/utxo/{address}` |
+| List the transactions of an address | Not available | `GET /api/v2/address/{address}?details=txids` |
+| Get the balance and transactions of a wallet account | Not available | `GET /api/v2/xpub/{xpub}` |
+| Get notified when an address sends or receives | Not available | WebSocket `subscribeAddresses` |
+
+For the Bitcoin Core methods available on Chainstack, see [Bitcoin methods](/docs/bitcoin-methods).
+
+## Install Blockbook
+
+<Steps>
+  <Step title="Deploy a Bitcoin Mainnet Global Node">
+    If you don't have one yet, see [Add a node to a network](/docs/manage-your-node#add-a-node-to-a-network).
+  </Step>
+  <Step title="Open the Add-ons tab">
+    On Chainstack, open the node and select the **Add-ons** tab.
+  </Step>
+  <Step title="Install the add-on">
+    Click **Enable** on the Blockbook add-on, select a tier in the **Install Add-on** dialog, and click **Install**.
+  </Step>
+</Steps>
+
+To switch tiers or remove the add-on, see [Manage node add-ons](/docs/add-ons#manage-node-add-ons).
+
+## Blockbook tiers
+
+Blockbook has three monthly tiers. Each tier sets the maximum number of requests per second to the node's Blockbook endpoints.
+
+| Tier | Price per month | Intended for |
+| --- | --- | --- |
+| Starter | \$49 | Development, bots, and small wallets |
+| Pro | \$149 | Production wallets and payment services |
+| Business | \$449 | Exchanges and wallets with high traffic |
+
+## Blockbook endpoints
+
+After you install the add-on, the node's **Access and credentials** shows two more endpoints:
+
+- **Blockbook HTTPS endpoint** — the REST API, `https://blockbook-bitcoin-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN/api/v2`
+- **Blockbook WSS endpoint** — the WebSocket API, `wss://blockbook-bitcoin-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN/websocket`
+
+Both Blockbook endpoints use the node's auth token, the same token as in the node's HTTPS endpoint. The node's own HTTPS and WSS endpoints keep serving Bitcoin Core JSON-RPC. For more on node auth tokens, see [Authentication methods](/docs/authentication-methods-for-different-scenarios).
+
+## REST API
+
+The Blockbook REST API takes `GET` requests and returns JSON. Broadcasting a transaction also takes `POST`. Amounts are strings in satoshis, so `"balance": "100000000"` is 1 BTC.
+
+### Get the balance and transactions of an address
+
+`/api/v2/address/{address}` returns the balance of a legacy, P2SH-SegWit, native SegWit, or Taproot address, and a page of its transaction IDs:
+
+```bash
+curl "https://blockbook-bitcoin-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN/api/v2/address/bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"
+```
+
+The response has these fields:
+
+- `balance` — the confirmed balance
+- `totalReceived` and `totalSent` — the confirmed totals over the address's history
+- `unconfirmedBalance` — the change from mempool transactions
+- `unconfirmedTxs` — the number of mempool transactions
+- `txs` — the number of confirmed transactions
+- `txids` — the transaction IDs on the current page, newest first
+- `page`, `totalPages`, and `itemsOnPage` — the paging state
+
+These query parameters shape the response:
+
+- `details` — `basic` returns only the balances and counts, and omits `unconfirmedBalance`. `txids` is the default. `txs` returns full transactions instead of IDs.
+- `page` and `pageSize` — select a page of transactions.
+- `from` and `to` — limit the transactions to a block height range.
+
+### List the UTXOs of an address
+
+`/api/v2/utxo/{address}` returns the unspent outputs of an address, including outputs from mempool transactions. Add `confirmed=true` to return only confirmed outputs:
+
+```bash
+curl "https://blockbook-bitcoin-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN/api/v2/utxo/bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu?confirmed=true"
+```
+
+Each UTXO has `txid`, `vout`, `value`, `height`, and `confirmations`.
+
+### Get a wallet account by xpub
+
+`/api/v2/xpub/{xpub}` returns the balance and transactions of every address that a wallet account derives from its extended public key. `/api/v2/utxo/{xpub}` returns the UTXOs of the account. This example uses the account key from the [BIP-84 test vectors](https://github.com/bitcoin/bips/blob/master/bip-0084.mediawiki#test-vectors):
+
+```bash
+curl "https://blockbook-bitcoin-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN/api/v2/xpub/zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs?details=basic"
+```
+
+Blockbook derives the address type from the key prefix:
+
+| Key prefix | Address type | Derivation path |
+| --- | --- | --- |
+| `xpub` | Legacy (P2PKH), `1…` | BIP-44 |
+| `ypub` | P2SH-SegWit, `3…` | BIP-49 |
+| `zpub` | Native SegWit (P2WPKH), `bc1q…` | BIP-84 |
+
+A key with the wrong prefix for the wallet returns an account with no balance and no transactions, not an error. If your wallet exports every key as `xpub`, pass an output descriptor instead.
+
+For Taproot accounts, pass an output descriptor such as `tr(YOUR_XPUB/<0;1>/*)`. Blockbook also accepts `pkh(…)`, `sh(wpkh(…))`, and `wpkh(…)` descriptors. URL-encode the descriptor in the path:
+
+```bash
+curl "https://blockbook-bitcoin-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN/api/v2/xpub/tr%28YOUR_XPUB%2F%3C0%3B1%3E%2F%2A%29?details=basic"
+```
+
+### Other REST endpoints
+
+| Endpoint | Returns |
+| --- | --- |
+| `/api/v2/tx/{txid}` | A transaction with its inputs, outputs, fees, and confirmations |
+| `/api/v2/tx-specific/{txid}` | The transaction in the Bitcoin Core `getrawtransaction` format |
+| `/api/v2/block/{height or hash}` | A block and a page of its transactions |
+| `/api/v2/block-index/{height}` | The hash of the block at a height |
+| `/api/v2/rawblock/{height or hash}` | The serialized block as `hex` |
+| `/api/v2/balancehistory/{address or xpub}` | The amounts received and sent over time; `groupBy` sets the interval in seconds |
+| `/api/v2/estimatefee/{blocks}` | The node's fee estimate in BTC for confirmation within `blocks` blocks |
+| `/api/v2/feestats/{height}` | The fee statistics of a block |
+| `/api/v2/block-filters/?scriptType=taproot-noordinals&lastN=10` | Compact filters for the Taproot outputs of the last `lastN` blocks; `scriptType` is required |
+
+### Broadcast a transaction
+
+`/api/v2/sendtx/` broadcasts a signed transaction and returns its ID as `{"result": "TXID"}`. Send the transaction hex as the body of a `POST` request:
+
+```bash
+curl -X POST -d "SIGNED_TRANSACTION_HEX" "https://blockbook-bitcoin-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN/api/v2/sendtx/"
+```
+
+A `GET` request with the hex in the path, `/api/v2/sendtx/SIGNED_TRANSACTION_HEX`, also works for transactions short enough to fit in a URL.
+
+### REST errors
+
+An invalid request returns HTTP `400` and a JSON body with an `error` field:
+
+| Cause | `error` |
+| --- | --- |
+| The address is malformed | `Invalid address, checksum mismatch` |
+| The transaction ID is unknown | `Transaction 'TXID' not found` |
+| The transaction hex doesn't decode | `-22: TX decode failed. Make sure the tx has at least one input.` |
+
+## WebSocket API
+
+The Blockbook WebSocket API takes JSON messages with `id`, `method`, and `params`. Each response and each subscription notification carries the `id` of the request that created it. One connection can run several requests and subscriptions at once, and responses can arrive in a different order than the requests, so match them by `id`.
+
+### Subscribe to new blocks and address activity
+
+This Node.js example subscribes to new blocks and to one address. It uses the [ws](https://github.com/websockets/ws) package, installed with `npm install ws`:
+
+```javascript subscribe.js
+const WebSocket = require("ws");
+
+const ws = new WebSocket("wss://blockbook-bitcoin-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN/websocket");
+
+ws.on("open", () => {
+  ws.send(JSON.stringify({ id: "1", method: "subscribeNewBlock", params: {} }));
+  ws.send(JSON.stringify({
+    id: "2",
+    method: "subscribeAddresses",
+    params: { addresses: ["bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"] },
+  }));
+});
+
+ws.on("message", (raw) => {
+  const { id, data } = JSON.parse(raw);
+  if (data.subscribed) {
+    console.log(`Subscription ${id} is active`);
+  } else if (id === "1") {
+    console.log(`New block ${data.height} ${data.hash}`);
+  } else if (id === "2") {
+    console.log(`Address ${data.address} is in transaction ${data.tx.txid}`);
+  }
+});
+```
+
+The example prints `Subscription 1 is active` and `Subscription 2 is active`, then one line for each new block and each transaction that involves the address.
+
+The subscription methods are:
+
+- `subscribeNewBlock` — one notification per new block, with `height` and `hash`.
+- `subscribeAddresses` — one notification per transaction that involves an address in `addresses`, sent when the transaction enters the mempool. The notification has `address` and the full transaction as `tx`.
+- `subscribeNewTransaction` — one notification for every transaction that enters the mempool.
+
+`subscribeAddresses` rules:
+
+- To also get a notification when each transaction is confirmed in a block, add `"newBlockTxs": true` to `params`. The confirmed notification has the same `id` and shows `tx.confirmations` as `1`. With `newBlockTxs`, one subscription takes up to 100 addresses.
+- Each `subscribeAddresses` call replaces the connection's previous address list. To watch more addresses, send the full list again.
+- To stop, send `unsubscribeAddresses`. The other subscriptions stop with `unsubscribeNewBlock` and `unsubscribeNewTransaction`.
+
+### Query an address over WebSocket
+
+The REST queries are also available as WebSocket methods. This Python example gets the balance of an address with `getAccountInfo`. It uses the [websockets](https://websockets.readthedocs.io/) package, installed with `pip install websockets`:
+
+```python account.py
+import asyncio
+import json
+
+import websockets
+
+URL = "wss://blockbook-bitcoin-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN/websocket"
+
+async def main():
+    async with websockets.connect(URL) as ws:
+        await ws.send(json.dumps({
+            "id": "1",
+            "method": "getAccountInfo",
+            "params": {"descriptor": "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu", "details": "basic"},
+        }))
+        response = json.loads(await ws.recv())
+        print(response["data"])
+
+asyncio.run(main())
+```
+
+The example prints the address with its `balance`, `totalReceived`, `totalSent`, `unconfirmedTxs`, and `txs`.
+
+`descriptor` takes an address, an xpub, or an output descriptor, as in [Get a wallet account by xpub](#get-a-wallet-account-by-xpub). The WebSocket request methods are:
+
+| Method | REST equivalent |
+| --- | --- |
+| `getAccountInfo` | `/api/v2/address/{address}` and `/api/v2/xpub/{xpub}` |
+| `getAccountUtxo` | `/api/v2/utxo/{address or xpub}` |
+| `getBalanceHistory` | `/api/v2/balancehistory/{address or xpub}` |
+| `getTransaction` | `/api/v2/tx/{txid}` |
+| `getTransactionSpecific` | `/api/v2/tx-specific/{txid}` |
+| `getBlock` | `/api/v2/block/{height or hash}` |
+| `getBlockHash` | `/api/v2/block-index/{height}` |
+| `estimateFee` | `/api/v2/estimatefee/{blocks}`, with `blocks` as an array of targets |
+| `getInfo` | The network, the best block height and hash, and the backend version |
+| `ping` | An empty result, for keeping the connection open |
+
+## What isn't available on Chainstack Blockbook
+
+The [upstream Blockbook API reference](https://github.com/trezor/blockbook/blob/master/docs/api.md) also documents features that Chainstack Blockbook doesn't serve:
+
+- Fiat exchange rates — `/api/v2/tickers/`, `/api/v2/multi-tickers/`, and `/api/v2/tickers-list/` return `400` with `No tickers found`, and the WebSocket fiat rate methods return an error. Balance history has no fiat values, and its `fiatcurrency` parameter has no effect.
+- Methods for EVM chains — `/api/v2/contract/` and the WebSocket `rpcCall` method don't apply to Bitcoin.
+
+## See also
+
+- [Bitcoin methods](/docs/bitcoin-methods)
+- [Bitcoin tooling](/docs/bitcoin-tooling)
+- [Add-ons](/docs/add-ons)
+- [Blockbook repository](https://github.com/trezor/blockbook)
