@@ -1,31 +1,38 @@
 ---
 title: "Blockbook"
-description: "Query Bitcoin address balances, UTXOs, transaction history, and xpub accounts over REST, and subscribe to new blocks and address activity over WebSocket, with the Blockbook add-on for Bitcoin Mainnet Global Nodes."
+description: "Query the balance, UTXOs, and transaction history of a Bitcoin address, or of a whole wallet by its extended public key (xpub), and subscribe to new blocks and address activity, with the Blockbook add-on for Bitcoin Mainnet Global Nodes."
 ---
 
 Blockbook is an add-on for Bitcoin Mainnet [Global Nodes](/docs/global-elastic-node) that indexes the chain by address. With Blockbook, one request returns the balance, UTXOs, or transaction history of any address or extended public key (xpub), and a WebSocket subscription pushes new blocks and address activity to your application.
 
 Blockbook is the open-source blockchain indexer built by [Trezor](https://github.com/trezor/blockbook). Chainstack runs it alongside your Bitcoin node and serves it from a separate endpoint that uses your node's auth token.
 
-<Check>
-  ### Blockbook is available starting from Growth
-
-  Blockbook is a separate paid add-on, available starting from the [Growth plan](https://chainstack.com/pricing/).
-</Check>
-
 <Note>
-  ### Bitcoin Mainnet only
-
-  Blockbook is available on Bitcoin Mainnet Global Nodes. It isn't available on the Bitcoin testnets.
+  Blockbook is a paid add-on for Bitcoin Mainnet Global Nodes, available starting from the [Growth plan](https://chainstack.com/pricing/). It isn't available on the Bitcoin testnets.
 </Note>
 
-## What Blockbook adds to a Bitcoin node
+## Why a Bitcoin node can't answer address queries
 
-Bitcoin Core indexes transactions by transaction ID, not by address. Its JSON-RPC API answers address questions either with `scantxoutset`, which scans the entire UTXO set on every call, or not at all. Blockbook keeps an address index, so each of these tasks is a single request:
+A Bitcoin node can't return an address's balance or history directly, because Bitcoin doesn't store either. Getting them from a node means scanning chain data, which is too slow to do on every request. Blockbook does that work once and keeps the result as an index by address.
+
+Bitcoin has no account balances. It tracks money with these building blocks:
+
+- Unspent transaction output (UTXO) — an amount that a transaction paid to an address and that no later transaction has spent yet. Every transaction spends earlier UTXOs and creates new ones.
+- Address balance — the sum of the address's UTXOs.
+- Address history — every transaction that paid to the address or spent from it.
+- Extended public key (xpub) — the public key of one wallet account. A wallet derives all the addresses of an account from its xpub and uses a new address for each payment, so the funds of one account spread across many addresses.
+
+A Bitcoin node stores transactions by transaction ID and keeps the current set of UTXOs, but it has no index by address. Without an address index:
+
+- To get the balance of an address, the node's `scantxoutset` method reads the entire UTXO set on every call.
+- To get the history of an address, you read every block since 2009 and check every transaction in it. Bitcoin Core lists an address's transactions only after you import the address into a node wallet, and the import scans the chain again.
+- To show a wallet, you need that history for every address the wallet has used.
+
+Blockbook reads every block once, records each transaction under the addresses it touches, and updates the index with every new block and mempool transaction. Each of these tasks then takes one request:
 
 | Task | Bitcoin Core JSON-RPC on a Global Node | Blockbook |
 | --- | --- | --- |
-| Get the balance of an address | `scantxoutset`, which scans the entire UTXO set | `GET /api/v2/address/{address}` |
+| Get the balance of an address | `scantxoutset`, which reads the entire UTXO set | `GET /api/v2/address/{address}` |
 | List the UTXOs of an address | `scantxoutset` | `GET /api/v2/utxo/{address}` |
 | List the transactions of an address | Not available | `GET /api/v2/address/{address}?details=txids` |
 | Get the balance and transactions of a wallet account | Not available | `GET /api/v2/xpub/{xpub}` |
@@ -51,13 +58,13 @@ To switch tiers or remove the add-on, see [Manage node add-ons](/docs/add-ons#ma
 
 ## Blockbook tiers
 
-Blockbook has three monthly tiers. Each tier sets the maximum number of requests per second (RPS) for the node's Blockbook endpoints:
+Blockbook has three monthly tiers. Each tier sets the maximum number of requests per second (RPS) for the node's Blockbook endpoints. For the price of each tier, see [Chainstack pricing](https://chainstack.com/pricing/).
 
-| Tier | Price per month | RPS | Intended for |
-| --- | --- | --- | --- |
-| Starter | \$49 | 10 | Development, bots, and small wallets |
-| Pro | \$149 | 50 | Production wallets and payment services |
-| Business | \$449 | 200 | Exchanges and wallets with high traffic |
+| Tier | RPS | Intended for |
+| --- | --- | --- |
+| Starter | 10 | Development, bots, and small wallets |
+| Pro | 50 | Production wallets and payment services |
+| Business | 200 | Exchanges and wallets with high traffic |
 
 The RPS limit applies to the node as a whole, across all your applications. It counts each REST request and each WebSocket message sent to the node's Blockbook endpoints. A REST request above the limit returns HTTP `429`.
 
@@ -141,7 +148,9 @@ Each UTXO has `txid`, `vout`, `value`, `height`, and `confirmations`.
 
 ### Get a wallet account by xpub
 
-`/api/v2/xpub/{xpub}` returns the balance and transactions of every address that a wallet account derives from its extended public key. `/api/v2/utxo/{xpub}` returns the UTXOs of the account. This example uses the account key from the [BIP-84 test vectors](https://github.com/bitcoin/bips/blob/master/bip-0084.mediawiki#test-vectors):
+A Bitcoin wallet uses a new address for each payment, so the funds of one wallet account spread across many addresses. All of them derive from the account's extended public key (xpub), which hardware and software wallets can export. An xpub can't sign transactions, but it reveals every address of the account.
+
+`/api/v2/xpub/{xpub}` finds the account's used addresses and returns their combined balance and transactions. `/api/v2/utxo/{xpub}` returns the UTXOs of the account. This example uses the account key from the [BIP-84 test vectors](https://github.com/bitcoin/bips/blob/master/bip-0084.mediawiki#test-vectors):
 
 ```bash
 curl "https://blockbook-bitcoin-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN/api/v2/xpub/zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs?details=basic"
@@ -333,10 +342,14 @@ When you remove the add-on, the node's open Blockbook WebSocket connections clos
 
 ## What isn't available on Chainstack Blockbook
 
-The [upstream Blockbook API reference](https://github.com/trezor/blockbook/blob/master/docs/api.md) also documents features that Chainstack Blockbook doesn't serve:
+The [upstream Blockbook API reference](https://github.com/trezor/blockbook/blob/master/docs/api.md) documents some features that don't work on Chainstack Blockbook:
 
-- Fiat exchange rates — `/api/v2/tickers/`, `/api/v2/multi-tickers/`, and `/api/v2/tickers-list/` return `400` with `No tickers found`, and the WebSocket fiat rate methods return an error. Balance history has no fiat values, and its `fiatcurrency` parameter has no effect.
-- Methods for EVM chains — `/api/v2/contract/` and the WebSocket `rpcCall` method don't apply to Bitcoin.
+- Fiat exchange rates — Chainstack Blockbook doesn't collect exchange rates.
+  - The `/api/v2/tickers/`, `/api/v2/multi-tickers/`, and `/api/v2/tickers-list/` endpoints return HTTP `400` with `No tickers found`.
+  - The WebSocket methods `getCurrentFiatRates`, `getFiatRatesForTimestamps`, and `getFiatRatesTickersList` return the same error.
+  - `subscribeFiatRates` confirms the subscription but never sends a notification.
+  - Balance history has no fiat values, and its `fiatcurrency` parameter has no effect.
+- Methods for EVM chains — `/api/v2/contract/` and the WebSocket `rpcCall` method return an error, because they don't apply to Bitcoin.
 
 ## See also
 
