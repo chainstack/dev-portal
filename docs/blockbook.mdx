@@ -21,7 +21,7 @@ Blockbook is the open-source blockchain indexer built by [Trezor](https://github
 
 ## What Blockbook adds to a Bitcoin node
 
-Bitcoin Core indexes transactions by transaction ID, not by address. Its JSON-RPC API answers address questions with `scantxoutset`, which scans the entire UTXO set on every call, or not at all. Blockbook keeps an address index, so each of these tasks is a single request:
+Bitcoin Core indexes transactions by transaction ID, not by address. Its JSON-RPC API answers address questions either with `scantxoutset`, which scans the entire UTXO set on every call, or not at all. Blockbook keeps an address index, so each of these tasks is a single request:
 
 | Task | Bitcoin Core JSON-RPC on a Global Node | Blockbook |
 | --- | --- | --- |
@@ -51,13 +51,25 @@ To switch tiers or remove the add-on, see [Manage node add-ons](/docs/add-ons#ma
 
 ## Blockbook tiers
 
-Blockbook has three monthly tiers. Each tier sets the maximum number of requests per second to the node's Blockbook endpoints.
+Blockbook has three monthly tiers. Each tier sets the maximum number of requests per second (RPS) for the node's Blockbook endpoints:
 
-| Tier | Price per month | Intended for |
-| --- | --- | --- |
-| Starter | \$49 | Development, bots, and small wallets |
-| Pro | \$149 | Production wallets and payment services |
-| Business | \$449 | Exchanges and wallets with high traffic |
+| Tier | Price per month | RPS | Intended for |
+| --- | --- | --- | --- |
+| Starter | \$49 | 10 | Development, bots, and small wallets |
+| Pro | \$149 | 50 | Production wallets and payment services |
+| Business | \$449 | 200 | Exchanges and wallets with high traffic |
+
+The RPS limit applies to the node as a whole, across all your applications. It counts each REST request and each WebSocket message sent to the node's Blockbook endpoints. A REST request above the limit returns HTTP `429`.
+
+## How Blockbook requests are billed
+
+Blockbook requests consume [request units](/docs/request-units) (RUs) on top of the tier's monthly price:
+
+- Each REST request is 1 RU.
+- Each WebSocket request is 1 RU.
+- Each WebSocket subscription notification is 1 RU.
+
+On a node with the [Unlimited Node](/docs/unlimited-node) add-on, Blockbook requests don't consume RUs, and the Blockbook tier's RPS limit still applies.
 
 ## Blockbook endpoints
 
@@ -70,15 +82,36 @@ Both Blockbook endpoints use the node's auth token, the same token as in the nod
 
 ## REST API
 
-The Blockbook REST API takes `GET` requests and returns JSON. Broadcasting a transaction also takes `POST`. Amounts are strings in satoshis, so `"balance": "100000000"` is 1 BTC.
+The Blockbook REST API takes `GET` requests under `/api/v2` and returns JSON. Broadcasting a transaction also takes `POST`. Amounts are strings in satoshis, so `"balance": "100000000"` is 1 BTC.
 
 ### Get the balance and transactions of an address
 
-`/api/v2/address/{address}` returns the balance of a legacy, P2SH-SegWit, native SegWit, or Taproot address, and a page of its transaction IDs:
+`/api/v2/address/{address}` returns the balance of a legacy, P2SH-SegWit, native SegWit, or Taproot address, and a page of its transaction IDs. This example requests a page of two transaction IDs:
 
 ```bash
-curl "https://blockbook-bitcoin-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN/api/v2/address/bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"
+curl "https://blockbook-bitcoin-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN/api/v2/address/bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu?pageSize=2"
 ```
+
+```json
+{
+  "page": 1,
+  "totalPages": 90,
+  "itemsOnPage": 2,
+  "address": "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu",
+  "balance": "0",
+  "totalReceived": "4083249",
+  "totalSent": "4083249",
+  "unconfirmedBalance": "0",
+  "unconfirmedTxs": 0,
+  "txs": 180,
+  "txids": [
+    "712b7bff42f0f2bccfd82b04a29be860125e3964f200c0cc0a0cd83c831ba202",
+    "6bc75acd487b6846fad7b00ea89a576257eb59733942d628a942c01b6d3b699e"
+  ]
+}
+```
+
+The example address is the first receiving address of the public [BIP-84 test vectors](https://github.com/bitcoin/bips/blob/master/bip-0084.mediawiki#test-vectors). Anyone can send to it and spend from it, so its balance is usually `0`.
 
 The response has these fields:
 
@@ -113,6 +146,21 @@ Each UTXO has `txid`, `vout`, `value`, `height`, and `confirmations`.
 ```bash
 curl "https://blockbook-bitcoin-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN/api/v2/xpub/zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs?details=basic"
 ```
+
+```json
+{
+  "address": "zpub6rFR7y4Q2AijBEqTUquhVz398htDFrtymD9xYYfG1m4wAcvPhXNfE3EfH1r1ADqtfSdVCToUG868RvUUkgDKf31mGDtKsAYz2oz2AGutZYs",
+  "balance": "0",
+  "totalReceived": "5631603",
+  "totalSent": "5631603",
+  "unconfirmedTxs": 0,
+  "txs": 280,
+  "addrTxCount": 280,
+  "usedTokens": 40
+}
+```
+
+`balance`, `totalReceived`, and `totalSent` add up all the account's addresses, and `usedTokens` is the number of derived addresses with transaction history. To list the account's used addresses with their derivation paths, add `details=tokens&tokens=used`.
 
 Blockbook derives the address type from the key prefix:
 
@@ -237,7 +285,11 @@ async def main():
 asyncio.run(main())
 ```
 
-The example prints the address with its `balance`, `totalReceived`, `totalSent`, `unconfirmedTxs`, and `txs`.
+The example prints:
+
+```text
+{'address': 'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu', 'balance': '0', 'totalReceived': '4083249', 'totalSent': '4083249', 'unconfirmedTxs': 0, 'txs': 180}
+```
 
 `descriptor` takes an address, an xpub, or an output descriptor, as in [Get a wallet account by xpub](#get-a-wallet-account-by-xpub). The WebSocket request methods are:
 
@@ -253,6 +305,15 @@ The example prints the address with its `balance`, `totalReceived`, `totalSent`,
 | `estimateFee` | `/api/v2/estimatefee/{blocks}`, with `blocks` as an array of targets |
 | `getInfo` | The network, the best block height and hash, and the backend version |
 | `ping` | An empty result, for keeping the connection open |
+
+## Access and rate limit errors
+
+The Blockbook endpoints return these errors before a request reaches Blockbook:
+
+- HTTP `403` — the node doesn't have the Blockbook add-on. The response body is `Blockbook is not enabled for this node. Install the add-on to query address data. See https://docs.chainstack.com/docs/blockbook for instructions.`
+- HTTP `429` — the node's Blockbook requests exceeded the tier's RPS limit. See [Blockbook tiers](#blockbook-tiers).
+
+When you remove the add-on, the node's open Blockbook WebSocket connections close.
 
 ## What isn't available on Chainstack Blockbook
 
