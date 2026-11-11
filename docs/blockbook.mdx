@@ -232,10 +232,15 @@ ws.on("open", () => {
     method: "subscribeAddresses",
     params: { addresses: ["bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"] },
   }));
+  // Keep the connection active between blocks
+  setInterval(() => ws.send(JSON.stringify({ id: "ping", method: "ping", params: {} })), 30000);
 });
 
 ws.on("message", (raw) => {
   const { id, data } = JSON.parse(raw);
+  if (id === "ping") {
+    return;
+  }
   if (data.subscribed) {
     console.log(`Subscription ${id} is active`);
   } else if (id === "1") {
@@ -244,9 +249,20 @@ ws.on("message", (raw) => {
     console.log(`Address ${data.address} is in transaction ${data.tx.txid}`);
   }
 });
+
+ws.on("close", (code) => {
+  console.log(`Connection closed with code ${code}`);
+  process.exit(1);
+});
 ```
 
-The example prints `Subscription 1 is active` and `Subscription 2 is active`, then one line for each new block and each transaction that involves the address.
+The example sends `ping` every 30 seconds, because a WebSocket connection with no traffic can be closed while a subscription waits for the next block. It prints one line for each new block and each transaction that involves the address:
+
+```text
+Subscription 1 is active
+Subscription 2 is active
+New block 975421 00000000000000000000f6eb09a42d492dc1e7349c3ef60b096a2bbf8f0d13f7
+```
 
 The subscription methods are:
 
