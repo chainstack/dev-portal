@@ -1,31 +1,33 @@
 ---
 title: "BNB Smart Chain: Jenner hardfork"
-description: "What the BNB Smart Chain Jenner hardfork changes on December 8, 2026 — CAS20 token precompiles, the payment lane, a millisecond timestamp precompile — and the RPC changes that ship with BSC client v1.8."
+description: "What the BNB Smart Chain Jenner hardfork changes on December 8, 2026: CAS20 token precompiles, the payment lane, and a millisecond timestamp precompile, plus the RPC changes that ship with BSC client v1.8."
 ---
 
-Jenner is a BNB Smart Chain (BSC) hardfork that activates on Mainnet on December 8, 2026, at 02:30 UTC (Unix timestamp `1796697000`). It activated on the Chapel testnet on October 29, 2026.
+Jenner is a BNB Smart Chain (BSC) hardfork that activates on Mainnet on December 8, 2026, at 02:30 UTC (Unix timestamp `1796697000`). It activated on BNB Smart Chain Testnet (Chapel) on October 29, 2026.
 
-Jenner ships three BSC-only changes, listed in [BEP-718](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP-718.md):
+Jenner includes three BSC-only BNB Evolution Proposals (BEPs), listed in [BEP-718](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP-718.md):
 
 | BEP | Change | What it means for you |
 | --- | --- | --- |
-| [BEP-702](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP-702.md) | CAS20, a token standard built into the protocol as stateful precompiles | A new kind of token at reserved addresses. Token creation opens separately, through a governance-controlled switch |
-| [BEP-703](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP-703.md) | Payment lane — 5% of each block's gas reserved for payment transactions | General transactions can use at most 95% of a block's gas when payment demand is low |
+| [BEP-702](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP-702.md) | Compliant asset standard (CAS20), a token standard built into the protocol as stateful precompiles | A new kind of token at reserved addresses. Token creation opens separately, through a governance-controlled switch |
+| [BEP-703](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP-703.md) | Payment lane: 5% of each block's gas reserved for payment transactions | General transactions can never use more than 95% of a block's gas at the default ratio, even when the lane is empty |
 | [BEP-706](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP-706.md) | Millisecond block timestamp precompile at `0x70` | Contracts can read block time in milliseconds; `block.timestamp` stays in seconds |
+
+Jenner also charges the double-sign evidence precompile at `0x68` per input byte.
 
 The BSC client release that schedules the fork, v1.8.2, also carries RPC changes that apply as soon as a node upgrades, before activation. See [RPC changes that ship with the client upgrade](#rpc-changes-that-ship-with-the-client-upgrade).
 
 <Check>
-Chainstack BNB Smart Chain Global Nodes run BSC client v1.8.2, the release that schedules Jenner on Mainnet.
+Chainstack BNB Smart Chain Global Nodes serve requests at recent blocks with BSC client v1.8.2, the release that schedules Jenner on Mainnet.
 </Check>
 
 ## Millisecond block timestamp precompile (BEP-706)
 
 After activation, a precompiled contract at `0x0000000000000000000000000000000000000070` returns the executing block's timestamp in milliseconds. It closes a gap left by faster blocks: BSC blocks now come faster than once a second, so several blocks can share one `block.timestamp` value.
 
-* Input — none. The precompile ignores calldata.
-* Output — a 32-byte big-endian unsigned integer, the block time in milliseconds since the Unix epoch.
-* Gas — 20.
+* Input: none. The precompile ignores calldata.
+* Output: a 32-byte big-endian unsigned integer, the block time in milliseconds since the Unix epoch.
+* Gas: 20.
 * `block.timestamp` and the `TIMESTAMP` opcode are unchanged and still return seconds.
 
 The value is the same one block headers have carried since the [Lorentz hardfork](/docs/bnb-lorentz-hardfork): the header `timestamp` in seconds plus the millisecond remainder stored in `mixHash`. The precompile makes it readable from a contract:
@@ -54,21 +56,21 @@ curl -X POST YOUR_CHAINSTACK_ENDPOINT \
 
 ## Payment lane (BEP-703)
 
-From the block after activation, every block reserves a share of its gas — 5% by default — that general transactions cannot use. The reservation is an accounting rule, not a separate region of the block: payment and general transactions stay interleaved and ordered by fee as before.
+From the block after activation, every block reserves a share of its gas, 5% by default, that general transactions cannot use. The reservation is an accounting rule, not a separate region of the block: payment and general transactions stay interleaved and ordered by fee as before.
 
 A transaction counts as a payment when it is not a system transaction, has a `to` address, has type `0x00`, `0x01`, or `0x02`, and one of these holds:
 
 * `to` is on the payment contract list that BSC governance maintains. The list starts empty after the fork; stablecoins such as USDT and USDC are the intended first entries.
-* It sends a non-zero BNB `value` to an account that holds no code.
+* It sends a non-zero BNB `value` to an account that holds no code. An account with an EIP-7702 delegation counts as holding code.
 
 Everything else, including any transaction to a contract that is not on the list, is a general transaction. Each block must satisfy:
 
-```
+```text
 generalGasUsed + max(paymentGasUsed, paymentLaneQuota) <= gasLimit
 paymentLaneQuota = gasLimit × ratio / 10000      # ratio defaults to 500, capped at 1000
 ```
 
-At the current Mainnet block gas limit of 70,000,000, the quota is 3,500,000 gas. When payment transactions use less than the quota, general transactions are limited to the rest — 66,500,000 gas. When payment demand meets or exceeds the quota, payment and general transactions compete for the remaining space on equal fee terms.
+At the current Mainnet block gas limit of 70,000,000, the quota is 3,500,000 gas. When payment transactions use less than the quota, general transactions are limited to the rest, 66,500,000 gas. When payment demand meets or exceeds the quota, payment and general transactions compete for the remaining space on equal fee terms.
 
 Governance can change the ratio, up to 10%, and the payment contract list through the `PaymentLane` system contract at `0x0000000000000000000000000000000000002007`. A change takes effect from the block after the one that carries it.
 
@@ -88,26 +90,29 @@ The hardfork puts the CAS20 code on every node, but token creation stays closed 
 
 ## RPC changes that ship with the client upgrade
 
-These changes come with the BSC client upgrade, not with Jenner activation, so they apply to any node running v1.8.x — including Chainstack BNB Smart Chain nodes today.
+These changes come with the BSC client upgrade, not with Jenner activation. The tracer, `eth_simulateV1`, and `eth_getStorageValues` changes arrived in v1.8.0-alpha, and the `prevRandao` check in v1.8.1. Chainstack BNB Smart Chain Global Nodes apply them to requests at recent blocks.
 
 ### Tracer output follows the Geth format
 
-`debug_trace*` calls that return opcode-level `structLogs` changed format in v1.8.0, a breaking change for parsers written against the previous output:
+`debug_trace*` calls that return opcode-level `structLogs` changed format in v1.8.0-alpha, a breaking change for parsers written against the previous output:
 
 * `memory` words are `0x`-prefixed and padded to 32 bytes.
 * `storage` keys and values are `0x`-prefixed.
 * `error` is omitted from a step when it is empty.
-* `reexec` is no longer part of the tracing config. Requests that still pass it succeed.
+
+The tracing config no longer includes `reexec`. Requests that still pass it succeed.
 
 A `debug_traceCall` with `{"enableMemory": true}` on v1.8.2 returns steps like:
 
 ```json
-"memory": [
-  "0x0000000000000000000000000000000000000000000000000000000000000000",
-  "0x0000000000000000000000000000000000000000000000000000000000000000"
-],
-"storage": {
-  "0x0000000000000000000000000000000000000000000000000000000000000003": "0x00000000000000000000000000000000000000001dada59ce83bb9a18098fbc1"
+{
+  "memory": [
+    "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "0x0000000000000000000000000000000000000000000000000000000000000000"
+  ],
+  "storage": {
+    "0x0000000000000000000000000000000000000000000000000000000000000003": "0x00000000000000000000000000000000000000001dada59ce83bb9a18098fbc1"
+  }
 }
 ```
 
@@ -131,7 +136,7 @@ Each call result from `eth_simulateV1` now has a `maxUsedGas` field next to `gas
 
 ## Additional resources
 
-* [BEP-718: Hardfork Meta — Jenner](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP-718.md)
-* [BSC client v1.8.2 release notes](https://github.com/bnb-chain/bsc/releases/tag/v1.8.2) and [v1.8.0-alpha release notes](https://github.com/bnb-chain/bsc/releases/tag/v1.8.0-alpha) for the RPC changes
+* [BEP-718: Hardfork Meta-Jenner](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP-718.md)
+* BSC client release notes for the RPC changes: [v1.8.2](https://github.com/bnb-chain/bsc/releases/tag/v1.8.2), [v1.8.1](https://github.com/bnb-chain/bsc/releases/tag/v1.8.1), and [v1.8.0-alpha](https://github.com/bnb-chain/bsc/releases/tag/v1.8.0-alpha)
 * [BNB Smart Chain methods](/docs/bnb-smart-chain-methods)
 * [BNB Smart Chain: Lorentz hardfork](/docs/bnb-lorentz-hardfork)
