@@ -248,11 +248,14 @@ async function signL1Action(
   // Serialize action with msgpack
   const actionBytes = msgpack.encode(action);
   
-  // Append vault address and nonce
+  // Append the nonce (8 bytes, big-endian), then a vault flag:
+  // 0x00 without a vault, or 0x01 followed by the 20-byte vault address
   const data = Buffer.concat([
     actionBytes,
-    vaultAddress ? Buffer.from(vaultAddress.slice(2), 'hex') : Buffer.alloc(20),
-    Buffer.from(nonce.toString(16).padStart(16, '0'), 'hex')
+    Buffer.from(nonce.toString(16).padStart(16, '0'), 'hex'),
+    vaultAddress
+      ? Buffer.concat([Buffer.from([1]), Buffer.from(vaultAddress.slice(2), 'hex')])
+      : Buffer.from([0])
   ]);
   
   // Hash to create connectionId
