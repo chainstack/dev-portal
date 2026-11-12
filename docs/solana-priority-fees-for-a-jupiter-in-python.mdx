@@ -6,13 +6,13 @@ description: Calculate and apply optimal priority fees for Jupiter swap transact
 > **Part of the [How to land transactions on Solana](/docs/solana-how-to-land-transactions) guide.**
 
 **TLDR:**
-* Jupiter offers a quick way to swap tokens on Solana but lacks a Python SDK, so we query Jupiter’s public API for quotes and transaction data.
+* Jupiter offers a quick way to swap tokens on Solana but lacks a Python SDK, so we call the `/build` endpoint of Jupiter's Swap API v2 for the raw swap instructions.
 * We calculate our priority fee by fetching recent block data via [`getRecentPrioritizationFees`](/reference/solana-getrecentprioritizationfees), then take the median of the non-zero slots and multiply it by a user-defined factor.
-* Adding this priority fee to the raw Jupiter transaction data (plus the base fee of 5000 lamports) helps ensure faster block inclusion under congestion.
-* The entire flow uses both Jupiter endpoints (quote + swap) and a private Solana RPC (e.g., Chainstack) for the final transaction broadcast, giving you more control over performance and reliability.
+* We assemble the transaction ourselves with that compute unit price and a compute unit limit measured by simulation. The priority fee, paid on top of the 5000-lamport base fee, helps the transaction land under congestion.
+* The flow makes one Jupiter call and uses your own Solana node (e.g., Chainstack) for fee data, simulation, and the final broadcast, giving you more control over performance and reliability.
 
 <Warning>
-Jupiter retired the old `quote-api.jup.ag/v6` endpoints on October 1, 2025. This guide uses the current Swap API at `https://api.jup.ag/swap/v1`. `api.jup.ag` works without a key at a low request rate and takes an `X-API-Key` header for higher tiers (get a key at [portal.jup.ag](https://portal.jup.ag)); `lite-api.jup.ag` is being phased out. Jupiter recommends its newer [Swap API v2](https://dev.jup.ag) for new integrations; the v1 flow below still works.
+Jupiter retired the old `quote-api.jup.ag/v6` endpoints on October 1, 2025, and recommends [Swap API v2](https://developers.jup.ag/docs/swap) over v1 (`/quote` and `/swap`). This guide uses the v2 Router endpoint, `https://api.jup.ag/swap/v2/build`, which returns raw swap instructions for a transaction you send through your own node. `api.jup.ag` works without a key at a low request rate and takes an `x-api-key` header for higher tiers (get a key at [portal.jup.ag](https://portal.jup.ag)); `lite-api.jup.ag` is being phased out.
 </Warning>
 
 ## Main article
@@ -52,20 +52,17 @@ Get yourself a Chainstack Solana node.
 
 Here's how it's going to work:
 
-1. Get a token pair price quote from the Jupiter API.
+1. Get the priority fee data for the recent 150 blocks with the `getRecentPrioritizationFees` call from a Chainstack Solana node, and calculate the compute unit price.
 
-2. Get the priority fees data from the recent 150 blocks with the `getRecentPrioritizationFees` call from a Chainstack Solana node.
+2. Get the swap instructions for the token pair (route, liquidity pools, and the accounts they use) from the Jupiter `/build` endpoint.
 
-3. Calculate the priority fee to include with your transaction.
+3. Assemble the transaction with your compute unit price, and simulate it through the Chainstack Solana node to set the compute unit limit.
 
-4. Submit the transaction through the Chainstack Solana node:
-
-   1. Transaction data (token pair exchange rate, liquidity pool) from the Jupiter API quote
-   2. Priority fee based on the raw chain data obtained through the Chainstack Solana node
+4. Sign the transaction and send it through the Chainstack Solana node.
 
 ## Implementation
 
-The flow is: estimate a priority fee from recent on-chain data, get a quote from Jupiter, build the swap transaction with that fee, then sign and send it through your own Solana node. Jupiter doesn't have an official Python SDK, so we call its REST API directly and sign with `solders`.
+The flow is: estimate a priority fee from recent on-chain data, get the swap instructions from Jupiter, assemble the transaction with that fee, then simulate, sign, and send it through your own Solana node. Jupiter doesn't have an official Python SDK, so we call its REST API directly and build and sign the transaction with `solders`.
 
 Install the dependencies:
 
@@ -79,19 +76,26 @@ The complete script:
 
 ```python jupiter_swap.py
 import base64
+import math
 import statistics
 
 import requests
+from solders.address_lookup_table_account import AddressLookupTableAccount
+from solders.compute_budget import set_compute_unit_limit, set_compute_unit_price
+from solders.hash import Hash
+from solders.instruction import AccountMeta, Instruction
 from solders.keypair import Keypair
+from solders.message import MessageV0
+from solders.pubkey import Pubkey
 from solders.transaction import VersionedTransaction
 
 # Your Chainstack Solana node and wallet
 RPC_ENDPOINT = "YOUR_CHAINSTACK_SOLANA_NODE"
 PRIVATE_KEY = "YOUR_PRIVATE_KEY"  # base58-encoded
 
-# Jupiter Swap API. lite-api.jup.ag is keyless (low rate); api.jup.ag takes an
-# X-API-Key header for higher tiers — get a key at https://portal.jup.ag
-JUPITER = "https://api.jup.ag/swap/v1"
+# Jupiter Swap API v2. Works without a key at a low request rate; for higher
+# rates, send an x-api-key header with a key from https://portal.jup.ag
+JUPITER = "https://api.jup.ag/swap/v2"
 
 INPUT_MINT = "So11111111111111111111111111111111111111112"   # SOL
 OUTPUT_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"  # USDC
@@ -99,57 +103,96 @@ FEE_ACCOUNT = "58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2"  # Raydium SOL-USDC
 AMOUNT = 1_000_000          # 0.001 SOL, in lamports
 SLIPPAGE_BPS = 50           # 0.5%
 PRIORITY_MULTIPLIER = 1.1   # bump over the median fee
+MAX_CU_LIMIT = 1_400_000    # the per-transaction maximum
 
 wallet = Keypair.from_base58_string(PRIVATE_KEY)
+
+
+def rpc(method, params):
+    resp = requests.post(RPC_ENDPOINT, json={
+        "jsonrpc": "2.0", "id": 1, "method": method, "params": params,
+    }).json()
+    if "error" in resp:
+        raise RuntimeError(resp["error"])
+    return resp["result"]
+
+
+def to_instruction(ix):
+    return Instruction(
+        Pubkey.from_string(ix["programId"]),
+        base64.b64decode(ix["data"]),
+        [AccountMeta(Pubkey.from_string(a["pubkey"]), a["isSigner"], a["isWritable"])
+         for a in ix["accounts"]],
+    )
+
 
 # 1) Estimate the compute unit price from recent blocks. Pass a writable account
 #    that swaps on this pair lock in most slots, such as a busy pool's state account.
 #    Slots where nothing wrote to it return 0, so take the median of the non-zero slots.
 #    Use the median, not the max: occasional astronomical fees can drain your wallet.
-resp = requests.post(RPC_ENDPOINT, json={
-    "jsonrpc": "2.0", "id": 1, "method": "getRecentPrioritizationFees",
-    "params": [[FEE_ACCOUNT]],
-}).json()
-fees = [x["prioritizationFee"] for x in resp["result"] if x["prioritizationFee"] > 0]
+recent = rpc("getRecentPrioritizationFees", [[FEE_ACCOUNT]])
+fees = [x["prioritizationFee"] for x in recent if x["prioritizationFee"] > 0]
 median_fee = int(statistics.median(fees)) if fees else 0
 cu_price = int(median_fee * PRIORITY_MULTIPLIER) or 1_000
 print(f"Median priority fee: {median_fee} micro-lamports/CU over {len(fees)} non-zero slots")
 print(f"Compute unit price: {cu_price} micro-lamports/CU")
 
-# 2) Get a quote from Jupiter.
-quote = requests.get(f"{JUPITER}/quote", params={
-    "inputMint": INPUT_MINT, "outputMint": OUTPUT_MINT,
-    "amount": AMOUNT, "slippageBps": SLIPPAGE_BPS,
+# 2) Get the swap instructions from Jupiter.
+build = requests.get(f"{JUPITER}/build", params={
+    "inputMint": INPUT_MINT, "outputMint": OUTPUT_MINT, "amount": AMOUNT,
+    "slippageBps": SLIPPAGE_BPS, "taker": str(wallet.pubkey()),
 }).json()
-print(f"Quote: {AMOUNT} -> {quote['outAmount']} (out)")
+if "error" in build:
+    raise RuntimeError(build["error"])
+print(f"Quote: {AMOUNT} -> {build['outAmount']} (out)")
 
-# 3) Build the swap transaction with your compute unit price and a dynamic compute unit limit.
-swap = requests.post(f"{JUPITER}/swap", json={
-    "quoteResponse": quote,
-    "userPublicKey": str(wallet.pubkey()),
-    "dynamicComputeUnitLimit": True,
-    "computeUnitPriceMicroLamports": cu_price,
-}).json()
-print(f"Compute unit limit: {swap['computeUnitLimit']}, priority fee: {swap['prioritizationFeeLamports']} lamports")
+# Leave out build["computeBudgetInstructions"]: it holds Jupiter's own price estimate,
+# and the transaction below carries your price from step 1 instead.
+swap_ixs = [to_instruction(ix) for ix in build["setupInstructions"]]
+swap_ixs.append(to_instruction(build["swapInstruction"]))
+if build["cleanupInstruction"]:
+    swap_ixs.append(to_instruction(build["cleanupInstruction"]))
+swap_ixs += [to_instruction(ix) for ix in build["otherInstructions"]]
 
-# 4) Sign the returned versioned transaction and send it through your node.
-raw = VersionedTransaction.from_bytes(base64.b64decode(swap["swapTransaction"]))
-signed = VersionedTransaction(raw.message, [wallet])
+lookup_tables = [
+    AddressLookupTableAccount(Pubkey.from_string(key), [Pubkey.from_string(a) for a in addresses])
+    for key, addresses in (build["addressesByLookupTableAddress"] or {}).items()
+]
+blockhash = Hash.from_string(rpc("getLatestBlockhash", [{"commitment": "confirmed"}])["value"]["blockhash"])
 
-sent = requests.post(RPC_ENDPOINT, json={
-    "jsonrpc": "2.0", "id": 1, "method": "sendTransaction",
-    "params": [base64.b64encode(bytes(signed)).decode(), {"encoding": "base64", "skipPreflight": True}],
-}).json()
-if "error" in sent:
-    raise RuntimeError(sent["error"])
-print(f"Sent: https://solscan.io/tx/{sent['result']}")
+
+def compile_tx(cu_limit):
+    ixs = [set_compute_unit_limit(cu_limit), set_compute_unit_price(cu_price)] + swap_ixs
+    message = MessageV0.try_compile(wallet.pubkey(), ixs, lookup_tables, blockhash)
+    return VersionedTransaction(message, [wallet])
+
+
+# 3) Simulate at the maximum limit to measure the compute units the swap uses,
+#    then set the limit to 1.2x that, so you don't pay a priority fee on unused units.
+sim = rpc("simulateTransaction", [
+    base64.b64encode(bytes(compile_tx(MAX_CU_LIMIT))).decode(),
+    {"encoding": "base64", "replaceRecentBlockhash": True},
+])["value"]
+if sim["err"]:
+    raise RuntimeError(f"Simulation failed: {sim['err']}")
+cu_limit = min(math.ceil(sim["unitsConsumed"] * 1.2), MAX_CU_LIMIT)
+priority_fee = math.ceil(cu_price * cu_limit / 1_000_000)
+print(f"Compute unit limit: {cu_limit}, priority fee: {priority_fee} lamports")
+
+# 4) Sign the transaction and send it through your node.
+signed = compile_tx(cu_limit)
+sig = rpc("sendTransaction", [
+    base64.b64encode(bytes(signed)).decode(),
+    {"encoding": "base64", "skipPreflight": True},
+])
+print(f"Sent: https://solscan.io/tx/{sig}")
 ```
 
 A few notes on the current Jupiter API:
 
-* **Priority fee.** `computeUnitPriceMicroLamports` sets the compute unit price in the swap transaction to the value you pass, in micro-lamports per compute unit. The total priority fee in lamports is that price times the compute unit limit divided by 1,000,000; Jupiter returns it as `prioritizationFeeLamports`. To let Jupiter choose the price instead, pass `prioritizationFeeLamports.priorityLevelWithMaxLamports` with a `priorityLevel` (`medium`, `high`, or `veryHigh`) and `maxLamports`, a cap on the total priority fee in lamports.
-* **`dynamicComputeUnitLimit: true`** makes Jupiter simulate the swap and set an accurate compute-unit limit, which both improves landing and avoids overpaying (the priority fee is `compute_unit_price × compute_unit_limit`).
-* **Versioned transactions.** Jupiter returns a base64 `VersionedTransaction`; sign it with `solders` and broadcast the raw bytes through your node.
+* **Compute unit price.** `/build` returns a `SetComputeUnitPrice` instruction with Jupiter's own estimate in `computeBudgetInstructions`. The script leaves it out and sets the price from step 1. To use Jupiter's estimate instead, include those instructions and choose the level with the `computeUnitPricePercentile` parameter (`medium`, `high`, `veryHigh`, or a value in basis points).
+* **Compute unit limit.** `/build` doesn't set one. The script simulates at the 1,400,000 maximum, then sets the limit to 1.2 times the units consumed. The priority fee in lamports is the compute unit price times the compute unit limit divided by 1,000,000, rounded up, so a tighter limit costs less.
+* **Versioned transactions.** `/build` returns instructions for a v0 transaction, plus the addresses in each lookup table in `addressesByLookupTableAddress`, so `solders` compiles the message without fetching the tables. With `transactionVersion=1`, it returns no compute budget instructions; a [v1 transaction](/docs/solana-transaction-v1) carries its compute unit limit and priority fee in the message instead.
 * **Why the median.** Fees over the recent window can include random astronomical outliers — basing your fee on the max can drain your wallet. The median of the non-zero slots (optionally bumped by `PRIORITY_MULTIPLIER`) is a safer baseline. Tune it for your needs.
 
 <Note>
