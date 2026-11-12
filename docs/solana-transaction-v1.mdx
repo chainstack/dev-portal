@@ -120,6 +120,66 @@ fee = 5000 * numRequiredSignatures + priorityFee
 
 To compare a v0 rate against a v1 total, multiply the rate by the compute unit limit and divide by 1,000,000.
 
+[getRecentPrioritizationFees](/reference/solana-getrecentprioritizationfees) reports every transaction version as a rate in micro-lamports per compute unit. For a v1 transaction, the node derives that rate as `priorityFee × 1,000,000 ÷ computeUnitLimit`, rounded down. To pay a rate from that method on a v1 transaction, set `priorityFee` to `ceil(rate × computeUnitLimit / 1,000,000)`.
+
+## Build a v1 transaction
+
+A v1 transaction applies no defaults to its limits. Set both `computeUnitLimit` and `loadedAccountsDataSizeLimit` on every v1 transaction:
+
+* An unset `computeUnitLimit` budgets zero compute units, and the transaction fails with `ComputationalBudgetExceeded`.
+* An unset `loadedAccountsDataSizeLimit` budgets zero bytes, and the transaction fails with `MaxLoadedAccountsDataSizeExceeded`.
+
+Legacy and v0 transactions fall back to 200,000 compute units per instruction and a 64 MiB data limit; v1 does not.
+
+Compute Budget Program instructions have no effect in a v1 transaction. A `SetComputeUnitLimit` instruction does not raise the limit, and a `SetComputeUnitPrice` instruction adds no priority fee. Set both through the message config instead.
+
+<CodeGroup>
+```typescript @solana/kit
+import {
+  appendTransactionMessageInstruction,
+  createTransactionMessage,
+  pipe,
+  setTransactionMessageConfig,
+  setTransactionMessageFeePayerSigner,
+  setTransactionMessageLifetimeUsingBlockhash,
+} from "@solana/kit";
+
+const message = pipe(
+  createTransactionMessage({ version: 1 }),
+  (m) => setTransactionMessageFeePayerSigner(payer, m),
+  (m) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
+  (m) =>
+    setTransactionMessageConfig(
+      {
+        computeUnitLimit: 1_000, // size it from a simulation
+        loadedAccountsDataSizeLimit: 64 * 1024, // bytes
+        priorityFeeLamports: 1_000n, // total priority fee, in lamports
+      },
+      m,
+    ),
+  (m) => appendTransactionMessageInstruction(instruction, m),
+);
+```
+
+```typescript @solana/web3.js v3
+import { TransactionMessage, VersionedTransaction } from "@solana/web3.js";
+
+const message = new TransactionMessage({
+  payerKey: payer.publicKey,
+  recentBlockhash: blockhash,
+  instructions: [instruction],
+}).compileToV1Message({
+  computeUnitLimit: 1_000, // size it from a simulation
+  loadedAccountsDataSizeLimit: 64 * 1024, // bytes
+  priorityFeeLamports: 1_000n, // total priority fee, in lamports
+});
+
+const transaction = new VersionedTransaction(message);
+```
+</CodeGroup>
+
+With one signature, the transaction above pays `5000 + 1000 = 6000` lamports. Sign and send it like any other versioned transaction, as `base64` when it exceeds 1,232 raw bytes.
+
 ## No address lookup tables in v1
 
 A v1 message has no `addressTableLookups` field. Every address the transaction touches travels inline as a full 32-byte public key, and a v1 transaction can carry up to 64 of them.
@@ -144,6 +204,9 @@ The 4,096-byte size limit leaves room for the addresses that a v0 transaction mo
   </Step>
   <Step title="Read limits from transactionConfig">
     Where you scan for Compute Budget instructions, check for `transactionConfig` first and fall back to the instruction scan for legacy and v0.
+  </Step>
+  <Step title="Set limits explicitly when you build v1">
+    Set `computeUnitLimit` and `loadedAccountsDataSizeLimit` in the message config. Unset, each budgets zero, and Compute Budget instructions in a v1 transaction have no effect. See [Build a v1 transaction](#build-a-v1-transaction).
   </Step>
   <Step title="Normalize priority fees">
     Treat `transactionConfig.priorityFee` as lamports. Convert v0 rates with `price * computeUnitLimit / 1000000` before comparing.
