@@ -14,7 +14,7 @@ On [node access details](/docs/manage-your-node#view-node-access-and-credentials
 ## Development tools
 
 <Note>
-ZKsync Era runs standard EVM bytecode through its [EVM Bytecode Interpreter](https://docs.zksync.io/zksync-era/tooling/hardhat), so for most new projects you can use standard Ethereum tooling — Hardhat, Foundry, ethers, or viem — pointed at your Chainstack ZKsync Era endpoint, exactly like any other EVM chain. The EraVM-native workflow below (the `hardhat-zksync` plugin suite with the `zksolc` compiler) remains for contracts that target EraVM directly.
+ZKsync Era runs standard EVM bytecode through its [EVM Bytecode Interpreter](https://docs.zksync.io/zksync-network/zksync-era/unique-features#evm-bytecode-interpreter), so for most new projects you can use standard Ethereum tooling — Hardhat, Foundry, ethers, or viem — pointed at your Chainstack ZKsync Era endpoint, exactly like any other EVM chain. The EraVM-native workflow below (the `hardhat-zksync` plugin suite with the `zksolc` compiler) remains for contracts that target EraVM directly.
 </Note>
 
 ### zksync-ethers SDK
@@ -23,41 +23,40 @@ See [zksync-ethers](https://github.com/zksync-sdk/zksync-ethers).
 
 ### Hardhat (EraVM-native)
 
-To compile and deploy contracts that target EraVM natively, configure the [hardhat-zksync](https://docs.zksync.io/zksync-era/tooling/hardhat) plugin suite to build and interact through your zkSync Era nodes. For standard EVM contracts, use a normal Hardhat setup pointed at your Chainstack endpoint instead (see the note above).
-1. Install [Hardhat](https://docs.zksync.io/zksync-era/tooling/hardhat) and create a project.
+To compile and deploy contracts that target EraVM natively, use the [hardhat-zksync](https://github.com/matter-labs/hardhat-zksync) plugin suite with Hardhat 2. ZKsync lists the suite as [legacy tooling](https://docs.zksync.io/zksync-network/zksync-era/custom-tooling). For standard EVM contracts, use a normal Hardhat setup pointed at your Chainstack endpoint instead (see the note above).
+
+1. Install Hardhat 2, the plugin suite, and TypeScript 5:
 
    <CodeGroup>
      ```shell Shell
-     yarn add -D typescript ts-node ethers@^5.7.2 zksync-web3 hardhat @matterlabs/hardhat-zksync-solc @matterlabs/hardhat-zksync-deploy @matterlabs/zksync-contracts @openzeppelin/contracts @matterlabs/hardhat-zksync-verify @nomicfoundation/hardhat-verify dotenv
+     npm install --save-dev hardhat@^2.22.5 @matterlabs/hardhat-zksync@^1.6.1 zksync-ethers@^6.21.2 ethers@^6.17.0 typescript@^5.9.3 ts-node@^10.9.2 @types/node@^22 dotenv@^17
      ```
    </CodeGroup>
 
-2. Install the [dotenv](https://www.npmjs.com/package/dotenv) package to securely load your sensitive variables from a `.env` file
+   Hardhat 3 does not load the `hardhat-zksync` plugins. Hardhat 2 loads `hardhat.config.ts` through `ts-node`, which does not work with TypeScript 7, and needs a `tsconfig.json` in the project root — see the [paymaster tutorial](/docs/zksync-tutorial-develop-a-custom-paymaster-contract#setup-the-project-and-install-the-required-dependencies) for one.
 
-3. Create a new environment in `hardhat.config.ts`:
+2. Create a new environment in `hardhat.config.ts`. The config reads your Chainstack zkSync Era Sepolia endpoint from the `ZKSYNC_TESTNET_CHAINSTACK` variable in a `.env` file:
 
 <CodeGroup>
-  ```js hardhat.config.ts
+  ```typescript hardhat.config.ts
   import { HardhatUserConfig } from "hardhat/config";
-  require("dotenv").config();
-
-  import "@matterlabs/hardhat-zksync-deploy";
-  import "@matterlabs/hardhat-zksync-solc";
-  import "@matterlabs/hardhat-zksync-verify";
+  import "@matterlabs/hardhat-zksync";
+  import "dotenv/config";
 
   const config: HardhatUserConfig = {
     zksolc: {
-      version: "1.3.13", // Use latest available
-      compilerSource: "binary",
-      settings: {},
+      version: "1.5.18",
+      settings: {
+        codegen: "yul",
+      },
     },
-    defaultNetwork: "zkSyncTestnet",
+    defaultNetwork: "zkSyncSepolia",
     networks: {
       hardhat: {
         zksync: true,
       },
-      zkSyncTestnet: {
-        url: process.env.ZKSYNC_TESTNET_CHAINSTACK,
+      zkSyncSepolia: {
+        url: process.env.ZKSYNC_TESTNET_CHAINSTACK ?? "",
         ethNetwork: "sepolia",
         zksync: true,
         verifyURL:
@@ -65,7 +64,7 @@ To compile and deploy contracts that target EraVM natively, configure the [hardh
       },
     },
     solidity: {
-      version: "0.8.17",
+      version: "0.8.28",
     },
   };
 

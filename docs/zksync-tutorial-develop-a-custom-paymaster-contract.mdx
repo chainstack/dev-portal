@@ -17,6 +17,10 @@ The tutorial will guide you through deploying two smart contracts: a paymaster c
 
 In this setup, users can execute transactions without directly paying for gas. Instead, they will transfer a token to the paymaster contract, which handles the gas fee payment. This approach can, for example, offer a monthly quota of sponsored transactions for your DApp users. This enhances the user experience and makes DApps more accessible.
 
+<Note>
+This tutorial uses the EraVM-native `hardhat-zksync` plugin suite and the `zksync-ethers` SDK, which ZKsync lists as [legacy tooling](https://docs.zksync.io/zksync-network/zksync-era/custom-tooling). The install command below pins the major versions that work together.
+</Note>
+
 ## What is zkSync Era?
 
 zkSync is a trustless zkEVM protocol based on ZK rollups that offers scalable and low-cost transactions on Ethereum by conducting computation and storing most data off-chain. As a subset of zkSync, zkSync Era is designed to emulate Ethereum's functionality but at a lower cost. zkSync Era supports existing Ethereum wallets without separate registration and permits smart contract usage, like its Ethereum counterpart. Transactions in zkSync Era undergo a lifecycle that includes user initiation, operator processing, block commitment, and final block verification, all of which ensure the same level of security as Ethereum's mainchain.
@@ -38,8 +42,7 @@ zkSync Era introduces the concept of smart accounts and paymasters, designed to 
 ## Prerequisites
 
 * [Chainstack account](https://console.chainstack.com/) to deploy a [reliable zkSync Era RPC endpoint](https://chainstack.com/build-better-with-zksync-era/)
-* [node.js](https://nodejs.org/en/download) at least V16 on your machine
-* [yarn installed](https://classic.yarnpkg.com/lang/en/docs/install/) on your machine
+* [Node.js](https://nodejs.org/en/download) 22 or 24 on your machine. Hardhat 2 does not support odd-numbered Node.js releases.
 
 ## Overview
 
@@ -88,11 +91,11 @@ Create a new directory where you want to develop your project:
   ```
 </CodeGroup>
 
-Initialize a new yarn project:
+Initialize a new npm project:
 
 <CodeGroup>
   ```shell Shell
-  yarn init -y
+  npm init -y
   ```
 </CodeGroup>
 
@@ -108,7 +111,31 @@ Install the required dependencies:
 
 <CodeGroup>
   ```shell Shell
-  yarn add -D typescript ts-node ethers@^5.7.2 zksync-web3 hardhat @matterlabs/hardhat-zksync-solc @matterlabs/hardhat-zksync-deploy @matterlabs/zksync-contracts @openzeppelin/contracts @matterlabs/hardhat-zksync-verify @nomicfoundation/hardhat-verify dotenv
+  npm install --save-dev hardhat@^2.22.5 @matterlabs/hardhat-zksync@^1.6.1 @matterlabs/zksync-contracts@^29.0.0 @openzeppelin/contracts@^5.6.1 zksync-ethers@^6.21.2 ethers@^6.17.0 typescript@^5.9.3 ts-node@^10.9.2 @types/node@^22 dotenv@^17
+  ```
+</CodeGroup>
+
+The versions are pinned because newer major releases break this setup:
+
+* `hardhat@^2.22.5` — Hardhat 3 does not load the `hardhat-zksync` plugins.
+* `typescript@^5.9.3` — Hardhat 2 loads `hardhat.config.ts` through `ts-node`, which does not work with TypeScript 7.
+* `ethers@^6.17.0` and `zksync-ethers@^6.21.2` — the deploy plugin requires ethers v6 and `zksync-ethers` v6.
+
+Create a `tsconfig.json` file in the project root:
+
+<CodeGroup>
+  ```json tsconfig.json
+  {
+    "compilerOptions": {
+      "target": "es2020",
+      "module": "commonjs",
+      "esModuleInterop": true,
+      "forceConsistentCasingInFileNames": true,
+      "strict": true,
+      "skipLibCheck": true,
+      "resolveJsonModule": true
+    }
+  }
   ```
 </CodeGroup>
 
@@ -126,33 +153,31 @@ Create a new `hardhat.config.ts`file and paste the following:
 <CodeGroup>
   ```typescript hardhat.config.ts
   import { HardhatUserConfig } from "hardhat/config";
-  require("dotenv").config();
-
-  import "@matterlabs/hardhat-zksync-deploy";
-  import "@matterlabs/hardhat-zksync-solc";
-  import "@matterlabs/hardhat-zksync-verify";
+  import "@matterlabs/hardhat-zksync";
+  import "dotenv/config";
 
   const config: HardhatUserConfig = {
     zksolc: {
-      version: "1.3.13", // Use latest available
-      compilerSource: "binary",
-      settings: {},
+      version: "1.5.18",
+      settings: {
+        codegen: "yul",
+      },
     },
-    defaultNetwork: "zkSyncTestnet",
+    defaultNetwork: "zkSyncSepolia",
     networks: {
       hardhat: {
         zksync: true,
       },
-      zkSyncTestnet: {
-        url: process.env.ZKSYNC_TESTNET_CHAINSTACK,
+      zkSyncSepolia: {
+        url: process.env.ZKSYNC_TESTNET_CHAINSTACK ?? "",
         ethNetwork: "sepolia",
         zksync: true,
         verifyURL:
-          "https://zksync2-testnet-explorer.zksync.dev/contract_verification",
+          "https://explorer.sepolia.era.zksync.dev/contract_verification",
       },
     },
     solidity: {
-      version: "0.8.17",
+      version: "0.8.28",
     },
   };
 
@@ -161,7 +186,7 @@ Create a new `hardhat.config.ts`file and paste the following:
 </CodeGroup>
 
 <Info>
-  Check the `zksolc` compiler [GitHub repository](https://github.com/matter-labs/zksolc-bin/) to find the latest version available.
+  Check the `zksolc` compiler [releases](https://github.com/matter-labs/era-compiler-solidity/releases) to find the latest version available.
 </Info>
 
 ### Create the smart contracts
@@ -176,12 +201,12 @@ In the `contracts` directory, create a new file named `CSgas.sol` and paste the 
   ```sol CSgas.sol
   // SPDX-License-Identifier: MIT
 
-  pragma solidity ^0.8.0;
+  pragma solidity ^0.8.20;
 
   import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
   contract CSgas is ERC20 {
-      uint8 public _decimals;
+      uint8 private _decimals;
 
       constructor(
           string memory name_,
@@ -189,6 +214,10 @@ In the `contracts` directory, create a new file named `CSgas.sol` and paste the 
           uint8 decimals_
       ) ERC20(name_, symbol_) {
           _decimals = decimals_;
+      }
+
+      function decimals() public view override returns (uint8) {
+          return _decimals;
       }
 
       function mint(address _to, uint256 _amount) public returns (bool) {
@@ -201,32 +230,32 @@ In the `contracts` directory, create a new file named `CSgas.sol` and paste the 
 
 This is a simple implementation of an ERC-20 smart contract using the OpenZeppelin library, which provides secure and community-audited implementations for parts of the Ethereum protocol.
 
-The smart contract is written in version 0.8.0 of Solidity, specified at the top of the file. The caret symbol `^` means it's compatible with any new minor releases under version 0.8.
+The smart contract is written in version 0.8.20 of Solidity, specified at the top of the file. The caret symbol `^` means it's compatible with any later 0.8 release. OpenZeppelin Contracts 5 requires 0.8.20 or later.
 
 The contract is importing something important—the ERC-20 token standard from the OpenZeppelin library. The contract itself is named `CSgas`.
 
 When `CSgas` is deployed, it calls a constructor function. This function sets up the token's name, symbol, and the number of decimal places the token will have. The deploying code will pass through these details.
 
-The `_decimals` variable is used to determine how the token's value is displayed in wallets and user interfaces. Most tokens go with 18 decimal places, matching the precision of Ethereum's own currency, ether.
+The `_decimals` variable is used to determine how the token's value is displayed in wallets and user interfaces. The contract overrides the `decimals` function to return it. Most tokens go with 18 decimal places, matching the precision of Ethereum's own currency, ether.
 
 The mint function is public, meaning anyone can call it. When called, it mints new tokens. You need to input who should receive the tokens and how many to create. It uses the `_mint` function from the ERC20 contract to create the token and update the balance.
 
 #### Paymaster smart contract
 
-Now let's go over the interesting part, the `Paymaster` smart contract. Create a new file in the `contract` directory named `Paymaster.sol` and paste the following:
+Now let's go over the interesting part, the `Paymaster` smart contract. Create a new file in the `contracts` directory named `Paymaster.sol` and paste the following:
 
 <CodeGroup>
   ```sol Paymaster.sol
   // SPDX-License-Identifier: MIT
-  pragma solidity ^0.8.0;
+  pragma solidity ^0.8.20;
 
   import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-  import {IPaymaster, ExecutionResult, PAYMASTER_VALIDATION_SUCCESS_MAGIC} from "@matterlabs/zksync-contracts/l2/system-contracts/interfaces/IPaymaster.sol";
-  import {IPaymasterFlow} from "@matterlabs/zksync-contracts/l2/system-contracts/interfaces/IPaymasterFlow.sol";
-  import {TransactionHelper, Transaction} from "@matterlabs/zksync-contracts/l2/system-contracts/libraries/TransactionHelper.sol";
+  import {IPaymaster, ExecutionResult, PAYMASTER_VALIDATION_SUCCESS_MAGIC} from "@matterlabs/zksync-contracts/contracts/system-contracts/interfaces/IPaymaster.sol";
+  import {IPaymasterFlow} from "@matterlabs/zksync-contracts/contracts/system-contracts/interfaces/IPaymasterFlow.sol";
+  import {TransactionHelper, Transaction} from "@matterlabs/zksync-contracts/contracts/system-contracts/libraries/TransactionHelper.sol";
 
-  import "@matterlabs/zksync-contracts/l2/system-contracts/Constants.sol";
+  import "@matterlabs/zksync-contracts/contracts/system-contracts/Constants.sol";
 
   contract Paymaster is IPaymaster {
       uint256 constant PRICE_FOR_PAYING_FEES = 1 ether;
@@ -338,7 +367,7 @@ Now let's go over the interesting part, the `Paymaster` smart contract. Create a
 
 Let's go over it.
 
-This contract is named `Paymaster` and it's designed to manage transaction fees on behalf of users and uses Solidity version 0.8.0.
+This contract is named `Paymaster` and it's designed to manage transaction fees on behalf of users and uses Solidity version 0.8.20.
 
 The contract starts by importing dependencies. It uses the OpenZeppelin library for the `IERC20` interface, which is a standard interface for interacting with ERC-20 tokens. It's also importing several interfaces and libraries from the `@matterlabs/zksync-contracts` package, which is used for handling zkSync transactions.
 
@@ -383,15 +412,15 @@ Create a script to deploy those smart contracts in the `deploy` directory create
 
 <CodeGroup>
   ```typescript deploy.ts
-  import { Provider, Wallet } from "zksync-web3";
-  import * as ethers from "ethers";
+  import { Contract, Provider, Wallet } from "zksync-ethers";
+  import { ethers } from "ethers";
   import { HardhatRuntimeEnvironment } from "hardhat/types";
-  import { Deployer } from "@matterlabs/hardhat-zksync-deploy";
-  require("dotenv").config();
+  import { Deployer } from "@matterlabs/hardhat-zksync";
+  import "dotenv/config";
 
   // Define constants and environment variables
-  const ZKSYNC_CHAINSTACK_ENDPOINT = process.env.ZKSYNC_TESTNET_CHAINSTACK;
-  const PRIVATE_KEY = process.env.PRIVATE_KEY;
+  const ZKSYNC_CHAINSTACK_ENDPOINT = process.env.ZKSYNC_TESTNET_CHAINSTACK ?? "";
+  const PRIVATE_KEY = process.env.PRIVATE_KEY ?? "";
   const initialFunding = 0.01;
   const tokensToMint = 10;
   const CONFIRMATIONS = 4;
@@ -413,7 +442,7 @@ Create a script to deploy those smart contracts in the `deploy` directory create
   }
 
   // Function to create a new wallet
-  async function createWallet() {
+  function createWallet() {
     console.log("Creating new test wallet...");
     const wallet = Wallet.createRandom();
     console.log(`New wallet address: ${wallet.address}`);
@@ -430,9 +459,10 @@ Create a script to deploy those smart contracts in the `deploy` directory create
     console.log(`Deploying ${contractName}...`);
     const contractArtifact = await deployer.loadArtifact(contractName);
     const contractInstance = await deployer.deploy(contractArtifact, args);
-    await contractInstance.deployTransaction.wait(CONFIRMATIONS);
-    console.log(`${contractName} deployed at: ${contractInstance.address}`);
-    return contractInstance;
+    await contractInstance.deploymentTransaction()?.wait(CONFIRMATIONS);
+    const contractAddress = await contractInstance.getAddress();
+    console.log(`${contractName} deployed at: ${contractAddress}`);
+    return { contract: contractInstance, address: contractAddress };
   }
 
   // Function to verify a contract
@@ -456,16 +486,16 @@ Create a script to deploy those smart contracts in the `deploy` directory create
     return await (
       await deployer.zkWallet.sendTransaction({
         to: paymasterAddress,
-        value: ethers.utils.parseEther(String(initialFunding)),
+        value: ethers.parseEther(String(initialFunding)),
       })
     ).wait(CONFIRMATIONS);
   }
 
   // Function to mint tokens
-  async function mintTokens(contract: any, address: string) {
+  async function mintTokens(contract: Contract, address: string) {
     console.log(`Minting ${tokensToMint} tokens to ${address}`);
     return await (
-      await contract.mint(address, ethers.utils.parseEther(String(tokensToMint)))
+      await contract.mint(address, ethers.parseEther(String(tokensToMint)))
     ).wait();
   }
 
@@ -478,52 +508,44 @@ Create a script to deploy those smart contracts in the `deploy` directory create
       const deployer = new Deployer(hre, wallet);
 
       // Create a new wallet, this is only for showing how an wallet with no ETH can be sponsored by the paymaster
-      const newWallet = await createWallet();
+      const newWallet = createWallet();
 
       //Deploy the Gas token
-      const deployedChainstackGas = await deployContract(deployer, "CSgas", [
+      const chainstackGas = await deployContract(deployer, "CSgas", [
         TOKEN_NAME,
         TOKEN_SYMBOL,
         TOKEN_DECIMALS,
       ]);
 
       //  Deploy the Paymaster
-      const deployedPaymaster = await deployContract(deployer, "Paymaster", [
-        deployedChainstackGas.address,
+      const paymaster = await deployContract(deployer, "Paymaster", [
+        chainstackGas.address,
       ]);
 
       // Verify the 2 contracts
-      await verifyContract(
-        hre,
-        deployedChainstackGas.address,
-        TOKEN_CONTRACT_PATH,
-        [TOKEN_NAME, TOKEN_SYMBOL, TOKEN_DECIMALS]
-      );
-      await verifyContract(
-        hre,
-        deployedPaymaster.address,
-        PAYMASTER_CONTRACT_PATH,
-        [deployedChainstackGas.address]
-      );
+      await verifyContract(hre, chainstackGas.address, TOKEN_CONTRACT_PATH, [
+        TOKEN_NAME,
+        TOKEN_SYMBOL,
+        TOKEN_DECIMALS,
+      ]);
+      await verifyContract(hre, paymaster.address, PAYMASTER_CONTRACT_PATH, [
+        chainstackGas.address,
+      ]);
 
       // Fund the Paymaster contract and mint tokens
-      await fundPaymaster(deployer, deployedPaymaster.address);
-      await mintTokens(deployedChainstackGas, newWallet.address);
+      await fundPaymaster(deployer, paymaster.address);
+      await mintTokens(chainstackGas.contract, newWallet.address);
       console.log(`Paymaster and new wallet funded!`);
 
       // Get and log the balance of the Paymaster contract
-      const paymasterBalance = await provider.getBalance(
-        deployedPaymaster.address
-      );
-      console.log(
-        `Paymaster balance: ${ethers.utils.formatEther(paymasterBalance)}`
-      );
+      const paymasterBalance = await provider.getBalance(paymaster.address);
+      console.log(`Paymaster balance: ${ethers.formatEther(paymasterBalance)}`);
 
       // Get and log the balance of the new wallet
-      const newWalletTokenBalance = await deployedChainstackGas.balanceOf(
+      const newWalletTokenBalance = await chainstackGas.contract.balanceOf(
         newWallet.address
       );
-      const newWalletTokenBalanceInEther = ethers.utils.formatEther(
+      const newWalletTokenBalanceInEther = ethers.formatEther(
         newWalletTokenBalance
       );
 
@@ -539,14 +561,14 @@ Create a script to deploy those smart contracts in the `deploy` directory create
 
 This script has a lot going on, so let's break it down:
 
-1. **Imports and anvironment variables**. The script begins by importing necessary modules and types. It then defines several constants and retrieves environment variables.
+1. **Imports and environment variables**. The script begins by importing necessary modules and types. It then defines several constants and retrieves environment variables.
 
    Here is how we set up the script and keep it somewhat easier to maintain and edit:
 
    ```
-   // Take endoint and private key from the .env file
-   const ZKSYNC_CHAINSTACK_ENDPOINT = process.env.ZKSYNC_TESTNET_CHAINSTACK;
-   const PRIVATE_KEY = process.env.PRIVATE_KEY;
+   // Take endpoint and private key from the .env file
+   const ZKSYNC_CHAINSTACK_ENDPOINT = process.env.ZKSYNC_TESTNET_CHAINSTACK ?? "";
+   const PRIVATE_KEY = process.env.PRIVATE_KEY ?? "";
 
    // This is the amount of ETH that will be transfered to the contract to pay for gas fees
    const initialFunding = 0.01;
@@ -567,13 +589,13 @@ This script has a lot going on, so let's break it down:
    const PAYMASTER_CONTRACT_PATH = "contracts/Paymaster.sol:Paymaster";
    ```
 
-2. **Environment variable checks**. The script checks if the necessary environment variables are set. If they are not, it throws an error. This is to accommodate the fact that TypeScript does not allow for strings to have `undefined` values.
+2. **Environment variable checks**. The script checks if the necessary environment variables are set. If they are not, it throws an error, so the script stops before sending any transactions.
 
 3. **Function definitions**. The script defines several helper functions to keep the code clean and maintainable:
 
    * `createWallet()` — creates a new random wallet and logs the wallet's address and private key. We create a new wallet to demonstrate how an account can initiate transactions sponsored by the paymaster without having any ETH.
 
-   * `deployContract()` — deploys a contract to the zkSync Era network. It takes a `Deployer` instance, the name of the contract, and an array of arguments for the contract's constructor. It loads the contract's artifact, deploys the contract, waits for a certain number of confirmations, and then logs the contract's address.
+   * `deployContract()` — deploys a contract to the zkSync Era network. It takes a `Deployer` instance, the name of the contract, and an array of arguments for the contract's constructor. It loads the contract's artifact, deploys the contract, waits for a certain number of confirmations, logs the contract's address, and returns the contract instance with its address.
 
    * `verifyContract()` — verifies a contract on the zkSync Era network. It takes a `HardhatRuntimeEnvironment` instance, the contract's address, the path to the contract's source code, and an array of arguments passed to the contract's constructor. It runs the `verify:verify` task provided by the Hardhat environment.
 
@@ -603,29 +625,28 @@ In the same `deploy` directory, create a new file named `gasless-tx.ts` and past
 
 <CodeGroup>
   ```typescript gasless-tx.ts
-  import { Provider, utils, Wallet } from "zksync-web3";
-  import * as ethers from "ethers";
+  import { Contract, Provider, types, utils, Wallet } from "zksync-ethers";
+  import { ethers } from "ethers";
   import { HardhatRuntimeEnvironment } from "hardhat/types";
-  require("dotenv").config();
+  import "dotenv/config";
 
   // Constants
-  const ZKSYNC_CHAINSTACK_ENDPOINT = process.env.ZKSYNC_TESTNET_CHAINSTACK;
+  const ZKSYNC_CHAINSTACK_ENDPOINT = process.env.ZKSYNC_TESTNET_CHAINSTACK ?? "";
   const PAYMASTER_ADDRESS = "DEPLOYED_PAYMASTER_ADDRESS";
   const TOKEN_ADDRESS = "DEPLOYED_GAS_TOKEN";
-  const USER_WALLET =
-    "PRIVATE_KEY_OF_THE_WALLET_GENERATED_DURING_DEPLOYMENT";
+  const USER_WALLET = "PRIVATE_KEY_OF_THE_WALLET_GENERATED_DURING_DEPLOYMENT";
   const TOKEN_NAME = "CSgas";
   const TOKENS_TO_MINT = "5";
-  const TOKENS_TO_MINT_WEI = ethers.utils.parseEther(TOKENS_TO_MINT);
+  const TOKENS_TO_MINT_WEI = ethers.parseEther(TOKENS_TO_MINT);
 
   // Function to get the Chainstack gas token instance
   function getToken(hre: HardhatRuntimeEnvironment, wallet: Wallet) {
     const artifact = hre.artifacts.readArtifactSync(TOKEN_NAME);
-    return new ethers.Contract(TOKEN_ADDRESS, artifact.abi, wallet);
+    return new Contract(TOKEN_ADDRESS, artifact.abi, wallet);
   }
 
   // Function to generate a random new wallet
-  async function createWallet() {
+  function createWallet() {
     console.log("Creating new test wallet...");
     const wallet = Wallet.createRandom();
     console.log(`New wallet address: ${wallet.address}`);
@@ -636,26 +657,26 @@ In the same `deploy` directory, create a new file named `gasless-tx.ts` and past
 
   // Function to display balances
   async function displayBalances(
-    provider,
-    chainstackGastoken,
-    user,
-    paymasterAddress
+    provider: Provider,
+    chainstackGastoken: Contract,
+    user: Wallet,
+    paymasterAddress: string
   ) {
     console.log(
       `The first user has no ETH to pay for gas! Balance: ${await user.getBalance()}`
     );
     console.log(
-      `The first user holds ${ethers.utils.formatEther(
+      `The first user holds ${ethers.formatEther(
         await user.getBalance(TOKEN_ADDRESS)
       )} Chainstack gas tokens`
     );
     console.log(
-      `Paymaster ETH balance is ${ethers.utils.formatEther(
+      `Paymaster ETH balance is ${ethers.formatEther(
         await provider.getBalance(paymasterAddress)
       )}`
     );
     console.log(
-      `Paymaster Chainstack gas token balance is: ${ethers.utils.formatEther(
+      `Paymaster Chainstack gas token balance is: ${ethers.formatEther(
         await chainstackGastoken.balanceOf(paymasterAddress)
       )}`
     );
@@ -663,7 +684,11 @@ In the same `deploy` directory, create a new file named `gasless-tx.ts` and past
   }
 
   // Function to mint tokens
-  async function mintTokens(chainstackGastoken, user, paymasterParams) {
+  async function mintTokens(
+    chainstackGastoken: Contract,
+    user: ethers.HDNodeWallet,
+    paymasterParams: types.PaymasterParams
+  ) {
     console.log(
       `Minting ${TOKENS_TO_MINT} tokens to the new user sponsored by the paymaster...`
     );
@@ -692,7 +717,7 @@ In the same `deploy` directory, create a new file named `gasless-tx.ts` and past
     );
 
     // Create a new user to send tokens to
-    const secondUser = await createWallet();
+    const secondUser = createWallet();
 
     const gasPrice = await provider.getGasPrice();
 
@@ -701,12 +726,12 @@ In the same `deploy` directory, create a new file named `gasless-tx.ts` and past
       type: "ApprovalBased",
       token: TOKEN_ADDRESS,
       // The minimum required amount of Chainstack tokens is 1, as set up in the smart contract
-      minimalAllowance: ethers.BigNumber.from("1000000000000000000"),
+      minimalAllowance: ethers.parseEther("1"),
       innerInput: new Uint8Array(),
     });
 
     // Estimate gas fee for minting new tokens
-    const gasLimit = await chainstackGastoken.estimateGas.mint(
+    const gasLimit = await chainstackGastoken.mint.estimateGas(
       firstUser.address,
       TOKENS_TO_MINT_WEI,
       {
@@ -717,8 +742,8 @@ In the same `deploy` directory, create a new file named `gasless-tx.ts` and past
       }
     );
 
-    const fee = gasPrice.mul(gasLimit.toString());
-    console.log("Gas fee estimate: ", ethers.utils.formatEther(fee));
+    const fee = gasPrice * gasLimit;
+    console.log("Gas fee estimate: ", ethers.formatEther(fee));
 
     // Mint tokens
     await mintTokens(chainstackGastoken, secondUser, paymasterParams);
@@ -732,7 +757,7 @@ In the same `deploy` directory, create a new file named `gasless-tx.ts` and past
     );
 
     console.log(
-      `The second user now has ${ethers.utils.formatEther(
+      `The second user now has ${ethers.formatEther(
         await chainstackGastoken.balanceOf(secondUser.address)
       )} Chainstack gas tokens`
     );
@@ -746,23 +771,22 @@ Let's break down the code and the logic:
 
    <CodeGroup>
      ```typescript TypeScript
-     // Get the szSync endpoint from the env file
-     const ZKSYNC_CHAINSTACK_ENDPOINT = process.env.ZKSYNC_TESTNET_CHAINSTACK;
+     // Get the zkSync endpoint from the env file
+     const ZKSYNC_CHAINSTACK_ENDPOINT = process.env.ZKSYNC_TESTNET_CHAINSTACK ?? "";
 
      // Add the address of the deployed paymaster and token contracts
      const PAYMASTER_ADDRESS = "DEPLOYED_PAYMASTER_ADDRESS";
      const TOKEN_ADDRESS = "DEPLOYED_GAS_TOKEN";
 
      // The private key of the new wallet generated running the previous script
-     const USER_WALLET =
-       "PRIVATE_KEY_OF_THE_WALLET_GENERATED_DURING_DEPLOYMENT";
+     const USER_WALLET = "PRIVATE_KEY_OF_THE_WALLET_GENERATED_DURING_DEPLOYMENT";
 
      // The name of the token
      const TOKEN_NAME = "CSgas";
 
      // How many tokens to mint to another account, this is just to show how the paymaster can sponsor transactions
      const TOKENS_TO_MINT = "5";
-     const TOKENS_TO_MINT_WEI = ethers.utils.parseEther(TOKENS_TO_MINT);
+     const TOKENS_TO_MINT_WEI = ethers.parseEther(TOKENS_TO_MINT);
      ```
    </CodeGroup>
 
@@ -800,7 +824,7 @@ At this point, everything is set up to deploy the contracts. Make sure to edit t
 
 <CodeGroup>
   ```typescript TypeScript
-  const initialFunding = 0.001;
+  const initialFunding = 0.01;
   const tokensToMint = 10;
   const CONFIRMATIONS = 4;
   const TOKEN_NAME = "Chainstack gas";
@@ -815,60 +839,58 @@ Then in the terminal from the root of your project, compile the smart contracts:
 
 <CodeGroup>
   ```shell Shell
-  yarn hardhat compile
+  npx hardhat compile
   ```
 </CodeGroup>
+
+The first Hardhat command asks `Would you like to enable telemetry? (y/n)` on behalf of the ZKsync plugins. Answer `y` or `n` to continue.
 
 This will compile the smart contracts in the `contracts` directory. Then run the `deploy.ts` script:
 
 <CodeGroup>
   ```shell Shell
-  yarn hardhat deploy-zksync --script deploy.ts
+  npx hardhat deploy-zksync --script deploy.ts
   ```
 </CodeGroup>
 
-This process will generate a new wallet and deploy the contracts while transferring 0.001 ETH to the paymaster contract. It will also mint 10 `CSgas` tokens to the new wallet. Please note that this ETH is drawn from the account associated with the private key you specified in the `.env` file.
+This process will generate a new wallet and deploy the contracts while transferring 0.01 ETH to the paymaster contract. It will also mint 10 `CSgas` tokens to the new wallet. Please note that this ETH is drawn from the account associated with the private key you specified in the `.env` file.
 
-The console will log the following result:
+The console will log a result similar to the following:
 
 <CodeGroup>
   ```shell Shell
   Creating new test wallet...
-  New wallet address: 0x05C6C4F137f71bd3018a6a63d9E7961a5611DE67
-  New wallet private key: 0xdb9cc9081ec7af13869ab121880f7abe352a8d3643a27839231f324b3b7f9666
+  New wallet address: 0x90841D7eD5Ef0b4a886b93BC692E9Dcc52CE6a56
+  New wallet private key: 0x60f25e062f15683234faa73ff023fe8ce0b604a5319b228d63ae1dee0d022363
   Deploying CSgas...
-  CSgas deployed at: 0x0E5E64716321cd013E6814f06A8c42475506331E
+  Linking of some libraries for contract contracts/CSgas.sol:CSgas are ignored as they are provided as the duplicate of the already linked libraries.
+  CSgas deployed at: 0x588758d8a0Ad1162A6294f3C274753137E664aE0
   Deploying Paymaster...
-  Paymaster deployed at: 0x17a27157E6CE8FdD50bede091d63Df8Ab6A44f93
-  Verifying contract...
-  Your verification ID is: 31187
-  Contract successfully verified on zkSync block explorer!
-  Verifying contract...
-  Your verification ID is: 31188
-  Contract successfully verified on zkSync block explorer!
+  Linking of some libraries for contract contracts/Paymaster.sol:Paymaster are ignored as they are provided as the duplicate of the already linked libraries.
+  Paymaster deployed at: 0x6B828bcb33305478cd7d27eB323F5C5B7b4aFdbe
   Funding Paymaster with 0.01 ETH on zkSync...
-  Minting 10 tokens to 0x05C6C4F137f71bd3018a6a63d9E7961a5611DE67
+  Minting 10 tokens to 0x90841D7eD5Ef0b4a886b93BC692E9Dcc52CE6a56
   Paymaster and new wallet funded!
   Paymaster balance: 0.01
   New wallet's Chainstack gas token balance: 10.0
-  ✨  Done in 91.72s.
   ```
 </CodeGroup>
 
-You can now verify the contracts on the [zkSync Era Sepolia explorer](https://sepolia.explorer.zksync.io/). You will see the deployment transactions and the verified contracts.
+On zkSync Era Sepolia, the log also shows `Verifying contract...` and the explorer's verification result for each contract between `Paymaster deployed at` and `Funding Paymaster`.
 
-Now the smart contracts are deployed. The paymaster should have 0.001 ETH to sponsor gas fees, and the new account should have 10 `CSG` tokens.
+You can now check the contracts on the [zkSync Era Sepolia explorer](https://sepolia.explorer.zksync.io/). You will see the deployment transactions and the verified contracts.
+
+Now the smart contracts are deployed. The paymaster should have 0.01 ETH to sponsor gas fees, and the new account should have 10 `CSG` tokens.
 
 ### Use the paymaster to mint tokens to a new address without using gas
 
-Now we can use the second script to interact with the paymaster contract and see the magic happening. First, make sure to update the configuration constants in the `gasless-tx.ts` file with the smart contract addresses, token name, and generated walled private key. In my specific case, it will look like this; note that you will have different parameters:
+Now we can use the second script to interact with the paymaster contract and see the magic happening. First, make sure to update the configuration constants in the `gasless-tx.ts` file with the smart contract addresses, token name, and generated wallet private key. In my specific case, it will look like this; note that you will have different parameters:
 
 <CodeGroup>
   ```typescript TypeScript
-  const PAYMASTER_ADDRESS = "0x17a27157E6CE8FdD50bede091d63Df8Ab6A44f93";
-  const TOKEN_ADDRESS = "0x0E5E64716321cd013E6814f06A8c42475506331E";
-  const USER_WALLET =
-    "0xdb9cc9081ec7af13869ab121880f7abe352a8d3643a27839231f324b3b7f9666";
+  const PAYMASTER_ADDRESS = "0x6B828bcb33305478cd7d27eB323F5C5B7b4aFdbe";
+  const TOKEN_ADDRESS = "0x588758d8a0Ad1162A6294f3C274753137E664aE0";
+  const USER_WALLET = "0x60f25e062f15683234faa73ff023fe8ce0b604a5319b228d63ae1dee0d022363";
   const TOKEN_NAME = "CSgas";
   ```
 </CodeGroup>
@@ -878,12 +900,12 @@ You can find those parameters in the deployment log; note that the token name de
 <CodeGroup>
   ```shell Shell
   Creating new test wallet...
-  New wallet address: 0x05C6C4F137f71bd3018a6a63d9E7961a5611DE67
-  New wallet private key: 0xdb9cc9081ec7af13869ab121880f7abe352a8d3643a27839231f324b3b7f9666
+  New wallet address: 0x90841D7eD5Ef0b4a886b93BC692E9Dcc52CE6a56
+  New wallet private key: 0x60f25e062f15683234faa73ff023fe8ce0b604a5319b228d63ae1dee0d022363
   Deploying CSgas...
-  CSgas deployed at: 0x0E5E64716321cd013E6814f06A8c42475506331E
+  CSgas deployed at: 0x588758d8a0Ad1162A6294f3C274753137E664aE0
   Deploying Paymaster...
-  Paymaster deployed at: 0x17a27157E6CE8FdD50bede091d63Df8Ab6A44f93
+  Paymaster deployed at: 0x6B828bcb33305478cd7d27eB323F5C5B7b4aFdbe
   ```
 </CodeGroup>
 
@@ -891,11 +913,11 @@ Run the script with the following command:
 
 <CodeGroup>
   ```shell Shell
-  yarn hardhat deploy-zksync --script gasless-tx.ts
+  npx hardhat deploy-zksync --script gasless-tx.ts
   ```
 </CodeGroup>
 
-The console will output the following logs:
+The console will output logs similar to the following:
 
 <CodeGroup>
   ```shell Shell
@@ -905,19 +927,18 @@ The console will output the following logs:
   Paymaster Chainstack gas token balance is: 0.0
 
   Creating new test wallet...
-  New wallet address: 0x6dA3EB8C5B3a779ab7bB1Bda674eD5cA165E8a6D
-  New wallet private key: 0xbea2c6f8424d252b268ce989fe2a56c61bec4a5a2db5fa88270033e3c75318a7
+  New wallet address: 0x92A8A053764e6549AEBe87e116A71D286EffeF73
+  New wallet private key: 0x7a122175d5dd94026f64930bbd65a531ca1c81d82c0593a93cd87ce121a7e9b1
 
-  Gas fee estimate:  0.00028722875
+  Gas fee estimate:  0.00001011441575
   Minting 5 tokens to the new user sponsored by the paymaster...
 
   The first user has no ETH to pay for gas! Balance: 0
   The first user holds 9.0 Chainstack gas tokens
-  Paymaster ETH balance is 0.00980312875
+  Paymaster ETH balance is 0.00999166137525
   Paymaster Chainstack gas token balance is: 1.0
 
   The second user now has 5.0 Chainstack gas tokens
-  ✨  Done in 38.76s.
   ```
 </CodeGroup>
 
