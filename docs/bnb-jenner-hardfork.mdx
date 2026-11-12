@@ -1,0 +1,142 @@
+---
+title: "BNB Smart Chain: Jenner hardfork"
+description: "What the BNB Smart Chain Jenner hardfork changes on December 8, 2026: CAS20 token precompiles, the payment lane, and a millisecond timestamp precompile, plus the RPC changes that ship with BSC client v1.8."
+---
+
+Jenner is a BNB Smart Chain (BSC) hardfork that activates on Mainnet on December 8, 2026, at 02:30 UTC (Unix timestamp `1796697000`). It activated on BNB Smart Chain Testnet (Chapel) on October 29, 2026.
+
+Jenner includes three BSC-only BNB Evolution Proposals (BEPs), listed in [BEP-718](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP-718.md):
+
+| BEP | Change | What it means for you |
+| --- | --- | --- |
+| [BEP-702](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP-702.md) | Compliant asset standard (CAS20), a token standard built into the protocol as stateful precompiles | A new kind of token at reserved addresses. Token creation opens separately, through a governance-controlled switch |
+| [BEP-703](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP-703.md) | Payment lane: 5% of each block's gas reserved for payment transactions | General transactions can never use more than 95% of a block's gas at the default ratio, even when the lane is empty |
+| [BEP-706](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP-706.md) | Millisecond block timestamp precompile at `0x70` | Contracts can read block time in milliseconds; `block.timestamp` stays in seconds |
+
+Jenner also charges the double-sign evidence precompile at `0x68` per input byte.
+
+The BSC client release that schedules the fork, v1.8.2, also carries RPC changes that apply as soon as a node upgrades, before activation. See [RPC changes that ship with the client upgrade](#rpc-changes-that-ship-with-the-client-upgrade).
+
+<Check>
+Chainstack BNB Smart Chain Global Nodes serve requests at recent blocks with BSC client v1.8.2, the release that schedules Jenner on Mainnet.
+</Check>
+
+## Millisecond block timestamp precompile (BEP-706)
+
+After activation, a precompiled contract at `0x0000000000000000000000000000000000000070` returns the executing block's timestamp in milliseconds. It closes a gap left by faster blocks: BSC blocks now come faster than once a second, so several blocks can share one `block.timestamp` value.
+
+* Input: none. The precompile ignores calldata.
+* Output: a 32-byte big-endian unsigned integer, the block time in milliseconds since the Unix epoch.
+* Gas: 20.
+* `block.timestamp` and the `TIMESTAMP` opcode are unchanged and still return seconds.
+
+The value is the same one block headers have carried since the [Lorentz hardfork](/docs/bnb-lorentz-hardfork): the header `timestamp` in seconds plus the millisecond remainder stored in `mixHash`. The precompile makes it readable from a contract:
+
+```solidity Solidity
+function milliTimestamp() internal view returns (uint64) {
+    (bool ok, bytes memory data) = address(0x70).staticcall("");
+    require(ok, "milliTimestamp: call failed");
+    return uint64(uint256(bytes32(data)));
+}
+```
+
+Before activation, `0x70` holds no code and an `eth_call` to it returns `0x`. You can preview the precompile before activation with an `eth_call` that overrides the block time to a moment after it:
+
+```shell cURL
+curl -X POST YOUR_CHAINSTACK_ENDPOINT \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_call","params":[{"to":"0x0000000000000000000000000000000000000070","data":"0x"},"latest",null,{"time":"0x6b176be4"}]}'
+```
+
+```json Response
+{"jsonrpc":"2.0","id":1,"result":"0x000000000000000000000000000000000000000000000000000001a2537d72a0"}
+```
+
+`0x1a2537d72a0` is `1796697060000` milliseconds, the overridden time `0x6b176be4` (`1796697060` seconds) times 1,000. The millisecond part is zero because overriding only `time` resets the millisecond remainder.
+
+## Payment lane (BEP-703)
+
+From the block after activation, every block reserves a share of its gas, 5% by default, that general transactions cannot use. The reservation is an accounting rule, not a separate region of the block: payment and general transactions stay interleaved and ordered by fee as before.
+
+A transaction counts as a payment when it is not a system transaction, has a `to` address, has type `0x00`, `0x01`, or `0x02`, and one of these holds:
+
+* `to` is on the payment contract list that BSC governance maintains. The list starts empty after the fork; stablecoins such as USDT and USDC are the intended first entries.
+* It sends a non-zero BNB `value` to an account that holds no code. An account with an EIP-7702 delegation counts as holding code.
+
+Everything else, including any transaction to a contract that is not on the list, is a general transaction. Each block must satisfy:
+
+```text
+generalGasUsed + max(paymentGasUsed, paymentLaneQuota) <= gasLimit
+paymentLaneQuota = gasLimit × ratio / 10000      # ratio defaults to 500, capped at 1000
+```
+
+At the current Mainnet block gas limit of 70,000,000, the quota is 3,500,000 gas. When payment transactions use less than the quota, general transactions are limited to the rest, 66,500,000 gas. When payment demand meets or exceeds the quota, payment and general transactions compete for the remaining space on equal fee terms.
+
+Governance can change the ratio, up to 10%, and the payment contract list through the `PaymentLane` system contract at `0x0000000000000000000000000000000000002007`. A change takes effect from the block after the one that carries it.
+
+## Compliant asset standard: CAS20 (BEP-702)
+
+CAS20 is a fungible token standard implemented in the node as stateful precompiled contracts rather than as deployed bytecode. Tokens have compliance controls built in: shared allowlists and blocklists, transfer policies, pausing, a supply cap, and separate roles for minting, burning, and seizure.
+
+| Contract | Address |
+| --- | --- |
+| CAS20Factory | `0xCA5F000000000000000000000000000000000000` |
+| ActivationRegistry | `0x7020000000000000000000000000000000000001` |
+| PolicyRegistry | `0x7020000000000000000000000000000000000002` |
+
+Token addresses are derived deterministically and start with `0xCA52`. A token account holds a one-byte sentinel instead of executable code.
+
+The hardfork puts the CAS20 code on every node, but token creation stays closed until an administrator appointed by BSC governance opens it through the ActivationRegistry. Existing BEP-20 tokens are unaffected.
+
+## RPC changes that ship with the client upgrade
+
+These changes come with the BSC client upgrade, not with Jenner activation. The tracer, `eth_simulateV1`, and `eth_getStorageValues` changes arrived in v1.8.0-alpha, and the `prevRandao` check in v1.8.1. Chainstack BNB Smart Chain Global Nodes apply them to requests at recent blocks.
+
+### Tracer output follows the Geth format
+
+`debug_trace*` calls that return opcode-level `structLogs` changed format in v1.8.0-alpha, a breaking change for parsers written against the previous output:
+
+* `memory` words are `0x`-prefixed and padded to 32 bytes.
+* `storage` keys and values are `0x`-prefixed.
+* `error` is omitted from a step when it is empty.
+
+The tracing config no longer includes `reexec`. Requests that still pass it succeed.
+
+A `debug_traceCall` with `{"enableMemory": true}` on v1.8.2 returns steps like:
+
+```json
+{
+  "memory": [
+    "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "0x0000000000000000000000000000000000000000000000000000000000000000"
+  ],
+  "storage": {
+    "0x0000000000000000000000000000000000000000000000000000000000000003": "0x00000000000000000000000000000000000000001dada59ce83bb9a18098fbc1"
+  }
+}
+```
+
+### `prevRandao` overrides must be a millisecond remainder
+
+In `eth_call`, `eth_estimateGas`, `debug_traceCall`, and `eth_simulateV1`, a `blockOverrides.prevRandao` value must encode a millisecond remainder from `0` to `999` as a 32-byte hex value. Any larger value fails:
+
+```json
+{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"block override \"prevRandao\" on BSC must be less than 1000, got 1000"}}
+```
+
+`blockOverrides.time` stays in seconds. Overriding only `time` sets the millisecond remainder to zero.
+
+### `eth_simulateV1` reports peak gas
+
+Each call result from `eth_simulateV1` now has a `maxUsedGas` field next to `gasUsed`. `gasUsed` has gas refunds deducted; `maxUsedGas` is the most gas the call consumed during execution, before refunds.
+
+### New method: `eth_getStorageValues`
+
+[eth_getStorageValues](/reference/bnb-getstoragevalues) reads up to 1,024 storage slots, across one or more contracts, in a single call. On BNB Smart Chain Global Nodes, it serves the latest 128 blocks; use [eth_getStorageAt](/reference/bnb-getstorageat) for older state.
+
+## Additional resources
+
+* [BEP-718: Hardfork Meta-Jenner](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP-718.md)
+* BSC client release notes for the RPC changes: [v1.8.2](https://github.com/bnb-chain/bsc/releases/tag/v1.8.2), [v1.8.1](https://github.com/bnb-chain/bsc/releases/tag/v1.8.1), and [v1.8.0-alpha](https://github.com/bnb-chain/bsc/releases/tag/v1.8.0-alpha)
+* [BNB Smart Chain methods](/docs/bnb-smart-chain-methods)
+* [BNB Smart Chain: Lorentz hardfork](/docs/bnb-lorentz-hardfork)
