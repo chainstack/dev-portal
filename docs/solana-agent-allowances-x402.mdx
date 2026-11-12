@@ -46,8 +46,8 @@ Only the agent can spend this particular delegation, only up to the cap, only be
 
 ## Prerequisites
 
-* Python 3.10+
-* `pip install solana solders`
+* Python 3.11+
+* `pip install "solana>=0.42" solders`
 * A Chainstack Solana **devnet** node endpoint
 * Some devnet SOL from the [Chainstack faucet](https://faucet.chainstack.com/solana-testnet-faucet)
 
@@ -61,25 +61,27 @@ Only the agent can spend this particular delegation, only up to the cap, only be
 
 ## Build it in Python
 
-As in the pillar guide, there's no Python SDK, so we build the instructions by hand. The setup below shares the same foundation; the new pieces are the two fixed-delegation instructions.
+As in the pillar guide, there's no Python SDK, so we build the instructions by hand. The setup below shares the same foundation; the new pieces are the two fixed-delegation instructions. The script uses the asynchronous `AsyncClient`: each step adds an `async` function to the same file, and the last step runs them in order.
 
 <Steps>
 
 <Step title="Constants, helpers, and instruction builders">
 
 ```python
+import asyncio
 import struct
 
-from solana.rpc.api import Client
+from solana.rpc.async_api import AsyncClient
 from solana.rpc.commitment import Confirmed
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.instruction import Instruction, AccountMeta
 from solders.message import MessageV0
 from solders.transaction import VersionedTransaction
-from solders.system_program import transfer, TransferParams
-from spl.token.client import Token
-from spl.token.constants import TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
+from solders.system_program import create_account, CreateAccountParams, transfer, TransferParams
+from spl.token.constants import MINT_LEN, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
+from spl.token.instructions import create_associated_token_account, initialize_mint, mint_to
+from spl.token.models import InitializeMintParams, MintToParams
 
 CHAINSTACK_DEVNET = "YOUR_CHAINSTACK_SOLANA_DEVNET_ENDPOINT"
 
@@ -87,7 +89,7 @@ PROGRAM_ID = Pubkey.from_string("De1egAFMkMWZSN5rYXRj9CAdheBamobVNubTsi9avR44")
 SYS_PROGRAM = Pubkey.from_string("11111111111111111111111111111111")
 EVENT_AUTHORITY = Pubkey.find_program_address([b"event_authority"], PROGRAM_ID)[0]
 
-client = Client(CHAINSTACK_DEVNET, commitment=Confirmed)
+client = AsyncClient(CHAINSTACK_DEVNET, commitment=Confirmed)
 
 
 def sa_pda(user, mint):
@@ -104,15 +106,15 @@ def ata(owner, mint):
 def meta(pubkey, signer, writable):
     return AccountMeta(pubkey=pubkey, is_signer=signer, is_writable=writable)
 
-def send(ixs, payer, signers):
-    bh = client.get_latest_blockhash().value.blockhash
+async def send(ixs, payer, signers):
+    bh = (await client.get_latest_blockhash()).value.blockhash
     tx = VersionedTransaction(MessageV0.try_compile(payer.pubkey(), ixs, [], bh), signers)
-    sig = client.send_raw_transaction(bytes(tx)).value
-    client.confirm_transaction(sig, commitment=Confirmed)
+    sig = (await client.send_raw_transaction(bytes(tx))).value
+    await client.confirm_transaction(sig, commitment=Confirmed)
     return str(sig)
 
-def read_sa_init_id(sa):
-    data = client.get_account_info(sa).value.data
+async def read_sa_init_id(sa):
+    data = (await client.get_account_info(sa)).value.data
     return int.from_bytes(data[98:106], "little", signed=True)
 
 
@@ -125,11 +127,11 @@ def ix_init_subscription_authority(user, mint):
     ])
 
 
-def ix_create_fixed_delegation(user, mint, agent, nonce, amount, expiry_ts=0):
+async def ix_create_fixed_delegation(user, mint, agent, nonce, amount, expiry_ts=0):
     sa, _ = sa_pda(user, mint)
     deleg, _ = delegation_pda(sa, user, agent, nonce)
     # CreateFixedDelegationData: nonce u64, amount u64, expiry_ts i64, expected_sa_init_id i64.
-    data = bytes([1]) + struct.pack("<QQqq", nonce, amount, expiry_ts, read_sa_init_id(sa))
+    data = bytes([1]) + struct.pack("<QQqq", nonce, amount, expiry_ts, await read_sa_init_id(sa))
     return Instruction(PROGRAM_ID, data, [
         meta(user, True, True), meta(sa, False, False), meta(deleg, False, True),
         meta(agent, False, False), meta(SYS_PROGRAM, False, False),
@@ -153,32 +155,39 @@ def ix_transfer_fixed(agent, user, mint, nonce, amount, receiver):
 
 <Step title="Set up the wallets and a balance">
 
-A `user` (you, funding the agent), an `agent` (the autonomous spender), and a `service` the agent will pay. Fund the user from the [Chainstack faucet](https://faucet.chainstack.com/solana-testnet-faucet), then the script gives the agent a little SOL for its own transaction fees.
+A `user` (you, funding the agent), an `agent` (the autonomous spender), and a `service` the agent will pay. When the script runs, it prints the user address and waits. Fund it from the [Chainstack faucet](https://faucet.chainstack.com/solana-testnet-faucet), and the script gives the agent a little SOL for its own transaction fees.
 
 ```python
-import time
-
 user = Keypair()
 agent = Keypair()
 service = Keypair()
+mint = Keypair()
+MINT = mint.pubkey()
 
-print("Fund this user address from the Chainstack faucet, then continue:")
-print(user.pubkey())
-while client.get_balance(user.pubkey()).value == 0:
-    time.sleep(2)
 
-# The agent pays its own fees when it spends, so give it a little SOL.
-send([transfer(TransferParams(from_pubkey=user.pubkey(), to_pubkey=agent.pubkey(),
-     lamports=50_000_000))], payer=user, signers=[user])
+async def set_up() -> None:
+    print("Fund this user address from the Chainstack faucet:")
+    print(user.pubkey())
+    while (await client.get_balance(user.pubkey())).value == 0:
+        await asyncio.sleep(2)
 
-# A 6-decimal mint, with 100 tokens for the user to budget from.
-token = Token.create_mint(conn=client, payer=user, mint_authority=user.pubkey(),
-                          decimals=6, program_id=TOKEN_PROGRAM_ID)
-MINT = token.pubkey
-token.create_associated_token_account(user.pubkey())
-token.create_associated_token_account(service.pubkey())
-token.mint_to(dest=ata(user.pubkey(), MINT), mint_authority=user, amount=100_000_000)
-print("mint:", MINT, "| agent:", agent.pubkey())
+    # The agent pays its own fees when it spends, so give it a little SOL.
+    await send([transfer(TransferParams(from_pubkey=user.pubkey(), to_pubkey=agent.pubkey(),
+                lamports=50_000_000))], payer=user, signers=[user])
+
+    # A 6-decimal mint, with 100 tokens for the user to budget from.
+    rent = (await client.get_minimum_balance_for_rent_exemption(MINT_LEN)).value
+    await send([
+        create_account(CreateAccountParams(from_pubkey=user.pubkey(), to_pubkey=MINT,
+                       lamports=rent, space=MINT_LEN, owner=TOKEN_PROGRAM_ID)),
+        initialize_mint(InitializeMintParams(decimals=6, program_id=TOKEN_PROGRAM_ID,
+                        mint=MINT, mint_authority=user.pubkey())),
+        create_associated_token_account(user.pubkey(), user.pubkey(), MINT),
+        create_associated_token_account(user.pubkey(), service.pubkey(), MINT),
+        mint_to(MintToParams(program_id=TOKEN_PROGRAM_ID, mint=MINT, dest=ata(user.pubkey(), MINT),
+                mint_authority=user.pubkey(), amount=100_000_000)),
+    ], payer=user, signers=[user, mint])
+    print("mint:", MINT, "| agent:", agent.pubkey())
 ```
 
 </Step>
@@ -189,10 +198,13 @@ Initialize the user's Subscription Authority, then create a fixed delegation nam
 
 ```python
 NONCE = 1
-send([ix_init_subscription_authority(user.pubkey(), MINT)], payer=user, signers=[user])
-send([ix_create_fixed_delegation(user.pubkey(), MINT, agent.pubkey(), NONCE, 10_000_000)],
-     payer=user, signers=[user])
-print("granted the agent a 10-token budget")
+
+
+async def grant_budget() -> None:
+    await send([ix_init_subscription_authority(user.pubkey(), MINT)], payer=user, signers=[user])
+    await send([await ix_create_fixed_delegation(user.pubkey(), MINT, agent.pubkey(), NONCE, 10_000_000)],
+               payer=user, signers=[user])
+    print("granted the agent a 10-token budget")
 ```
 
 </Step>
@@ -202,30 +214,52 @@ print("granted the agent a 10-token budget")
 The agent now pays the service twice, signing each transfer itself. The user is not in the loop. Each draw decrements the remaining budget.
 
 ```python
-for amount in (3_000_000, 3_000_000):  # 3 tokens, then 3 more
-    sig = send([ix_transfer_fixed(agent.pubkey(), user.pubkey(), MINT, NONCE, amount, service.pubkey())],
-               payer=agent, signers=[agent])
-    print("agent paid 3 tokens:", sig)
+async def agent_spends() -> None:
+    for amount in (3_000_000, 3_000_000):  # 3 tokens, then 3 more
+        sig = await send([ix_transfer_fixed(agent.pubkey(), user.pubkey(), MINT, NONCE, amount, service.pubkey())],
+                         payer=agent, signers=[agent])
+        print("agent paid 3 tokens:", sig)
 
-bal = client.get_token_account_balance(ata(service.pubkey(), MINT)).value
-print("service balance:", bal.ui_amount_string)  # 6 — and 4 left on the budget
+    bal = (await client.get_token_account_balance(ata(service.pubkey(), MINT))).value
+    print("service balance:", bal.ui_amount_string)  # 6 — and 4 left on the budget
 ```
 
 </Step>
 
 <Step title="The cap holds">
 
-With 4 tokens left, an attempt to pull 10 fails — the program rejects it with `AmountExceedsLimit`. The agent can never spend past what you authorized.
+With 4 tokens left, an attempt to pull 10 fails — the program rejects it with `AmountExceedsLimit` (custom program error `0x12c`). The agent can never spend past what you authorized.
 
 ```python
-try:
-    send([ix_transfer_fixed(agent.pubkey(), user.pubkey(), MINT, NONCE, 10_000_000, service.pubkey())],
-         payer=agent, signers=[agent])
-except Exception as e:
-    print("overspend rejected:", e)
+async def overspend() -> None:
+    try:
+        await send([ix_transfer_fixed(agent.pubkey(), user.pubkey(), MINT, NONCE, 10_000_000, service.pubkey())],
+                   payer=agent, signers=[agent])
+    except Exception as e:
+        print("overspend rejected:", e)
 ```
 
 To cut the agent off before the budget is spent, the user revokes the delegation PDA (instruction `revokeDelegation`, discriminator `3`), which closes it and returns the rent.
+
+</Step>
+
+<Step title="Run it">
+
+`main` runs the steps in order and closes the client at the end.
+
+```python
+async def main() -> None:
+    try:
+        await set_up()
+        await grant_budget()
+        await agent_spends()
+        await overspend()
+    finally:
+        await client.close()
+
+
+asyncio.run(main())
+```
 
 </Step>
 

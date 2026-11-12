@@ -179,33 +179,37 @@ Before proceeding, ensure you have Node.js installed for JavaScript development 
 
 <CodeGroup>
   ```python Python
-  from solana.rpc.api import Client
+  import asyncio
+  from solana.rpc.async_api import AsyncClient
   from solders.pubkey import Pubkey
 
-  solana_client = Client("YOUR_CHAINSTACK_ENDPOINT")
   token_mint_public_key = Pubkey.from_string("4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R")
 
-  largest_accounts = solana_client.get_token_largest_accounts(token_mint_public_key)
+  async def main():
+      async with AsyncClient("YOUR_CHAINSTACK_ENDPOINT") as solana_client:
+          largest_accounts = await solana_client.get_token_largest_accounts(token_mint_public_key)
 
-  # Display raw response
-  #print(largest_accounts)
+      # Display raw response
+      #print(largest_accounts)
 
-  # Display the information in a nicer format
-  print("Largest SPL Token Accounts:\n")
+      # Display the information in a nicer format
+      print("Largest SPL Token Accounts:\n")
 
-  # Accessing slot and api version
-  slot = largest_accounts.context.slot
-  api_version = getattr(largest_accounts.context, 'api_version', 'Unknown')
+      # Accessing slot and api version
+      slot = largest_accounts.context.slot
+      api_version = getattr(largest_accounts.context, 'api_version', 'Unknown')
 
-  # Print the data in a nice format
-  print(f"Slot: {slot}\nAPI Version: {api_version}\n")
+      # Print the data in a nice format
+      print(f"Slot: {slot}\nAPI Version: {api_version}\n")
 
-  for account in largest_accounts.value:
-      address = account.address
-      ui_amount = account.amount.ui_amount
-      decimals = account.amount.decimals
-      amount = account.amount.amount
-      print(f"Address: {address}\nAmount: {ui_amount} (Decimals: {decimals}, Raw: {amount})\n")
+      for account in largest_accounts.value:
+          address = account.address
+          ui_amount = account.amount.ui_amount
+          decimals = account.amount.decimals
+          amount = account.amount.amount
+          print(f"Address: {address}\nAmount: {ui_amount} (Decimals: {decimals}, Raw: {amount})\n")
+
+  asyncio.run(main())
   ```
 </CodeGroup>
 
@@ -250,7 +254,9 @@ Then create a new file named `[main.py](http://main.py)` and paste the following
 
 <CodeGroup>
   ```python Python
-  from solana.rpc.api import Client
+  import asyncio
+  from solana.rpc.async_api import AsyncClient
+  from solana.rpc.commitment import Finalized
   from solders.pubkey import Pubkey
   import matplotlib.pyplot as plt
   import matplotlib.ticker as ticker
@@ -259,12 +265,12 @@ Then create a new file named `[main.py](http://main.py)` and paste the following
   SOLANA_RPC_ENDPOINT = "YOUR_CHAINSTACK_ENDPOINT"
   TOKEN_MINT_PUBLIC_KEY = "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R" # Ray Token in this example
 
-  def fetch_largest_accounts(solana_client, token_mint_public_key):
+  async def fetch_largest_accounts(solana_client, token_mint_public_key):
       """
       Fetches the 20 largest accounts for a specific SPL Token.
       """
       print("Fetching the 20 largest SPL Token accounts...")
-      largest_accounts = solana_client.get_token_largest_accounts(token_mint_public_key, 'finalized')
+      largest_accounts = await solana_client.get_token_largest_accounts(token_mint_public_key, Finalized)
       print("Data fetched successfully.")
       return largest_accounts
 
@@ -288,11 +294,11 @@ Then create a new file named `[main.py](http://main.py)` and paste the following
       plt.show()
       print("Plotting completed.")
 
-  def main(solana_rpc_endpoint, token_mint_public_key_str):
-      solana_client = Client(solana_rpc_endpoint)
+  async def main(solana_rpc_endpoint, token_mint_public_key_str):
       token_mint_public_key = Pubkey.from_string(token_mint_public_key_str)
 
-      largest_accounts = fetch_largest_accounts(solana_client, token_mint_public_key)
+      async with AsyncClient(solana_rpc_endpoint) as solana_client:
+          largest_accounts = await fetch_largest_accounts(solana_client, token_mint_public_key)
       addresses = [str(account.address) for account in largest_accounts.value]
       ui_amounts = [account.amount.ui_amount for account in largest_accounts.value]
 
@@ -300,7 +306,7 @@ Then create a new file named `[main.py](http://main.py)` and paste the following
 
   if __name__ == "__main__":
       print("Starting the SPL Token analysis script...")
-      main(SOLANA_RPC_ENDPOINT, TOKEN_MINT_PUBLIC_KEY)
+      asyncio.run(main(SOLANA_RPC_ENDPOINT, TOKEN_MINT_PUBLIC_KEY))
       print("Script execution completed.")
   ```
 </CodeGroup>

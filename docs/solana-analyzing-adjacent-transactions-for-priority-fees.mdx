@@ -35,7 +35,7 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 </Check>
 </Visibility>
 
-* Python 3.7+
+* Python 3.11+
 * Packages: `pip install solana base58`
 
 ## Understanding Solana fees
@@ -58,8 +58,8 @@ The script itself:
 
 <CodeGroup>
   ```python Python
-  from solana.rpc.api import Client
-  from solana.rpc.commitment import Commitment
+  import asyncio
+  from solana.rpc.async_api import AsyncClient
   from solders.signature import Signature
   import base58
   import json
@@ -68,12 +68,12 @@ The script itself:
   PROGRAM_ID = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
   COMPUTE_BUDGET_ID = "ComputeBudget111111111111111111111111111111"
 
-  def get_transaction_slot(client: Client, signature_str: str) -> Optional[int]:
+  async def get_transaction_slot(client: AsyncClient, signature_str: str) -> Optional[int]:
       try:
           signature_bytes = base58.b58decode(signature_str)
           signature = Signature(signature_bytes)
 
-          response = client.get_transaction(
+          response = await client.get_transaction(
               signature,
               max_supported_transaction_version=1
           )
@@ -89,6 +89,13 @@ The script itself:
       total_fee_lamports = tx.meta.fee
       total_fee_sol = total_fee_lamports / 1_000_000_000
 
+      # Version 1 transactions carry the total priority fee, in lamports, in the message config
+      config = tx.transaction.message.transaction_config
+      if config is not None:
+          priority_fee_sol = (config.priority_fee or 0) / 1_000_000_000
+          return total_fee_sol, priority_fee_sol
+
+      # Legacy and version 0 transactions set it with Compute Budget program instructions
       cu_price_micro_lamports = None
       cu_limit = None
 
@@ -111,9 +118,9 @@ The script itself:
 
       return total_fee_sol, priority_fee_sol
 
-  def get_block_transactions(client: Client, slot: int, target_signature: str) -> List[tuple]:
+  async def get_block_transactions(client: AsyncClient, slot: int, target_signature: str) -> List[tuple]:
       try:
-          response = client.get_block(slot, max_supported_transaction_version=1)
+          response = await client.get_block(slot, max_supported_transaction_version=1)
           if not response.value:
               return []
 
@@ -152,9 +159,12 @@ The script itself:
           print(f"Error getting block transactions for slot {slot}: {e}")
           return []
 
-  def analyze_slots(rpc_url: str, signature: str, slots_back: int, slots_forward: int):
-      client = Client(rpc_url)
-      current_slot = get_transaction_slot(client, signature)
+  async def analyze_slots(rpc_url: str, signature: str, slots_back: int, slots_forward: int):
+      async with AsyncClient(rpc_url) as client:
+          await _analyze_slots(client, signature, slots_back, slots_forward)
+
+  async def _analyze_slots(client: AsyncClient, signature: str, slots_back: int, slots_forward: int):
+      current_slot = await get_transaction_slot(client, signature)
       if not current_slot:
           print("Could not find transaction slot")
           return
@@ -163,7 +173,7 @@ The script itself:
       print("=" * 80)
 
       for slot in range(current_slot - slots_back, current_slot + slots_forward + 1):
-          transactions = get_block_transactions(client, slot, signature)
+          transactions = await get_block_transactions(client, slot, signature)
 
           print(f"\nSlot {slot}:")
           print("-" * 40)
@@ -218,7 +228,7 @@ The script itself:
       SLOTS_BACK = 1  # Number of slots to check back
       SLOTS_FORWARD = 1  # Number of slots to check forward
 
-      analyze_slots(RPC_URL, SIGNATURE, SLOTS_BACK, SLOTS_FORWARD)
+      asyncio.run(analyze_slots(RPC_URL, SIGNATURE, SLOTS_BACK, SLOTS_FORWARD))
 
   if __name__ == "__main__":
       main()

@@ -126,9 +126,11 @@ See:
   ```
 
   ```python solana.py
-  from solana.rpc.api import Client
-  from solders.transaction import Transaction
+  from solana.rpc.async_api import AsyncClient
   from solana.rpc.commitment import Commitment
+  from solana.rpc.models import TxOpts
+  from solders.transaction import VersionedTransaction
+  from solders.transaction_status import TransactionConfirmationStatus
   from typing import Optional, List, Union
   import time
   import asyncio
@@ -139,8 +141,8 @@ See:
       pass
 
   async def send_and_confirm_transaction(
-      client: Client,
-      transaction: Transaction,
+      client: AsyncClient,
+      transaction: VersionedTransaction,
       signers: List,
       timeout: int = 30,  # timeout in seconds
       commitment: Union[str, Commitment] = "finalized"
@@ -150,7 +152,7 @@ See:
 
       Args:
           client: Solana client instance
-          transaction: Transaction to send
+          transaction: Signed transaction to send
           signers: List of signers for the transaction
           timeout: Maximum time to wait for confirmation in seconds
           commitment: Commitment level to use
@@ -164,15 +166,14 @@ See:
 
       # Send the transaction
       try:
-          from solana.rpc.types import TxOpts
-          response = client.send_transaction(
+          response = await client.send_transaction(
               transaction,
               opts=TxOpts(
                   skip_preflight=False,
                   preflight_commitment=commitment
               )
           )
-          signature = str(response.value)
+          signature = response.value
       except Exception as e:
           raise TransactionConfirmationError(f"Failed to send transaction: {str(e)}")
 
@@ -187,7 +188,7 @@ See:
                       raise TimeoutError(f"Transaction confirmation timeout after {timeout} seconds")
 
                   # Get transaction status
-                  response = client.get_signature_statuses([signature])
+                  response = await client.get_signature_statuses([signature])
 
                   if response.value[0] is None:
                       # Transaction not yet processed, wait and retry
@@ -204,15 +205,15 @@ See:
 
                   # Check confirmation status
                   conf_status = status.confirmation_status
-                  if conf_status == "finalized":
-                      return signature
+                  if conf_status == TransactionConfirmationStatus.Finalized:
+                      return str(signature)
 
                   # Wait before checking again
                   await asyncio.sleep(1)
 
               except TimeoutError:
                   # Return signature even on timeout
-                  return signature
+                  return str(signature)
               except Exception as e:
                   if not isinstance(e, TimeoutError):
                       raise TransactionConfirmationError(f"Confirmation failed: {str(e)}")
@@ -225,23 +226,21 @@ See:
   # Example usage
   async def example():
       # Initialize client
-      client = Client("CHAINSTACK_NODE")
+      async with AsyncClient("CHAINSTACK_NODE") as client:
+          # Build and sign your transaction
+          transaction = ...  # a VersionedTransaction with your instructions and signers
 
-      # Create and populate your transaction
-      transaction = Transaction()
-      # ... add your transaction instructions here ...
-
-      try:
-          signature = await send_and_confirm_transaction(
-              client=client,
-              transaction=transaction,
-              signers=[],  # Add your signers here
-              timeout=60,  # 60 seconds timeout
-              commitment="finalized"
-          )
-          print(f"Transaction confirmed: {signature}")
-      except TransactionConfirmationError as e:
-          print(f"Transaction failed: {str(e)}")
+          try:
+              signature = await send_and_confirm_transaction(
+                  client=client,
+                  transaction=transaction,
+                  signers=[],  # Add your signers here
+                  timeout=60,  # 60 seconds timeout
+                  commitment="finalized"
+              )
+              print(f"Transaction confirmed: {signature}")
+          except TransactionConfirmationError as e:
+              print(f"Transaction failed: {str(e)}")
 
   # Run the example
   if __name__ == "__main__":

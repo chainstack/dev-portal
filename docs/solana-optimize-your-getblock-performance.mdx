@@ -589,25 +589,19 @@ When fetching multiple blocks, avoid sending too many requests simultaneously:
 <CodeGroup>
   ```python Python
   import asyncio
-  import concurrent.futures
-  from solana.rpc.api import Client
+  from solana.rpc.async_api import AsyncClient
   import json
   import os
   import pathlib
 
-  async def fetch_block_with_solana(executor, client, slot, semaphore):
+  async def fetch_block_with_solana(client, slot, semaphore):
       # Use a semaphore to limit concurrency
       async with semaphore:
           try:
-              # Run the synchronous client.get_block in a thread pool
-              loop = asyncio.get_running_loop()
-              response = await loop.run_in_executor(
-                  executor,
-                  lambda: client.get_block(
-                      slot,
-                      encoding="json",
-                      max_supported_transaction_version=1
-                  )
+              response = await client.get_block(
+                  slot,
+                  encoding="json",
+                  max_supported_transaction_version=1
               )
 
               # Solana-py returns a solders.rpc.responses.GetBlockResp object
@@ -657,11 +651,8 @@ When fetching multiple blocks, avoid sending too many requests simultaneously:
       semaphore = asyncio.Semaphore(max_concurrency)
 
       # Create the Solana client
-      client = Client(rpc_url)
-
-      # Create a thread pool executor for running synchronous code
-      with concurrent.futures.ThreadPoolExecutor() as executor:
-          tasks = [fetch_block_with_solana(executor, client, slot, semaphore) for slot in slots]
+      async with AsyncClient(rpc_url) as client:
+          tasks = [fetch_block_with_solana(client, slot, semaphore) for slot in slots]
           results = await asyncio.gather(*tasks)
 
           # Process and save each block
@@ -704,7 +695,7 @@ Recommended encodings:
 
 ### Use binary encoding for bulk requests
 
-Same script as above, but in line 18 instead of`encoding="json"` use `encoding="base64"`.
+Same script as above, but in line 13 instead of `encoding="json"` use `encoding="base64"`.
 
 ### Error handling
 
@@ -719,10 +710,10 @@ Let's start with a working script and explain it below:
   error handling and exponential backoff retries.
   """
 
-  import time
-  from solana.rpc.api import Client
+  import asyncio
+  from solana.rpc.async_api import AsyncClient
 
-  def get_block_with_retries(client, slot, max_retries=3, backoff_factor=2):
+  async def get_block_with_retries(client, slot, max_retries=3, backoff_factor=2):
       """Fetch a block with exponential backoff retries
 
       Args:
@@ -740,7 +731,7 @@ Let's start with a working script and explain it below:
       while retry_count < max_retries:
           try:
               # Get the block response
-              block_resp = client.get_block(
+              block_resp = await client.get_block(
                   slot,
                   encoding="json",
                   max_supported_transaction_version=1
@@ -770,7 +761,7 @@ Let's start with a working script and explain it below:
                       elif code == 429:  # Rate limit
                           print("Rate limited, backing off significantly")
                           retry_count += 1
-                          time.sleep(base_wait_time * backoff_factor ** retry_count * 2)  # Extra backoff for rate limits
+                          await asyncio.sleep(base_wait_time * backoff_factor ** retry_count * 2)  # Extra backoff for rate limits
                           continue
                       else:
                           print(f"RPC error code {code}: {message}")
@@ -789,7 +780,7 @@ Let's start with a working script and explain it below:
               print(f"Error fetching block {slot}, retry {retry_count}/{max_retries} after {wait_time}s: {e}")
 
               if retry_count < max_retries:
-                  time.sleep(wait_time)
+                  await asyncio.sleep(wait_time)
               else:
                   print(f"Max retries reached for block {slot}")
                   return None
@@ -800,23 +791,23 @@ Let's start with a working script and explain it below:
 
           if retry_count < max_retries:
               print(f"Retrying after {wait_time}s...")
-              time.sleep(wait_time)
+              await asyncio.sleep(wait_time)
           else:
               print(f"Max retries reached for block {slot}")
               return None
 
       return None  # Shouldn't reach here, but just in case
 
-  def main():
+  async def main():
       # Example usage
       rpc_url = "CHAINSTACK_SOLANA_URL"
       print(f"Connecting to Solana RPC: {rpc_url}")
 
-      client = Client(rpc_url)
       slot_to_fetch = 329849011  # Example slot
 
       print(f"Fetching block at slot {slot_to_fetch}...")
-      block = get_block_with_retries(client, slot_to_fetch)
+      async with AsyncClient(rpc_url) as client:
+          block = await get_block_with_retries(client, slot_to_fetch)
 
       if block:
           # Print summary of the block
@@ -846,7 +837,7 @@ Let's start with a working script and explain it below:
           print("Failed to fetch block")
 
   if __name__ == "__main__":
-      main()
+      asyncio.run(main())
   ```
 </CodeGroup>
 
@@ -854,7 +845,7 @@ Let's start with a working script and explain it below:
 
 <CodeGroup>
   ```python Python
-  def get_block_with_retries(client, slot, max_retries=3, backoff_factor=2):
+  async def get_block_with_retries(client, slot, max_retries=3, backoff_factor=2):
       retry_count = 0
       base_wait_time = 1  # Start with 1 second wait
 
@@ -863,7 +854,7 @@ Let's start with a working script and explain it below:
 
           # When an error occurs:
           wait_time = base_wait_time * backoff_factor ** retry_count
-          time.sleep(wait_time)
+          await asyncio.sleep(wait_time)
   ```
 </CodeGroup>
 
@@ -895,7 +886,7 @@ The code implements classic exponential backoff where:
       elif code == 429:  # Rate limit
           print("Rate limited, backing off significantly")
           retry_count += 1
-          time.sleep(base_wait_time * backoff_factor ** retry_count * 2)  # Extra backoff for rate limits
+          await asyncio.sleep(base_wait_time * backoff_factor ** retry_count * 2)  # Extra backoff for rate limits
           continue
   ```
 </CodeGroup>
@@ -913,7 +904,7 @@ The script intelligently handles different error types:
   elif code == 429:  # Rate limit
       print("Rate limited, backing off significantly")
       retry_count += 1
-      time.sleep(base_wait_time * backoff_factor ** retry_count * 2)  # Extra backoff for rate limits
+      await asyncio.sleep(base_wait_time * backoff_factor ** retry_count * 2)  # Extra backoff for rate limits
       continue
   ```
 </CodeGroup>
@@ -930,7 +921,7 @@ Rate limits receive special handling:
   ```python Python
   try:
       # Get the block response
-      block_resp = client.get_block(...)
+      block_resp = await client.get_block(...)
 
       # Various response validation checks
 
@@ -941,7 +932,7 @@ Rate limits receive special handling:
       print(f"Error fetching block {slot}, retry {retry_count}/{max_retries} after {wait_time}s: {e}")
 
       if retry_count < max_retries:
-          time.sleep(wait_time)
+          await asyncio.sleep(wait_time)
       else:
           print(f"Max retries reached for block {slot}")
           return None
@@ -1035,25 +1026,19 @@ Example:
   import json
   import requests
   from typing import Dict, Any, Optional, Union
-  from solana.rpc.api import Client
 
   class BlockCache:
       """A simple cache for Solana blocks to reduce redundant RPC calls."""
 
-      def __init__(self, client: Client, max_size: int = 100):
+      def __init__(self, rpc_url: str, max_size: int = 100):
           """
           Initialize the block cache.
 
           Args:
-              client: A Solana RPC client instance or URL string
+              rpc_url: Your Solana node HTTPS endpoint
               max_size: Maximum number of blocks to keep in cache
           """
-          if isinstance(client, str):
-              self.rpc_url = client
-              self.client = None
-          else:
-              self.rpc_url = client._provider.endpoint_uri
-              self.client = client
+          self.rpc_url = rpc_url
 
           self.session = requests.Session()
           self.session.headers.update({
@@ -1216,10 +1201,10 @@ Implement flexible block range handling through a range-first processing pattern
   efficiently with batching and proper error handling.
   """
 
-  import time
-  from solana.rpc.api import Client
+  import asyncio
+  from solana.rpc.async_api import AsyncClient
 
-  def get_block_with_retries(client, slot, max_retries=3, backoff_factor=2):
+  async def get_block_with_retries(client, slot, max_retries=3, backoff_factor=2):
       """Fetch a block with exponential backoff retries
 
       Args:
@@ -1237,7 +1222,7 @@ Implement flexible block range handling through a range-first processing pattern
       while retry_count < max_retries:
           try:
               # Get the block response
-              block_resp = client.get_block(
+              block_resp = await client.get_block(
                   slot,
                   encoding="json",
                   max_supported_transaction_version=1
@@ -1267,7 +1252,7 @@ Implement flexible block range handling through a range-first processing pattern
                       elif code == 429:  # Rate limit
                           print("Rate limited, backing off significantly")
                           retry_count += 1
-                          time.sleep(base_wait_time * backoff_factor ** retry_count * 2)  # Extra backoff for rate limits
+                          await asyncio.sleep(base_wait_time * backoff_factor ** retry_count * 2)  # Extra backoff for rate limits
                           continue
                       else:
                           print(f"RPC error code {code}: {message}")
@@ -1286,7 +1271,7 @@ Implement flexible block range handling through a range-first processing pattern
               print(f"Error fetching block {slot}, retry {retry_count}/{max_retries} after {wait_time}s: {e}")
 
               if retry_count < max_retries:
-                  time.sleep(wait_time)
+                  await asyncio.sleep(wait_time)
               else:
                   print(f"Max retries reached for block {slot}")
                   return None
@@ -1297,14 +1282,14 @@ Implement flexible block range handling through a range-first processing pattern
 
           if retry_count < max_retries:
               print(f"Retrying after {wait_time}s...")
-              time.sleep(wait_time)
+              await asyncio.sleep(wait_time)
           else:
               print(f"Max retries reached for block {slot}")
               return None
 
       return None  # Shouldn't reach here, but just in case
 
-  def get_block_range(client, start_slot, end_slot=None, limit=500):
+  async def get_block_range(client, start_slot, end_slot=None, limit=500):
       """
       Get a list of available block slots in a range.
       If end_slot is None, will use getBlocksWithLimit instead of getBlocks.
@@ -1321,10 +1306,10 @@ Implement flexible block range handling through a range-first processing pattern
       try:
           if end_slot is None:
               # Use getBlocksWithLimit
-              blocks_resp = client.get_blocks_with_limit(start_slot, limit)
+              blocks_resp = await client.get_blocks_with_limit(start_slot, limit)
           else:
               # Use getBlocks
-              blocks_resp = client.get_blocks(start_slot, end_slot)
+              blocks_resp = await client.get_blocks(start_slot, end_slot)
 
           # Handle the response which could be an object or a dict
           if hasattr(blocks_resp, 'value'):
@@ -1338,7 +1323,7 @@ Implement flexible block range handling through a range-first processing pattern
           print(f"Error getting block range: {e}")
           return []
 
-  def process_block_range(client, start_slot, end_slot, batch_size=10):
+  async def process_block_range(client, start_slot, end_slot, batch_size=10):
       """Process blocks in a range in batches
 
       Args:
@@ -1352,7 +1337,7 @@ Implement flexible block range handling through a range-first processing pattern
       """
       # First get all available block slots in the range
       print(f"Fetching block slots from {start_slot} to {end_slot}...")
-      block_slots = get_block_range(client, start_slot, end_slot)
+      block_slots = await get_block_range(client, start_slot, end_slot)
       print(f"Found {len(block_slots)} blocks to process")
 
       # Process in batches to avoid overwhelming the RPC node
@@ -1367,7 +1352,7 @@ Implement flexible block range handling through a range-first processing pattern
 
           # Process each block in the batch
           for slot in batch:
-              block = get_block_with_retries(client, slot)
+              block = await get_block_with_retries(client, slot)
               if block:
                   # Get transaction count safely
                   transactions = getattr(block, 'transactions', [])
@@ -1376,17 +1361,17 @@ Implement flexible block range handling through a range-first processing pattern
                   print(f"  Slot {slot}: {tx_count} transactions")
 
               # Add a small delay between blocks to be nice to the RPC node
-              time.sleep(0.1)
+              await asyncio.sleep(0.1)
 
           # Add a delay between batches
           if i + batch_size < total_blocks:
               print(f"Waiting before next batch...")
-              time.sleep(1)
+              await asyncio.sleep(1)
 
       print(f"Processed {total_blocks} blocks with {total_transactions} total transactions")
       return total_transactions
 
-  def process_recent_blocks(client, count=100):
+  async def process_recent_blocks(client, count=100):
       """Process the most recent blocks
 
       Args:
@@ -1397,7 +1382,7 @@ Implement flexible block range handling through a range-first processing pattern
           Total number of transactions processed
       """
       # Get the current slot
-      current_slot_resp = client.get_slot()
+      current_slot_resp = await client.get_slot()
 
       # Handle either object or dict response
       if hasattr(current_slot_resp, 'value'):
@@ -1411,27 +1396,26 @@ Implement flexible block range handling through a range-first processing pattern
           # Calculate the starting slot (count blocks back)
           start_slot = max(0, current_slot - count)
           print(f"Processing {count} recent blocks from {start_slot} to {current_slot}...")
-          return process_block_range(client, start_slot, current_slot)
+          return await process_block_range(client, start_slot, current_slot)
       else:
           print("Failed to get current slot")
           return 0
 
-  def main():
+  async def main():
       # Example usage
       rpc_url = "CHAINSTACK_SOLANA_URL"
       print(f"Connecting to Solana RPC: {rpc_url}")
-
-      client = Client(rpc_url)
 
       # Process the 20 most recent blocks
       count = 20
       print(f"Processing {count} recent blocks...")
 
-      tx_count = process_recent_blocks(client, count=count)
+      async with AsyncClient(rpc_url) as client:
+          tx_count = await process_recent_blocks(client, count=count)
       print(f"Total transactions in last {count} blocks: {tx_count}")
 
   if __name__ == "__main__":
-      main()
+      asyncio.run(main())
   ```
 </CodeGroup>
 
