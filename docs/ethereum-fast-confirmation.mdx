@@ -1,44 +1,53 @@
 ---
 title: "Ethereum: fast confirmation and the safe block tag"
-description: "How the Fast Confirmation Rule changes the safe block tag on Ethereum Hoodi Global Nodes: safe trails latest by one or two blocks, can step back to an older block, and when to use finalized instead."
+description: "How the Fast Confirmation Rule changes the safe block tag on Ethereum Hoodi Global Nodes: how far safe trails latest, when it falls back to finalized, and when to use finalized instead."
 ---
 
 **TLDR:**
-* On Ethereum Hoodi [Global Nodes](/docs/global-elastic-node), the `safe` block tag follows the Fast Confirmation Rule (FCR) and typically trails `latest` by one or two blocks.
-* `finalized` does not change: it still trails `latest` by about two epochs.
+* On Ethereum Hoodi [Global Nodes](/docs/global-elastic-node), the `safe` block tag follows the Fast Confirmation Rule and trails `latest` by a few blocks, typically less than a minute.
+* `finalized` does not change: it still trails `latest` by two to three epochs.
 * Fast confirmation relies on network synchrony assumptions. Use `finalized` for actions you cannot reverse.
-* On Ethereum Mainnet and Sepolia Global Nodes, `safe` keeps its standard meaning — the latest justified block.
+* On Ethereum Mainnet and Sepolia Global Nodes, `safe` keeps its standard meaning: the latest justified block.
 
 ## What the safe block tag returns with fast confirmation
 
-With fast confirmation, `safe` returns the most recent block that the consensus client confirmed under the [Fast Confirmation Rule](https://github.com/ethereum/consensus-specs/blob/master/specs/phase0/fast-confirmation.md). The consensus client passes that block to the execution client as its safe block, so every method that accepts a block tag — [eth_getBlockByNumber](/reference/ethereum-getblockbynumber), [eth_call](/reference/ethereum-ethcall), [eth_getBalance](/reference/ethereum-getbalance), and the rest — resolves `safe` to it.
+With fast confirmation, `safe` returns the most recent block that the consensus client confirmed under the [Fast Confirmation Rule](https://github.com/ethereum/consensus-specs/blob/master/specs/phase0/fast-confirmation.md). The consensus client passes that block to the execution client as its safe block, so every method that takes a block tag resolves `safe` to it, including [eth_getBlockByNumber](/reference/ethereum-getblockbynumber), [eth_call](/reference/ethereum-ethcall), [eth_getBalance](/reference/ethereum-getbalance), and [eth_getLogs](/reference/ethereum-getlogs).
 
-Under normal network conditions, the Fast Confirmation Rule confirms a block within one or two slots, 12 to 24 seconds. A skipped slot or a slot where the rule does not advance widens the gap by a few blocks until the next confirmation.
+Under normal network conditions, the Fast Confirmation Rule confirms a block within one or two slots, 12 to 24 seconds. A skipped slot, or a slot in which the rule does not advance, delays the next confirmation.
 
 | Block tag | Without fast confirmation | With fast confirmation |
 | --- | --- | --- |
 | `latest` | Newest block | Newest block |
-| `safe` | Latest justified block, typically 32 to 64 blocks behind `latest` | Latest fast-confirmed block, typically one or two blocks behind `latest` |
+| `safe` | Latest justified block, typically 32 to 64 blocks behind `latest` | Latest fast-confirmed block, typically a few blocks behind `latest` |
 | `finalized` | Latest finalized block, typically 64 to 96 blocks behind `latest` | Unchanged |
 
-## When the safe block tag lags or steps back
+## When the safe block tag falls back to finalized
 
-The Fast Confirmation Rule falls back to an older confirmed block when it cannot keep up, for example while the consensus client is syncing or after an error. During a fallback, `safe` can return an older block than the previous request, at worst the finalized block, and then moves forward again as confirmations resume.
+The Fast Confirmation Rule reverts to the finalized block when its latest confirmed block:
 
-Code that follows `safe` must not assume its block number grows by one block at a time. Handle a `safe` block number that stays the same, jumps forward by many blocks, or goes back.
+* Is older than the previous epoch, for example after the consensus client was offline or fell behind.
+* Is no longer on the canonical chain.
+* Cannot be confirmed again at the start of the current epoch.
+
+During a fallback, `safe` returns the same block as `finalized`, 64 to 96 blocks behind `latest`. At the next epoch, the rule can restart from the justified block and then catches up to a few blocks behind `latest`.
+
+Code that follows `safe` must handle a `safe` block number that stays the same, jumps forward by many blocks, or moves back to the finalized block. A block that `safe` returned can also be reorganized out of the chain, so track `safe` by block hash as well as by number.
 
 ## When to use finalized instead of safe
 
-Use `finalized` when a reorganization past your confirmation point would cost money or cannot be undone. Finality comes from Ethereum's consensus and does not depend on network timing. Fast confirmation does.
+Use `finalized` when a reorganization past your confirmation point would cost money or cannot be undone. Reverting a finalized block requires validators that hold at least one third of the staked ether to be slashed, whatever the network conditions. A fast-confirmed block can be reorganized without any slashing if attestations arrive after the end of their slot.
 
 * Use `finalized` to credit deposits, release bridge withdrawals, and settle payouts.
-* Use `safe` with fast confirmation for confirmations shown in an interface, for indexers that already handle reorganizations, and for testing confirmation flows on Hoodi before you move them to Mainnet.
+* Use `safe` with fast confirmation for confirmations shown in an interface, for indexers that already handle reorganizations, and to test how your application handles a `safe` block a few blocks behind `latest`.
 
 ## Which Chainstack endpoints use fast confirmation
 
 Fast confirmation is on for Ethereum Hoodi Global Nodes. Ethereum Mainnet and Sepolia Global Nodes return the standard justified block for `safe`.
 
-To see which behavior an endpoint has, compare how far `safe` trails `latest`: one or two blocks means fast confirmation, and dozens of blocks means the justified block.
+To see which behavior an endpoint has, compare `safe` with `latest` and `finalized`:
+
+* With fast confirmation, `safe` is a few blocks behind `latest`, or equal to `finalized` during a fallback.
+* Without fast confirmation, `safe` is about one epoch, 32 blocks, ahead of `finalized`.
 
 ```javascript check-safe.mjs
 import { ethers } from "ethers";
