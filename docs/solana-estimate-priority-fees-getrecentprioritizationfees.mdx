@@ -32,7 +32,8 @@ Before getting started, deploy a Solana node on Chainstack so you are ready to p
 1. [Sign up with Chainstack](https://console.chainstack.com/user/account/create).
 2. [Deploy a node](/docs/manage-your-networks).
 3. [View node access and credentials](/docs/manage-your-node#view-node-access-and-credentials).
-## Understand the \`getRecentPrioritizationFees method
+
+## Understand the `getRecentPrioritizationFees` method
 
 The `getRecentPrioritizationFees` method offers real-time insights into the network's current trends of prioritization fees. These fees are calculated per compute unit and are paid by transactions seeking to secure a higher priority in the block processing queue. By leveraging these prioritization fees, transactions can gain precedence over others in the same block, thus ensuring quicker inclusion and execution on the blockchain.
 
@@ -55,7 +56,9 @@ The method's response is structured as an array of objects, with each object she
 
 Below is a practical demonstration of a simple `getRecentPrioritizationFees` request using cURL.
 
-This example queries the Orca Whirlpool SOL-USDC pool state account — a writable state account that competing swap transactions lock. Pass writable state accounts (pool state, reserves, user token accounts) for meaningful results.
+This example queries the Raydium SOL-USDC AMM pool state account — a writable state account that competing swap transactions lock. Pass writable state accounts (pool state, reserves, user token accounts) that transactions write to in most slots.
+
+In a slot where no transaction wrote to your accounts, the method returns the floor across all transactions in that slot, which is effectively 0. A rarely used account therefore returns 0 for most of the 150-slot window.
 
 <Warning>
 Do not pass program IDs (Jupiter, Raydium, pump.fun, etc.) to this method. Programs are executable and read-only in user transactions, so they are not present in the per-account writable fee map. Passing a program ID returns near-empty data and gives a misleading picture of recent fees.
@@ -74,7 +77,7 @@ Do not pass program IDs (Jupiter, Raydium, pump.fun, etc.) to this method. Progr
     "method": "getRecentPrioritizationFees",
     "params": [
       [
-        "HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ"
+        "58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2"
       ]
     ]
   }
@@ -102,9 +105,8 @@ Each value returned by `getRecentPrioritizationFees` is the floor for that slot 
 
 ### Environment setup
 
-* **Node.js**: Ensure you have [Node.js](https://nodejs.org/en/download/current) (version 18 or above) installed on your machine. Node.js is essential for running the scripts and managing the dependencies of the Raydium SDK.
+* **Node.js**: Ensure you have [Node.js](https://nodejs.org/en/download/current) version 20.18 or later installed on your machine. Both `@solana/kit` and `@solana/web3.js` v3 require it.
 * **npm**: Node Package Manager is the default package manager for Node.js projects. It is used to install the necessary dependencies for this project. npm comes pre-installed with Node.js, so you don't need to install it separately.
-* **Solana wallet**: A Solana wallet with some SOL and SLP tokens.
 
 <Info>
   If you prefer, you can also use Yarn as an alternative package manager. Yarn is a fast, reliable, and secure dependency management tool. After installing Node.js, you can install Yarn by running `npm install --global yarn` in your terminal.
@@ -272,8 +274,8 @@ const getPrioritizationFees = async () => {
     try {
         const rpc = createSolanaRpc(getEnvVariable("SOLANA_RPC"));
 
-        // Orca Whirlpool SOL-USDC pool state — a writable account swap transactions lock.
-        const writableAccount = address("HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ");
+        // Raydium SOL-USDC AMM pool state — a writable account swap transactions lock.
+        const writableAccount = address("58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2");
 
         const prioritizationFeeObjects = await rpc
             .getRecentPrioritizationFees([writableAccount])
@@ -350,8 +352,8 @@ const getPrioritizationFees = async () => {
     try {
         const connection = new Connection(getEnvVariable("SOLANA_RPC"), "confirmed");
 
-        // Orca Whirlpool SOL-USDC pool state — a writable account swap transactions lock.
-        const publicKey = new PublicKey("HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ");
+        // Raydium SOL-USDC AMM pool state — a writable account swap transactions lock.
+        const publicKey = new PublicKey("58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2");
 
         const prioritizationFeeObjects = await connection.getRecentPrioritizationFees({
             lockedWritableAccounts: [publicKey],
@@ -459,7 +461,7 @@ Now that we have the code and understand how it works, it’s time to run it. Yo
 <Tabs>
   <Tab title="@solana/kit">
 ```typescript TypeScript
-const writableAccount = address("HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ");
+const writableAccount = address("58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2");
 
 const prioritizationFeeObjects = await rpc
     .getRecentPrioritizationFees([writableAccount])
@@ -468,7 +470,7 @@ const prioritizationFeeObjects = await rpc
   </Tab>
   <Tab title="@solana/web3.js (classic)">
 ```typescript TypeScript
-const publicKey = new PublicKey("HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ");
+const publicKey = new PublicKey("58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2");
 
 const prioritizationFeeObjects = await connection.getRecentPrioritizationFees({
     lockedWritableAccounts: [publicKey],
@@ -492,11 +494,11 @@ This will fetch the data and log the results in the console; it will look simila
   $ npx tsx main.ts
 
   Slots examined for priority fees: 150
-  Slots range examined from 255369379 to 255369528
+  Slots range examined from 468386172 to 468386321
   ====================================================================================
-   💰 Average Prioritization Fee (including slots with zero fees): 1053 micro-lamports.
-   💰 Average Prioritization Fee (excluding slots with zero fees): 4938 micro-lamports.
-   💰 Median Prioritization Fee (excluding slots with zero fees): 4261 micro-lamports.
+   💰 Average Prioritization Fee (including slots with zero fees): 14757 micro-lamports.
+   💰 Average Prioritization Fee (excluding slots with zero fees): 21702 micro-lamports.
+   💰 Median Prioritization Fee (excluding slots with zero fees): 10000 micro-lamports.
   ```
 </CodeGroup>
 
