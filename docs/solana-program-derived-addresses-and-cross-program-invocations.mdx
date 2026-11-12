@@ -46,6 +46,12 @@ The algorithm hashes all of these together with SHA-256 and checks whether the r
 
 Deriving a PDA is a read-only operation. It computes an address but does not create an account.
 
+The TypeScript examples on this page use `@solana/web3.js` v3, in which PDA derivation is async, and `@solana-program/token` for token addresses. They use top-level `await`, so run them as ES modules. Install the packages with:
+
+```bash
+npm install @solana/web3.js @solana-program/token bs58
+```
+
 <CodeGroup>
 ```typescript TypeScript
 import {
@@ -60,7 +66,7 @@ const connection = new Connection(CHAINSTACK_ENDPOINT);
 const programId = new PublicKey("11111111111111111111111111111111");
 
 // Derive with a string seed
-const [pda, bump] = PublicKey.findProgramAddressSync(
+const [pda, bump] = await PublicKey.findProgramAddress(
   [Buffer.from("vault")],
   programId
 );
@@ -69,8 +75,8 @@ console.log(`Bump: ${bump}`);
 
 // Derive with a user-specific seed
 const userWallet = new PublicKey("B9Lf9z5BfNPT4d5KMeaBFx8x1G4CULZYR1jA2kmxRDka");
-const [userPda, userBump] = PublicKey.findProgramAddressSync(
-  [Buffer.from("user_data"), userWallet.toBuffer()],
+const [userPda, userBump] = await PublicKey.findProgramAddress(
+  [Buffer.from("user_data"), userWallet.toBytes()],
   programId
 );
 console.log(`User PDA: ${userPda.toBase58()}`);
@@ -129,7 +135,7 @@ Pubkey::find_program_address(
 This means for any given wallet, token mint, and token program, there is exactly one deterministic ATA address. No lookup table needed — any client can derive it.
 
 <Note>
-Token-2022 mints use `TOKEN_2022_PROGRAM_ID` instead of `TOKEN_PROGRAM_ID` in the seeds. This produces a different ATA address for the same wallet and mint. Always use the correct token program ID for the mint you're working with.
+Token-2022 mints use the Token-2022 program address (`TOKEN_2022_PROGRAM_ADDRESS` from `@solana-program/token-2022`) instead of the Token program address in the seeds. This produces a different ATA address for the same wallet and mint. Always use the correct token program ID for the mint you're working with.
 </Note>
 
 <CodeGroup>
@@ -138,29 +144,33 @@ import {
   PublicKey
 } from "@solana/web3.js";
 import {
-  getAssociatedTokenAddressSync,
-  TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID
-} from "@solana/spl-token";
+  findAssociatedTokenPda,
+  TOKEN_PROGRAM_ADDRESS,
+  ASSOCIATED_TOKEN_PROGRAM_ADDRESS
+} from "@solana-program/token";
 
 const wallet = new PublicKey("B9Lf9z5BfNPT4d5KMeaBFx8x1G4CULZYR1jA2kmxRDka");
 const usdcMint = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 
 // The helper derives the PDA under the hood
-const ata = getAssociatedTokenAddressSync(usdcMint, wallet);
-console.log(`ATA: ${ata.toBase58()}`);
+const [ata] = await findAssociatedTokenPda({
+  owner: wallet,
+  mint: usdcMint,
+  tokenProgram: TOKEN_PROGRAM_ADDRESS,
+});
+console.log(`ATA: ${ata}`);
 
 // Equivalent manual derivation
-const [manualAta] = PublicKey.findProgramAddressSync(
+const [manualAta] = await PublicKey.findProgramAddress(
   [
-    wallet.toBuffer(),
-    TOKEN_PROGRAM_ID.toBuffer(),
-    usdcMint.toBuffer(),
+    wallet.toBytes(),
+    new PublicKey(TOKEN_PROGRAM_ADDRESS).toBytes(),
+    usdcMint.toBytes(),
   ],
-  ASSOCIATED_TOKEN_PROGRAM_ID,
+  new PublicKey(ASSOCIATED_TOKEN_PROGRAM_ADDRESS),
 );
 console.log(`Manual ATA: ${manualAta.toBase58()}`);
-console.log(`Match: ${ata.equals(manualAta)}`);
+console.log(`Match: ${manualAta.toBase58() === ata}`);
 ```
 ```python Python
 from solders.pubkey import Pubkey
@@ -191,9 +201,9 @@ import {
   PublicKey
 } from "@solana/web3.js";
 import {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  TOKEN_PROGRAM_ID
-} from "@solana/spl-token";
+  ASSOCIATED_TOKEN_PROGRAM_ADDRESS,
+  TOKEN_PROGRAM_ADDRESS
+} from "@solana-program/token";
 
 const CHAINSTACK_ENDPOINT = "CHAINSTACK_NODE_URL";
 const connection = new Connection(CHAINSTACK_ENDPOINT);
@@ -203,9 +213,9 @@ const wallet = new PublicKey("vines1vzrYbzLMRdu58ou5XTby4qAqVRLmqo36NKPTg");
 const usdcMint = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 
 // Re-derive the expected ATA address from seeds
-const [expectedAta] = PublicKey.findProgramAddressSync(
-  [wallet.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), usdcMint.toBuffer()],
-  ASSOCIATED_TOKEN_PROGRAM_ID,
+const [expectedAta] = await PublicKey.findProgramAddress(
+  [wallet.toBytes(), new PublicKey(TOKEN_PROGRAM_ADDRESS).toBytes(), usdcMint.toBytes()],
+  new PublicKey(ASSOCIATED_TOKEN_PROGRAM_ADDRESS),
 );
 
 // Fetch the account and verify the address matches
@@ -548,10 +558,10 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
-  sendAndConfirmTransaction,
   Keypair,
   LAMPORTS_PER_SOL
 } from "@solana/web3.js";
+import bs58 from "bs58";
 
 const CHAINSTACK_ENDPOINT = "CHAINSTACK_NODE_URL";
 const connection = new Connection(CHAINSTACK_ENDPOINT);
@@ -559,10 +569,12 @@ const connection = new Connection(CHAINSTACK_ENDPOINT);
 // Your deployed program
 const programId = new PublicKey("YourProgramId11111111111111111111111111111");
 
+// Your funded wallet, which pays for the transfer
+const userWallet = await Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY!));
+
 // Derive the vault PDA
-const userWallet = Keypair.generate();
-const [vaultPda, vaultBump] = PublicKey.findProgramAddressSync(
-  [Buffer.from("vault"), userWallet.publicKey.toBuffer()],
+const [vaultPda, vaultBump] = await PublicKey.findProgramAddress(
+  [Buffer.from("vault"), userWallet.publicKey.toBytes()],
   programId,
 );
 console.log(`Vault PDA: ${vaultPda.toBase58()}`);
@@ -579,8 +591,8 @@ const fundTx = new Transaction().add(
 );
 fundTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
 fundTx.feePayer = userWallet.publicKey;
-fundTx.sign(userWallet);
-const sig = await connection.sendRawTransaction(fundTx.serialize());
+await fundTx.sign(userWallet);
+const sig = await connection.sendRawTransaction(await fundTx.serialize());
 console.log(`Fund tx: ${sig}`);
 ```
 ```python Python
