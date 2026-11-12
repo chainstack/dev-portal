@@ -236,7 +236,6 @@ types = {
 ```typescript
 import { ethers } from 'ethers';
 import msgpack from 'msgpack-lite';
-import { keccak256 } from 'ethers/lib/utils';
 
 async function signL1Action(
   privateKey: string,
@@ -249,15 +248,18 @@ async function signL1Action(
   // Serialize action with msgpack
   const actionBytes = msgpack.encode(action);
   
-  // Append vault address and nonce
+  // Append the nonce (8 bytes, big-endian), then a vault flag:
+  // 0x00 without a vault, or 0x01 followed by the 20-byte vault address
   const data = Buffer.concat([
     actionBytes,
-    vaultAddress ? Buffer.from(vaultAddress.slice(2), 'hex') : Buffer.alloc(20),
-    Buffer.from(nonce.toString(16).padStart(16, '0'), 'hex')
+    Buffer.from(nonce.toString(16).padStart(16, '0'), 'hex'),
+    vaultAddress
+      ? Buffer.concat([Buffer.from([1]), Buffer.from(vaultAddress.slice(2), 'hex')])
+      : Buffer.from([0])
   ]);
   
   // Hash to create connectionId
-  const hash = keccak256(data);
+  const hash = ethers.keccak256(data);
   
   // EIP-712 domain
   const domain = {
@@ -280,9 +282,10 @@ async function signL1Action(
   };
   
   const wallet = new ethers.Wallet(privateKey);
-  const signature = await wallet._signTypedData(domain, types, value);
+  const signature = await wallet.signTypedData(domain, types, value);
   
-  return ethers.utils.splitSignature(signature);
+  const { r, s, v } = ethers.Signature.from(signature);
+  return { r, s, v };
 }
 ```
 
