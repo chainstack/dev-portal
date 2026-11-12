@@ -33,34 +33,34 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 
 A practical use case for `getFeeForMessage` is to estimate the cost of a transaction before it is submitted to the network. This can be useful for wallets or other applications that need to display or make use of this information.
 
-Here's a script to generate the message data for the 1 SOL transfer:
+Here's a script that builds the message for a 1 SOL transfer, prints it in base64, and gets its fee. It runs on `@solana/web3.js` v1 and v3:
 
 <CodeGroup>
-```Text JavaScript
-const web3 = require('@solana/web3.js');
+```javascript JavaScript
+const web3 = require("@solana/web3.js");
 
-async function createSerializedTransaction() {
-    const connection = new web3.Connection(web3.clusterApiUrl('mainnet-beta'));
+async function main() {
+  const connection = new web3.Connection("YOUR_CHAINSTACK_ENDPOINT");
 
-    let transaction = new web3.Transaction().add(
-        web3.SystemProgram.transfer({
-            fromPubkey: new web3.PublicKey('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM'),
-            toPubkey: new web3.PublicKey('A6132mRJy5zRmGsCCRbMsrbynuB9MRVgo3n6D5j49dBh'),
-            lamports: web3.LAMPORTS_PER_SOL // This transfers 1 SOL.
-        })
-    );
+  const transaction = new web3.Transaction().add(
+    web3.SystemProgram.transfer({
+      fromPubkey: new web3.PublicKey("9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"),
+      toPubkey: new web3.PublicKey("A6132mRJy5zRmGsCCRbMsrbynuB9MRVgo3n6D5j49dBh"),
+      lamports: web3.LAMPORTS_PER_SOL, // 1 SOL
+    })
+  );
+  transaction.feePayer = transaction.instructions[0].keys[0].pubkey;
+  transaction.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
 
-    transaction.feePayer = transaction.instructions[0].keys[0].pubkey; // Set fee payer as the sender
-    transaction.recentBlockhash = (await connection.getRecentBlockhash()).blockhash;
+  // The base64 message is the parameter of a raw getFeeForMessage call
+  const message = Buffer.from(transaction.serializeMessage()).toString("base64");
+  console.log("Message:", message);
 
-    // Serialize only the message part of the transaction
-    return transaction.serializeMessage().toString('base64');
+  const { value: fee } = await connection.getFeeForMessage(transaction.compileMessage());
+  console.log(`Fee: ${fee} lamports`);
 }
 
-createSerializedTransaction().then(serializedMessage => {
-    console.log(serializedMessage);
-    // Use this output as the parameter in your getFeeForMessage call
-});
+main();
 ```
 
 ```python Python

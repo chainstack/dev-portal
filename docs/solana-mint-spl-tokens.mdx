@@ -5,12 +5,12 @@ description: "Create an SPL token mint and mint tokens to an account on Solana w
 
 **TLDR:**
 * Creating an SPL token takes three on-chain steps with `@solana/web3.js` and `@solana/spl-token`: create the mint account that defines the token (`createMint`), create a token account to hold a balance (`getOrCreateAssociatedTokenAccount`), then mint the supply into it (`mintTo`).
-* Pass both your HTTPS and WSS endpoints to `new Connection()`. With the HTTPS endpoint alone, `@solana/web3.js` derives a WebSocket URL that does not match a Chainstack node, and confirmations fail with `TransactionExpiredBlockheightExceededError`.
+* Pass both your HTTPS and WSS endpoints to `new Connection()`. Without `wsEndpoint`, `@solana/web3.js` derives the WebSocket URL from the HTTPS endpoint, which is correct on Global Nodes but not on Trader Nodes, whose WSS endpoint is on a separate host.
 * Amounts are integers in base units — with 9 decimals, 1,000 tokens is `1000 * 10^9`.
 * The example runs on Solana devnet with a Chainstack node: it creates the mint, mints 1,000 tokens, and reads the balance back.
 
 <Note>
-This tutorial uses `@solana/web3.js` with `@solana/spl-token` — the maintained classic Solana JavaScript stack. A `@solana/kit` version will follow once the Kit SPL client (`@solana-program/token`) supports kit v7.
+This tutorial uses `@solana/web3.js` v1 with `@solana/spl-token`, which requires web3.js v1. With web3.js v3 or `@solana/kit`, use the `@solana-program/token` client instead of `@solana/spl-token`.
 </Note>
 
 ## How minting an SPL token works
@@ -36,8 +36,10 @@ Two details decide whether the code runs:
 Install the dependencies:
 
 ```bash
-npm install @solana/web3.js @solana/spl-token bs58 dotenv
+npm install @solana/web3.js@1 @solana/spl-token bs58 dotenv
 ```
+
+`@solana/spl-token` requires `@solana/web3.js` v1, so the command pins `@solana/web3.js@1`. A plain `npm install @solana/web3.js` installs v3, which this code doesn't run on.
 
 The examples use ES modules and `dotenv`. Save each file with a `.mjs` extension (or add `"type": "module"` to your `package.json`) so Node treats it as an ES module, and store your endpoints and secret key in a `.env` file:
 
@@ -74,7 +76,7 @@ One SOL is far more than enough — the whole flow costs well under 0.01 SOL in 
 
 ## Connect to your Chainstack Solana node
 
-Create the connection with both your HTTPS and WSS endpoints. `@solana/web3.js` opens a WebSocket to confirm transactions; if you pass only the HTTPS endpoint, it derives a WebSocket URL from that host, which does not match a Chainstack node's separate WSS endpoint. Confirmations then fall back and time out with `TransactionExpiredBlockheightExceededError`. Passing `wsEndpoint` explicitly avoids this.
+Create the connection with both your HTTPS and WSS endpoints. `@solana/web3.js` opens a WebSocket to confirm transactions, and without `wsEndpoint` it derives the WebSocket URL from the HTTPS endpoint. The derived URL is correct on Global Nodes, where both endpoints share a host. On Trader Nodes, the WSS endpoint is on a separate host, so confirmations over the derived URL time out with `TransactionExpiredBlockheightExceededError`. Passing `wsEndpoint` works on every node type.
 
 ```javascript
 import { Connection, Keypair } from "@solana/web3.js";
@@ -337,5 +339,5 @@ The code is identical on mainnet — point the connection at a Chainstack Solana
 - [Solana tooling](/docs/solana-tooling) — the libraries, SDKs, and tools for building on Solana with Chainstack.
 
 <Note>
-Verified with `@solana/web3.js` 1.98.4, `@solana/spl-token` 0.4.15, and `bs58` 6.0.0.
+The examples run on `@solana/web3.js` 1.99.0, `@solana/spl-token` 0.4.15, and `bs58` 6.0.0.
 </Note>

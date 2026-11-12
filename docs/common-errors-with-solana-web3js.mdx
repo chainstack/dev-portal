@@ -1,64 +1,151 @@
 ---
 title: "Common errors with @solana/web3.js"
-description: "Fix the @solana/web3.js v1 WSS-derivation bug that causes 404 or 503 on subscriptions to Chainstack Solana endpoints. Pass wsEndpoint explicitly."
+description: "Fix common @solana/web3.js errors on Chainstack Solana nodes: v1 code running on web3.js v3, @solana/spl-token install conflicts, and WebSocket subscriptions on Trader Nodes."
 ---
 
 **TLDR:**
-* `@solana/web3.js` v1 derives the WSS URL from the HTTP URL via its internal `makeWebsocketUrl` helper. The derived URL does not match a Chainstack WSS endpoint, and any subscription call fails with `Unexpected server response: 404` or `503`.
-* Fix v1 by passing `wsEndpoint` explicitly to `Connection`.
-* v1 is now [legacy](https://solana.com/docs/clients/official/javascript). [`@solana/kit`](/docs/solana-tooling) is the recommended SDK — it has no derivation bug because it takes RPC and subscription transports as separate inputs.
+* `npm install @solana/web3.js` installs v3. Code written for v1 fails on v3, because key and transaction methods are async, numbers are `bigint`, account data is a `Uint8Array`, and some methods are removed.
+* `@solana/spl-token`, Anchor, and other libraries built on web3.js v1 don't run on v3. Install `@solana/web3.js@1` with them, or move to `@solana-program/token`.
+* On Trader Nodes, pass `wsEndpoint` to `Connection`, because their WSS endpoint is on a separate host.
 
-## The WSS-derivation bug
+## Which @solana/web3.js version you have
 
-When you call `new Connection(httpEndpoint)` without a `wsEndpoint`, v1 routes the URL through `makeWebsocketUrl` — a helper that rewrites the scheme (`https://` → `wss://`) and reshapes the host. The result does not match a Chainstack node's WSS endpoint, so the first subscription call fails:
+The `latest` tag of `@solana/web3.js` on npm is v3, so a plain `npm install @solana/web3.js` installs v3. Check the installed version with:
 
+```bash
+npm ls @solana/web3.js
 ```
-ws error: Unexpected server response: 404
+
+Three Solana JavaScript libraries are in use:
+
+- `@solana/web3.js` v1 — the legacy line. It receives critical fixes only.
+- `@solana/web3.js` v3 — the current release. It keeps the class-based v1 API, rebuilt on Solana Kit, with breaking changes from v1.
+- `@solana/kit` — the functional SDK that v3 is built on. See [Solana tooling](/docs/solana-tooling).
+
+To upgrade code from v1 to v3, follow the official [v1 to v3 migration guide](https://github.com/solana-foundation/solana-web3.js/blob/main/docs/web3js-v1-to-v3-migration.md).
+
+v3 also changes a default: when you don't set a commitment, v3 requests `confirmed` data, while v1 sent no commitment and the node returned `finalized` data. Set the commitment explicitly if your code depends on one.
+
+## Errors from v1 code on web3.js v3
+
+### Signature verification failed. Missing signature for public key
+
+```text
+Error: Signature verification failed.
+Missing signature for public key [`9Zgpb3PLYPwDQqkKnHpUEBd7SPxrC2hy9Gfb2D3Earkk`].
 ```
 
-You can also see `503` if the rewritten host resolves but the request hits a different upstream that returns 503 for the unknown path.
+In v3, `transaction.sign()`, `transaction.partialSign()`, and `transaction.serialize()` on a legacy `Transaction` return promises. Without `await`, the transaction is serialized before the signature is added. Await each call:
 
-This bites only the v1 line, which is now on the [maintenance branch](https://github.com/solana-foundation/solana-web3.js/tree/maintenance/v1.x) — security fixes only, no new features. The same project, renamed and restructured, ships today as [`@solana/kit`](/docs/solana-tooling).
+```javascript
+await transaction.sign(payer);
+const raw = await transaction.serialize();
+const signature = await connection.sendRawTransaction(raw);
+```
 
-## Fix: pass `wsEndpoint` explicitly
+### Cannot read properties of undefined
 
-Find the HTTPS and WSS endpoints in your node access details ([Manage your node](/docs/manage-your-node#view-node-access-and-credentials)) and pass both to `Connection`:
+```text
+TypeError: Cannot read properties of undefined (reading 'toBase58')
+```
 
-<CodeGroup>
-  ```javascript Node.js
-  const { Connection } = require("@solana/web3.js");
+In v3, `Keypair.generate()`, `Keypair.fromSecretKey()`, and `Keypair.fromSeed()` return promises, so `.publicKey` on the result is `undefined`. Await the call:
 
-  const rpcEndpoint = "https://solana-mainnet.core.chainstack.com/AUTH_KEY";
-  const wsEndpoint  = "wss://solana-mainnet.core.chainstack.com/AUTH_KEY";
+```javascript
+const payer = await Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY));
+console.log(payer.publicKey.toBase58());
+```
 
-  const connection = new Connection(rpcEndpoint, { wsEndpoint });
-  ```
-</CodeGroup>
+`@solana/spl-token` functions such as `createMint` fail with the same error on v3, because the library creates keypairs the v1 way. See [ERESOLVE when you install @solana/spl-token](#npm-error-eresolve-unable-to-resolve-dependency-tree).
 
-<Tip>
-The HTTPS and WSS endpoints share the same host on Chainstack — there is no `ws-` subdomain. Only the scheme changes.
-</Tip>
+### Cannot mix BigInt and other types
 
-## Better: migrate to `@solana/kit`
+```text
+TypeError: Cannot mix BigInt and other types, use explicit conversions
+```
 
-Per the [official Solana docs](https://solana.com/docs/clients/official/javascript), `@solana/kit` is now the recommended TypeScript SDK and `@solana/web3.js` is the legacy line. Kit takes RPC and subscription transports as separate inputs, so the derivation step that breaks v1 is gone:
+In v3, lamports, slots, block heights, fees, and other RPC numbers are `bigint`, while `LAMPORTS_PER_SOL` is still a `number`. Convert one side explicitly:
 
-<CodeGroup>
-  ```typescript TypeScript
-  import {
-    createSolanaRpc,
-    createSolanaRpcSubscriptions,
-  } from "@solana/kit";
+```javascript
+const lamports = await connection.getBalance(address);
+console.log(Number(lamports) / LAMPORTS_PER_SOL, "SOL");
+```
 
-  const rpc = createSolanaRpc("https://solana-mainnet.core.chainstack.com/AUTH_KEY");
-  const rpcSubscriptions = createSolanaRpcSubscriptions("wss://solana-mainnet.core.chainstack.com/AUTH_KEY");
-  ```
-</CodeGroup>
+Comparisons fail silently instead of throwing: a zero balance is `0n`, so `lamports === 0` is `false`. Compare with `0n`.
 
-If a full rewrite is not on the table, the [`@solana/web3-compat`](https://solana.com/docs/frontend/web3-compat) bridge lets you swap your `@solana/web3.js` import for `@solana/web3-compat` and migrate file by file onto Kit primitives. It is a Phase 0 release — supported surface is currently `Connection` methods, `Keypair`, `Transaction`/`VersionedTransaction`, and `sendAndConfirmTransaction`; anything else falls back to legacy v1. Keep the v1 dependency in your `package.json` until your usage fits inside the supported surface.
+### Do not know how to serialize a BigInt
+
+```text
+TypeError: Do not know how to serialize a BigInt
+```
+
+`JSON.stringify` can't serialize the `bigint` values in v3 RPC results. Pass a replacer:
+
+```javascript
+JSON.stringify(result, (key, value) => (typeof value === "bigint" ? value.toString() : value));
+```
+
+### X is not a function
+
+```text
+TypeError: PublicKey.findProgramAddressSync is not a function
+```
+
+v3 removes several v1 methods. The message names the method your code called:
+
+| Removed in v3 | Use instead |
+| --- | --- |
+| `PublicKey.findProgramAddressSync`, `PublicKey.createProgramAddressSync` | `await PublicKey.findProgramAddress(...)`, `await PublicKey.createProgramAddress(...)` |
+| `publicKey.toBuffer()` | `publicKey.toBytes()` |
+| `connection.getRecentBlockhash()` | `connection.getLatestBlockhash()` |
+| `accountInfo.data.readBigInt64LE()` and other `Buffer` methods | `accountInfo.data` is a `Uint8Array`; read it with a `DataView` or a codec |
+
+## Install errors
+
+### npm error ERESOLVE unable to resolve dependency tree
+
+```text
+npm error code ERESOLVE
+npm error ERESOLVE unable to resolve dependency tree
+npm error Found: @solana/web3.js@3.2.1
+```
+
+`@solana/spl-token` declares `@solana/web3.js` v1 as a peer dependency, so npm can't add it to a project that already has v3. Choose one of these fixes:
+
+- To keep using `@solana/spl-token`, install web3.js v1 with it: `npm install @solana/web3.js@1 @solana/spl-token`.
+- To use web3.js v3, replace `@solana/spl-token` with `@solana-program/token`, or `@solana-program/token-2022` for Token-2022 mints. See the official [@solana/spl-token migration guide](https://github.com/solana-foundation/solana-web3.js/blob/main/docs/web3js-spl-token-migration.md).
+
+Other package managers don't stop on this conflict. pnpm and Bun install v3 next to `@solana/spl-token`, and the code then fails with [Cannot read properties of undefined](#cannot-read-properties-of-undefined). Pin `@solana/web3.js@1` with them too.
+
+Installing `@solana/spl-token-metadata` together with an unpinned `@solana/web3.js` can loop on `ERESOLVE` warnings without finishing. Pinning `@solana/web3.js@1` in the same command resolves it.
+
+## WebSocket subscriptions fail on Trader Nodes
+
+`Connection` derives its WebSocket URL from the HTTPS endpoint when you don't pass `wsEndpoint`: it changes the scheme to `wss://` and keeps the host. On Global Nodes, the HTTPS and WSS endpoints share a host, so the derived URL is correct.
+
+On Trader Nodes, the WSS endpoint is on a separate host with a `ws-` prefix, such as `ws-nd-….p2pify.com`. The derived URL points at the HTTPS host instead, so subscriptions fail, and `sendAndConfirmTransaction` times out with `TransactionExpiredBlockheightExceededError`. Pass both endpoints from the node's [access details](/docs/manage-your-node#view-node-access-and-credentials):
+
+```javascript
+const { Connection } = require("@solana/web3.js");
+
+const connection = new Connection("YOUR_CHAINSTACK_HTTPS_ENDPOINT", {
+  wsEndpoint: "YOUR_CHAINSTACK_WSS_ENDPOINT",
+});
+```
+
+Passing `wsEndpoint` works on every node type, and v1 and v3 derive the URL the same way. Trader Nodes are deprecated on December 1, 2026. See [Migrate from Trader Nodes](/docs/migrate-from-trader-nodes).
+
+`@solana/kit` takes the RPC and subscription endpoints as separate inputs, so it never derives a URL:
+
+```typescript
+import { createSolanaRpc, createSolanaRpcSubscriptions } from "@solana/kit";
+
+const rpc = createSolanaRpc("YOUR_CHAINSTACK_HTTPS_ENDPOINT");
+const rpcSubscriptions = createSolanaRpcSubscriptions("YOUR_CHAINSTACK_WSS_ENDPOINT");
+```
 
 ## See also
 
-* [Solana tooling](/docs/solana-tooling) — modern Solana stack (Kit, Anchor 1.0, Codama, LiteSVM, Surfpool)
+* [Solana tooling](/docs/solana-tooling) — Kit, web3.js, Anchor, Codama, LiteSVM, and Surfpool
 * [Solana blockSubscribe 1009 error on WebSocket](/docs/solana-blocksubscribe-1009-error-on-websocket) — fix `1009` (`MESSAGE_TOO_BIG`) on large block pushes
 * [Handle real-time data using WebSockets with JavaScript and Python](/docs/handle-real-time-data-using-websockets-with-javascript-and-python)
