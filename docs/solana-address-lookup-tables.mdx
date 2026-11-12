@@ -43,7 +43,7 @@ Address lookup tables solve this by storing addresses on-chain. Instead of embed
 ## Prerequisites
 
 * A Chainstack Solana node endpoint. [Deploy one](https://console.chainstack.com/).
-* Node.js 18+
+* Node.js 20.18 or later
 * A funded Solana wallet (creating a lookup table costs ~0.003 SOL in rent)
 
 ### Project setup
@@ -51,11 +51,12 @@ Address lookup tables solve this by storing addresses on-chain. Instead of embed
 ```bash
 mkdir solana-alt && cd solana-alt
 npm init -y
-npm install @solana/web3.js dotenv
-npm install --save-dev ts-node typescript
-npx tsc --init
+npm install @solana/web3.js bs58 dotenv
+npm install --save-dev tsx
 touch main.ts .env
 ```
+
+The examples use `@solana/web3.js` v3, in which creating a keypair, creating a lookup table, and signing a transaction are async calls.
 
 Add your credentials to `.env`:
 
@@ -80,14 +81,14 @@ A lookup table is an on-chain account that holds a list of public keys. You crea
   import bs58 from "bs58";
   import "dotenv/config";
 
-  const connection = new Connection(process.env.SOLANA_RPC!);
-  const payer = Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY!));
+  const connection = new Connection(process.env.SOLANA_RPC!, "confirmed");
 
   async function createLookupTable(): Promise<string> {
+    const payer = await Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY!));
     const slot = await connection.getSlot();
 
     const [createInstruction, lookupTableAddress] =
-      AddressLookupTableProgram.createLookupTable({
+      await AddressLookupTableProgram.createLookupTable({
         authority: payer.publicKey,
         payer: payer.publicKey,
         recentSlot: slot,
@@ -102,7 +103,7 @@ A lookup table is an on-chain account that holds a list of public keys. You crea
     }).compileToV0Message();
 
     const transaction = new VersionedTransaction(message);
-    transaction.sign([payer]);
+    await transaction.sign([payer]);
 
     const txid = await connection.sendTransaction(transaction);
     await connection.confirmTransaction({
@@ -124,7 +125,7 @@ A lookup table is an on-chain account that holds a list of public keys. You crea
 Run with:
 
 ```bash
-ts-node main.ts
+npx tsx main.ts
 ```
 
 ## Extend the lookup table
@@ -144,13 +145,14 @@ After creation, add the addresses you need to reference in your transactions. Yo
   import bs58 from "bs58";
   import "dotenv/config";
 
-  const connection = new Connection(process.env.SOLANA_RPC!);
-  const payer = Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY!));
+  const connection = new Connection(process.env.SOLANA_RPC!, "confirmed");
 
   // Replace with your lookup table address from the previous step
   const LOOKUP_TABLE_ADDRESS = new PublicKey("YOUR_LOOKUP_TABLE_ADDRESS");
 
   async function extendLookupTable() {
+    const payer = await Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY!));
+
     // Add the addresses you frequently use in transactions
     const addressesToAdd = [
       new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),     // Token Program
@@ -177,7 +179,7 @@ After creation, add the addresses you need to reference in your transactions. Yo
     }).compileToV0Message();
 
     const transaction = new VersionedTransaction(message);
-    transaction.sign([payer]);
+    await transaction.sign([payer]);
 
     const txid = await connection.sendTransaction(transaction);
     await connection.confirmTransaction({
@@ -215,12 +217,13 @@ Once the table is populated, pass it as an address lookup table when compiling y
   import bs58 from "bs58";
   import "dotenv/config";
 
-  const connection = new Connection(process.env.SOLANA_RPC!);
-  const payer = Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY!));
+  const connection = new Connection(process.env.SOLANA_RPC!, "confirmed");
 
   const LOOKUP_TABLE_ADDRESS = new PublicKey("YOUR_LOOKUP_TABLE_ADDRESS");
 
   async function sendWithLookupTable() {
+    const payer = await Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY!));
+
     // Fetch the lookup table account
     const lookupTableAccount = (
       await connection.getAddressLookupTable(LOOKUP_TABLE_ADDRESS)
@@ -256,7 +259,7 @@ Once the table is populated, pass it as an address lookup table when compiling y
     }).compileToV0Message([lookupTableAccount]);
 
     const transaction = new VersionedTransaction(message);
-    transaction.sign([payer]);
+    await transaction.sign([payer]);
 
     const txid = await connection.sendTransaction(transaction);
     await connection.confirmTransaction({
