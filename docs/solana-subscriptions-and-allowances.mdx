@@ -97,8 +97,8 @@ We'll use a plain SPL mint for the walkthrough.
 
 ## Prerequisites
 
-* Python 3.10+
-* `pip install solana solders` (the `solana` package ships the `spl.token` helpers we use for mint setup)
+* Python 3.11+
+* `pip install "solana>=0.42" solders` (the `solana` package ships the `spl.token` instruction builders we use for mint setup)
 * A Chainstack Solana **devnet** node endpoint
 * Some devnet SOL from the [Chainstack faucet](https://faucet.chainstack.com/solana-testnet-faucet) for fees and rent
 
@@ -116,6 +116,8 @@ To get a devnet endpoint: in the [Chainstack console](https://console.chainstack
 
 There is no Python SDK for this program, and the official TypeScript client is Codama-generated (and gitignored in the repo) — so the cleanest path in Python is to build the instructions ourselves. The program makes this pleasant: every instruction is a **single leading discriminator byte** followed by a fixed, C-packed, little-endian payload — no Borsh length prefixes, no 8-byte Anchor hashes.
 
+The script uses the asynchronous `AsyncClient`, the RPC client in current `solana` releases. Each step below adds an `async` function to the same file, and the last step runs them in order.
+
 <Steps>
 
 <Step title="Constants and helpers">
@@ -123,19 +125,20 @@ There is no Python SDK for this program, and the official TypeScript client is C
 The program IDs, PDA derivation, ATA derivation, and a small instruction-data encoder.
 
 ```python
-import time
+import asyncio
 import struct
 
-from solana.rpc.api import Client
+from solana.rpc.async_api import AsyncClient
+from solana.rpc.commitment import Confirmed
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.instruction import Instruction, AccountMeta
 from solders.message import MessageV0
 from solders.transaction import VersionedTransaction
-from solders.system_program import transfer, TransferParams
-from spl.token.client import Token
-from spl.token.constants import TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
-from solana.rpc.commitment import Confirmed
+from solders.system_program import create_account, CreateAccountParams, transfer, TransferParams
+from spl.token.constants import MINT_LEN, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID
+from spl.token.instructions import create_associated_token_account, initialize_mint, mint_to
+from spl.token.models import InitializeMintParams, MintToParams
 
 CHAINSTACK_DEVNET = "YOUR_CHAINSTACK_SOLANA_DEVNET_ENDPOINT"
 
@@ -146,7 +149,7 @@ SYS_PROGRAM = Pubkey.from_string("11111111111111111111111111111111")
 EVENT_AUTHORITY = Pubkey.find_program_address([b"event_authority"], PROGRAM_ID)[0]
 
 # Pin the client to "confirmed" so reads and confirmations don't wait on finalization.
-client = Client(CHAINSTACK_DEVNET, commitment=Confirmed)
+client = AsyncClient(CHAINSTACK_DEVNET, commitment=Confirmed)
 
 
 # --- PDA derivation (seeds taken verbatim from the program) ---
@@ -180,12 +183,12 @@ def meta(pubkey: Pubkey, signer: bool, writable: bool) -> AccountMeta:
     return AccountMeta(pubkey=pubkey, is_signer=signer, is_writable=writable)
 
 
-def send(ixs: list[Instruction], payer: Keypair, signers: list[Keypair]) -> str:
-    blockhash = client.get_latest_blockhash().value.blockhash
+async def send(ixs: list[Instruction], payer: Keypair, signers: list[Keypair]) -> str:
+    blockhash = (await client.get_latest_blockhash()).value.blockhash
     msg = MessageV0.try_compile(payer.pubkey(), ixs, [], blockhash)
     tx = VersionedTransaction(msg, signers)
-    sig = client.send_raw_transaction(bytes(tx)).value
-    client.confirm_transaction(sig, commitment=Confirmed)
+    sig = (await client.send_raw_transaction(bytes(tx))).value
+    await client.confirm_transaction(sig, commitment=Confirmed)
     return str(sig)
 ```
 
@@ -193,7 +196,7 @@ def send(ixs: list[Instruction], payer: Keypair, signers: list[Keypair]) -> str:
 
 <Step title="Instruction builders">
 
-Each builder returns a `solders.Instruction`. The account order and discriminators come straight from the program's instruction handlers.
+Each builder returns a `solders.Instruction`. The account order and discriminators come straight from the program's instruction handlers. `ix_subscribe` reads the plan and the SA from chain, so it is `async`.
 
 ```python
 # Instruction discriminators (single leading byte).
@@ -250,15 +253,15 @@ def ix_create_plan(
     return Instruction(PROGRAM_ID, bytes(data), accounts)
 
 
-def ix_subscribe(subscriber: Pubkey, merchant: Pubkey, mint: Pubkey, plan_id: int) -> Instruction:
+async def ix_subscribe(subscriber: Pubkey, merchant: Pubkey, mint: Pubkey, plan_id: int) -> Instruction:
     plan, plan_bump = plan_pda(merchant, plan_id)
     sub, _ = subscription_pda(plan, subscriber)
     sa, _ = subscription_authority_pda(subscriber, mint)
 
     # The subscriber consents to the exact live plan terms. Read them from chain
     # so a stale signed transaction can't bind the user to different terms.
-    amount, period_hours, created_at = read_plan_terms(plan)
-    init_id = read_sa_init_id(sa)
+    amount, period_hours, created_at = await read_plan_terms(plan)
+    init_id = await read_sa_init_id(sa)
 
     # SubscribeData (73 bytes): plan_id u64, plan_bump u8, expected_mint,
     # expected_amount u64, expected_period_hours u64, expected_created_at i64,
@@ -313,17 +316,17 @@ def ix_transfer_subscription(
 The two read helpers decode the raw account bytes. Both accounts are `#[repr(C, packed)]`, so the offsets are exact:
 
 ```python
-def read_sa_init_id(sa: Pubkey) -> int:
+async def read_sa_init_id(sa: Pubkey) -> int:
     # SubscriptionAuthority: disc(1) user(32) mint(32) payer(32) bump(1) init_id(i64).
-    data = client.get_account_info(sa).value.data
+    data = (await client.get_account_info(sa)).value.data
     return int.from_bytes(data[98:106], "little", signed=True)
 
 
-def read_plan_terms(plan: Pubkey) -> tuple[int, int, int]:
+async def read_plan_terms(plan: Pubkey) -> tuple[int, int, int]:
     # Plan: disc(1) owner(32) bump(1) status(1) then PlanData at offset 35.
     # PlanData: plan_id(35:43) mint(43:75) amount(75:83) period_hours(83:91)
     #           created_at(91:99) ...
-    data = client.get_account_info(plan).value.data
+    data = (await client.get_account_info(plan)).value.data
     amount = int.from_bytes(data[75:83], "little")
     period_hours = int.from_bytes(data[83:91], "little")
     created_at = int.from_bytes(data[91:99], "little", signed=True)
@@ -340,56 +343,75 @@ We need two wallets — a merchant and a subscriber — and some devnet SOL for 
 merchant = Keypair()
 subscriber = Keypair()
 
-print("Fund this merchant address from the Chainstack faucet, then continue:")
-print(merchant.pubkey())
+
+async def fund_wallets() -> None:
+    print("Fund this merchant address from the Chainstack faucet:")
+    print(merchant.pubkey())
+
+    # Wait until the merchant is funded.
+    while (await client.get_balance(merchant.pubkey())).value == 0:
+        await asyncio.sleep(2)
+
+    # Send the subscriber 0.2 SOL for rent and fees.
+    await send(
+        [transfer(TransferParams(
+            from_pubkey=merchant.pubkey(),
+            to_pubkey=subscriber.pubkey(),
+            lamports=200_000_000,
+        ))],
+        payer=merchant,
+        signers=[merchant],
+    )
+    balance = (await client.get_balance(subscriber.pubkey())).value
+    print("subscriber funded:", balance / 1e9, "SOL")
 ```
 
-Paste the merchant address into the [Chainstack Solana faucet](https://faucet.chainstack.com/solana-testnet-faucet) to receive 1 devnet SOL, then run the rest:
-
-```python
-# Wait until the merchant is funded.
-while client.get_balance(merchant.pubkey()).value == 0:
-    time.sleep(2)
-
-# Send the subscriber 0.2 SOL for rent and fees.
-send(
-    [transfer(TransferParams(
-        from_pubkey=merchant.pubkey(),
-        to_pubkey=subscriber.pubkey(),
-        lamports=200_000_000,
-    ))],
-    payer=merchant,
-    signers=[merchant],
-)
-print("subscriber funded:", client.get_balance(subscriber.pubkey()).value / 1e9, "SOL")
-```
+When the script runs, it prints the merchant address and waits. Paste the address into the [Chainstack Solana faucet](https://faucet.chainstack.com/solana-testnet-faucet) to receive 1 devnet SOL, and the script continues once the balance arrives.
 
 </Step>
 
 <Step title="Create a mint and give the subscriber a balance">
 
-A fresh 6-decimal SPL mint, an ATA for each wallet, and 100 test tokens for the subscriber to be billed against. We use a plain SPL mint so there are no Token-2022 extensions to worry about.
+A fresh 6-decimal SPL mint, an ATA for each wallet, and 100 test tokens for the subscriber to be billed against, all in one transaction built from `spl.token.instructions`. We use a plain SPL mint so there are no Token-2022 extensions to worry about.
 
 ```python
-# Create a 6-decimal mint with the merchant as mint authority.
-token = Token.create_mint(
-    conn=client,
-    payer=merchant,
-    mint_authority=merchant.pubkey(),
-    decimals=6,
-    program_id=TOKEN_PROGRAM_ID,
-)
-MINT = token.pubkey
+mint = Keypair()
+MINT = mint.pubkey()
 
-# Create ATAs and mint 100 test tokens to the subscriber.
-token.create_associated_token_account(subscriber.pubkey())
-token.create_associated_token_account(merchant.pubkey())
-token.mint_to(
-    dest=ata(subscriber.pubkey(), MINT),
-    mint_authority=merchant,
-    amount=100_000_000,  # 100.0 tokens at 6 decimals
-)
-print("mint:", MINT)
+
+async def create_mint() -> None:
+    rent = (await client.get_minimum_balance_for_rent_exemption(MINT_LEN)).value
+    await send(
+        [
+            # Create a 6-decimal mint with the merchant as mint authority.
+            create_account(CreateAccountParams(
+                from_pubkey=merchant.pubkey(),
+                to_pubkey=MINT,
+                lamports=rent,
+                space=MINT_LEN,
+                owner=TOKEN_PROGRAM_ID,
+            )),
+            initialize_mint(InitializeMintParams(
+                decimals=6,
+                program_id=TOKEN_PROGRAM_ID,
+                mint=MINT,
+                mint_authority=merchant.pubkey(),
+            )),
+            # Create ATAs and mint 100 test tokens to the subscriber.
+            create_associated_token_account(merchant.pubkey(), subscriber.pubkey(), MINT),
+            create_associated_token_account(merchant.pubkey(), merchant.pubkey(), MINT),
+            mint_to(MintToParams(
+                program_id=TOKEN_PROGRAM_ID,
+                mint=MINT,
+                dest=ata(subscriber.pubkey(), MINT),
+                mint_authority=merchant.pubkey(),
+                amount=100_000_000,  # 100.0 tokens at 6 decimals
+            )),
+        ],
+        payer=merchant,
+        signers=[merchant, mint],  # the new mint account signs its own creation
+    )
+    print("mint:", MINT)
 ```
 
 </Step>
@@ -399,12 +421,13 @@ print("mint:", MINT)
 This creates the SA PDA and approves it as the `u64::MAX` delegate on the subscriber's token account. The subscriber must sign — a sponsor can pay rent but cannot approve on someone else's account.
 
 ```python
-sig = send(
-    [ix_init_subscription_authority(subscriber.pubkey(), MINT)],
-    payer=subscriber,
-    signers=[subscriber],
-)
-print("init SA:", sig)
+async def init_subscription_authority() -> None:
+    sig = await send(
+        [ix_init_subscription_authority(subscriber.pubkey(), MINT)],
+        payer=subscriber,
+        signers=[subscriber],
+    )
+    print("init SA:", sig)
 ```
 
 </Step>
@@ -415,19 +438,22 @@ A plan billing 1 token per day. `period_hours` is the billing period, bounded to
 
 ```python
 PLAN_ID = 1
-sig = send(
-    [ix_create_plan(
-        merchant=merchant.pubkey(),
-        mint=MINT,
-        plan_id=PLAN_ID,
-        amount=1_000_000,     # 1.0 token per period
-        period_hours=24,      # daily
-        metadata_uri="https://example.com/plan.json",
-    )],
-    payer=merchant,
-    signers=[merchant],
-)
-print("create plan:", sig)
+
+
+async def create_plan() -> None:
+    sig = await send(
+        [ix_create_plan(
+            merchant=merchant.pubkey(),
+            mint=MINT,
+            plan_id=PLAN_ID,
+            amount=1_000_000,     # 1.0 token per period
+            period_hours=24,      # daily
+            metadata_uri="https://example.com/plan.json",
+        )],
+        payer=merchant,
+        signers=[merchant],
+    )
+    print("create plan:", sig)
 ```
 
 </Step>
@@ -437,12 +463,13 @@ print("create plan:", sig)
 `ix_subscribe` reads the live plan terms and the SA `init_id` from chain and binds them into the instruction as consent fields. The program rejects the subscribe if the live plan disagrees.
 
 ```python
-sig = send(
-    [ix_subscribe(subscriber.pubkey(), merchant.pubkey(), MINT, PLAN_ID)],
-    payer=subscriber,
-    signers=[subscriber],
-)
-print("subscribe:", sig)
+async def subscribe() -> None:
+    sig = await send(
+        [await ix_subscribe(subscriber.pubkey(), merchant.pubkey(), MINT, PLAN_ID)],
+        payer=subscriber,
+        signers=[subscriber],
+    )
+    print("subscribe:", sig)
 ```
 
 </Step>
@@ -452,26 +479,49 @@ print("subscribe:", sig)
 The merchant pulls one period's amount from the subscriber into the merchant's token account. The program enforces that the caller is the plan owner (or a whitelisted puller), the receiver is allowed, and the per-period cap isn't exceeded.
 
 ```python
-sig = send(
-    [ix_transfer_subscription(
-        caller=merchant.pubkey(),
-        subscriber=subscriber.pubkey(),
-        merchant=merchant.pubkey(),
-        mint=MINT,
-        plan_id=PLAN_ID,
-        amount=1_000_000,           # this period's charge
-        receiver=merchant.pubkey(),
-    )],
-    payer=merchant,
-    signers=[merchant],
-)
-print("collect:", sig)
+async def collect() -> None:
+    sig = await send(
+        [ix_transfer_subscription(
+            caller=merchant.pubkey(),
+            subscriber=subscriber.pubkey(),
+            merchant=merchant.pubkey(),
+            mint=MINT,
+            plan_id=PLAN_ID,
+            amount=1_000_000,           # this period's charge
+            receiver=merchant.pubkey(),
+        )],
+        payer=merchant,
+        signers=[merchant],
+    )
+    print("collect:", sig)
 
-bal = client.get_token_account_balance(ata(merchant.pubkey(), MINT)).value
-print("merchant balance:", bal.ui_amount_string)
+    bal = (await client.get_token_account_balance(ata(merchant.pubkey(), MINT))).value
+    print("merchant balance:", bal.ui_amount_string)
 ```
 
-A second collect inside the same 24-hour period fails with `AmountExceedsPeriodLimit` — the cap resets only when the period rolls over. Skipped periods don't accumulate.
+A second collect inside the same 24-hour period fails with `AmountExceedsPeriodLimit` (custom program error `0x190`) — the cap resets only when the period rolls over. Skipped periods don't accumulate.
+
+</Step>
+
+<Step title="Run the lifecycle">
+
+`main` runs the steps in order and closes the client at the end.
+
+```python
+async def main() -> None:
+    try:
+        await fund_wallets()
+        await create_mint()
+        await init_subscription_authority()
+        await create_plan()
+        await subscribe()
+        await collect()
+    finally:
+        await client.close()
+
+
+asyncio.run(main())
+```
 
 </Step>
 
