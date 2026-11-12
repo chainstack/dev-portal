@@ -3,15 +3,15 @@ title: "Trading HIP-4 outcome markets on Hyperliquid"
 description: "Build Python code for trading HIP-4 outcome and prediction markets on Hyperliquid: asset encoding, settlement formula, fees, and SDK patching."
 ---
 
-HIP-4 introduces outcome markets to Hyperliquid — fully collateralized binary contracts that settle within a fixed range. They are a general-purpose primitive for prediction markets and bounded options-like instruments. HIP-4 launched on mainnet on May 2, 2026 with a recurring BTC daily binary, and additional markets are rolling out in stages.
+HIP-4 introduces outcome markets to Hyperliquid — fully collateralized binary contracts that settle within a fixed range. They are a general-purpose primitive for prediction markets and bounded options-like instruments. HIP-4 launched on mainnet on May 2, 2026 with a recurring BTC daily binary. Mainnet now also lists recurring markets on other assets and markets that third-party deployers create from validator-approved templates.
 
 <Info>
 **Prerequisites**
 
-- Python 3.8 or higher
-- `hyperliquid-python-sdk` installed (`pip install hyperliquid-python-sdk`)
+- Python 3.10 or higher
+- `hyperliquid-python-sdk` and `httpx` installed (`pip install hyperliquid-python-sdk httpx`)
 - [Reliable Hyperliquid RPC endpoint](https://chainstack.com/build-better-with-hyperliquid/) ([sign up for free](https://console.chainstack.com/))
-- A funded testnet or mainnet wallet with **USDH** — HIP-4 settles in USDH, not USDC. The standard testnet faucet pays USDC; you swap USDC for USDH on the `@1338` spot pair (~1:1). The reference repo includes a one-line script for this — see [Where to go next](#where-to-go-next).
+- A funded testnet or mainnet wallet with **USDC** — outcome markets quote and settle in USDC, as the `quoteToken` field in `outcomeMeta` shows.
 </Info>
 
 ## What HIP-4 outcome markets are
@@ -20,11 +20,16 @@ An outcome market is a fully collateralized binary contract priced as a probabil
 
 Outcomes share the matching engine, account model, and API surface with spot and perpetuals. Once you handle the asset encoding correctly, every existing tool works — order placement, cancels, modifies, fills, the websocket. There is no leverage and no liquidation. Positions are fully collateralized at open.
 
-The first mainnet market is a recurring BTC daily binary that settles at 06:00 UTC against the BTC mark price on HyperCore. Markets are validator-curated for now; multi-outcome categorical "questions" exist on testnet and will roll out on mainnet in stages.
+Mainnet lists two kinds of outcome markets:
+
+- Recurring markets — the protocol deploys and settles them on a fixed cadence. They include daily binaries on BTC, ETH, SOL, and HYPE that settle at 06:00 UTC against the HyperCore mark price, and a daily BTC price-bucket question.
+- Deployer markets — HIP-4 deployers create them from templates that validators vote on, such as price targets, sports results, company events, and policy-rate decisions. Each deployer publishes under its own venue name.
+
+A *question* groups several outcomes, of which exactly one settles to YES and all others settle to NO.
 
 ## Why the standard Python SDK won't work
 
-The official `hyperliquid-python-sdk` (v0.23.0 at the time of writing) does not know about HIP-4. The `Info` client builds its `coin_to_asset` map from `spot_meta` only — outcome encodings starting at `100_000_000` are unknown to the resolver.
+The official `hyperliquid-python-sdk` (v0.24.0, the latest release) does not know about HIP-4. The `Info` client builds its `coin_to_asset` map from `spot_meta` only — outcome encodings starting at `100_000_000` are unknown to the resolver.
 
 A naive call fails:
 
@@ -47,9 +52,9 @@ For an outcome with id `outcome` and side `side` (only `0` and `1` are valid):
 encoding = 10 * outcome + side
 ```
 
-By convention, side `0` is YES and side `1` is NO. The same `encoding` integer is used in **three different string forms**, each in a different context:
+Side `0` is YES and side `1` is NO, matching the order of `sideSpecs` in `outcomeMeta`. The same `encoding` integer is used in **three different string forms**, each in a different context:
 
-| Form | Used in | Mainnet BTC daily YES (outcome 1) |
+| Form | Used in | Example: outcome 1, side 0 (YES) |
 | --- | --- | --- |
 | `#<encoding>` (outcome spot coin) | `/info` `l2Book`, `Exchange.order(...)`, websocket subscriptions | `#10` |
 | `+<encoding>` (outcome token name) | `spotClearinghouseState` balances | `+10` |
@@ -84,7 +89,7 @@ def encode_asset_id(outcome_id: int, side: int) -> int:
 
 ## Discovering markets with `outcomeMeta`
 
-The `outcomeMeta` info request returns all live outcomes and any categorical questions. Note that this method, like `l2Book` and the `/exchange` endpoints, is served only by the official Hyperliquid public API — it is not part of the open-source node software, so it is not available on Chainstack-hosted endpoints. Point HIP-4 trading code at `https://api.hyperliquid.xyz` (mainnet) or `https://api.hyperliquid-testnet.xyz` (testnet). For HyperEVM operations and the supported `/info` static metadata methods, continue to use your Chainstack endpoint. See [Hyperliquid methods](/docs/hyperliquid-methods) for the full availability matrix.
+The `outcomeMeta` info request returns all live outcomes and questions. Point HIP-4 trading code at the official Hyperliquid public API — `https://api.hyperliquid.xyz` (mainnet) or `https://api.hyperliquid-testnet.xyz` (testnet) — which serves every method this guide uses, including `l2Book` and the `/exchange` actions that Chainstack-hosted endpoints do not serve. For HyperEVM operations and the `/info` methods your node supports, including `outcomeMeta` and `settledOutcome`, use your Chainstack endpoint. See [Hyperliquid methods](/docs/hyperliquid-methods) for the full availability matrix.
 
 ```python
 import httpx
@@ -109,35 +114,66 @@ for q in data.get("questions", []):
     print(f"question={q['question']} name={q['name']} legs={q['namedOutcomes']}")
 ```
 
-A typical response on mainnet:
+A mainnet response, with each array shortened to one or two entries — a recurring BTC daily binary, a deployer market, and the recurring BTC price-bucket question:
 
 ```json
 {
   "outcomes": [
     {
-      "outcome": 1,
+      "outcome": 33246,
       "name": "Recurring",
-      "description": "class:priceBinary|underlying:BTC|expiry:20260504-0600|targetPrice:78213|period:1d",
-      "sideSpecs": [{"name": "Yes"}, {"name": "No"}]
+      "description": "class:priceBinary|underlying:BTC|expiry:20261113-0600|targetPrice:73567|period:1d",
+      "sideSpecs": [{"name": "Yes"}, {"name": "No"}],
+      "quoteToken": "USDC"
+    },
+    {
+      "outcome": 26822,
+      "name": "template:binaryPrice",
+      "description": "perp:BTC|priceDescription:the Pyth BTC/USD price|seconds:90|threshold:79000|time:20261113-0800",
+      "sideSpecs": [{"name": "template:Yes"}, {"name": "template:No"}],
+      "quoteToken": "USDC",
+      "venue": "skew",
+      "deployerFeeScale": "1.0"
     }
   ],
-  "questions": []
+  "questions": [
+    {
+      "question": 634,
+      "name": "Recurring",
+      "description": "class:priceBucket|underlying:BTC|expiry:20261113-0600|priceThresholds:72095,75038|period:1d",
+      "fallbackOutcome": 33250,
+      "namedOutcomes": [33251, 33252, 33253],
+      "settledNamedOutcomes": []
+    }
+  ],
+  "deployers": [
+    {
+      "deployer": "0x08e9c89f46dccee91bdb85c6532eb93a4c335efe",
+      "venue": "skew",
+      "subDeployers": [["settleOutcome", ["0x1c867861e0cffb0eba07d9d94f716189c130dac6"]]]
+    }
+  ],
+  "feeScale": 1.0
 }
 ```
 
-The `description` field is a pipe-separated list of `key:value` pairs:
+Outcome and question IDs change with every recurring instance — a new BTC daily binary gets a new `outcome` id each day — so discover them from `outcomeMeta` instead of hardcoding them.
 
-- `class` — currently `priceBinary` (binary outcome on a price target). Future classes will follow.
-- `underlying` — asset ticker (`BTC`, `HYPE`, etc.).
-- `expiry` — `YYYYMMDD-HHMM` UTC.
-- `targetPrice` — strike for binary price markets.
-- `period` — for recurring markets (`1d`, `15m`, `3m`, etc.).
+The fields on each outcome:
+
+- `name` — `Recurring` for protocol-deployed recurring markets, or `template:<template name>` for deployer markets.
+- `description` — a pipe-separated list of `key:value` pairs. Recurring binaries use `class:priceBinary` with `underlying`, `expiry` (`YYYYMMDD-HHMM` UTC), `targetPrice`, and `period`. Deployer markets carry their template's keywords instead, for example `perp`, `threshold`, and `time`.
+- `sideSpecs` — the side names, YES first.
+- `quoteToken` — the token the market quotes and settles in.
+- `venue` and `deployerFeeScale` — present on deployer markets; `venue` is the deployer's venue name.
+
+Questions carry `namedOutcomes` (the outcomes that can settle to YES), a `fallbackOutcome`, and `settledNamedOutcomes`. The recurring BTC price-bucket question uses `class:priceBucket` with two `priceThresholds`. The top-level `deployers` array lists each deployer with its venue and sub-deployers.
 
 <Info>
-`outcomeMeta` does not return the per-side coin strings or asset ids. You compute them client-side from `outcome` and `side` using the encoding formula above.
+`outcomeMeta` does not return the per-side coin strings or asset ids. You compute them client-side from `outcome` and `side` using the [asset ID encoding](#asset-id-encoding) formula.
 </Info>
 
-A short parser for the recurring-binary description format:
+A short parser for the recurring-binary description format, and a helper that finds the current instance of a recurring daily binary:
 
 ```python
 from dataclasses import dataclass
@@ -166,6 +202,15 @@ def parse_recurring_description(desc: str) -> RecurringSpec | None:
         )
     except KeyError:
         return None
+
+
+def find_recurring_binary(data: dict, underlying: str = "BTC") -> int:
+    """Outcome id of the live recurring daily binary for an underlying."""
+    for o in data["outcomes"]:
+        spec = parse_recurring_description(o["description"])
+        if spec and spec.cls == "priceBinary" and spec.underlying == underlying:
+            return o["outcome"]
+    raise LookupError(f"no recurring {underlying} binary listed")
 ```
 
 ## Patching the SDK
@@ -216,17 +261,21 @@ Contract settles to YES if and only if
 
 Where `markPrice0` and `markPrice1` are the two HyperCore mark-price updates immediately before and after `settlementTime`, and `t0`, `t1` are their timestamps. The protocol takes those two flanking samples, linearly interpolates between them at the exact settlement timestamp, and compares the interpolated value to the target.
 
+The recurring price-bucket question uses the same interpolated price to pick one of three buckets — below the first threshold, between the two thresholds, or at or above the second — and the matching named outcome settles to YES.
+
 <Warning>
 The samples are mark-price updates, not candle OHLCV closes, not oracle snapshots, and not a TWAP. If you implement pre-expiry position management against candle data, your settlement estimate will diverge from the actual settled value, especially in fast-moving markets where mark updates are dense around the settlement timestamp.
 </Warning>
 
 For very fast-moving markets the choice of `t0` and `t1` updates can move the settled price by several ticks compared to the visible mark price at the exact timestamp.
 
+Deployer markets settle according to their template — for example, a `template:binaryPrice` market names its price source in `priceDescription`.
+
 ## Holding to settlement
 
-Settlement is automatic. There is no `claim`, `redeem`, or `settle` call. At expiry, USDH credits land in the account in proportion to the side balances held, and the outcome is removed from the next `outcomeMeta` response.
+Settlement is automatic. There is no `claim`, `redeem`, or `settle` call. At expiry, YES converts to `settleFraction` USDC per share and NO to `1 - settleFraction` USDC per share — 1 and 0 for a binary YES result — and the outcome is removed from the next `outcomeMeta` response. To read the result of a settled outcome, query [`settledOutcome`](/reference/hyperliquid-info-settled-outcome), which returns the outcome spec, its `settleFraction`, and the settlement `details` such as the settled price.
 
-To watch a position through settlement, poll `spotClearinghouseState` for the `+<encoding>` balance until it disappears, or compare your USDH balance before and after the expiry timestamp:
+To watch a position through settlement, poll `spotClearinghouseState` for the `+<encoding>` balance until it disappears, or compare your USDC balance before and after the expiry timestamp:
 
 ```python
 import time
@@ -249,11 +298,11 @@ def wait_for_settlement(
         time.sleep(poll_interval)
 ```
 
-If a reader expects a Polymarket or Gnosis CTF flow with a `redeemPositions` call, they will wait for a transaction that never comes — settlement happens inside the matching engine.
+If a reader expects a Polymarket or Gnosis CTF flow with a `redeemPositions` call, they will wait for a transaction that never comes — settlement happens inside the matching engine. To exit before expiry, sell your shares on the book, or [merge](#splitting-merging-and-negating-outcomes) matching YES and NO shares back into USDC.
 
 ## Reading the order book
 
-Each outcome side is a separate book. To get a unified market view of a binary outcome, fetch both YES (`side=0`) and NO (`side=1`) and compose them client-side:
+The YES and NO books of an outcome are merged into one book that shares liquidity: buying YES at price `p` is the same order as selling NO at `1 - p`. `l2Book` returns the merged book from the side you ask for, so the NO book is the YES book mirrored around 1:
 
 ```python
 def fetch_book(base_url: str, coin: str) -> tuple[list, list]:
@@ -267,12 +316,13 @@ def fetch_book(base_url: str, coin: str) -> tuple[list, list]:
     return levels[0], levels[1]
 
 
-# Mainnet BTC daily, both sides
-btc_yes_bids, btc_yes_asks = fetch_book(HYPERLIQUID_PUBLIC_URL, "#10")  # see encoding table
-btc_no_bids, btc_no_asks = fetch_book(HYPERLIQUID_PUBLIC_URL, "#11")
+# Mainnet BTC daily binary, current instance
+btc_daily = find_recurring_binary(fetch_outcome_meta(), "BTC")
+yes_bids, yes_asks = fetch_book(HYPERLIQUID_PUBLIC_URL, encode_coin(btc_daily, 0))
+no_bids, no_asks = fetch_book(HYPERLIQUID_PUBLIC_URL, encode_coin(btc_daily, 1))
 ```
 
-The mid prices on the two sides should sum to approximately 1 in a tight market — if they don't, there's an arbitrage. Use the `#<encoding>` form for `l2Book` and websocket subscriptions, never the `+<encoding>` balance form.
+On the BTC daily book, a YES bid of `0.48543` for 87 shares appears as a NO ask of `0.51457` for the same 87 shares. Use the `#<encoding>` form for `l2Book` and websocket subscriptions, never the `+<encoding>` balance form.
 
 ## Placing an order
 
@@ -280,58 +330,70 @@ Once the SDK is patched, order placement is a normal `Exchange.order(...)` call:
 
 ```python
 info, exchange = make_clients(private_key, address)
+btc_daily = find_recurring_binary(fetch_outcome_meta(), "BTC")
 
 result = exchange.order(
-    "#10",                        # outcome 1, side 0 (YES) — see encoding table
+    encode_coin(btc_daily, 0),    # BTC daily, side 0 (YES) — see encoding table
     is_buy=True,
-    sz=10,                        # integer size
-    limit_px=0.42,                # 0.001 .. 0.999
+    sz=10,                        # whole shares
+    limit_px=0.42,                # probability between 0 and 1
     order_type={"limit": {"tif": "Gtc"}},
 )
 print(result)
 ```
 
-The matching engine enforces these limits — the server will reject orders that violate any of them:
+Outcome orders follow these rules:
 
-| Constraint | Value |
+| Rule | Value |
 | --- | --- |
-| Price range | `[0.001, 0.999]` (probabilities, not raw prices) |
-| Price tick | `0.0001` on the BTC binary; varies per market — see [Order precision](/docs/hyperliquid-order-precision) for the general rules |
-| Order size | Integer (testnet observed: `27.0`, `1024.0`, etc.) |
-| Min notional | \$10 USDH |
+| Price | A probability between 0 and 1 — mainnet books quote up to 5 decimal places, such as `0.00024` and `0.99976`. See [Order precision](/docs/hyperliquid-order-precision) for the general rules |
+| Order size | Whole shares — integer sizes |
 | Leverage | None — fully collateralized at open |
 
-Validate price range and integer size client-side before signing the order — the round-trip to discover an invalid value via server rejection is wasteful in latency-sensitive code.
+Validate the price and integer size client-side before signing the order — the round-trip to discover an invalid value via server rejection is wasteful in latency-sensitive code.
+
+To bet against an outcome, buy its NO side. On the merged book, buying NO at price `q` is the same order as selling YES at `1 - q`.
 
 ## Fees, mint, normal trade, and burn
 
-Outcome trading **only charges fees when closing or settling, not when opening**. The matching engine classifies every fill into one of six cases:
+Outcome trading **only charges fees when closing or settling, not when opening**. Buys that open or add to a position pay no fee; sells that close a position and merges pay the fee, in USDC. Only fee-paying volume counts toward your volume. The matching engine classifies every fill into one of six cases:
 
-| Case | What happened | Fee |
+| Case | What happened | Fee and volume |
 | --- | --- | --- |
-| Mint | Both counterparties had no prior position (both opening) | 0 |
-| Normal trade, fee-paying side | One side opens, the other closes | Fee on the closing side; volume = `fee_paying_px * sz` |
-| Normal trade, no-fee | Edge case where neither side pays | No volume counted |
-| Burn, both pay | Both counterparties hold opposite sides and unwind together | Both pay; volume = `1 * sz` |
-| Burn, taker only | Same as above but maker is rebate-eligible | Taker pays; volume = `taker_px * sz` |
-| Settlement | Auto-settlement at expiry | Each user gets `settle_fraction * sz` |
+| Mint | Both counterparties open new positions | No fee; no volume counted |
+| Normal trade, one side pays | One side opens, the other closes | The closing side pays; both users get `fee_paying_px * sz` volume |
+| Normal trade, no one pays | Neither side's fill is fee-paying | No volume counted |
+| Burn, both pay | Both counterparties close opposite sides together | Both pay; both users get `(maker_px + taker_px) * sz = 1 * sz` volume |
+| Burn, taker only | Both counterparties close opposite sides together, and only the taker pays | Taker pays; both users get `taker_px * sz` volume |
+| Settlement | Auto-settlement at expiry | Each user gets `settle_fraction * sz` volume |
 
-Fee rates are taken from the same per-user tier returned by [`userFees`](/reference/hyperliquid-info-userfees) (`makerRate` / `takerRate`). There are no maker rebates for outcome trading — users who would otherwise receive rebates pay zero on maker orders instead.
+Fee rates follow your spot fee tier, returned by [`userFees`](/reference/hyperliquid-info-userfees) as `userSpotCrossRate` (taker) and `userSpotAddRate` (maker), after any referral discount. Deployer markets with a `deployerFeeScale` of `1.0` charge twice that rate: at a `userSpotCrossRate` of `0.0006` and a 4% referral discount, a taker sell pays `2 * 0.0006 * 0.96 = 0.001152` of `px * sz`. Outcome trading has no maker rebates — users who would otherwise receive rebates pay zero on maker orders instead.
 
-There is no `splitPosition` or `mergePositions` API. To get YES exposure, place a buy on the YES book. To get short-YES exposure, you have two equivalent paths: place a sell on the YES book at price `p` (synthetic short, opens a new short position via mint classification when the counterparty is also flat), or place a buy on the NO book at price `1 - p`. Both routes are economically equivalent in a fair market but show up differently in your inventory and route through different books — which matters for execution and fee classification. Mint and burn happen implicitly inside the matching engine as a side-effect of the fill — you cannot directly request them. As of mainnet launch, `splitPosition` and `mergePositions` exist in the protocol but are not enabled.
+Mint and burn happen implicitly inside the matching engine as a side effect of the fill — you cannot request them through an order.
 
-The closest comparison points for fee structure: Polymarket charges around 200 basis points on winnings every trade, and Kalshi roughly 700 basis points. HIP-4 charges only on close, burn, or settlement, at the perp-tier rate.
+## Splitting, merging, and negating outcomes
+
+The [`userOutcome`](/reference/hyperliquid-exchange-user-outcome) exchange action converts between USDC and outcome shares directly, without trading on the book:
+
+- `splitOutcome` — split `X` USDC into `X` YES and `X` NO shares of an outcome.
+- `mergeOutcome` — merge `X` YES and `X` NO shares of an outcome back into `X` USDC.
+- `mergeQuestion` — merge `X` YES shares from every outcome of a question into `X` USDC.
+- `negateOutcome` — convert `X` NO shares of one outcome in a question into `X` YES shares of every other outcome in that question.
+
+Because exactly one outcome of a question settles to YES, `mergeQuestion` and `negateOutcome` let holders of a full set redeem USDC before the outcomes settle. The `hyperliquid-python-sdk` has no helper for `userOutcome`; sign it as an L1 action. See the [`userOutcome` reference](/reference/hyperliquid-exchange-user-outcome) for request examples.
 
 ## Where to go next
 
-Worked-out reference implementation with 12 progressive examples and a market-maker bot:
+Worked-out reference implementation with progressive examples and a market-maker bot:
 
-- [chainstacklabs/hyperliquid-hip-4](https://github.com/chainstacklabs/hyperliquid-hip-4) — Python scripts for every primitive operation: USDH funding, market discovery, order book snapshot, websocket feed, limit order, cancel, modify, close, categorical trade, mint/burn explainer, settlement watcher, and a passive market-maker.
+- [chainstacklabs/hyperliquid-hip-4](https://github.com/chainstacklabs/hyperliquid-hip-4) — Python scripts for market discovery, questions, account state, order book snapshots, the websocket feed, the order lifecycle, categorical trades, split and merge, a settlement watcher, and a passive market-maker.
 
 Related reference and guides on Chainstack:
 
-- [Hyperliquid methods](/docs/hyperliquid-methods) — full method availability matrix; HIP-4 methods are flagged as Hyperliquid public RPC.
+- [Hyperliquid methods](/docs/hyperliquid-methods) — full method availability matrix.
 - [outcomeMeta API reference](/reference/hyperliquid-info-outcomemeta) — request and response schema.
+- [settledOutcome API reference](/reference/hyperliquid-info-settled-outcome) — the result of a settled outcome.
+- [userOutcome API reference](/reference/hyperliquid-exchange-user-outcome) — split, merge, and negate actions.
 - [Hyperliquid order precision](/docs/hyperliquid-order-precision) — `szDecimals` and price tick rules that apply to outcome orders too.
 - [Hyperliquid signing overview](/docs/hyperliquid-signing-overview) — required for every `Exchange.*` call.
 
@@ -341,3 +403,4 @@ Upstream documentation:
 - [Asset IDs (encoding spec)](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/asset-ids)
 - [Contract specifications (settlement formula)](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/contract-specifications)
 - [Fees (the six cases)](https://hyperliquid.gitbook.io/hyperliquid-docs/trading/fees)
+- [HIP-4 deployer actions](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/hip-4-deployer-actions)
