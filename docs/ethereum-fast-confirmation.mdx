@@ -1,0 +1,86 @@
+---
+title: "Ethereum: fast confirmation and the safe block tag"
+description: "How the Fast Confirmation Rule changes the safe block tag on Ethereum Hoodi Global Nodes: how far safe trails latest, when it falls back to finalized, and when to use finalized instead."
+---
+
+**TLDR:**
+* On Ethereum Hoodi [Global Nodes](/docs/global-elastic-node), the `safe` block tag follows the Fast Confirmation Rule and trails `latest` by a few blocks, typically less than a minute.
+* `finalized` does not change: it still trails `latest` by two to three epochs.
+* Fast confirmation relies on network synchrony assumptions. Use `finalized` for actions you cannot reverse.
+* On Ethereum Mainnet and Sepolia Global Nodes, `safe` keeps its standard meaning: the latest justified block.
+
+## What the safe block tag returns with fast confirmation
+
+With fast confirmation, `safe` returns the most recent block that the consensus client confirmed under the [Fast Confirmation Rule](https://github.com/ethereum/consensus-specs/blob/master/specs/phase0/fast-confirmation.md). The consensus client passes that block to the execution client as its safe block, so every method that takes a block tag resolves `safe` to it, including [eth_getBlockByNumber](/reference/ethereum-getblockbynumber), [eth_call](/reference/ethereum-ethcall), [eth_getBalance](/reference/ethereum-getbalance), and [eth_getLogs](/reference/ethereum-getlogs).
+
+Under normal network conditions, the Fast Confirmation Rule confirms a block within one or two slots, 12 to 24 seconds. A skipped slot, or a slot in which the rule does not advance, delays the next confirmation.
+
+| Block tag | Without fast confirmation | With fast confirmation |
+| --- | --- | --- |
+| `latest` | Newest block | Newest block |
+| `safe` | Latest justified block, typically 32 to 64 blocks behind `latest` | Latest fast-confirmed block, typically a few blocks behind `latest` |
+| `finalized` | Latest finalized block, typically 64 to 96 blocks behind `latest` | Unchanged |
+
+## When the safe block tag falls back to finalized
+
+The Fast Confirmation Rule reverts to the finalized block when its latest confirmed block:
+
+* Is older than the previous epoch, for example after the consensus client was offline or fell behind.
+* Is no longer on the canonical chain.
+* Cannot be confirmed again at the start of the current epoch.
+
+During a fallback, `safe` returns the same block as `finalized`, 64 to 96 blocks behind `latest`. At the next epoch, the rule can restart from the justified block and then catches up to a few blocks behind `latest`.
+
+Code that follows `safe` must handle a `safe` block number that stays the same, jumps forward by many blocks, or moves back to the finalized block. A block that `safe` returned can also be reorganized out of the chain, so track `safe` by block hash as well as by number.
+
+## When to use finalized instead of safe
+
+Use `finalized` when a reorganization past your confirmation point would cost money or cannot be undone. Reverting a finalized block requires validators that hold at least one third of the staked ether to be slashed, whatever the network conditions. A fast-confirmed block can be reorganized without any slashing if attestations arrive after the end of their slot.
+
+* Use `finalized` to credit deposits, release bridge withdrawals, and settle payouts.
+* Use `safe` with fast confirmation for confirmations shown in an interface, for indexers that already handle reorganizations, and to test how your application handles a `safe` block a few blocks behind `latest`.
+
+## Which Chainstack endpoints use fast confirmation
+
+Fast confirmation is on for Ethereum Hoodi Global Nodes. Ethereum Mainnet and Sepolia Global Nodes return the standard justified block for `safe`.
+
+To see which behavior an endpoint has, compare `safe` with `latest` and `finalized`:
+
+* With fast confirmation, `safe` is a few blocks behind `latest`, or equal to `finalized` during a fallback.
+* Without fast confirmation, `safe` is about one epoch, 32 blocks, ahead of `finalized`.
+
+```javascript check-safe.mjs
+import { ethers } from "ethers";
+
+const provider = new ethers.JsonRpcProvider(process.env.CHAINSTACK_ENDPOINT);
+
+const [latest, safe, finalized] = await Promise.all(
+  ["latest", "safe", "finalized"].map((tag) => provider.getBlock(tag))
+);
+
+console.log(`latest:    ${latest.number}`);
+console.log(`safe:      ${safe.number} (${latest.number - safe.number} blocks behind latest)`);
+console.log(`finalized: ${finalized.number} (${latest.number - finalized.number} blocks behind latest)`);
+```
+
+Run the script with your Hoodi endpoint:
+
+```shell
+npm install ethers
+CHAINSTACK_ENDPOINT=YOUR_CHAINSTACK_ENDPOINT node check-safe.mjs
+```
+
+On a Hoodi Global Node, the output is similar to the following:
+
+```text
+latest:    3999541
+safe:      3999539 (2 blocks behind latest)
+finalized: 3999458 (83 blocks behind latest)
+```
+
+## Additional resources
+
+* [Fast Confirmation Rule specification](https://github.com/ethereum/consensus-specs/blob/master/specs/phase0/fast-confirmation.md)
+* [Fast Confirmation Rule in the Lighthouse Book](https://lighthouse-book.sigmaprime.io/advanced_fcr.html)
+* [Ethereum methods](/docs/ethereum-methods)
+* [Ethereum tooling](/docs/ethereum-tooling)
