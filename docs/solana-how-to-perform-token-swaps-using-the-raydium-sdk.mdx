@@ -36,7 +36,7 @@ Deploy a [Solana RPC endpoint on Chainstack](https://chainstack.com/build-better
 
 ### Local setup
 
-* [Node.js](https://nodejs.org/en/download/current) 18 or above (for the global `fetch` used below)
+* [Node.js](https://nodejs.org/en/download/current) 20.18 or above, which `@solana/web3.js` v3 requires
 * A Solana wallet with some SOL to cover the swap and fees
 
 Install the dependencies:
@@ -70,7 +70,7 @@ const TX_VERSION = 'V0'
 
 async function swap() {
   const connection = new Connection(RPC_ENDPOINT, 'confirmed')
-  const wallet = Keypair.fromSecretKey(bs58.decode(PRIVATE_KEY))
+  const wallet = await Keypair.fromSecretKey(bs58.decode(PRIVATE_KEY))
 
   // 1) Priority fee tiers from Raydium (vh / h / m).
   const { data: fee } = await (await fetch(`${BASE_HOST}/main/auto-fee`)).json()
@@ -104,7 +104,7 @@ async function swap() {
   // 4) Deserialize, sign, and send each returned transaction through your node.
   for (const { transaction } of txs) {
     const tx = VersionedTransaction.deserialize(Buffer.from(transaction, 'base64'))
-    tx.sign([wallet])
+    await tx.sign([wallet])
     const sig = await connection.sendRawTransaction(tx.serialize(), { skipPreflight: true })
     console.log(`Sent: https://solscan.io/tx/${sig}`)
   }
