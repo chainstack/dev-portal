@@ -54,9 +54,9 @@ The method returns the 32-byte value stored at the specified position as a hexad
 **Value decoding:**
 ```javascript
 // Decode different data types
-const decodeUint256 = (hex) => parseInt(hex, 16);
+const decodeUint256 = (hex) => BigInt(hex);
 const decodeAddress = (hex) => "0x" + hex.slice(-40); // Last 20 bytes
-const decodeBool = (hex) => parseInt(hex, 16) !== 0;
+const decodeBool = (hex) => BigInt(hex) !== 0n;
 const decodeBytes32 = (hex) => hex; // Already in correct format
 ```
 
@@ -128,6 +128,8 @@ mapping(address => uint256) public balances;  // Slot 0
 ### Basic implementation
 
 ```javascript
+const ethers = require('ethers');
+
 // Get storage value from a contract on Hyperliquid
 const getStorageAt = async (contractAddress, position) => {
   const response = await fetch('https://hyperliquid-mainnet.core.chainstack.com/YOUR_ENDPOINT/evm', {
@@ -157,21 +159,21 @@ const analyzeContractStorage = async (contractAddress) => {
   return {
     slot0: {
       raw: slot0,
-      asUint256: parseInt(slot0, 16),
+      asUint256: BigInt(slot0).toString(),
       asAddress: "0x" + slot0.slice(-40), // Last 20 bytes
-      asBool: parseInt(slot0, 16) !== 0
+      asBool: BigInt(slot0) !== 0n
     },
     slot1: {
       raw: slot1,
-      asUint256: parseInt(slot1, 16),
+      asUint256: BigInt(slot1).toString(),
       asAddress: "0x" + slot1.slice(-40),
-      asBool: parseInt(slot1, 16) !== 0
+      asBool: BigInt(slot1) !== 0n
     },
     slot2: {
       raw: slot2,
-      asUint256: parseInt(slot2, 16),
+      asUint256: BigInt(slot2).toString(),
       asAddress: "0x" + slot2.slice(-40),
-      asBool: parseInt(slot2, 16) !== 0
+      asBool: BigInt(slot2) !== 0n
     }
   };
 };
@@ -180,24 +182,24 @@ const analyzeContractStorage = async (contractAddress) => {
 const getMappingValueSlot = (key, baseSlot) => {
   // This requires a library like ethers.js or web3.js for keccak256
   // Example: mapping(address => uint256) at slot 0
-  const encodedKey = ethers.utils.defaultAbiCoder.encode(['address', 'uint256'], [key, baseSlot]);
-  return ethers.utils.keccak256(encodedKey);
+  const encodedKey = ethers.AbiCoder.defaultAbiCoder().encode(['address', 'uint256'], [key, baseSlot]);
+  return ethers.keccak256(encodedKey);
 };
 
 // Read mapping value
 const readMappingValue = async (contractAddress, key, baseSlot) => {
   const slot = getMappingValueSlot(key, baseSlot);
   const value = await getStorageAt(contractAddress, slot);
-  return parseInt(value, 16);
+  return BigInt(value);
 };
 
 // Calculate array element position
 const getArrayElementSlot = (baseSlot, index) => {
   // Array length is at baseSlot, elements start at keccak256(baseSlot)
-  const arrayStartSlot = ethers.utils.keccak256(
-    ethers.utils.defaultAbiCoder.encode(['uint256'], [baseSlot])
+  const arrayStartSlot = ethers.keccak256(
+    ethers.AbiCoder.defaultAbiCoder().encode(['uint256'], [baseSlot])
   );
-  return (BigInt(arrayStartSlot) + BigInt(index)).toString(16);
+  return ethers.toBeHex(BigInt(arrayStartSlot) + BigInt(index), 32);
 };
 
 // Usage examples

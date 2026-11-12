@@ -129,7 +129,7 @@ print(f'Transaction hash: {web3.toHex(tx_hash)}')
 </CodeGroup>
 
 <Note>
-Note that you will need to edit the `amountToSend`, `recipientAddress`, and `secretKey` fields to be able to use this code.
+Note that you will need to edit the `sender`, `receiver`, and `privateKey` fields to be able to use this code.
 </Note>
 
 
@@ -194,7 +194,7 @@ const sushiRouterABI = [
 
 async function swapETHForToken(value, token, privateKey) {
   // Create a new wallet using the private key
-  const wallet = new ethers.Wallet(privateKey, provider);
+  const wallet = new ethers.Wallet(privateKey, chainstack);
 
   // Get the SushiSwap Router contract and create a contract instance
   const sushiRouterAddress = '0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506'; // SushiSwap Router address on Ethereum Mainnet
@@ -210,8 +210,8 @@ async function swapETHForToken(value, token, privateKey) {
   const path = ['0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', tokenToBuy]; // WETH to token to buy
 
   // Parameters for the transaction object
-  const nonce = await wallet.getTransactionCount();
-  const gasPrice = await chainstack.getGasPrice();
+  const nonce = await wallet.getNonce();
+  const gasPrice = BigInt(await chainstack.send("eth_gasPrice", []));
   const transactionData = sushiRouterContract.interface.encodeFunctionData('swapExactETHForTokens', [
     minAmountOfTokens,
     path,
@@ -230,6 +230,7 @@ async function swapETHForToken(value, token, privateKey) {
     to: sushiRouterAddress,
     value: amountOfETH,
     nonce: nonce,
+    type: 0, // legacy transaction, replay-protected with the chain ID (EIP-155)
     gasPrice: gasPrice,
     gasLimit: gasLimit,
     data: transactionData,
@@ -239,7 +240,7 @@ async function swapETHForToken(value, token, privateKey) {
   // Sign and send the transaction
   console.log(`Swapping tokens...`);
   const signedTx = await wallet.signTransaction(transactionObject);
-  const transaction = await chainstack.sendTransaction(signedTx);
+  const transaction = await chainstack.broadcastTransaction(signedTx);
   console.log(`Transaction sent; transaction hash: ${transaction.hash}\n`);
 
   // Wait for the transaction to be confirmed
@@ -278,8 +279,6 @@ main();
 **Security notice**
 
 You need your private key to sign the transaction; never share your private key with anyone.
-
-On a side note, the private key in this case must be imported without '0x' at the beginning of the string.
 </Warning>
 
 
