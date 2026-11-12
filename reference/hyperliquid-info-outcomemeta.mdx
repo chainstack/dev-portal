@@ -1,14 +1,10 @@
 ---
 title: outcomeMeta | Hyperliquid info
-openapi: /openapi/hyperliquid_node_api/hypercore_info/info_outcomemeta.json post /info
-description: "The info endpoint with type: \"outcomeMeta\" retrieves the live HIP-4 outcome markets and any categorical questions on the Hyperliquid exchange."
+openapi: /openapi/hyperliquid_node_api/hypercore_info/info_outcomemeta.json post /mt_c524ad9781ae5dccd9ac6f5b0370e/info
+description: "The info endpoint with type: \"outcomeMeta\" retrieves the live HIP-4 outcome markets, multi-outcome questions, and market deployers on the Hyperliquid exchange."
 ---
 
-<Info>
-You can only use this endpoint on the official Hyperliquid public API. It is not available through Chainstack, as the open-source node implementation does not support it yet. See [Hyperliquid methods](/docs/hyperliquid-methods) for the full availability breakdown.
-</Info>
-
-The `info` endpoint with `type: "outcomeMeta"` retrieves the live HIP-4 outcome markets and any categorical questions on the Hyperliquid exchange. Outcome markets are fully collateralized binary contracts that settle within a fixed range — the primitive that powers prediction markets and bounded options-like instruments on Hyperliquid.
+The `info` endpoint with `type: "outcomeMeta"` retrieves the live HIP-4 outcome markets, multi-outcome questions, and market deployers on the Hyperliquid exchange. Outcome markets are fully collateralized binary contracts that settle within a fixed range — the primitive that powers prediction markets and bounded options-like instruments on Hyperliquid.
 
 <Visibility for="humans">
 <Check>
@@ -26,20 +22,23 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 
 ## Returns
 
-Returns an object with two arrays:
+Returns an object with four fields: `outcomes`, `questions`, `deployers`, and `feeScale`.
 
 ### Outcomes
 
 An array of live outcome markets. Each entry contains:
 
 * `outcome` (integer) — Outcome id. Used together with the side index to derive the asset encoding.
-* `name` (string) — Human-readable market name (for example, `"Recurring"` for the recurring BTC daily binary, or a custom name for one-off markets).
-* `description` (string) — For recurring binary markets, a pipe-separated `key:value` string with `class`, `underlying`, `expiry`, `targetPrice`, `period` (for example, `"class:priceBinary|underlying:BTC|expiry:20260504-0600|targetPrice:78213|period:1d"`). For other market types, free-form text.
+* `name` (string) — Market name: `"Recurring"` for recurring binary markets, or the template name (for example, `"template:binaryPrice"`) for markets created by a deployer.
+* `description` (string) — Pipe-separated `key:value` string. Recurring binaries carry `class`, `underlying`, `expiry`, `targetPrice`, and `period` (for example, `"class:priceBinary|underlying:BTC|expiry:20261113-0600|targetPrice:73567|period:1d"`). Deployer markets carry their template parameters.
 * `sideSpecs` (array) — Two-element array describing the YES (index 0) and NO (index 1) sides. Each element has a `name` field.
+* `quoteToken` (string) — Token the outcome settles in. Every current market settles in `"USDC"`.
+* `venue` (string) — Venue of the deployer that created the market. Absent on recurring markets.
+* `deployerFeeScale` (string) — Fee scale set for a deployer market, as a decimal string. Absent on some markets.
 
 ### Questions
 
-An array of categorical multi-outcome questions (testnet only at the time of writing — mainnet returns an empty array). Each entry contains:
+An array of multi-outcome questions, both recurring (such as the daily BTC price bucket) and created by deployers. Each entry contains:
 
 * `question` (integer) — Question id.
 * `name` (string) — Question text.
@@ -47,6 +46,11 @@ An array of categorical multi-outcome questions (testnet only at the time of wri
 * `fallbackOutcome` (integer) — Outcome id used if none of the named outcomes matches.
 * `namedOutcomes` (array of integers) — Outcome ids for the named legs.
 * `settledNamedOutcomes` (array of integers) — Outcome ids that have already settled.
+
+### Deployers and fee scale
+
+* `deployers` (array) — Market deployers. Each entry has `deployer` (address), `venue` (venue name), and `subDeployers`, a list of `[action, [addresses]]` pairs naming the accounts a deployer delegates each action to.
+* `feeScale` (string) — Global outcome market fee scale, as a decimal string.
 
 ## Asset encoding
 
@@ -59,7 +63,7 @@ balance coin = "+<encoding>"      # for spotClearinghouseState
 asset id   = 100_000_000 + encoding
 ```
 
-For the mainnet BTC daily YES (outcome `1`, side `0`), the encoding is `10`, the trade coin is `#10`, the balance coin is `+10`, and the asset id is `100_000_010`.
+For example, YES (side `0`) on outcome `1` has the encoding `10`, the trade coin `#10`, the balance coin `+10`, and the asset id `100_000_010`. Recurring markets get a new outcome id for every instance, so read the current id from `outcomeMeta` rather than hardcoding it.
 
 See the full guide at [Trading HIP-4 outcome markets on Hyperliquid](/docs/hyperliquid-hip4-outcome-markets-trading) for the rest of the trading flow.
 
@@ -71,15 +75,14 @@ See the full guide at [Trading HIP-4 outcome markets on Hyperliquid](/docs/hyper
 curl -X POST \
   -H "Content-Type: application/json" \
   -d '{"type": "outcomeMeta"}' \
-  https://api.hyperliquid.xyz/info
+  https://hyperliquid-mainnet.core.chainstack.com/mt_c524ad9781ae5dccd9ac6f5b0370e/info
 ```
 
 ```python Python (hyperliquid-python-sdk)
 from hyperliquid.info import Info
-from hyperliquid.utils import constants
 
-# This endpoint is public-only, so use the default Hyperliquid mainnet API.
-info = Info(constants.MAINNET_API_URL, skip_ws=True)
+# skip_ws=True avoids opening a WebSocket connection for this REST call
+info = Info("YOUR_CHAINSTACK_ENDPOINT", skip_ws=True)
 
 # The SDK has no typed wrapper for "outcomeMeta", so post the request directly.
 # Every typed Info method is a thin wrapper over this same post(...) call.
@@ -92,8 +95,8 @@ print(outcome_meta["questions"])
 ```typescript TypeScript (@nktkas/hyperliquid)
 import * as hl from "@nktkas/hyperliquid";
 
-// This endpoint is public-only, so use the default public HTTP transport.
-const transport = new hl.HttpTransport();
+// apiUrl points the transport at a custom server (your Chainstack endpoint)
+const transport = new hl.HttpTransport({ apiUrl: "YOUR_CHAINSTACK_ENDPOINT" });
 const client = new hl.InfoClient({ transport });
 
 const data = await client.outcomeMeta();
@@ -104,9 +107,13 @@ console.log(data.questions);
 
 </CodeGroup>
 
+<Note>
+**Use your own endpoint in your code.** The code examples use a placeholder Chainstack endpoint (YOUR_CHAINSTACK_ENDPOINT) — replace it with your own Hyperliquid node endpoint from the [Chainstack console](https://console.chainstack.com/). The curl above uses a shared public endpoint for quick checks only; do not use it in production.
+</Note>
+
 ## Use cases
 
 * **Market discovery** — enumerate every live outcome market and its side names before placing orders.
-* **Settlement parser** — read `description` to extract the `expiry` and `targetPrice` for binary price-based markets.
-* **Categorical markets** — list named legs of a `question` and their settled status (testnet).
+* **Settlement parser** — read `description` to extract the `expiry` and `targetPrice` for recurring binary markets, or the template parameters for deployer markets.
+* **Multi-outcome markets** — list the named legs of a `question` and their settled status.
 * **Inventory reconciliation** — track which `outcome` ids are still live so you can mark settled positions out of your book.
