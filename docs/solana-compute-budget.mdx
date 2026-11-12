@@ -71,12 +71,14 @@ The Compute Budget Program (`ComputeBudget111111111111111111111111111111`) has 4
 
 The optimal workflow is:
 
-1. **Simulate** your transaction to measure actual CU consumption
+1. **Simulate** your transaction with a provisional maximum CU limit to measure actual CU consumption
 2. **Add a margin** (10–20%) to the simulated value
 3. **Set the CU limit** with `SetComputeUnitLimit`
 4. **Set the CU price** with `SetComputeUnitPrice` based on recent priority fees
 
 ### Step 1: Simulate and measure
+
+The example uses `@solana/web3.js` v3, which returns `unitsConsumed` as a `bigint`.
 
 <CodeGroup>
 ```typescript TypeScript
@@ -91,14 +93,17 @@ import {
 import bs58 from "bs58";
 import "dotenv/config";
 
-const connection = new Connection(process.env.SOLANA_RPC!);
-const payer = Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY!));
+const connection = new Connection(process.env.SOLANA_RPC!, "confirmed");
 
 async function optimizeComputeBudget() {
+  const payer = await Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY!));
   const latestBlockhash = await connection.getLatestBlockhash();
 
-  // Your transaction instructions (without CU limit set yet)
+  // Your transaction instructions, with a provisional maximum CU limit. The
+  // SetComputeUnitLimit instruction consumes compute units itself, so it must
+  // be in the transaction you simulate.
   const instructions = [
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }),
     ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 10_000 }),
     SystemProgram.transfer({
       fromPubkey: payer.publicKey,
@@ -107,7 +112,7 @@ async function optimizeComputeBudget() {
     }),
   ];
 
-  // Build and simulate WITHOUT SetComputeUnitLimit
+  // Build and simulate with the provisional limit
   const message = new TransactionMessage({
     payerKey: payer.publicKey,
     recentBlockhash: latestBlockhash.blockhash,
@@ -115,17 +120,18 @@ async function optimizeComputeBudget() {
   }).compileToV0Message();
 
   const transaction = new VersionedTransaction(message);
-  transaction.sign([payer]);
+  await transaction.sign([payer]);
 
   const simulation = await connection.simulateTransaction(transaction);
-  const unitsConsumed = simulation.value.unitsConsumed || 0;
+  // unitsConsumed is a bigint, so convert it before doing arithmetic
+  const unitsConsumed = Number(simulation.value.unitsConsumed ?? 0);
   console.log("Simulated CUs:", unitsConsumed);
 
   // Add 10% margin
   const cuLimit = Math.ceil(unitsConsumed * 1.1);
   console.log("Setting CU limit to:", cuLimit);
 
-  // Rebuild with the optimized CU limit
+  // Rebuild with the optimized CU limit in place of the provisional one
   const optimizedInstructions = [
     ComputeBudgetProgram.setComputeUnitLimit({ units: cuLimit }),
     ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 10_000 }),
@@ -143,7 +149,7 @@ async function optimizeComputeBudget() {
   }).compileToV0Message();
 
   const optimizedTx = new VersionedTransaction(optimizedMessage);
-  optimizedTx.sign([payer]);
+  await optimizedTx.sign([payer]);
 
   const sig = await connection.sendTransaction(optimizedTx);
   console.log("Transaction:", sig);

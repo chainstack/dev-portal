@@ -59,11 +59,13 @@ npm install @solana/web3.js bs58
 
 This tutorial uses CommonJS (`require`). Each step is a fragment that runs inside an `async` function so it can use `await` — the [complete script](#full-script) assembles them into one runnable file. The same calls work unchanged with ES module `import` syntax.
 
+The examples use `@solana/web3.js` v3, which needs Node.js 20.18 or later. In v3, creating a keypair is an async call, and lamport amounts are `bigint` values.
+
 ## Connect to your Solana node
 
 Initialize a `Connection` with your Chainstack HTTPS and WSS endpoints and a commitment level. `confirmed` is a good default — it waits for the transaction to be confirmed by the cluster without waiting for full finalization.
 
-Pass the WSS endpoint explicitly. `@solana/web3.js` opens a WebSocket to confirm transactions; with only the HTTPS endpoint it derives a WebSocket URL from that host, which does not match a Chainstack node's separate WSS endpoint, and `sendAndConfirmTransaction` then times out with `TransactionExpiredBlockheightExceededError`.
+Pass the WSS endpoint explicitly. `@solana/web3.js` opens a WebSocket to confirm transactions, and without `wsEndpoint` it derives the WebSocket URL from the HTTPS endpoint. The derived URL is correct on Global Nodes, but on Trader Nodes the WSS endpoint is on a separate host, so `sendAndConfirmTransaction` times out with `TransactionExpiredBlockheightExceededError`. Passing `wsEndpoint` works on every node type.
 
 ```javascript connection.js
 const { Connection } = require("@solana/web3.js");
@@ -86,13 +88,13 @@ const bs58 = require("bs58");
 const fs = require("fs");
 
 // Option A — a byte-array key file, e.g. the one the Solana CLI writes to id.json
-const wallet = Keypair.fromSecretKey(
+const wallet = await Keypair.fromSecretKey(
   new Uint8Array(JSON.parse(fs.readFileSync("/path/to/id.json", "utf8")))
 );
 
 // Option B — a base58 secret key string (for example exported from a wallet),
 // supplied through an environment variable
-const walletFromBase58 = Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY));
+const walletFromBase58 = await Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY));
 ```
 
 <Warning>
@@ -135,7 +137,7 @@ const {
 } = require("@solana/web3.js");
 
 // A fresh keypair for the stake account itself.
-const stakeAccount = Keypair.generate();
+const stakeAccount = await Keypair.generate();
 
 // Rent-exempt reserve + the amount to delegate (at least the network minimum).
 const rentExempt = await connection.getMinimumBalanceForRentExemption(StakeProgram.space);
@@ -203,7 +205,10 @@ Read the stake account back with `getParsedAccountInfo`. Right after delegating,
 
 ```javascript verify.js
 const info = await connection.getParsedAccountInfo(stakeAccount.publicKey);
-console.log(JSON.stringify(info.value.data.parsed, null, 2));
+
+// Some fields are bigint, which JSON.stringify can't serialize, so convert them to strings.
+const bigintToString = (key, value) => (typeof value === "bigint" ? value.toString() : value);
+console.log(JSON.stringify(info.value.data.parsed, bigintToString, 2));
 ```
 
 The parsed output shows the authorities, the rent-exempt reserve, and the delegation. The example values here come from an existing on-chain stake account — yours will differ:
@@ -218,13 +223,13 @@ The parsed output shows the authorities, the rent-exempt reserve, and the delega
       },
       "lockup": {
         "custodian": "11111111111111111111111111111111",
-        "epoch": 0,
-        "unixTimestamp": 0
+        "epoch": "0",
+        "unixTimestamp": "0"
       },
       "rentExemptReserve": "2282880"
     },
     "stake": {
-      "creditsObserved": 2294237959,
+      "creditsObserved": "2294237959",
       "delegation": {
         "activationEpoch": "775",
         "deactivationEpoch": "18446744073709551615",
@@ -263,24 +268,27 @@ const connection = new Connection("<YOUR_CHAINSTACK_HTTPS_ENDPOINT>", {
   wsEndpoint: "<YOUR_CHAINSTACK_WSS_ENDPOINT>",
 });
 
-// Your funded wallet — pays fees, funds the stake account, and is its authority.
-const wallet = Keypair.fromSecretKey(
-  new Uint8Array(JSON.parse(fs.readFileSync("/path/to/id.json", "utf8")))
-);
-
 // The validator vote account to delegate to. Replace with your own selection.
 const votePubkey = new PublicKey("CcaHc2L43ZWjwCHART3oZoJvHLAe9hzT2DJNUpBzoTN1");
 
+// Converts bigint fields, which JSON.stringify can't serialize, to strings.
+const bigintToString = (key, value) => (typeof value === "bigint" ? value.toString() : value);
+
 async function main() {
+  // Your funded wallet — pays fees, funds the stake account, and is its authority.
+  const wallet = await Keypair.fromSecretKey(
+    new Uint8Array(JSON.parse(fs.readFileSync("/path/to/id.json", "utf8")))
+  );
+
   // 1. Work out how much SOL the stake account needs.
   const rentExempt = await connection.getMinimumBalanceForRentExemption(StakeProgram.space);
   const { value: minDelegation } = await connection.getStakeMinimumDelegation();
   const stakeAmount = minDelegation; // 1 SOL minimum; raise this to stake more
   const lamports = rentExempt + stakeAmount;
-  console.log(`Funding stake account with ${lamports / LAMPORTS_PER_SOL} SOL`);
+  console.log(`Funding stake account with ${Number(lamports) / LAMPORTS_PER_SOL} SOL`);
 
   // 2. Create and initialize the stake account.
-  const stakeAccount = Keypair.generate();
+  const stakeAccount = await Keypair.generate();
   const createStakeAccountTx = StakeProgram.createAccount({
     fromPubkey: wallet.publicKey,
     stakePubkey: stakeAccount.publicKey,
@@ -315,7 +323,7 @@ async function main() {
 
   // 4. Read the delegation back.
   const info = await connection.getParsedAccountInfo(stakeAccount.publicKey);
-  console.log(JSON.stringify(info.value.data.parsed, null, 2));
+  console.log(JSON.stringify(info.value.data.parsed, bigintToString, 2));
 }
 
 main().catch((err) => {

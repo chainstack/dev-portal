@@ -50,7 +50,7 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 
 ### Prerequisites
 
-The example is shown in both Solana JavaScript libraries — both are actively maintained, so use whichever fits your project. `@solana/kit` is the newer, tree-shakable, functional SDK; `@solana/web3.js` is the classic `Connection`/`PublicKey` API.
+The example is shown in both Solana JavaScript libraries, so use whichever fits your project. `@solana/kit` is the tree-shakable, functional SDK; `@solana/web3.js` v3 keeps the classic `Connection`/`PublicKey` API, rebuilt on Kit, and needs Node.js 20.18 or later.
 
 <Tabs>
   <Tab title="@solana/kit">
@@ -193,8 +193,7 @@ import bs58 from "bs58";
 import "dotenv/config";
 
 // Use your Chainstack endpoint for reads
-const connection = new Connection(process.env.SOLANA_RPC!);
-const payer = Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY!));
+const connection = new Connection(process.env.SOLANA_RPC!, "confirmed");
 
 // Jito block engine for sends
 const JITO_ENDPOINT =
@@ -218,8 +217,10 @@ const TIP_ACCOUNTS = [
 ];
 
 function addDontFront(instruction: TransactionInstruction): TransactionInstruction {
+  // Copy programId and data explicitly: spreading an instruction drops its data in web3.js v3.
   return new TransactionInstruction({
-    ...instruction,
+    programId: instruction.programId,
+    data: instruction.data,
     keys: [
       ...instruction.keys,
       { pubkey: DONT_FRONT, isSigner: false, isWritable: false },
@@ -233,6 +234,7 @@ function randomTipAccount(): PublicKey {
 }
 
 async function sendWithMEVProtection() {
+  const payer = await Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY!));
   const latestBlockhash = await connection.getLatestBlockhash();
 
   // Your actual instruction — add dontfront to it
@@ -258,7 +260,7 @@ async function sendWithMEVProtection() {
   }).compileToV0Message();
 
   const transaction = new VersionedTransaction(message);
-  transaction.sign([payer]);
+  await transaction.sign([payer]);
 
   // Send through Jito block engine, NOT standard RPC
   const serialized = Buffer.from(transaction.serialize()).toString("base64");

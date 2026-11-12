@@ -106,13 +106,13 @@ After completing these steps, a TypeScript project will be set up and ready for 
 
 ### Install required packages
 
-To interact with the Solana blockchain, we must install a few packages. This guide shows two Solana JavaScript libraries side by side — **both are actively maintained** — so install the set for whichever you choose. `dotenv` (loads environment variables) and `ts-node` (runs TypeScript directly) are used by both.
+To interact with the Solana blockchain, we must install a few packages. This guide shows two Solana JavaScript libraries side by side — **both are actively maintained** — so install the set for whichever you choose. `dotenv` (loads environment variables) and `tsx` (runs TypeScript directly) are used by both.
 
 <Tabs>
   <Tab title="@solana/kit">
 ```bash Bash
 npm install @solana/kit @solana-program/compute-budget @solana-program/system dotenv
-npm install --save-dev ts-node
+npm install --save-dev tsx
 ```
 
 - `@solana/kit` — the newer, tree-shakable, functional SDK. It also handles base58 encoding/decoding, so no separate `bs58` package is needed.
@@ -123,29 +123,29 @@ Your `package.json` should then include:
 
 ```json JSON
 "dependencies": {
-  "@solana/kit": "^7.0.0",
-  "@solana-program/compute-budget": "^0.15.0",
-  "@solana-program/system": "^0.12.0",
-  "dotenv": "^16.4.5"
+  "@solana/kit": "^8.6.0",
+  "@solana-program/compute-budget": "^0.20.0",
+  "@solana-program/system": "^0.16.0",
+  "dotenv": "^18.0.10"
 }
 ```
   </Tab>
   <Tab title="@solana/web3.js (classic)">
 ```bash Bash
 npm install @solana/web3.js bs58 dotenv
-npm install --save-dev ts-node
+npm install --save-dev tsx
 ```
 
-- `@solana/web3.js` — the classic object-oriented Solana SDK (`Connection`, `PublicKey`, `SystemProgram`, `ComputeBudgetProgram`).
+- `@solana/web3.js` — the classic object-oriented Solana SDK (`Connection`, `PublicKey`, `SystemProgram`, `ComputeBudgetProgram`). Version 3, which npm installs, is rebuilt on Kit and needs Node.js 20.18 or later.
 - `bs58` — base58 encoding/decoding for the private key.
 
 Your `package.json` should then include:
 
 ```json JSON
 "dependencies": {
-  "@solana/web3.js": "^1.99.0",
-  "bs58": "^5.0.0",
-  "dotenv": "^16.4.5"
+  "@solana/web3.js": "^3.2.1",
+  "bs58": "^6.0.0",
+  "dotenv": "^18.0.10"
 }
 ```
   </Tab>
@@ -219,11 +219,13 @@ import {
   createKeyPairSignerFromBytes, getBase58Encoder,
   createTransactionMessage, setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash, appendTransactionMessageInstructions,
-  estimateComputeUnitLimitFactory, signTransactionMessageWithSigners,
+  signTransactionMessageWithSigners,
   sendAndConfirmTransactionFactory, getSignatureFromTransaction,
+  assertIsTransactionWithBlockhashLifetime,
 } from "@solana/kit";
 import {
   getSetComputeUnitPriceInstruction, getSetComputeUnitLimitInstruction,
+  estimateComputeUnitLimitFactory,
 } from "@solana-program/compute-budget";
 import { getTransferSolInstruction } from "@solana-program/system";
 import "dotenv/config";
@@ -247,7 +249,7 @@ async function sendTransactionWithPriorityFee() {
   const { value: latestBlockhash } = await rpc
     .getLatestBlockhash({ commitment: "confirmed" })
     .send();
-  console.log(" ✅ - Fetched latest blockhash. Last valid height:", latestBlockhash.lastValidBlockHeight);
+  console.log(` ✅ - Fetched latest blockhash. Last valid height: ${latestBlockhash.lastValidBlockHeight}`);
 
   // Build the transaction message: attach the priority fee (compute unit price)
   // and the self-transfer instruction.
@@ -278,6 +280,7 @@ async function sendTransactionWithPriorityFee() {
 
   // Sign the transaction
   const signedTransaction = await signTransactionMessageWithSigners(message);
+  assertIsTransactionWithBlockhashLifetime(signedTransaction);
   const signature = getSignatureFromTransaction(signedTransaction);
   console.log(" ✅ - Transaction signed");
 
@@ -309,11 +312,6 @@ const CHAINSTACK_RPC = process.env.SOLANA_RPC || "";
 const SOLANA_CONNECTION = new Connection(CHAINSTACK_RPC, {wsEndpoint:process.env.SOLANA_WSS, commitment: "confirmed"});
 console.log(`Connected to Solana RPC at ${CHAINSTACK_RPC.slice(0, -36)}`);
 
-// Decodes the provided environment variable private key and generates a Keypair.
-const privateKey = new Uint8Array(bs58.decode(process.env.PRIVATE_KEY!));
-const FROM_KEYPAIR = Keypair.fromSecretKey(privateKey);
-console.log(`Initial Setup: Public Key - ${FROM_KEYPAIR.publicKey.toString()}`);
-
 // Config priority fee and amount to transfer
 const PRIORITY_RATE = 25000; // MICRO_LAMPORTS
 const AMOUNT_TO_TRANSFER = 0.001 * LAMPORTS_PER_SOL;
@@ -322,6 +320,11 @@ const AMOUNT_TO_TRANSFER = 0.001 * LAMPORTS_PER_SOL;
 const PRIORITY_FEE_INSTRUCTIONS = ComputeBudgetProgram.setComputeUnitPrice({microLamports: PRIORITY_RATE});
 
 async function sendTransactionWithPriorityFee() {
+  // Decodes the provided environment variable private key and generates a Keypair.
+  const privateKey = new Uint8Array(bs58.decode(process.env.PRIVATE_KEY!));
+  const FROM_KEYPAIR = await Keypair.fromSecretKey(privateKey);
+  console.log(`Initial Setup: Public Key - ${FROM_KEYPAIR.publicKey.toString()}`);
+
   // Create instructions for the transaction
   const instructions: TransactionInstruction[] = [
     SystemProgram.transfer({
@@ -334,7 +337,7 @@ async function sendTransactionWithPriorityFee() {
 
   // Get the latest blockhash
   let latestBlockhash = await SOLANA_CONNECTION.getLatestBlockhash('confirmed');
-  console.log(" ✅ - Fetched latest blockhash. Last Valid Height:", latestBlockhash.lastValidBlockHeight);
+  console.log(` ✅ - Fetched latest blockhash. Last Valid Height: ${latestBlockhash.lastValidBlockHeight}`);
 
   // Generate the transaction message
   const messageV0 = new TransactionMessage({
@@ -346,14 +349,14 @@ async function sendTransactionWithPriorityFee() {
 
   // Create a VersionedTransaction and sign it
   const transaction = new VersionedTransaction(messageV0);
-  transaction.sign([FROM_KEYPAIR]);
+  await transaction.sign([FROM_KEYPAIR]);
   console.log(" ✅ - Transaction Signed");
 
   console.log(`Sending ${AMOUNT_TO_TRANSFER / LAMPORTS_PER_SOL} SOL from ${FROM_KEYPAIR.publicKey} to ${FROM_KEYPAIR.publicKey} with priority fee rate ${PRIORITY_RATE} microLamports`);
 
   try {
     // Send the transaction to the network
-    const txid = await SOLANA_CONNECTION.sendTransaction(transaction, { maxRetries: 15 });
+    const txid = await SOLANA_CONNECTION.sendTransaction(transaction, { maxRetries: 15n });
     console.log(" ✅ - Transaction sent to network");
 
     // Confirm the transaction
@@ -386,7 +389,7 @@ Here is a breakdown of the code. Both versions do the same work — connect, set
 ### Initialize the connection and account
 
 * **Connection**: `@solana/kit` creates an RPC client with `createSolanaRpc` (plus `createSolanaRpcSubscriptions` for the websocket confirmation); `@solana/web3.js` creates a single `new Connection` with the WSS endpoint and commitment. Both read the RPC/WSS endpoints from your environment.
-* **Account**: Both decode the base58 private key from the environment variable. `@solana/kit` uses `getBase58Encoder` + `createKeyPairSignerFromBytes` to build a `TransactionSigner` (no `bs58` package); `@solana/web3.js` uses `bs58.decode` + `Keypair.fromSecretKey`.
+* **Account**: Both decode the base58 private key from the environment variable. `@solana/kit` uses `getBase58Encoder` + `createKeyPairSignerFromBytes` to build a `TransactionSigner` (no `bs58` package); `@solana/web3.js` uses `bs58.decode` + `await Keypair.fromSecretKey`.
 
 ### Configure transaction details
 
@@ -403,7 +406,7 @@ Here is a breakdown of the code. Both versions do the same work — connect, set
 * **Fetch the latest blockhash**: Both retrieve the most recent blockhash at the `confirmed` commitment. It ties the transaction to a recent point in the chain's history, and its `lastValidBlockHeight` bounds how long the transaction stays valid.
 * **Build the message**: `@solana/kit` composes a version 0 message with the `pipe` helper (fee payer signer, blockhash lifetime, instructions); `@solana/web3.js` builds a `TransactionMessage` and calls `.compileToV0Message()`, then wraps it in a `VersionedTransaction`.
 * **Size the compute unit limit (`@solana/kit`)**: `estimateComputeUnitLimitFactory` simulates the transaction against the node to measure the compute units it consumes, then sets the limit to that value plus a ~10% margin. Sizing the limit accurately is recommended in both SDKs; the classic example omits it for brevity.
-* **Sign the transaction**: `@solana/kit` uses `signTransactionMessageWithSigners`; `@solana/web3.js` calls `transaction.sign([FROM_KEYPAIR])`.
+* **Sign the transaction**: `@solana/kit` uses `signTransactionMessageWithSigners`; `@solana/web3.js` calls `await transaction.sign([FROM_KEYPAIR])`.
 * **Submit and confirm**: `@solana/kit` uses `sendAndConfirmTransactionFactory`, which confirms over websockets against the blockhash and `lastValidBlockHeight`. `@solana/web3.js` calls `sendTransaction` then `confirmTransaction` with the blockhash and `lastValidBlockHeight` (the current form — the older single-signature `confirmTransaction(signature)` overload is the deprecated one).
 * **Logging and error handling**: Both log key milestones and wrap submission in a `try/catch` so failures are reported.
 
@@ -432,8 +435,8 @@ const PRIORITY_RATE = 25000; // Adjust the priority fee rate in micro-lamports h
 
 const AMOUNT_TO_TRANSFER = 0.001 * LAMPORTS_PER_SOL; // Change the transfer amount here
 
-// Adjust the recipient public key for the transfer
-const toPubkey = FROM_KEYPAIR.publicKey; // Change to desired recipient's public key
+// To send to another wallet, set toPubkey in the SystemProgram.transfer
+// instruction to the recipient's PublicKey instead of FROM_KEYPAIR.publicKey.
 ```
   </Tab>
 </Tabs>
@@ -442,7 +445,7 @@ To execute the script after setting up your desired parameters, run the followin
 
 <CodeGroup>
   ```bash Bash
-  ts-node main.ts
+  npx tsx main.ts
   ```
 </CodeGroup>
 
@@ -451,7 +454,7 @@ This will initiate the transaction with the applied priority fee, logging the pr
 <Tabs>
   <Tab title="@solana/kit">
 ```shell Shell
-$ ts-node main.ts
+$ npx tsx main.ts
 
 Initial Setup: Public Key - CzNGm14nMopjGYyycMbWqEF2e1aEHcJLKk2CHw9BiZwC
  ✅ - Fetched latest blockhash. Last valid height: 235678920
@@ -465,7 +468,7 @@ Sending 0.001 SOL from CzNGm14nMopjGYyycMbWqEF2e1aEHcJLKk2CHw9BiZwC to CzNGm14nM
   </Tab>
   <Tab title="@solana/web3.js (classic)">
 ```shell Shell
-$ ts-node main.ts
+$ npx tsx main.ts
 
 Initial Setup: Public Key - CzNGm14nMopjGYyycMbWqEF2e1aEHcJLKk2CHw9BiZwC
  ✅ - Fetched latest blockhash. Last Valid Height: 235678920

@@ -9,6 +9,10 @@ description: "Use Solana durable nonces for offline signing, delayed submission,
 * The nonce must be advanced as the first instruction in the transaction.
 * This enables offline signing, scheduled transactions, and multi-party approval flows.
 
+<Note>
+Solana plans to deprecate durable nonces. They still work on Mainnet, and no removal date is set. See Solana's [durable nonce deprecation](https://solana.com/upgrades/durable-nonce-deprecation) page for the timeline and the replacement.
+</Note>
+
 ## The problem: blockhash expiry
 
 Every Solana transaction includes a `recentBlockhash` — a reference to a recent block that acts as a timestamp and replay-prevention mechanism. If the transaction is not confirmed within ~150 slots (~80 seconds), it expires and is dropped.
@@ -50,7 +54,7 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 
 ## Prerequisites
 
-The examples are shown in both Solana JavaScript libraries — both are actively maintained, so use whichever fits your project. `@solana/kit` is the newer, tree-shakable, functional SDK; `@solana/web3.js` is the classic `Connection`/`PublicKey` API.
+The examples are shown in both Solana JavaScript libraries, so use whichever fits your project. `@solana/kit` is the tree-shakable, functional SDK; `@solana/web3.js` v3 keeps the classic `Connection`/`PublicKey` API, rebuilt on Kit, and needs Node.js 20.18 or later.
 
 <Tabs>
   <Tab title="@solana/kit">
@@ -155,11 +159,12 @@ import {
 import bs58 from "bs58";
 import "dotenv/config";
 
-const connection = new Connection(process.env.SOLANA_RPC!);
-const payer = Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY!));
-const nonceKeypair = Keypair.generate();
+const connection = new Connection(process.env.SOLANA_RPC!, "confirmed");
 
 async function createNonceAccount() {
+  const payer = await Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY!));
+  const nonceKeypair = await Keypair.generate();
+
   const lamports = await connection.getMinimumBalanceForRentExemption(
     NONCE_ACCOUNT_LENGTH
   );
@@ -275,12 +280,13 @@ import {
 import bs58 from "bs58";
 import "dotenv/config";
 
-const connection = new Connection(process.env.SOLANA_RPC!);
-const payer = Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY!));
+const connection = new Connection(process.env.SOLANA_RPC!, "confirmed");
 
 const NONCE_PUBKEY = new PublicKey("YOUR_NONCE_ACCOUNT_ADDRESS");
 
 async function buildNonceTransaction() {
+  const payer = await Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY!));
+
   // Fetch the current nonce value
   const nonceAccountInfo = await connection.getAccountInfo(NONCE_PUBKEY);
   const nonceAccount = NonceAccount.fromAccountData(nonceAccountInfo!.data);
@@ -306,11 +312,11 @@ async function buildNonceTransaction() {
   );
 
   // Sign — this can be done offline
-  transaction.sign(payer);
+  await transaction.sign(payer);
 
   // Serialize for later submission
-  const serialized = transaction.serialize();
-  const base64Tx = serialized.toString("base64");
+  const serialized = await transaction.serialize();
+  const base64Tx = Buffer.from(serialized).toString("base64");
   console.log("Signed transaction (base64):", base64Tx);
   console.log("This transaction will not expire. Submit it whenever ready.");
 
@@ -361,7 +367,7 @@ submitNonceTransaction("YOUR_BASE64_TX_HERE");
 import { Connection, PublicKey } from "@solana/web3.js";
 import "dotenv/config";
 
-const connection = new Connection(process.env.SOLANA_RPC!);
+const connection = new Connection(process.env.SOLANA_RPC!, "confirmed");
 
 const NONCE_PUBKEY = new PublicKey("YOUR_NONCE_ACCOUNT_ADDRESS");
 
