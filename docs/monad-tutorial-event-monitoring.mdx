@@ -34,9 +34,9 @@ You can sign up with your GitHub, X, Google, or Microsoft account.
 Event monitoring on Monad differs from Ethereum in a few ways:
 
 - **WebSocket subscriptions** — `eth_subscribe("newHeads")` and `eth_subscribe("logs", {...})` are supported for real-time streaming. `eth_subscribe("newPendingTransactions")` and `eth_subscribe("syncing")` are not supported and return `-32602 Invalid params`.
-- **1-second blocks** — events appear roughly every second
+- **Sub-second blocks** — several blocks, and their events, arrive every second
 - **High transaction volume** — blocks contain many transactions, so when using `eth_getLogs`, query small block ranges
-- **Immediate finality** — no need to wait for confirmations or handle reorgs
+- **Fast finality** — a block is finalized within about a second of being proposed. The `newHeads` and `logs` subscriptions fire when a block is proposed, before it is finalized
 
 This tutorial shows you how to build efficient monitoring tools that work with Monad's architecture.
 
@@ -633,7 +633,7 @@ monitorAddressTransfers(WATCH_ADDRESS);
 
 2. **Use small block ranges when polling** — query 1–10 blocks at a time. Monad blocks can contain thousands of transactions.
 
-3. **Match polling cadence to block time** — Monad produces blocks every ~1 second. Polling faster wastes requests; slower misses events.
+3. **Poll by block range** — Monad produces several blocks per second. Track the last block you processed and query `eth_getLogs` over the range since then, so a slower polling interval does not miss events.
 
 4. **Handle high volume** — be prepared for blocks with many events. Process asynchronously if needed.
 
@@ -655,9 +655,9 @@ monitorAddressTransfers(WATCH_ADDRESS);
 **Key differences from Ethereum monitoring:**
 
 - **`eth_subscribe` subset** — `newHeads` and `logs` are supported. `eth_subscribe("newPendingTransactions")` and `eth_subscribe("syncing")` are not supported on Monad and return `-32602 Invalid params`.
-- **1-second blocks** — events appear faster than on Ethereum. Your monitor needs to keep up.
+- **Sub-second blocks** — events appear much faster than on Ethereum. Your monitor needs to keep up.
 - **No pending transactions** — you can't monitor the mempool. Only confirmed transactions are visible.
-- **Immediate finality** — no need to wait for confirmations. Events are final when you see them.
+- **Fast finality** — `newHeads` and `logs` events arrive when a block is proposed, before it is finalized. To act only on final events, subscribe to `monadLogs` and wait for `commitState` `Finalized`, or read with the `finalized` block tag.
 - **High throughput** — expect more events per block than on Ethereum. Design accordingly.
 </Note>
 

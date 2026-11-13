@@ -9,27 +9,29 @@ See also [interactive Monad API call examples](/reference/monad-getting-started)
 
 Monad nodes serve the standard Ethereum methods for blocks, transactions, receipts, logs, state reads, gas, and sending transactions, plus `debug_*` tracing. They do not serve filters, `eth_getProof`, or the `trace_*` namespace, and they add a few Monad-specific methods and subscriptions.
 
-Monad is an EVM-compatible layer 1. Chainstack nodes run the official [Monad](https://github.com/category-labs/monad-bft) client, which implements its own JSON-RPC server rather than reusing an Ethereum client, so its method set differs from Geth and Reth. The availability below applies to Monad Mainnet (chain ID `143`) and Monad Testnet (chain ID `10143`) on Global Nodes.
+Monad is an EVM-compatible layer 1. Chainstack nodes run the official [Monad](https://github.com/category-labs/monad) client. Its JSON-RPC server, part of [monad-bft](https://github.com/category-labs/monad-bft), is its own implementation rather than a reused Ethereum client, so its method set differs from Geth and Reth. The availability on this page applies to Monad Mainnet (chain ID `143`) and Monad Testnet (chain ID `10143`) on Global Nodes.
 
-## Filters are not implemented
+## Filters and event watching
 
-The Monad client does not implement the filter methods. `eth_newFilter`, `eth_newBlockFilter`, `eth_newPendingTransactionFilter`, `eth_getFilterChanges`, `eth_getFilterLogs`, and `eth_uninstallFilter` all return `-32601`. Libraries that watch events through filters by default fail on Monad. For example, ethers.js `contract.on()` on an HTTP `JsonRpcProvider` sends `eth_newFilter` and gets `-32601`.
+The Monad client does not implement the filter methods. `eth_newFilter`, `eth_newBlockFilter`, `eth_newPendingTransactionFilter`, `eth_getFilterChanges`, `eth_getFilterLogs`, and `eth_uninstallFilter` all return `-32601`. Event watchers built on filters fail on Monad. For example, ethers.js `contract.on()` on an HTTP `JsonRpcProvider` sends `eth_newFilter` and gets `-32601`.
 
 Use one of these instead:
 
 * `eth_subscribe` over WSS — stream `newHeads` or `logs`. In ethers.js, use a `WebSocketProvider`.
-* `eth_getLogs` — poll a block range for logs. In ethers.js, create the HTTP provider with `new ethers.JsonRpcProvider(url, 143, { polling: true })`, and `contract.on()` then polls `eth_getLogs` instead of creating a filter.
+* `eth_getLogs` — poll a block range for logs. In ethers.js, create the HTTP provider with `new ethers.JsonRpcProvider(url, 143, { polling: true })`, using chain ID `10143` on Monad Testnet, and `contract.on()` then polls `eth_getLogs` instead of creating a filter.
 
 Monad has no pending-transaction feed: `eth_subscribe("newPendingTransactions")` returns `-32602`.
 
-## Monad-specific methods
+## Additional methods and subscriptions
 
-The Monad client adds these methods on top of the standard Ethereum set:
+Besides the standard read and send methods, Monad nodes serve these methods and subscriptions:
 
-* `eth_sendRawTransactionSync` — sends a signed transaction and waits for its receipt in a single call, as defined by [EIP-7966](https://eips.ethereum.org/EIPS/eip-7966). The node returns the receipt when a proposed block includes the transaction, or error code `4` with the transaction hash if the wait times out.
+* `eth_sendRawTransactionSync` — sends a signed transaction and waits for its receipt in a single call, as defined by [EIP-7966](https://eips.ethereum.org/EIPS/eip-7966). The Monad node returns the receipt when a proposed block includes the transaction, or error code `4` with the transaction hash if the wait times out.
 * `eth_fillTransaction` — takes a partial transaction and returns it with the nonce, gas limit, fee fields, and chain ID filled in, as a `tx` object and as the RLP-encoded unsigned transaction in `raw`.
-* `txpool_statusByHash` and `txpool_statusByAddress` — return a transaction's status in the transaction pool: `tracked`, `dropped` or `evicted` with a `reason`, or `committed`. These methods read the pool of the node that serves the request, so a transaction the node has no record of returns `-32000 Unknown tx hash` or `-32000 No transactions`. To confirm that a transaction landed, use `eth_getTransactionReceipt`.
-* `monadNewHeads` and `monadLogs` — `eth_subscribe` subscriptions that deliver blocks and logs before finalization. Each event carries a `blockId` and a `commitState`, and the same block or log arrives once per state as it moves through `Proposed`, `Voted`, `Finalized`, and `Verified`. The standard `newHeads` and `logs` subscriptions are also available.
+* `txpool_statusByHash` and `txpool_statusByAddress` — Monad-specific methods that return a transaction's status in the transaction pool: `tracked`, `dropped` or `evicted` with a `reason`, `committed`, or `unknown`. These methods read the pool of the node that serves the request, so a transaction the node has no record of returns `-32000 Unknown tx hash` or `-32000 No transactions`. To confirm that a transaction landed, use `eth_getTransactionReceipt`.
+* `monadNewHeads` and `monadLogs` — Monad-specific `eth_subscribe` subscriptions that follow each block from the moment it is proposed. Each event carries a `blockId` and a `commitState`, and the same block or log typically arrives once each as `Proposed`, `Voted`, `Finalized`, and `Verified`; a block can also skip straight to `Finalized`. See [eth\_subscribe("monadNewHeads")](/reference/monad-subscribe-monadnewheads).
+
+The standard `newHeads` and `logs` subscriptions fire once per block, when the block is proposed and before it is finalized. To act only on finalized data, use `monadNewHeads` or `monadLogs` and wait for `commitState` `Finalized`, or read with the `finalized` block tag.
 
 ## Tracing on Monad
 
@@ -39,7 +41,7 @@ The tracers are `callTracer` and `prestateTracer` — see [Available native trac
 
 ## Historical state
 
-A Monad Archive node serves blocks, transactions, receipts, logs, and `callTracer` traces at any depth, but state reads only for a rolling window of recent blocks, several days long. Outside that window, `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `eth_simulateV1`, `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getTransactionCount`, `debug_traceCall`, and `prestateTracer` traces return `Block requested not found`. See the Monad note in [Protocols and networks](/docs/protocols-networks).
+A Monad Archive node serves blocks, transactions, receipts, logs, and `callTracer` traces at any depth, but state reads only for a rolling window of recent blocks, several days long. Outside that window, `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `eth_simulateV1`, `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getTransactionCount`, and `debug_traceCall` return `Block requested not found`, and `prestateTracer` traces of older transactions fail. See the Monad note in [Networks](/docs/protocols-networks).
 
 ## Method availability
 
@@ -54,7 +56,7 @@ A Monad Archive node serves blocks, transactions, receipts, logs, and `callTrace
 | debug\_traceBlock                        | <Icon icon="xmark"  iconType="solid" /> | returns `-32601` |
 | debug\_traceBlockByHash                  | <Icon icon="square-check"  iconType="solid" /> | `callTracer` and `prestateTracer` only |
 | debug\_traceBlockByNumber                | <Icon icon="square-check"  iconType="solid" /> | `callTracer` and `prestateTracer` only |
-| debug\_traceCall                         | <Icon icon="square-check"  iconType="solid" /> | state reads cover recent blocks only — see [Historical state](#historical-state) |
+| debug\_traceCall                         | <Icon icon="square-check"  iconType="solid" /> | `callTracer` and `prestateTracer` only; state reads cover recent blocks only — see [Historical state](#historical-state) |
 | debug\_traceTransaction                  | <Icon icon="square-check"  iconType="solid" /> | `callTracer` and `prestateTracer` only |
 | eth\_accounts                            | <Icon icon="xmark"  iconType="solid" /> | returns `-32601` |
 | eth\_blobBaseFee                         | <Icon icon="xmark"  iconType="solid" /> | returns `-32601` |
@@ -68,7 +70,7 @@ A Monad Archive node serves blocks, transactions, receipts, logs, and `callTrace
 | eth\_createAccessList                    | <Icon icon="square-check"  iconType="solid" /> | state reads cover recent blocks only — see [Historical state](#historical-state) |
 | eth\_estimateGas                         | <Icon icon="square-check"  iconType="solid" /> | state reads cover recent blocks only — see [Historical state](#historical-state) |
 | eth\_feeHistory                          | <Icon icon="square-check"  iconType="solid" /> |  |
-| eth\_fillTransaction                     | <Icon icon="square-check"  iconType="solid" /> | see [Monad-specific methods](#monad-specific-methods) |
+| eth\_fillTransaction                     | <Icon icon="square-check"  iconType="solid" /> | see [Additional methods and subscriptions](#additional-methods-and-subscriptions) |
 | eth\_gasPrice                            | <Icon icon="square-check"  iconType="solid" /> |  |
 | eth\_getAccount                          | <Icon icon="xmark"  iconType="solid" /> | returns `-32601` |
 | eth\_getBalance                          | <Icon icon="square-check"  iconType="solid" /> | state reads cover recent blocks only — see [Historical state](#historical-state) |
@@ -78,8 +80,8 @@ A Monad Archive node serves blocks, transactions, receipts, logs, and `callTrace
 | eth\_getBlockTransactionCountByHash      | <Icon icon="square-check"  iconType="solid" /> |  |
 | eth\_getBlockTransactionCountByNumber    | <Icon icon="square-check"  iconType="solid" /> |  |
 | eth\_getCode                             | <Icon icon="square-check"  iconType="solid" /> | state reads cover recent blocks only — see [Historical state](#historical-state) |
-| eth\_getFilterChanges                    | <Icon icon="xmark"  iconType="solid" /> | filters are not implemented — see [Filters are not implemented](#filters-are-not-implemented) |
-| eth\_getFilterLogs                       | <Icon icon="xmark"  iconType="solid" /> | filters are not implemented — see [Filters are not implemented](#filters-are-not-implemented) |
+| eth\_getFilterChanges                    | <Icon icon="xmark"  iconType="solid" /> | filters are not implemented — see [Filters and event watching](#filters-and-event-watching) |
+| eth\_getFilterLogs                       | <Icon icon="xmark"  iconType="solid" /> | filters are not implemented — see [Filters and event watching](#filters-and-event-watching) |
 | eth\_getHeaderByHash                     | <Icon icon="xmark"  iconType="solid" /> | returns `-32601` |
 | eth\_getHeaderByNumber                   | <Icon icon="xmark"  iconType="solid" /> | returns `-32601` |
 | eth\_getLogs                             | <Icon icon="square-check"  iconType="solid" /> | block range capped per plan — see [EVM range limits](/docs/limits#evm-range-limits) |
@@ -99,16 +101,16 @@ A Monad Archive node serves blocks, transactions, receipts, logs, and `callTrace
 | eth\_hashrate                            | <Icon icon="xmark"  iconType="solid" /> | returns `-32601` |
 | eth\_maxPriorityFeePerGas                | <Icon icon="square-check"  iconType="solid" /> |  |
 | eth\_mining                              | <Icon icon="xmark"  iconType="solid" /> | returns `-32601` |
-| eth\_newBlockFilter                      | <Icon icon="xmark"  iconType="solid" /> | filters are not implemented — see [Filters are not implemented](#filters-are-not-implemented) |
-| eth\_newFilter                           | <Icon icon="xmark"  iconType="solid" /> | filters are not implemented — see [Filters are not implemented](#filters-are-not-implemented) |
-| eth\_newPendingTransactionFilter         | <Icon icon="xmark"  iconType="solid" /> | filters are not implemented — see [Filters are not implemented](#filters-are-not-implemented) |
+| eth\_newBlockFilter                      | <Icon icon="xmark"  iconType="solid" /> | filters are not implemented — see [Filters and event watching](#filters-and-event-watching) |
+| eth\_newFilter                           | <Icon icon="xmark"  iconType="solid" /> | filters are not implemented — see [Filters and event watching](#filters-and-event-watching) |
+| eth\_newPendingTransactionFilter         | <Icon icon="xmark"  iconType="solid" /> | filters are not implemented — see [Filters and event watching](#filters-and-event-watching) |
 | eth\_protocolVersion                     | <Icon icon="xmark"  iconType="solid" /> | returns `-32601` |
 | eth\_sendRawTransaction                  | <Icon icon="square-check"  iconType="solid" /> |  |
-| eth\_sendRawTransactionSync              | <Icon icon="square-check"  iconType="solid" /> | see [Monad-specific methods](#monad-specific-methods) |
+| eth\_sendRawTransactionSync              | <Icon icon="square-check"  iconType="solid" /> | see [Additional methods and subscriptions](#additional-methods-and-subscriptions) |
 | eth\_simulateV1                          | <Icon icon="square-check"  iconType="solid" /> | state reads cover recent blocks only — see [Historical state](#historical-state) |
 | eth\_subscribe                           | <Icon icon="square-check"  iconType="solid" /> | WSS. `newHeads`, `logs`, `monadNewHeads`, and `monadLogs` — `newPendingTransactions` and `syncing` return `-32602` |
 | eth\_syncing                             | <Icon icon="square-check"  iconType="solid" /> |  |
-| eth\_uninstallFilter                     | <Icon icon="xmark"  iconType="solid" /> | filters are not implemented — see [Filters are not implemented](#filters-are-not-implemented) |
+| eth\_uninstallFilter                     | <Icon icon="xmark"  iconType="solid" /> | filters are not implemented — see [Filters and event watching](#filters-and-event-watching) |
 | eth\_unsubscribe                         | <Icon icon="square-check"  iconType="solid" /> | WSS |
 | net\_listening                           | <Icon icon="xmark"  iconType="solid" /> | returns `-32601` |
 | net\_peerCount                           | <Icon icon="xmark"  iconType="solid" /> | returns `-32601` |
@@ -119,11 +121,11 @@ A Monad Archive node serves blocks, transactions, receipts, logs, and `callTrace
 | trace\_filter                            | <Icon icon="xmark"  iconType="solid" /> | the `trace_*` namespace is not served |
 | trace\_replayTransaction                 | <Icon icon="xmark"  iconType="solid" /> | the `trace_*` namespace is not served |
 | trace\_transaction                       | <Icon icon="xmark"  iconType="solid" /> | the `trace_*` namespace is not served |
-| txpool\_content                          | <Icon icon="xmark"  iconType="solid" /> | not available on Global Nodes — see [What gives you mempool access](/docs/mempool-configuration#what-gives-you-mempool-access) |
-| txpool\_contentFrom                      | <Icon icon="xmark"  iconType="solid" /> | not available on Global Nodes |
-| txpool\_inspect                          | <Icon icon="xmark"  iconType="solid" /> | not available on Global Nodes |
+| txpool\_content                          | <Icon icon="xmark"  iconType="solid" /> | not implemented by the Monad client — returns `-32601` |
+| txpool\_contentFrom                      | <Icon icon="xmark"  iconType="solid" /> | not implemented by the Monad client — returns `-32601` |
+| txpool\_inspect                          | <Icon icon="xmark"  iconType="solid" /> | not implemented by the Monad client — returns `-32601` |
 | txpool\_status                           | <Icon icon="xmark"  iconType="solid" /> | returns `-32601` |
-| txpool\_statusByAddress                  | <Icon icon="square-check"  iconType="solid" /> | see [Monad-specific methods](#monad-specific-methods) |
-| txpool\_statusByHash                     | <Icon icon="square-check"  iconType="solid" /> | see [Monad-specific methods](#monad-specific-methods) |
+| txpool\_statusByAddress                  | <Icon icon="square-check"  iconType="solid" /> | see [Additional methods and subscriptions](#additional-methods-and-subscriptions) |
+| txpool\_statusByHash                     | <Icon icon="square-check"  iconType="solid" /> | see [Additional methods and subscriptions](#additional-methods-and-subscriptions) |
 | web3\_clientVersion                      | <Icon icon="square-check"  iconType="solid" /> |  |
 | web3\_sha3                               | <Icon icon="xmark"  iconType="solid" /> | returns `-32601` |
