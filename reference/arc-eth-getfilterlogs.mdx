@@ -50,7 +50,7 @@ const getFilterLogs = async () => {
     const filterId = await provider.send("eth_newFilter", [{
       address: USDC,
       topics: [TRANSFER_TOPIC],
-      fromBlock: "0x560000"
+      fromBlock: ethers.toQuantity(await provider.getBlockNumber() - 10000)
     }]);
     console.log(`Created filter: ${filterId}`);
 
@@ -80,13 +80,13 @@ web3 = Web3(Web3.HTTPProvider(node_url))
 
 # USDC token address
 USDC = "0x3600000000000000000000000000000000000000"
-TRANSFER_TOPIC = web3.keccak(text="Transfer(address,address,uint256)").hex()
+TRANSFER_TOPIC = web3.keccak(text="Transfer(address,address,uint256)").to_0x_hex()
 
 # Create a log filter
 filter_result = web3.provider.make_request("eth_newFilter", [{
     "address": USDC,
     "topics": [TRANSFER_TOPIC],
-    "fromBlock": "0x560000"
+    "fromBlock": hex(web3.eth.block_number - 10000)
 }])
 filter_id = filter_result['result']
 print(f"Created filter: {filter_id}")
@@ -107,13 +107,14 @@ web3.provider.make_request("eth_uninstallFilter", [filter_id])
 ```
 
 ```bash cURL
-# First create a filter
+# First create a filter. "latest" covers only the newest block; for a longer window, set fromBlock
+# to a recent block number in hex, no more than 100,000 blocks behind the head.
 curl -X POST "CHAINSTACK_NODE_URL" \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
     "method": "eth_newFilter",
-    "params": [{"address": "0x3600000000000000000000000000000000000000", "fromBlock": "0x560000"}],
+    "params": [{"address": "0x3600000000000000000000000000000000000000", "fromBlock": "latest"}],
     "id": 1
   }'
 

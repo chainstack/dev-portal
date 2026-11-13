@@ -88,9 +88,11 @@ Here is an implementation of this use case using web3.py:
 
 ```python main.py
 import time
-from web3 import Web3  
+from web3 import Web3
+from web3.middleware import ExtraDataToPOAMiddleware
 node_url = "CHAINSTACK_NODE_URL" 
 web3 = Web3(Web3.HTTPProvider(node_url))
+web3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)  # Polygon is a POA chain
 
 # Set up a new blocks filter
 def get_new_blocks():
@@ -111,7 +113,7 @@ def watch_for_blocks(new_filter):
     # Wait for new blocks to arrive
     while True:
         # Retrieve the changes that match the filter
-        changes = web3.eth.getFilterChanges(new_filter)
+        changes = web3.eth.get_filter_changes(new_filter)
 
         # If there are no changes, wait for new blocks
         if len(changes) == 0:
@@ -120,7 +122,7 @@ def watch_for_blocks(new_filter):
 
         # Process the new blocks
         for change in changes:
-            block = web3.eth.getBlock(change)
+            block = web3.eth.get_block(change)
             print('New block:', block)
 
 def main():
@@ -145,6 +147,6 @@ The `eth.filter` method of the web3.py library does not only return the filter I
 </Note>
 
 
-`watch_for_blocks` is the function that watches for new blocks. It does this by first entering an infinite loop while `True`. Within this loop, the [eth\_getFilterChanges](/reference/getfilterchanges) method is used to retrieve any changes that match the filter ID passed to the function. If there are no changes, the code waits for 1 second using the `time.sleep` method and then continues with the loop. If there are changes, the new blocks are processed by looping through them and calling the `eth.getBlock` method of the web3 library to retrieve the details of each block. Finally, the details of the new blocks are printed on the console.
+`watch_for_blocks` is the function that watches for new blocks. It does this by first entering an infinite loop while `True`. Within this loop, the [eth\_getFilterChanges](/reference/getfilterchanges) method is used to retrieve any changes that match the filter ID passed to the function. If there are no changes, the code waits for 1 second using the `time.sleep` method and then continues with the loop. If there are changes, the new blocks are processed by looping through them and calling the `eth.get_block` method of the web3 library to retrieve the details of each block. Finally, the details of the new blocks are printed on the console.
 
 `main` is the function that ties everything together. It first calls `get_new_blocks` to set up a new filter to watch for new blocks, and then passes the resulting filter ID to `watch_for_blocks` to start watching for new blocks. The filter ID is also printed to the console to confirm that the filter has been set up correctly.
