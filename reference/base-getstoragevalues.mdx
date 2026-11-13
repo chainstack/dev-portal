@@ -1,0 +1,75 @@
+---
+title: eth_getStorageValues | Base
+openapi: /openapi/base_node_api/eth_getStorageValues.json POST /mt_c524ad9781ae5dccd9ac6f5b0370e
+description: "Base API method that returns the values of up to 1,024 storage slots across one or more smart contracts in a single call. Use it on Base via Chainstack."
+---
+
+Base API method that returns the values stored at multiple storage slots, across one or more smart contracts, in a single call. It replaces a batch of [eth_getStorageAt](/reference/base-getstorageat) requests when you read several slots at the same block, for example to snapshot a contract's state.
+
+<Visibility for="humans">
+<Check>
+**Get your own node endpoint today**
+
+[Start for free](https://console.chainstack.com/) and get your app to production levels immediately. No credit card required.
+
+You can sign up with your GitHub, X, Google, or Microsoft account.
+</Check>
+</Visibility>
+
+## Parameters
+
+* `object` — an object that maps each contract address to an array of storage slot keys. Pass each key as a full 32-byte hex value, such as `0x0000000000000000000000000000000000000000000000000000000000000001`.
+* `quantity or tag` — the block number encoded as hexadecimal, or a block tag such as `latest`.
+
+## Response
+
+`result` — an object that maps each requested contract address, in lowercase, to an array of 32-byte storage values in the same order as the requested slots.
+
+A request with no slots returns `-32602` with `empty request`, and a request with more than 1,024 slots returns `-32602` with `total slot count <count> exceeds limit 1024`.
+
+## `eth_getStorageValues` code examples
+
+The examples read slots `0`, `1`, and `2` of the [WETH contract](https://basescan.org/token/0x4200000000000000000000000000000000000006), which hold the token name, symbol, and decimals, in one call.
+
+<CodeGroup>
+```javascript ethers.js
+const { ethers } = require("ethers");
+
+const provider = new ethers.JsonRpcProvider("YOUR_CHAINSTACK_ENDPOINT");
+
+const slot = (n) => ethers.zeroPadValue(ethers.toBeHex(n), 32);
+
+const getStorageValues = async () => {
+  const values = await provider.send("eth_getStorageValues", [
+    {
+      "0x4200000000000000000000000000000000000006": [slot(0), slot(1), slot(2)],
+    },
+    "latest",
+  ]);
+  console.log(values);
+};
+
+getStorageValues();
+```
+
+```python web3.py
+from web3 import Web3
+
+w3 = Web3(Web3.HTTPProvider("YOUR_CHAINSTACK_ENDPOINT"))
+
+def slot(n):
+    return "0x" + format(n, "064x")
+
+response = w3.provider.make_request("eth_getStorageValues", [
+    {
+        "0x4200000000000000000000000000000000000006": [slot(0), slot(1), slot(2)],
+    },
+    "latest",
+])
+print(response["result"])
+```
+</CodeGroup>
+
+## Use case
+
+One use case for `eth_getStorageValues` is reading a consistent snapshot of several contracts' internal state. All slots come from the same block in one round trip, so a monitoring service that tracks owners, balances, or configuration slots across many contracts avoids both the request overhead of separate `eth_getStorageAt` calls and the risk of reading different slots at different blocks.
