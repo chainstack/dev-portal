@@ -43,17 +43,27 @@ When using WebSocket from a client library, open the connection once and reuse i
 <CodeGroup>
   ```python web3.py — incorrect
   # Anti-pattern: opens a new WebSocket per call
-  def get_latest_block():
-      w3 = Web3(Web3.LegacyWebSocketProvider("wss://ethereum-mainnet.core.chainstack.com/AUTH_KEY"))
-      return w3.eth.block_number
+  from web3 import AsyncWeb3, WebSocketProvider
+
+  async def get_latest_block():
+      async with AsyncWeb3(WebSocketProvider("wss://ethereum-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN")) as w3:
+          return await w3.eth.block_number
   ```
 
   ```python web3.py — correct
   # Open once, reuse
-  w3 = Web3(Web3.LegacyWebSocketProvider("wss://ethereum-mainnet.core.chainstack.com/AUTH_KEY"))
+  import asyncio
+  from web3 import AsyncWeb3, WebSocketProvider
 
-  def get_latest_block():
-      return w3.eth.block_number
+  async def get_latest_block(w3):
+      return await w3.eth.block_number
+
+  async def main():
+      async with AsyncWeb3(WebSocketProvider("wss://ethereum-mainnet.core.chainstack.com/YOUR_AUTH_TOKEN")) as w3:
+          for _ in range(3):
+              print(await get_latest_block(w3))  # every call uses the same connection
+
+  asyncio.run(main())
   ```
 </CodeGroup>
 
