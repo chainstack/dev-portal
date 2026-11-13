@@ -3,7 +3,7 @@ title: 'eth_subscribe monadNewHeads | Monad'
 description: "Subscribe to Monad block headers at the Proposed state via WebSocket — earlier than standard newHeads — with blockId and commitState for lifecycle tracking."
 ---
 
-Monad API method that streams new block headers as soon as a block reaches the `Proposed` state in Monad's consensus lifecycle — typically about one second earlier than standard `eth_subscribe("newHeads")`, which currently fires at the `Voted` state. Each notification includes two Monad-specific fields, `blockId` and `commitState`, that let you follow a block through every stage of its lifecycle: `Proposed` → `Voted` → `Finalized` → `Verified`.
+Monad API method that streams new block headers starting when a block reaches the `Proposed` state in Monad's consensus lifecycle, and again as the block advances. Each notification includes two Monad-specific fields, `blockId` and `commitState`, that let you follow a block through every stage of its lifecycle: `Proposed` → `Voted` → `Finalized` → `Verified`.
 
 <Note>
   Monad's real-time data behavior, including the commit state at which standard `newHeads` fires, is still evolving. For the authoritative spec, see the Monad [WebSocket guide](https://docs.monad.xyz/reference/websockets) and [block states](https://docs.monad.xyz/monad-arch/consensus/block-states) documentation.
@@ -192,16 +192,16 @@ Send `eth_unsubscribe` with the returned subscription ID to close the stream.
 
 Both subscription types work on Chainstack Monad nodes. Pick based on what you optimize for.
 
-* `eth_subscribe("newHeads")` — fires once per block, at the `Voted` state. Closest to the semantics of Ethereum's `newHeads`. Use this when you want one event per canonical block and do not need visibility into earlier states.
-* `eth_subscribe("monadNewHeads")` — fires at every state transition, starting at `Proposed`. Gives you block data roughly one second earlier than `newHeads`, plus the `blockId` and `commitState` fields. Use this when latency matters or when you need to react to speculative state.
+* `eth_subscribe("newHeads")` — fires once per block, when the block is proposed and before it is finalized. Closest to the semantics of Ethereum's `newHeads`. Use this when you want one event per block and do not need to know its commit state.
+* `eth_subscribe("monadNewHeads")` — fires at every state transition, starting at `Proposed`, the same moment `newHeads` fires. Each event adds the `blockId` and `commitState` fields. Use this when you need to know whether a block is still speculative or already finalized.
 
 For broader event-monitoring patterns on Monad — including `eth_subscribe("logs", {...})` and HTTP polling alternatives — see [Monad: Monitoring events and transactions](/docs/monad-tutorial-event-monitoring).
 
 ## Use case
 
-A practical use case for `eth_subscribe("monadNewHeads")` is any latency-sensitive application that benefits from acting on speculatively-executed block state before it reaches the `Voted` state:
+A practical use case for `eth_subscribe("monadNewHeads")` is any latency-sensitive application that acts on speculatively executed block state and then needs to know when that state is final:
 
-* Trading and MEV. Searchers and takers can observe new blocks at the `Proposed` state to trigger off-chain logic roughly one second sooner than they could with `newHeads`, while still reconciling against later states (`Voted`, `Finalized`) for correctness.
+* Trading and MEV. Searchers and takers can trigger off-chain logic on a block at the `Proposed` state, then reconcile against the same `blockId` at `Voted` and `Finalized` for correctness.
 
 * Pre-confirmation UX. Wallets, explorers, and dashboards can surface "tentative" block data immediately on `Proposed`, then upgrade the display as the same `blockId` advances through `Voted` → `Finalized`, giving users end-to-end visibility into Monad's commit lifecycle.
 
