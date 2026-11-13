@@ -136,7 +136,7 @@ This particular example shows how to swap MATIC for AAVE tokens.
 ```javascript index.js
 const ethers = require('ethers');
 const NODE_URL = "CHAINSTACK_NODE_URL";
-const provider = new ethers.providers.JsonRpcProvider(NODE_URL);
+const provider = new ethers.JsonRpcProvider(NODE_URL);
 
 // ABI for the swapExactETHForTokens function
 const sushiRouterABI = [
@@ -186,16 +186,16 @@ async function swapETHForToken(value, token, privateKey) {
 
   // Prepare the swap parameters
   const tokenToBuy = token;
-  const amountOfETH = ethers.utils.parseEther(value); // Convert the input value to Wei
-  const minAmountOfTokens = ethers.utils.parseUnits('0'); // Set the minimum output token amount to 0, this means that you will always receive something. 
+  const amountOfETH = ethers.parseEther(value); // Convert the input value to Wei
+  const minAmountOfTokens = ethers.parseUnits('0'); // Set the minimum output token amount to 0, this means that you will always receive something. 
   const deadline = Math.floor(Date.now() / 1000) + 60 * 10; // Set the deadline to 10 minutes from now
 
   // Define the token path for the swap
   const path = ['0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270', tokenToBuy]; // WMATIC to token to buy
 
   // Parameters for the transaction object
-  const nonce = await wallet.getTransactionCount();
-  const gasPrice = await provider.getGasPrice();
+  const nonce = await wallet.getNonce();
+  const gasPrice = BigInt(await provider.send("eth_gasPrice", []));
   const transactionData = sushiRouterContract.interface.encodeFunctionData('swapExactETHForTokens', [
     minAmountOfTokens,
     path,
@@ -214,6 +214,7 @@ async function swapETHForToken(value, token, privateKey) {
     to: sushiRouterAddress,
     value: amountOfETH,
     nonce: nonce,
+    type: 0, // legacy transaction, replay-protected with the chain ID (EIP-155)
     gasPrice: gasPrice,
     gasLimit: gasLimit,
     data: transactionData,
@@ -223,7 +224,7 @@ async function swapETHForToken(value, token, privateKey) {
   // Sign and send the transaction
   console.log(`Swapping tokens...`);
   const signedTx = await wallet.signTransaction(transactionObject);
-  const transaction = await provider.sendTransaction(signedTx);
+  const transaction = await provider.broadcastTransaction(signedTx);
   console.log(`Transaction sent; transaction hash: ${transaction.hash}\n`);
 
   // Wait for the transaction to be confirmed
@@ -262,8 +263,6 @@ main();
 **Security notice**
 
 You need your private key to sign the transaction; never share your private key with anyone.
-
-On a side note, the private key in this case must be imported without '0x' at the beginning of the string.
 </Warning>
 
 
