@@ -63,11 +63,18 @@ See [View node access and credentials](/docs/manage-your-node#view-node-access-a
 
 ### Install Hardhat
 
-See [Hardhat documentation](https://hardhat.org/hardhat-runner/docs/getting-started#installation).
+This tutorial uses Hardhat 2. The `hardhat` package now installs Hardhat 3 by default, which uses a different project format, so install Hardhat 2 through its `hh2` tag. In an empty project directory, run:
+
+<CodeGroup>
+  ```bash Shell
+  npm init -y
+  npm install --save-dev hardhat@hh2
+  ```
+</CodeGroup>
 
 ### Initialize a Hardhat project
 
-In your project directory, run `npx hardhat`. Select **Create a JavaScript project** and agree to install the sample project's dependencies. This will create a sample project directory with a smart contract draft.
+In your project directory, run `npx hardhat init`. Select **Create a JavaScript project** and agree to install the sample project's dependencies, which include `@nomicfoundation/hardhat-toolbox` with ethers v6. This creates a sample project with a smart contract draft.
 
 ### Install additional dependencies
 
@@ -106,16 +113,13 @@ You need to create an environment file to store your sensitive data with the pro
    <CodeGroup>
      ```solidity solidity
      // SPDX-License-Identifier: MIT
-     pragma solidity ^0.8.0;
+     pragma solidity ^0.8.20;
 
      import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
      import "@openzeppelin/contracts/access/Ownable.sol";
-     import "@openzeppelin/contracts/utils/Counters.sol";
 
      contract MyToken is ERC721, Ownable {
-         using Counters for Counters.Counter;
-
-         Counters.Counter private _tokenIdCounter;
+         uint256 private _nextTokenId;
 
          uint256 public immutable startPrice = 10 ether;
          uint256 public immutable startAt;
@@ -125,9 +129,9 @@ You need to create an environment file to store your sensitive data with the pro
          uint256 public duration = 500 minutes;
          uint256 public immutable MAX_SUPPLY = 100;
 
-          mapping (address => bool) public onlyOne;
+         mapping (address => bool) public onlyOne;
 
-         constructor() ERC721("CronosNFT", "CroNFT") {
+         constructor() ERC721("CronosNFT", "CroNFT") Ownable(msg.sender) {
              startAt = block.timestamp;
              endsAt = block.timestamp + duration;
          }
@@ -145,12 +149,11 @@ You need to create an environment file to store your sensitive data with the pro
          function safeMint(address to) public payable {
              require(msg.value >= price(), "Not enough ether sent");
              require(!onlyOne[msg.sender], "Sorry, Address already has 1 NFT!");
-             uint256 tokenId = _tokenIdCounter.current();
+             uint256 tokenId = _nextTokenId;
              require(tokenId < MAX_SUPPLY, "No more items left.");
+             _nextTokenId++;
+             onlyOne[msg.sender] = true;
              _safeMint(to, tokenId + 1);
-             _tokenIdCounter.increment();
-             onlyOne[msg.sender]=true;
-
          }
 
          function withdraw() public onlyOwner {
@@ -166,7 +169,7 @@ You need to create an environment file to store your sensitive data with the pro
    * The contract uses the `onlyOne` mapping to ensure that each address can only own one NFT from your collection.
    * The contract sets the values of the start and end price, which cannot be changed later on.
    * The function `price()` uses `block.timestamp` to calculate the price of an NFT each time the `safeMint` function is called.
-   * If all the required conditions are satisfied, the wallet address gets an NFT minted.
+   * If all the required conditions are satisfied, the wallet address gets an NFT minted. The contract records the mint before calling `_safeMint`, so a receiving contract can't mint a second NFT by calling back into `safeMint`.
 
 2. To compile the contract, in your project directory, run:
 
@@ -206,7 +209,12 @@ To deploy your smart contract on Cronos Mainnet, the deploying wallet needs CRO 
      require('dotenv').config();
 
      module.exports = {
-       solidity: "0.8.10",
+       solidity: {
+         version: "0.8.28",
+         settings: {
+           evmVersion: "cancun",
+         },
+       },
        networks: {
          cronos: {
            url: `${process.env.RPC_URL}`,
@@ -236,6 +244,7 @@ To deploy your smart contract on Cronos Mainnet, the deploying wallet needs CRO 
    where
 
    * `dotenv` — library to import your sensitive data from the environment file securely
+   * `solidity` — the compiler version and EVM target. OpenZeppelin Contracts 5 uses the Cancun `mcopy` instruction, and Hardhat 2 compiles for an older EVM by default, so set `evmVersion` to `cancun`, which Cronos supports
    * `cronos` — the Cronos Mainnet network to deploy the contract to
    * `url` — your Cronos node HTTPS endpoint imported from the environment file
    * `accounts` — your MetaMask wallet private key imported from the environment file
@@ -253,11 +262,11 @@ To deploy your smart contract on Cronos Mainnet, the deploying wallet needs CRO 
 
      async function main() {
        const CronosToken = await hre.ethers.getContractFactory("MyToken");
-       console.log("Deploying your contract, please Wait.....");
+       console.log("Deploying your contract, please wait...");
        const cronosToken = await CronosToken.deploy();
-       await cronosToken.deployed();
+       await cronosToken.waitForDeployment();
 
-       console.log("CronosToken deployed to:", cronosToken.address);
+       console.log("CronosToken deployed to:", await cronosToken.getAddress());
      }
 
      main()

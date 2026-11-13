@@ -13,9 +13,9 @@ description: Execute Aave V3 flash loans on Avalanche C-Chain using Hardhat and 
 
 A flash loan is a type of loan that can be obtained instantly and without any collateral, unlike traditional loans that require time-consuming application processes and collateral such as property or assets. This type of loan is available through Aave, a decentralized lending platform, where borrowers can borrow any amount they need and repay it within a single transaction. The loan is secured by the borrower's smart contract and is only valid for the duration of that transaction. If the borrower cannot repay the loan and the associated fees within the same transaction, the loan is automatically canceled, and the transaction is reverted. Flash loans are often used in the context of cryptocurrency trading and arbitrage, as they enable traders to obtain funds quickly and cheaply to take advantage of market opportunities.
 
-For detailed documentation, see Aave Developers: [Flash Loans](https://docs.aave.com/developers/guides/flash-loans).
+For detailed documentation, see Aave Developers: [Flash Loans](https://aave.com/docs/aave-v3/guides/flash-loans).
 
-The objective of this tutorial is to make you familiar with the Avalanche C-Chain, the [Hardhat framework](/docs/avalanche-tooling#hardhat), and the [Aave flash loans](https://docs.aave.com/faq/flash-loans).
+The objective of this tutorial is to make you familiar with the Avalanche C-Chain, the [Hardhat framework](/docs/avalanche-tooling#hardhat), and the [Aave flash loans](https://aave.com/docs/aave-v3/guides/flash-loans).
 
 Specifically, in this tutorial, you will:
 
@@ -63,27 +63,36 @@ See [View node access and credentials](/docs/manage-your-node#view-node-access-a
 
 Before diving into the flash loan project, make sure to top up your wallet with testnet AVAX and USDC tokens. Use the following faucets:
 
-* [Aave faucet](https://app.aave.com/faucet/) for USDC. Make sure you are on the Avalanche Market.
-* [Fuji faucet](https://faucet.avax.network/) for AVAX.
+* [Circle faucet](https://faucet.circle.com/) for USDC. Select **Avalanche Fuji**.
+* [Avalanche faucet](https://build.avax.network/console/primary-network/faucet) for AVAX on the Fuji C-Chain.
 
-### Install HardHat
+### Install Hardhat
 
-See [Installing Hardhat](https://hardhat.org/hardhat-runner/docs/getting-started#installation).
-
-### Create a Hardhat project
-
-Create a new directory for your project, then run the following from a terminal:
+This tutorial uses Hardhat 2. The `hardhat` package now installs Hardhat 3 by default, which uses a different project format, so install Hardhat 2 through its `hh2` tag. Create a new directory for your project, then run the following from a terminal:
 
 <CodeGroup>
   ```shell Shell
-  npx hardhat
+  npm init -y
+  npm install --save-dev hardhat@hh2
+  ```
+</CodeGroup>
+
+### Create a Hardhat project
+
+In the project directory, run:
+
+<CodeGroup>
+  ```shell Shell
+  npx hardhat init
   ```
 </CodeGroup>
 
 This will launch the Hardhat CLI, which will prompt you to choose a starter project. For this project, answer **yes** to the following:
 
 * **Create a JavaScript project**
-* **Do you want to install this sample project's dependencies with npm (hardhat @nomicfoundation/hardhat-toolbox)?**
+* **Do you want to install this sample project's dependencies with npm (@nomicfoundation/hardhat-toolbox)?**
+
+The toolbox includes ethers v6, which the script in this tutorial uses.
 
 ### Install the required dependencies
 
@@ -99,7 +108,7 @@ Run the following command in your root directory to install:
 
 ### Create a .env file
 
-In your project's root directory, create a new file and name it `.env`. Here is where you will set up the environment variables for your Chainststack Avalanche Fuji endpoint and your wallet's private key.
+In your project's root directory, create a new file and name it `.env`. Here is where you will set up the environment variables for your Chainstack Avalanche Fuji endpoint and your wallet's private key.
 
 <CodeGroup>
   ```Text .env
@@ -272,76 +281,74 @@ In the root directory, you will find a directory named `contracts` with a sample
 </CodeGroup>
 
 <Info>
-  ### Default flash loan logic
-
   This smart contract receives the flash loan but performs no further actions on it. You will need to add your own logic.
 </Info>
 
-This smart contract is heavily commented on to explain its inner workings, but you can find more details on the [Aave docs](https://docs.aave.com/developers/guides/flash-loans).
+This smart contract is heavily commented on to explain its inner workings, but you can find more details on the [Aave docs](https://aave.com/docs/aave-v3/guides/flash-loans).
 
 ### Create the deploying and interacting script
 
-In the `scripts` directory inside the root of your project, you will find a file named `deploy.js`. Replace its content with the following:
+In the root of your project, create a `scripts` directory and a `deploy.js` file in it with the following content:
 
 <CodeGroup>
   ```javascript deploy.js
   const { ethers } = require("hardhat");
 
   // Contract addresses and other values
-  const AVA_FUJI_POOL_PROVIDER = "0x220c6A7D868FC38ECB47d5E69b99e9906300286A";
-  const USDC_ADDRESS = "0x6a17716Ce178e84835cfA73AbdB71cb455032456";
+  const AVA_FUJI_POOL_PROVIDER = "0x07D04EfAAA0Ac69D19d107795aF247C42Eb50F1C";
+  const USDC_ADDRESS = "0x5425890298aed601595a70AB815c96711a31Bc65";
   const USDC_DECIMALS = 6;
-  const FLASHLOAN_AMOUNT = ethers.utils.parseUnits("1000", USDC_DECIMALS);
+  const FLASHLOAN_AMOUNT = ethers.parseUnits("100", USDC_DECIMALS);
 
-  // USDC tranfer function ABI
+  // USDC transfer function ABI
   const USDC_ABI = ["function transfer(address to, uint256 value) external returns (bool)"];
 
   async function main() {
     try {
+      const [signer] = await ethers.getSigners();
+
       console.log("Deploying FlashLoan contract...");
       const FlashLoan = await ethers.getContractFactory("FlashLoan");
       const flashLoan = await FlashLoan.deploy(AVA_FUJI_POOL_PROVIDER);
-      await flashLoan.deployed();
-      console.log(`FlashLoan contract deployed at: ${flashLoan.address}`);
-      console.log(`View contract at: https://testnet.snowtrace.io/address/${flashLoan.address}`);
+      await flashLoan.waitForDeployment();
+      const flashLoanAddress = await flashLoan.getAddress();
+      console.log(`FlashLoan contract deployed at: ${flashLoanAddress}`);
+      console.log(`View contract at: https://testnet.snowscan.xyz/address/${flashLoanAddress}`);
       console.log("---------------------------------------------------------------\n");
 
       // Transfer USDC to the FlashLoan contract
-      const erc20 = new ethers.Contract(USDC_ADDRESS, USDC_ABI, ethers.provider.getSigner());
-      const amount = ethers.utils.parseUnits("5", USDC_DECIMALS);
+      const erc20 = new ethers.Contract(USDC_ADDRESS, USDC_ABI, signer);
+      const amount = ethers.parseUnits("1", USDC_DECIMALS);
 
-      console.log(`Transferring ${amount / 1e6} USDC to the FlashLoan contract...`);
-      const transferErc20 = await erc20.transfer(flashLoan.address, amount);
-      console.log(`Transferred ${amount / 1e6} USDC tokens to the FlashLoan contract`);
-
+      console.log(`Transferring ${ethers.formatUnits(amount, USDC_DECIMALS)} USDC to the FlashLoan contract...`);
+      const transferErc20 = await erc20.transfer(flashLoanAddress, amount);
       console.log("Waiting for 1 block to verify the transfer...");
       await transferErc20.wait(1); // Wait 1 block for the transaction to be verified to update the balance
-      console.log(`---------------------------------------------------------------\n`);
+      console.log(`Transferred ${ethers.formatUnits(amount, USDC_DECIMALS)} USDC to the FlashLoan contract`);
+      console.log("---------------------------------------------------------------\n");
 
       // Check USDC balance of the FlashLoan contract
       const usdcBalance = await flashLoan.getBalance(USDC_ADDRESS);
-      console.log(`USDC balance of the FlashLoan contract is: ${usdcBalance / 1e6} USDC`);
+      console.log(`USDC balance of the FlashLoan contract is: ${ethers.formatUnits(usdcBalance, USDC_DECIMALS)} USDC`);
       console.log("---------------------------------------------------------------\n");
 
       // Call flash loan
-      console.log(`Requesting a flash loan of ${FLASHLOAN_AMOUNT / 1e6} USDC...`);
+      console.log(`Requesting a flash loan of ${ethers.formatUnits(FLASHLOAN_AMOUNT, USDC_DECIMALS)} USDC...`);
       const flashloanTx = await flashLoan.requestFlashLoan(USDC_ADDRESS, FLASHLOAN_AMOUNT);
-      console.log("Flash loan executed!");
-      console.log(`View transaction at: https://testnet.snowtrace.io/tx/${flashloanTx.hash}`);
       await flashloanTx.wait(1); // Wait 1 block for the transaction to be verified to update the balance
+      console.log("Flash loan executed!");
+      console.log(`View transaction at: https://testnet.snowscan.xyz/tx/${flashloanTx.hash}`);
       console.log("---------------------------------------------------------------\n");
 
       // Withdraw remaining USDC
       const remainingUSDC = await flashLoan.getBalance(USDC_ADDRESS);
-      console.log(`Withdrawing ${remainingUSDC / 1e6} USDC from the FlashLoan contract...`);
+      console.log(`Withdrawing ${ethers.formatUnits(remainingUSDC, USDC_DECIMALS)} USDC from the FlashLoan contract...`);
 
       const withdrawFunds = await flashLoan.withdraw(USDC_ADDRESS);
       await withdrawFunds.wait(1); // Wait 1 block for the transaction to be verified
-      console.log(`Funds sent!`)
-      console.log(`View transaction at: https://testnet.snowtrace.io/tx/${withdrawFunds.hash}`);
-
+      console.log("Funds sent!");
+      console.log(`View transaction at: https://testnet.snowscan.xyz/tx/${withdrawFunds.hash}`);
     } catch (error) {
-
       console.error(error);
       process.exitCode = 1;
     }
@@ -351,13 +358,13 @@ In the `scripts` directory inside the root of your project, you will find a file
   ```
 </CodeGroup>
 
-This code is a script that deploys a `FlashLoan` smart contract and uses it to request a flash loan of 1,000 USDC tokens.
+This code is a script that deploys a `FlashLoan` smart contract and uses it to request a flash loan of 100 USDC tokens.
 
-The script first sets some constants, including the addresses of the Aave pool provider and the USDC token on the Fuji testnet. Verify that the addresses are up to date on the [Aave docs](https://docs.aave.com/developers/deployed-contracts/v3-testnet-addresses#contract-name-changes-from-v2-greater-than-v3) by finding the addresses for `PoolAddressesProvider-Avalanche`and `USDC-TestnetMintableERC20-Avalanche`. The amount of USDC to be borrowed is also declared here.
+The script first sets some constants, including the addresses of the Aave pool provider and the USDC token on the Fuji testnet. Verify that the addresses are up to date in the Aave address book for the [Fuji market](https://github.com/aave-dao/aave-address-book/blob/main/src/AaveV3Fuji.sol) by finding `POOL_ADDRESSES_PROVIDER` and `USDC_UNDERLYING`. The amount of USDC to be borrowed is also declared here. A flash loan can't exceed the USDC the pool holds, which is often low on testnets; if the flash loan transaction reverts, lower `FLASHLOAN_AMOUNT`.
 
-It then deploys the `FlashLoan` contract and transfers 5 USDC tokens to the contract from the deployer's account. To request flash loans, the smart contract must hold some of the tokens that you are planning to borrow; these tokens are used to repay the fee. On the V3 version, the fee is a fixed percentage, and you can find the updated fee value on the [Aave docs](https://docs.aave.com/developers/guides/flash-loans#flash-loan-fee).
+It then deploys the `FlashLoan` contract and transfers 1 USDC to the contract from the deployer's account. To request flash loans, the smart contract must hold some of the tokens that you are planning to borrow; these tokens are used to repay the fee. On the V3 version, the fee is a fixed percentage, and you can find the updated fee value on the [Aave docs](https://aave.com/docs/aave-v3/guides/flash-loans).
 
-Next, the script checks the USDC balance of the `FlashLoan` contract, this is only for displaying it to the user, but you can easily implement some logic to stop the process if the funds to repay the borrowing fee are too low. It then requests a flash loan of 1,000 USDC tokens. Once the loan is executed, the remaining USDC tokens in the contract are withdrawn. The [Aave documentation](https://docs.aave.com/developers/guides/flash-loans#2.-calling-flashloan-or-flashloansimple) recommends not leaving any funds in the smart contract to avoid possible misuse by an attacker.
+Next, the script checks the USDC balance of the `FlashLoan` contract, this is only for displaying it to the user, but you can easily implement some logic to stop the process if the funds to repay the borrowing fee are too low. It then requests a flash loan of 100 USDC tokens. Once the loan is executed, the remaining USDC tokens in the contract are withdrawn. The [Aave documentation](https://aave.com/docs/aave-v3/guides/flash-loans) recommends not leaving any funds in the smart contract to avoid possible misuse by an attacker.
 
 The script uses the Hardhat development framework and the `ethers.js` library to interact with the blockchain network and the `FlashLoan` contract. It also prints out messages to the console at various points in the script's execution to provide information about the progress of the `FlashLoan` operation.
 
@@ -378,42 +385,32 @@ The result in the console will look like the following:
 <CodeGroup>
   ```shell Shell
   Deploying FlashLoan contract...
-  FlashLoan contract deployed at: 0x77609a96E67455EcbBb3d8AD38567511dc587C54
-  View contract at: https://testnet.snowtrace.io/address/0x77609a96E67455EcbBb3d8AD38567511dc587C54
+  FlashLoan contract deployed at: 0x0aF42dFB520F51cA98d3627E25EC76d240AaA704
+  View contract at: https://testnet.snowscan.xyz/address/0x0aF42dFB520F51cA98d3627E25EC76d240AaA704
   ---------------------------------------------------------------
 
-  Transferring 5 USDC to the FlashLoan contract...
-  Transferred 5 USDC tokens to the FlashLoan contract
+  Transferring 1.0 USDC to the FlashLoan contract...
   Waiting for 1 block to verify the transfer...
+  Transferred 1.0 USDC to the FlashLoan contract
   ---------------------------------------------------------------
 
-  USDC balance of the FlashLoan contract is: 5 USDC
+  USDC balance of the FlashLoan contract is: 1.0 USDC
   ---------------------------------------------------------------
 
-  Requesting a flash loan of 1000 USDC...
+  Requesting a flash loan of 100.0 USDC...
   Flash loan executed!
-  View transaction at: https://testnet.snowtrace.io/tx/0xdcc41e8eec65f798aae643b99036f595137090fa777a729ce15c1a0397b247fa
+  View transaction at: https://testnet.snowscan.xyz/tx/0x33993293afd3583527e5c6727b313db7a8495258b2bed9df3ba6c25ccbde61c3
   ---------------------------------------------------------------
 
-  Withdrawing 4.5 USDC from the FlashLoan contract...
+  Withdrawing 0.95 USDC from the FlashLoan contract...
   Funds sent!
-  View transaction at: https://testnet.snowtrace.io/tx/0x759fbd6c513e59f48001566b86d1358c329519f6e6096ffb1748ab3ff0b6f97c
+  View transaction at: https://testnet.snowscan.xyz/tx/0x9be0094e60c89e966a56c72a5de021efd9b7cd52068b6552301d76fdae05a487
   ```
 </CodeGroup>
 
 <Info>
-### Possible compiler warnings
-
   Note that you might receive two warnings from the Solidity compiler about two `Unused function parameter`. You can ignore the warnings as they do not stop the compiler or the execution of the flash loan. This is happening because the function is being overridden and the parameters are needed to keep the same function's signature.
 </Info>
-
-You can see how a completed deployment and flash loan looks like on the Fuji explorer by checking the following transactions:
-
-<CardGroup>
-  <Card title="Deployed FlashLoan contract" href="https://testnet.snowtrace.io/address/0x77609a96E67455EcbBb3d8AD38567511dc587C54" icon="angle-right" horizontal />
-  <Card title="Execute flash loan" href="https://testnet.snowtrace.io/tx/0xdcc41e8eec65f798aae643b99036f595137090fa777a729ce15c1a0397b247fa" icon="angle-right" horizontal />
-  <Card title="Withdraw funds" href="https://testnet.snowtrace.io/tx/0x759fbd6c513e59f48001566b86d1358c329519f6e6096ffb1748ab3ff0b6f97c" icon="angle-right" horizontal />
-</CardGroup>
 
 ## Conclusion
 
