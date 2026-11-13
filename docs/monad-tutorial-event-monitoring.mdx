@@ -287,7 +287,7 @@ CHAINSTACK_ENDPOINT = "YOUR_CHAINSTACK_MONAD_ENDPOINT"
 WMON_ADDRESS = "0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A"
 
 # Transfer event signature
-TRANSFER_TOPIC = Web3.keccak(text="Transfer(address,address,uint256)").hex()
+TRANSFER_TOPIC = Web3.keccak(text="Transfer(address,address,uint256)").to_0x_hex()
 
 web3 = Web3(Web3.HTTPProvider(CHAINSTACK_ENDPOINT))
 print(f"Connected: {web3.is_connected()}")
@@ -306,8 +306,8 @@ def get_transfer_events(from_block, to_block):
 
 def decode_transfer_event(log):
     """Decode a Transfer event log."""
-    from_address = '0x' + log['topics'][1].hex()[26:]
-    to_address = '0x' + log['topics'][2].hex()[26:]
+    from_address = '0x' + log['topics'][1].hex()[-40:]
+    to_address = '0x' + log['topics'][2].hex()[-40:]
     value = int(log['data'].hex(), 16)
 
     return {
@@ -315,7 +315,7 @@ def decode_transfer_event(log):
         'to': Web3.to_checksum_address(to_address),
         'value': web3.from_wei(value, 'ether'),
         'block_number': log['blockNumber'],
-        'transaction_hash': log['transactionHash'].hex(),
+        'transaction_hash': log['transactionHash'].to_0x_hex(),
         'log_index': log['logIndex']
     }
 
@@ -466,7 +466,7 @@ def process_block(block_number):
         for tx in txs:
             value = web3.from_wei(tx.value, 'ether')
             to_addr = tx.to[:10] + '...' if tx.to else 'Contract creation'
-            print(f"  {tx.hash.hex()[:18]}... | {tx['from'][:10]}... -> {to_addr} | {value:.4f} MON")
+            print(f"  {tx.hash.to_0x_hex()[:18]}... | {tx['from'][:10]}... -> {to_addr} | {value:.4f} MON")
 
         if len(block.transactions) > 5:
             print(f"  ... and {len(block.transactions) - 5} more")
