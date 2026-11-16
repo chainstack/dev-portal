@@ -33,7 +33,7 @@ This applies to legacy and v0 transactions, which this guide builds. A [v1 trans
 
 This project aims to provide a practical demonstration of how to implement priority fees in Solana transactions. The code showcases a simple Solana transaction that transfers SOL from one account to another with the addition of a priority fee.
 
-The example uses the Compute Budget Program to set a compute unit price, which attaches the priority fee. The priority fee is `compute_unit_price × compute_unit_limit`, so in production you should also cap the compute units with a compute-unit-limit instruction sized to what the transaction actually consumes — ideally from a live simulation. The `@solana/kit` version does this with `estimateComputeUnitLimit`; sizing the limit accurately both improves landing and avoids overpaying.
+The example uses the Compute Budget Program to set a compute unit price, which attaches the priority fee. The priority fee grows with both the compute unit price and the compute unit limit. The exact value is `ceil(compute_unit_price × compute_unit_limit / 1,000,000)` lamports, where `compute_unit_price` is in micro-lamports (see [priority fee calculation](/docs/solana-compute-budget#priority-fee-calculation)). In production you should also cap the compute units with a compute-unit-limit instruction sized to what the transaction actually consumes — ideally from a live simulation. The `@solana/kit` version does this with `estimateComputeUnitLimit`; sizing the limit accurately both improves landing and avoids overpaying.
 
 ## Prerequisites
 
@@ -281,8 +281,8 @@ async function sendTransactionWithPriorityFee() {
   console.log(" ✅ - Built transaction message");
 
   // Size the compute unit limit from a live simulation (~10% margin), then set it.
-  // The priority fee you pay is compute_unit_price × compute_unit_limit, so an
-  // accurate limit improves landing and avoids overpaying.
+  // The priority fee you pay grows with compute_unit_price × compute_unit_limit
+  // (÷ 1,000,000, rounded up), so an accurate limit improves landing and avoids overpaying.
   const estimatedUnits = await estimateComputeUnitLimitFactory({ rpc })(draftMessage);
   const message = appendTransactionMessageInstructions(
     [getSetComputeUnitLimitInstruction({ units: Math.ceil(estimatedUnits * 1.1) })],
