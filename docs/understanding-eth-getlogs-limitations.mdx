@@ -1,6 +1,6 @@
 ---
 title: "Understanding eth_getLogs limitations"
-description: "Master eth_getLogs block range limits and best practices. Paginate queries, filter efficiently, and optimize Ethereum log retrieval for scalable DApps."
+description: "eth_getLogs block range limits, the -32602 and -32002 errors and how to fix each, and best practices for paginating and filtering Ethereum log queries."
 ---
 
 <Note>
@@ -11,6 +11,7 @@ This tutorial uses **web3.js**, which is [no longer maintained](https://github.c
 **TLDR:**
 * `eth_getLogs` is a powerful method to retrieve Ethereum logs but can strain node resources if not managed properly.
 * Always adhere to your network’s recommended block range limit and paginate larger queries to avoid timeout errors.
+* `-32602 Block range limit exceeded` means the range is too wide for your plan, so split it into smaller ranges. `-32002 Archive, Debug and Trace requests are not available on your current plan` means the query reaches archive data, which the Developer plan doesn't include, and splitting the range doesn't help.
 * Apply relevant filters (topics, contract addresses) to minimize data retrieval overhead.
 * For production use, combine best practices like smaller query ranges, pagination, and efficient filtering to ensure reliable and scalable log fetching.
 
@@ -36,6 +37,38 @@ While `eth_getLogs` is a powerful tool, it's crucial to understand its limitatio
 Some chains also enforce their own hard limits at the client level, regardless of plan, and return an error past that range. These ceilings vary by client, so it's worth checking the node client's docs or source for the chain you're targeting.
 
 Even within your plan's cap, a busy chain or a high-traffic contract can return an oversized response or time out. On high-activity ranges, query fewer blocks and paginate (see below).
+
+## Block range and archive errors
+
+Chainstack returns two different errors for `eth_getLogs` requests that the node won't serve. They look similar, but they have different causes and different fixes.
+
+| Error | Cause | Fix |
+| --- | --- | --- |
+| `-32602` `Block range limit exceeded` | The range between `fromBlock` and `toBlock` is wider than your plan's [block range cap](/docs/limits#evm-range-limits) | Split the query into smaller ranges. See [Paginate queries](#paginate-queries) |
+| `-32002` `Archive, Debug and Trace requests are not available on your current plan` | The query reaches archive data, and your plan doesn't include archive data | Query only recent blocks, or [upgrade to a paid plan](https://chainstack.com/pricing/) |
+
+### `-32602`: the range is too wide
+
+```json
+{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Block range limit exceeded. See more details at https://docs.chainstack.com/docs/limits#evm-range-limits"}}
+```
+
+The request asked for more blocks than your plan allows in one call: 100 blocks on the Developer plan and 10,000 blocks on paid plans. The node checks only the width of the range, so the fix is to send several requests that each stay within the cap.
+
+### `-32002`: the query reaches archive data
+
+```json
+{"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"Archive, Debug and Trace requests are not available on your current plan. Visit https://console.chainstack.com/user/settings/billing to upgrade.."}}
+```
+
+On most EVM networks, a request for a block 127 or more blocks behind the chain tip is an archive request. For `eth_getLogs`, the block that decides this is `fromBlock` if you set it, otherwise `toBlock`, otherwise `latest`. So `{"fromBlock": "0x1", "toBlock": "latest"}` is an archive request even though the range ends at the tip. The per-network thresholds are in [Full vs archive by protocol](/docs/request-units#full-vs-archive-by-protocol).
+
+The Developer plan doesn't include archive data, so any `eth_getLogs` request whose `fromBlock` is 127 or more blocks behind the tip returns `-32002`. Paginating doesn't fix this, because every page that starts in the archive range is still an archive request. On these networks, the Developer plan serves `eth_getLogs` only for blocks less than 127 behind the tip, at most 100 blocks per request.
+
+To fix it, either:
+
+* Query only recent blocks by setting `fromBlock` to a block less than 127 behind the tip. This works for live indexing that follows the chain tip.
+* Upgrade to a paid plan, which includes archive data. Archive `eth_getLogs` requests cost 2 request units (RUs) instead of 1. See [Request units](/docs/request-units#evm-methods-affected-by-block-age).
 
 ## Best practices when using `eth_getLogs`
 
@@ -84,7 +117,7 @@ The following is an example using web3.js:
   ```
 </CodeGroup>
 
-This example retrieves the `Transfer` events from the first one million blocks after the deployment of the [ApeCoin](https://etherscan.io/address/0x4d224452801aced8b2f0aebe155379bb5d594381) smart contract in chunks of 5,000 blocks.
+This example retrieves the `Transfer` events from the first one million blocks after the deployment of the [ApeCoin](https://etherscan.io/address/0x4d224452801aced8b2f0aebe155379bb5d594381) smart contract in chunks of 5,000 blocks. It needs a paid plan: each page is wider than the Developer plan's 100-block cap, and the blocks are archive data.
 
 ### Efficiently filter logs
 
