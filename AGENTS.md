@@ -16,7 +16,7 @@ A secret committed to a public repo is compromised even after you delete or forc
 
 ## 1. Use Mintlify Development Server
 
-* **Always use `mintlify dev`** for local preview.
+* **Always use `mint dev`** for local preview.
 * **Test at** http://localhost:3000.
 * **Do _not_ deploy to production** during agent development sessions.
 * **Run link checks** with `mint broken-links` before submitting PRs.
@@ -34,8 +34,8 @@ Both products share the same `docs.json` for navigation. When adding pages, make
 
 When creating new documentation:
 
-1. Install Mintlify CLI: `npm i -g mintlify`
-2. Run dev server: `mintlify dev`
+1. Install Mintlify CLI: `npm i -g mint` (Node.js v20.17.0 or later; not Node.js 25)
+2. Run dev server: `mint dev`
 3. Check for broken links: `mint broken-links`
 4. Validate build: `mint validate`
 5. Follow existing patterns for consistency
@@ -236,30 +236,29 @@ Before submitting changes:
 
 | Command | Purpose |
 | ------- | ------- |
-| `mintlify dev` | Start local preview server |
-| `mint validate` | Validate documentation build locally (strict mode) |
+| `mint dev` | Start local preview server |
+| `mint validate` | Check content and OpenAPI specs, then run a strict build |
 | `mint broken-links` | Check for broken links |
 | `mint a11y` | Check accessibility (color contrast, alt text) |
-| `mint openapi-check <file>` | Validate OpenAPI specifications |
-| `mintlify install` | Re-install dependencies if issues |
+| `mint openapi-check <file>` | Validate a single OpenAPI specification |
+| `mint update` | Update the CLI to the latest version |
 
 ## 16. MCP server integration
 
-The portal provides an MCP server at `https://docs.chainstack.com/mcp`:
+The [Chainstack MCP server](https://docs.chainstack.com/docs/chainstack-mcp-server) at `https://mcp.chainstack.com/mcp` searches and fetches these docs (`search_docs`, `get_doc_page`) and also manages nodes, the faucet, and pricing. The older docs-only server at `https://docs.chainstack.com/mcp` still works but is deprecated.
 
-* This is for documentation access, not RPC nodes
-* It's streamable HTTP (not SSE)
-* Agents can search and navigate all documentation
-* Keep this in mind when structuring content
+* Both are streamable HTTP (not SSE)
+* Agents retrieve pages by search, so keep each section self-contained and specific
 
 ## 17. Troubleshooting
 
 ### Common Issues
 
-**"Mintlify dev not running"**
+**"mint dev not running"**
 ```bash
-mintlify install
+mint update
 ```
+If it still fails, check the Node.js version (v20.17.0 or later, not 25), delete `~/.mintlify/`, and run `mint dev` again.
 
 **"Page loads as 404"**
 - Ensure running in directory with `docs.json`

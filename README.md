@@ -1,35 +1,27 @@
 # Chainstack Developer Portal
 
-This is the repository for the [Chainstack Developer Portal](https://docs.chainstack.com/).
+This is the source for the [Chainstack Developer Portal](https://docs.chainstack.com/), the documentation for Chainstack Cloud and Chainstack Self-Hosted. The Developer Portal runs on [Mintlify](https://www.mintlify.com/).
 
-The Developer Portal runs on [Mintlify](https://mintlify.com/).
+## Using the Developer Portal
 
-### Using the Developer Portal
+Browse and search [docs.chainstack.com](https://docs.chainstack.com/) as you would any docs site. The [RPC node API reference](https://docs.chainstack.com/reference/blockchain-apis) is interactive, so you can send the calls from the browser.
 
-You can use the Developer Portal by just browsing and searching through it as you would normally. Note that the [RPC node API reference](https://docs.chainstack.com/reference/) is interactive, so feel free to play around with the calls.
+### With AI agents
 
-Since we are in the age of AI and LLMs, here are additional ways to use the Developer Portal with agents:
+* [Chainstack MCP server](https://docs.chainstack.com/docs/chainstack-mcp-server) — `https://mcp.chainstack.com/mcp`. Searches the docs and also deploys nodes, requests testnet funds, fetches pricing, and checks platform status. The page has setup for Claude Code, Codex, Cursor, Devin, Gemini CLI, VS Code, and other clients. You can also type `get mcp.chainstack.com` into any agent and it walks you through setup.
+* [llms.txt](https://docs.chainstack.com/llms.txt) — an index of the docs with a nested index per section. [llms-full.txt](https://docs.chainstack.com/llms-full.txt) has the full text of every page.
+* [skill.md](https://docs.chainstack.com/skill.md) — a generated description of what the docs cover, for agents that load skills.
+* Markdown pages — append `.md` to any page URL, for example `https://docs.chainstack.com/docs/platform-introduction.md`.
+* Page menu — every page has a menu to copy or view it as Markdown, open it in ChatGPT, Claude, Perplexity, or Grok, or connect it to Cursor or VS Code.
+* This repository — it's public, so agents can read the MDX source directly.
 
-* This repository is public, so your agents can just ingest it.
-* [llms-full.txt](https://docs.chainstack.com/llms-full.txt) is automatically generated and published on every change.
-* [skill.md](https://docs.chainstack.com/skill.md) is auto-generated with structured capabilities for AI agents.
-* Any page is available as markdown by appending `.md` to its URL (e.g., `https://docs.chainstack.com/docs/platform-introduction.md`).
-* Hosted MCP server — available at `https://docs.chainstack.com/mcp` (streamable HTTP, not SSE).
+The docs-only [Developer Portal MCP server](https://docs.chainstack.com/docs/developer-portal-mcp-server) at `https://docs.chainstack.com/mcp` still works but is deprecated in favor of the Chainstack MCP server.
 
-Note that the Developer Portal MCP server is a docs project and is different from an [RPC node MCP server](https://ideas.chainstack.com/p/mcp-server) that we are also building.
+## Contributing
 
-### MCP server
+Open a pull request or an issue. We welcome every and all builders.
 
-The Chainstack Developer Portal provides a hosted MCP (Model Context Protocol) server at `https://docs.chainstack.com/mcp`.
-
-This is a **streamable HTTP** MCP server (not SSE). It provides AI models with access to search and navigate through all Chainstack documentation.
-
-#### Supported AI tools
-
-* **Claude Code**: `claude mcp add --transport http Chainstack-Developer-Portal https://docs.chainstack.com/mcp`
-* **Cursor**: Click the "Connect to Cursor" button on any docs page
-* **VS Code**: Click the "Connect to VS Code" button on any docs page  
-* **Devin** (Desktop and CLI): `devin mcp add -s user chainstack-developer-portal https://docs.chainstack.com/mcp`
+The repository includes `CLAUDE.md` and `AGENTS.md` with project context and the style guide for AI-assisted contributions. Read the style guide in `CLAUDE.md` before writing a page.
 
 ### Two-product architecture
 
@@ -40,20 +32,14 @@ The docs use Mintlify's product switcher with two products:
 
 Both products share the same `docs.json` for navigation.
 
-### Contributing to the Developer Portal
-
-Just contribute as you normally would—PRs, Issues, Discussions, whatever works best for you. We welcome every and all builders.
-
-The repository includes a `CLAUDE.md` file with comprehensive project context and style guidelines for AI-assisted contributions.
-
-#### Adding release notes
+### Adding release notes
 
 The documentation has two products with separate release notes:
 
 - **Cloud** — `changelog.mdx` + `changelog/` directory
 - **Self-Hosted** — `docs/self-hosted/release-notes.mdx` + `docs/self-hosted/changelog/`
 
-##### Cloud release notes
+#### Cloud release notes
 
 The structure:
 
@@ -98,7 +84,7 @@ Example:
           "changelog/chainstack-updates-may-16-2025",
 ```
 
-##### Self-Hosted release notes
+#### Self-Hosted release notes
 
 The structure:
 
@@ -127,29 +113,49 @@ Example:
 2. Create file in `docs/self-hosted/changelog/` using format `chainstack-self-hosted-v1-0-0-month-day-year.mdx`. The page title should match the label.
 3. In `docs.json`, in the Self-Hosted product's `Release notes` tab, add the new changelog page.
 
-##### After creating release notes
+#### After creating release notes
 
-Run `mintlify dev` and do a quick local visual check.
+Run `mint dev` and do a quick local visual check.
 
 Run `mint broken-links` for a quick links check.
 
 And submit your PR.
 
-### Development
+## Development
 
-Install the [Mintlify CLI](https://www.npmjs.com/package/mintlify) to preview the documentation changes locally. To install, use the following command
+Install the [Mintlify CLI](https://www.mintlify.com/docs/cli/install) to preview changes locally. It needs Node.js v20.17.0 or later (Node.js 25 isn't supported).
 
-```
-npm i -g mintlify
-```
-
-Run the following command at the root of your documentation (where docs.json is)
-
-```
-mintlify dev
+```bash
+npm i -g mint
 ```
 
-#### OpenAPI 3.0 nullability and Try it button
+Run the preview from the repository root, where `docs.json` is:
+
+```bash
+mint dev
+```
+
+The preview runs at `http://localhost:3000`.
+
+### CLI commands
+
+| Command | Purpose |
+| ------- | ------- |
+| `mint dev` | Start the local preview server |
+| `mint validate` | Check content and OpenAPI specs, then run a strict build |
+| `mint broken-links` | Check for broken links |
+| `mint a11y` | Check accessibility (color contrast, alt text) |
+| `mint score` | Run agent-readiness checks on a docs site |
+| `mint update` | Update the CLI to the latest version |
+
+Every pull request runs the **Mintlify Deployment** check, which builds the docs. Fix any failure it reports before merging.
+
+### Troubleshooting
+
+- `mint dev` fails to start — run `mint update`, and check that your Node.js version is supported. If it still fails, delete `~/.mintlify/` and run `mint dev` again.
+- Page loads as a 404 — make sure you are running in the directory with `docs.json`.
+
+### OpenAPI 3.0 nullability and Try it button
 
 If a reference page renders without the Try it button or throws an error like:
 
@@ -177,9 +183,11 @@ with:
 }
 ```
 
-After fixing the spec, restart `mintlify dev` and the Try it button should appear.
+After fixing the spec, restart `mint dev` and the Try it button should appear.
 
-### Available node options master list
+## Master lists
+
+### Node options master list
 
 `node-options-master-list.json` is the main file for this Developer Portal where all the available node options are kept up to date. If you need a custom table with whatever options you want, you feed the master list to an LLM and generate your own table.
 
@@ -189,20 +197,13 @@ Relevant tables (updated on every master list change):
 
 When regenerating the tables, use the current product node-type names — **Global Node** (the `global` node type), **Dedicated Node**, and **Trader Node**. Do **not** emit **Elastic** (the deprecated name for Global Node): in `protocols-networks.mdx` the **Support** column reads `Global Node, Dedicated` and the availability headers are `Global Node Mainnet Support` / `Global Node Testnet Support`.
 
-### CLI commands
+### Self-Hosted deployments master list
 
-| Command | Purpose |
-| ------- | ------- |
-| `mintlify dev` | Start local preview server |
-| `mint validate` | Validate documentation build locally (strict mode) |
-| `mint broken-links` | Check for broken links |
-| `mint a11y` | Check accessibility (color contrast, alt text) |
-| `mint openapi-check <file>` | Validate OpenAPI specifications |
-| `mintlify install` | Re-install dependencies if issues |
+`self-hosted-deployments.json` is the source of truth for every Chainstack Self-Hosted deployment: protocols, networks, clients, versions, resources, presets, and ports. Regenerate these tables on every change:
 
-A CI job will also check each PR and warn on dead links.
+* `docs/self-hosted/supported-clients-and-protocols.mdx`
+* `docs/self-hosted/requirements.mdx`
 
-#### Troubleshooting
+### llms.txt
 
-- Mintlify dev isn't running — run `mintlify install` to re-install dependencies.
-- Page loads as a 404 — make sure you are running in a directory with `docs.json`.
+The `llms.txt` files are custom and replace the Mintlify-generated one: a small root index at the repository root that links to one index per section, such as `docs/llms.txt`. A daily workflow regenerates them from `docs.json` and opens a pull request when they drift.
