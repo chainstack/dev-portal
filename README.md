@@ -29,16 +29,7 @@ This is a **streamable HTTP** MCP server (not SSE). It provides AI models with a
 * **Claude Code**: `claude mcp add --transport http Chainstack-Developer-Portal https://docs.chainstack.com/mcp`
 * **Cursor**: Click the "Connect to Cursor" button on any docs page
 * **VS Code**: Click the "Connect to VS Code" button on any docs page  
-* **Windsurf**: Add to `~/.codeium/windsurf/mcp_config.json`:
-  ```json
-  {
-    "mcpServers": {
-      "chainstack-developer-portal": {
-        "serverUrl": "https://docs.chainstack.com/mcp"
-      }
-    }
-  }
-  ```
+* **Devin** (Desktop and CLI): `devin mcp add -s user chainstack-developer-portal https://docs.chainstack.com/mcp`
 
 ### Two-product architecture
 
